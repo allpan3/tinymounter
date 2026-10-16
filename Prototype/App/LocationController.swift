@@ -14,6 +14,8 @@ final class LocationController {
     private(set) var isReady = false
     /// Pause Downloads, for every location. Each launch starts with it off (plan §7).
     private(set) var paused = false
+    /// The latest Pause Downloads change.
+    private var pauseChange: Task<Bool, Never>?
     var onChange: (() -> Void)?
     private let reader = SourceReaderHost()
     private var shares: [UUID: ShareAccess] = [:]
@@ -176,26 +178,40 @@ final class LocationController {
     }
 
     /// Plan §6: Keep Downloaded downloads and read-ahead stop; a file that the user opens downloads.
-    func setPaused(_ paused: Bool) async {
-        self.paused = paused
-        let all = Array(sources.values)
-        // Catalog writes can wait for a listing's commit, so they run off the main actor.
-        await Task.detached { all.forEach { Self.pause($0, paused) } }.value
-        // Only after every commit: a fetch that the extension checks later sees `paused`.
-        if paused { reader.pauseDownloads() }
-        onChange?()
+    /// Returns false if a catalog kept its earlier state.
+    func setPaused(_ paused: Bool) async -> Bool {
+        // Each change waits for the one before it, so the last request is the state that stays.
+        let previous = pauseChange
+        let change = Task {
+            _ = await previous?.value
+            self.paused = paused
+            let all = Array(sources.values)
+            // Catalog writes can wait for a listing's commit, so they run off the main actor.
+            let failed = await Task.detached { all.count { !Self.pause($0, paused) } }.value
+            // Only after every commit: a fetch that the extension checks later sees `paused`.
+            if paused { reader.pauseDownloads() }
+            // A catalog that stays paused needs Resume.
+            if failed > 0 { self.paused = true }
+            onChange?()
+            return failed == 0
+        }
+        pauseChange = change
+        return await change.value
     }
 
-    nonisolated private static func pause(_ source: LocationSource, _ paused: Bool) {
+    @discardableResult
+    nonisolated private static func pause(_ source: LocationSource, _ paused: Bool) -> Bool {
         do {
             let changed = try source.setPaused(paused)
             catalogLog.info("""
                 paused=\(paused) domain=\(source.domainID, privacy: .public) kept_changed=\(changed)
                 """)
+            return true
         } catch {
             catalogLog.error("""
                 paused=\(paused) domain=\(source.domainID, privacy: .public) failed \(logFields(error), privacy: .public)
                 """)
+            return false
         }
     }
 
@@ -272,8 +288,8 @@ final class LocationController {
                                                      domainID: record.domainID)
                 let source = makeSource(record, folder: folder, grant: grant, catalog: catalog)
                 sources[record.domainID] = source
-                // Pause Downloads ends with the app process that set it.
-                Self.pause(source, false)
+                // Pause Downloads ends with the app process that set it. If it stays, offer Resume.
+                if !Self.pause(source, false) { paused = true }
             } catch {
                 Self.catalogLog.error("""
                     catalog_unavailable domain=\(record.domainID, privacy: .public) \(logFields(error), privacy: .public)

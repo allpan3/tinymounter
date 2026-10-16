@@ -122,9 +122,13 @@ final class PrototypeModel: ObservableObject {
     func togglePause() {
         let pause = !paused
         Task {
-            await controller.setPaused(pause)
-            status = pause ? "tinymounter stopped background downloads. Files that you open still download."
-                : "tinymounter started background downloads again."
+            if await controller.setPaused(pause) {
+                status = pause ? "tinymounter stopped background downloads. Files that you open still download."
+                    : "tinymounter started background downloads again."
+            } else {
+                status = pause ? "tinymounter cannot stop background downloads for one or more locations."
+                    : "tinymounter cannot start background downloads again for one or more locations."
+            }
         }
     }
 

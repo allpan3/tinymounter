@@ -562,8 +562,10 @@ which cancels its running fetches that are system requests or speculative; such 
 starts later fails at once. Eager Keep Downloaded fetches are system requests
 (`request.isSystemRequest`) [V, M6], so they complete with `userCancelled`. A file that the user
 opens downloads as usual, and so does Finder's Download Now, which is not a system request
-[V, M6]. Resume and app launch clear `paused`. Kept files already on disk stay while paused
-[V, M6, without disk pressure], unless the system needs the space [A].
+[V, M6]. Resume and app launch clear `paused`. Pause and Resume changes run one at a time, in
+order. A failed change shows a message, and while a catalog may still be paused, the app offers
+Resume. Kept files already on disk stay while paused [V, M6, without disk pressure], unless the
+system needs the space [A].
 
 ## 7. Errors, offline and restart
 
