@@ -20,6 +20,10 @@ folders the system hasn't materialized, so they won't download until the user op
 Not established: disk pressure while paused, actions on more than one file (batches over 100 IDs
 have unit tests only), several locations, a full macOS restart, and the physical Mac.
 
+A [follow-up after review](#follow-up-after-review), on the commit that runs Pause changes in
+order, found two more things. Cancelling a running speculative fetch doesn't fail the read that
+waits on it. And while paused, a kept file's download can be removed.
+
 ## Setup and method
 
 - VMPal `macOS VM 1`, Apple silicon, macOS 27.0.1 (26A434), Xcode 27.0 (27A266a). Personal Team
@@ -77,6 +81,34 @@ Finder shows both actions with a plain checkbox-like icon; the extension sets no
 
 The 2.03 GB read's rates come from fetch log times and are single samples.
 
+### Follow-up after review
+
+A review of the M6 change asked whether Pause's cancellation of a running speculative fetch can
+fail the read that waits on it, and whether paused kept files can be evicted. After the fix that
+runs Pause changes in order, the signed app was built again (`codesign --verify` passed) and
+tested on a fresh location, from 05:54 to 06:01. macOS asked again whether VMPal Tools may access
+files that TinyMounterPrototype manages; it was allowed, and the Pause clicks made while the
+prompt held the first read are not counted.
+
+| Time | Step | Result |
+| --- | --- | --- |
+| 05:55:31.979–05:55:32.096 | Three clicks on the button, about 60 ms apart | the changes ran in order: paused, resumed, paused. The button and the diagnostics both showed paused (`catalogs_paused=1`). |
+| 05:56:43–05:57:00 | 5 Pause and Resume cycles during a sequential read of a 2.03 GB MP4 | `cancelled=0` each time. A speculative fetch that the system delivered 23 ms after one Pause was refused, and so was the system's next request for that range. The reader's own fetch of it came 0.71 s later. The read matched native SHA-256. |
+| 05:58:03–05:58:34 | 9 Pauses during a read of the 1.93 GB MP4 | 3 had `cancelled=1`. In each, within 3 ms the system sent a system request for the same range, the extension refused it, and `fileproviderd` logged one `materializationFailed`. The reader's own fetch of that range (`system=false`) came 0.63–0.70 s later and succeeded. There was no full download. The read took 30.5 s and matched native SHA-256. |
+| 05:59:43 | Keep Downloaded on a 36,579,203-byte file | eager full fetch done at 05:59:44.2, `system=true` |
+| 06:00:01 | Evict it, not paused | refused with 512; the file stayed allocated |
+| 06:00:16 | Evict it while paused | `evicted=1`; 0 bytes allocated 10 s later |
+| 06:00:33.609 | Resume | eager full fetch 0.44 s later, `system=true`; it matched native SHA-256 |
+
+So a cancelled speculative fetch cost the reader one wait of about 0.7 s, the same as a demand miss
+while paused. The refused request was a system request; the reader's read came separately, as a
+user request. Read-ahead stayed stopped until Resume.
+
+Checks on the fix, in the VM: `swift test` ran 129 tests with 0 failures; `swift build -c release`
+and `python3 Tools/verify-benchmark.py` passed; the unsigned Release `xcodebuild` passed with only
+the accepted App Intents notices. Cleanup at 06:01: the location was removed, diagnostics showed
+`catalog_files=0 kept=0 stage_files=0`, and the log capture was stopped.
+
 ### Eviction and parent folders (Q3)
 
 | Time | Step | Result |
@@ -103,17 +135,24 @@ The 2.03 GB read's rates come from fetch log times and are single samples.
 
 Every downloaded file matched native SHA-256: the 147 MB, 36.6 MB, 63.7 MB and 65.8 MB files, the
 2.74 GB MKV, the 256 MiB paused read and the 2.03 GB read. Q3's 8.3 MB file and the 63.7 MB file
-downloaded again after the folder eviction were not hashed. Nothing was written on the share.
+downloaded again after the folder eviction were not hashed. In the follow-up, the 2.03 GB and
+1.93 GB reads and the 36.6 MB file downloaded after Resume also matched. Nothing was written on
+the share.
 
-- Pause cancelled a running eager download. The cancellation of a running speculative fetch uses
-  the same path, but no trial had one in flight at the moment of Pause.
+- Pause cancelled a running eager download and, in the follow-up, 3 running speculative fetches.
+  In each speculative case, the reader that waited on that range got it from its own fetch about
+  0.7 s later.
 - Kept files stayed on disk for 2.5 min while paused, with plenty of free space. Whether the
-  system evicts them under disk pressure is untested.
+  system evicts them under disk pressure is untested. While paused, the user can remove a kept
+  file's download, because kept files then report `.downloadLazily`; Resume downloads it again.
 - Each action had one file. Splitting an action into messages of 100 IDs, and refusing more than
   1,000, have unit tests only.
 - While paused, the extension also refuses a system full download that follows a
-  `materializationFailed` range fault. Read-ahead is off while paused, so the race that causes it
-  shouldn't happen, but a fault at the moment of Pause could fail that read. Not tested.
+  `materializationFailed` range fault. That download doesn't serve the failed read: in the earlier
+  trials, the reader's `pread` had already failed with `ETIMEDOUT`
+  ([2026-10-15 follow-up](2026-10-15-runtime-followup.md)). Refusing it stops an unrequested
+  download of the whole file. In the follow-up, the 4 `materializationFailed` events came after
+  refused system requests, and no full download followed.
 - Q3's consequence for M7: the SDK header says that `requestDownloadForItemWithIdentifier:` on a
   dataless folder materializes it one level down. Whether that is enough for a restored list is
   untested.
@@ -143,6 +182,9 @@ Private, gitignored, in the VM's `results/m6-20261016/`:
 - `final-swift-test.log`, `final-release-build.log`, `final-verify-benchmark.log`,
   `final-unsigned-build.log`, `keep-only-unsigned-build.log`: the checks on the final commits.
   The files without `final-` are the same checks on an earlier commit with the same code.
+- `review-capture.txt` (mode 0600), `review-pause-read-1.txt`, `review-pause-read-2.txt`,
+  `review-signed-build.log`, `review-swift-test.log`, `review-release-verify.log` and
+  `review-unsigned-build.log`: the follow-up after review.
 
 The helpers are in the VM's ignored `.local/phase2/`: `m6-file.py` (state, reveal, compare, read,
 eviction and folder checks; it prints numbers only), `evict.swift`, `full-read.swift` and

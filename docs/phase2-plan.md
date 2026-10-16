@@ -559,13 +559,15 @@ file fails; evicting its folder evicts it, and the system downloads it again at 
 While it is set, kept items report `.downloadLazily`, so the system starts no eager downloads, and
 the extension requests no read-ahead. After the commits, the app tells each connected extension,
 which cancels its running fetches that are system requests or speculative; such a fetch that
-starts later fails at once. Eager Keep Downloaded fetches are system requests
+starts later fails at once. A reader that waits on a cancelled speculative range gets it from its
+own fetch about 0.7 s later [V, M6]. Eager Keep Downloaded fetches are system requests
 (`request.isSystemRequest`) [V, M6], so they complete with `userCancelled`. A file that the user
 opens downloads as usual, and so does Finder's Download Now, which is not a system request
 [V, M6]. Resume and app launch clear `paused`. Pause and Resume changes run one at a time, in
 order. A failed change shows a message, and while a catalog may still be paused, the app offers
 Resume. Kept files already on disk stay while paused [V, M6, without disk pressure], unless the
-system needs the space [A].
+system needs the space [A]. While paused, the user can also remove their downloads, and Resume
+downloads them again [V, M6].
 
 ## 7. Errors, offline and restart
 
@@ -863,7 +865,8 @@ On 2026-10-16 in the signed app in the VM ([M6 results](results/2026-10-16-keep-
 - Pause cancelled a running 2.74 GB eager download in the same millisecond as its commit, and the
   system's retry failed at once. A user read and Finder's Download Now still downloaded, and
   read-ahead stopped and started again with Resume. Resume and a relaunch downloaded the files
-  kept while paused.
+  kept while paused. Cancelling a running speculative fetch didn't fail the read that waited on it
+  (3 of 3), and a kept file's download could be removed while paused.
 - A kept file in a folder that the system never enumerated didn't download in 74 s. It downloaded
   0.14 s after the folder was listed.
 - D2: a fetch failed 60.0 s after `SIGSTOP` of the app, and after `SIGCONT` the app released the
