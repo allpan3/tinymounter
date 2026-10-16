@@ -195,7 +195,7 @@ xcodebuild -project TinyMounter.xcodeproj -scheme TinyMounterPrototype -configur
    ```
 
 5. Use Finder's **Remove Download** when resetting clean test content. A partially downloaded copy offers only **Download Now**: download it fully, then remove it. Check eviction by allocated size (`du`), not the `dataless` flag, which stays set on partial copies. Right after a download, Remove Download can briefly report “Resource busy”; retry after a few seconds. Do not remove/re-add the domain as ordinary reconnect logic. Do not evict a file in use by a player during timed runs.
-6. Use **Remove Location** to remove the domain and keep the downloaded files. Inspect the place that the app reports. The files on the share never change.
+6. Use **Remove Location** to remove the domain. It also deletes the location's downloaded copies and its CloudStorage folder (D3). The files on the share never change.
 
 ## 4. Physical-Mac check
 
