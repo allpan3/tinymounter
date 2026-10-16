@@ -9,7 +9,8 @@
     <key>CFBundleShortVersionString</key><string>0.1.0</string>
     <key>CFBundleVersion</key><string>1</string>
     <key>LSMinimumSystemVersion</key><string>$(MACOSX_DEPLOYMENT_TARGET)</string>
-    <key>NSLocalNetworkUsageDescription</key><string>Read missing bytes from your selected NAS file for Finder.</string>
+    <key>NSLocalNetworkUsageDescription</key><string>tinymounter reads files for Finder from the server of the share that you select. The files on the server do not change.</string>
+    <key>NSNetworkVolumesUsageDescription</key><string>tinymounter reads files for Finder from the share that you select. The files on the server do not change.</string>
     <key>TinyMounterAppGroup</key><string>$(TINYMOUNTER_APP_GROUP)</string>
     <key>NSExtension</key><dict>
         <key>NSExtensionPointIdentifier</key><string>com.apple.fileprovider-nonui</string>
@@ -17,6 +18,18 @@
         <key>NSExtensionFileProviderDocumentGroup</key><string>$(TINYMOUNTER_APP_GROUP)</string>
         <key>NSExtensionFileProviderSupportsEnumeration</key><true/>
         <key>NSExtensionFileProviderDownloadPipelineDepth</key><integer>2</integer>
+        <key>NSExtensionFileProviderActions</key><array>
+            <dict>
+                <key>NSExtensionFileProviderActionIdentifier</key><string>dev.tinymounter.action.keep-downloaded</string>
+                <key>NSExtensionFileProviderActionName</key><string>Keep Downloaded</string>
+                <key>NSExtensionFileProviderActionActivationRule</key><string>SUBQUERY(fileproviderItems, $i, $i.userInfo.keep == 0).@count &gt; 0 AND SUBQUERY(fileproviderItems, $i, $i.userInfo.keep == nil).@count == 0</string>
+            </dict>
+            <dict>
+                <key>NSExtensionFileProviderActionIdentifier</key><string>dev.tinymounter.action.allow-removal</string>
+                <key>NSExtensionFileProviderActionName</key><string>Allow Removal</string>
+                <key>NSExtensionFileProviderActionActivationRule</key><string>SUBQUERY(fileproviderItems, $i, $i.userInfo.keep == 1).@count &gt; 0 AND SUBQUERY(fileproviderItems, $i, $i.userInfo.keep == nil).@count == 0</string>
+            </dict>
+        </array>
     </dict>
 </dict></plist>
 

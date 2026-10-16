@@ -22,10 +22,23 @@ def ref(path, file_type):
     return add(path, "PBXFileReference", lastKnownFileType=file_type, path=path, sourceTree="<group>")
 
 
-core_paths = ["Sources/TransferCore/ByteRange.swift", "Sources/TransferCore/Transfer.swift",
-              "Prototype/Shared/FixtureConfiguration.swift"]
-app_paths = ["Prototype/App/TinyMounterApp.swift"]
-provider_paths = ["Prototype/Provider/FixtureItem.swift", "Prototype/Provider/FileProviderExtension.swift"]
+core_paths = ["Sources/TransferCore/ByteRange.swift", "Sources/TransferCore/Catalog.swift",
+              "Sources/TransferCore/CatalogCursor.swift", "Sources/TransferCore/Paths.swift",
+              "Sources/TransferCore/ReadAhead.swift", "Sources/TransferCore/ReaderMessages.swift",
+              "Sources/TransferCore/SourceFailure.swift", "Sources/TransferCore/SQLite.swift",
+              "Sources/TransferCore/Staging.swift", "Sources/TransferCore/Transfer.swift",
+              "Prototype/Shared/SharedContainer.swift", "Prototype/Shared/SourceReaderProtocol.swift"]
+# Share access and catalog creation and writes are app only; the extension only reads catalogs.
+app_paths = ["Prototype/App/TinyMounterApp.swift", "Prototype/App/SourceReaderHost.swift",
+             "Prototype/App/SettingsStore.swift", "Prototype/App/ShareAccess.swift",
+             "Prototype/App/LocationController.swift",
+             "Sources/TransferCore/CatalogReconcile.swift", "Sources/TransferCore/DirectoryListing.swift",
+             "Sources/TransferCore/LaunchReconciliation.swift", "Sources/TransferCore/LocationSettings.swift",
+             "Sources/TransferCore/ShareHealth.swift", "Sources/TransferCore/ShareMount.swift"]
+provider_paths = ["Prototype/Provider/CatalogItem.swift", "Prototype/Provider/Enumerators.swift",
+                  "Prototype/Provider/FileProviderExtension.swift", "Prototype/Provider/SourceReaderService.swift",
+                  "Sources/TransferCore/FirstPage.swift", "Sources/TransferCore/ProviderCatalog.swift",
+                  "Sources/TransferCore/StallDeadline.swift"]
 files = {path: ref(path, "sourcecode.swift") for path in core_paths + app_paths + provider_paths}
 config_path = "Prototype/Config/Prototype.xcconfig"
 base_config = ref(config_path, "text.xcconfig")

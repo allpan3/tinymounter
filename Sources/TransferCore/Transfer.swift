@@ -203,7 +203,7 @@ public enum Transfer {
             defer { Darwin.close(directoryFD) }
             guard try FileSystemInfo(fd: directoryFD).isLocal else { throw TransferError.stagingMustBeLocal }
             // Atomic exclusive creation; never truncate an existing file, even on name collision.
-            let name = "tinymounter-\(UUID().uuidString).stage"
+            let name = Staging.stageFileName(UUID())
             outputFD = name.withCString { openat(directoryFD, $0, O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0o600) }
             guard outputFD >= 0 else { throw posixError("create staging file") }
             outputURL = directory.appendingPathComponent(name)

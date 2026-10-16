@@ -1,6 +1,6 @@
 # Architecture proposal
 
-Date: 2026-10-10. Decision status: proposed; the transport choice is gated by experiments. Source references resolve in [research.md](research.md).
+Date: 2026-10-11. Decision status: production architecture proposed; the app-owned reader experiment and the bounded read-ahead experiment are approved and implemented. Phase 2's M4 and M5 build moves them from one file to catalog-backed folders, read by item; it is not verified at runtime yet. Full downloads exceed 90% of native speed in verified NAS-cold and NAS-cached states; sequential partial reads don't yet. The shipping transport remains gated by experiments. Source references resolve in [research.md](research.md).
 
 ## 1. Product contract
 
@@ -8,16 +8,16 @@ The first useful milestone is a file-system location backed by the user's SMB sh
 
 The user selected offline reading first. This plan recommends making the initial provider entirely read-only, including while online, to validate the central performance proposition before implementing uploads. Users can copy a file out to edit locally. Online editing is not a trivial intermediate step: a local save can race with loss of connectivity, so it also needs durable pending-write handling.
 
-Initial validation targets macOS 27 and the user's UGREEN hardware running Debian. Confirm the Samba version and configuration during testing; Debian alone does not establish those details. Broader OS support and other NAS implementations come after feasibility. The core range API exists from macOS 12.3 and content policies from macOS 13; recursive namespace pinning has a macOS 27 API [A1–A4].
+Initial validation targets macOS 27 and the user's UGREEN hardware running Debian with 64 GB RAM. The [cache-controlled experiment](results/2026-10-11-cache-states.md) verified Samba 4.17.12-Debian, ext4 on LVM over linear md storage, and SMB3.1.1 with AES-128-GMAC signing and encryption off. Broader OS support and other NAS implementations come after feasibility. The core range API exists from macOS 12.3 and content policies from macOS 13; recursive namespace pinning has a macOS 27 API [A1–A4].
 
 Two explicit modes will eventually share the same connection setup:
 
 | Mode | User-visible storage | Offline behavior | Delivery |
 | --- | --- | --- | --- |
-| Integrated drive | OS-managed File Provider location, normally under `~/Library/CloudStorage` | Materialized local files; selected files/folders pinned | First |
-| Native network drive | Normal macOS SMB volume | Requires server connectivity; kernel caching is not a durable offline replica | Later |
+| File Provider location | OS-managed location, normally under `~/Library/CloudStorage` | Materialized local files; selected files/folders pinned | First |
+| Server volume | Normal macOS SMB volume | Requires server connectivity; kernel caching is not a durable offline replica | Later |
 
-The modes have different paths and semantics. Do not silently change a File Provider location into a native mount when the network changes. Do not offer simultaneous writable views as the default.
+The modes have different paths and semantics. Do not silently change a File Provider location into a server volume when the network changes. Do not offer simultaneous writable views as the default.
 
 ## 2. Architecture decisions
 
@@ -41,7 +41,11 @@ File Provider, cache ownership, and metadata architecture are selected. The ship
 
 **TinyMounterFileProvider.appex** owns the File Provider callbacks: item lookup, paginated enumeration, working-set changes, full and partial fetches, cancellation, progress, and error translation. It must work when the settings window is closed. Cached reads must not depend on the app being alive. Do not remove/re-add domains to implement reconnect.
 
-For the read-only milestone, advertise only applicable read/enumeration capabilities and reject remote create/modify/delete/rename callbacks with the appropriate permission error. Enforce this through provider behavior and a read-only NAS account/internal mount, not only by hiding UI controls. Check enforcement using POSIX operations as well as Finder.
+**Current approved experiment:** the main app owns source reads, because direct extension access to the existing NAS mount was denied by Network Volumes privacy. The extension vends a restricted `NSFileProviderServiceSource`; the app connects through its domain manager and exports a reader over duplex XPC. Both peers require the same signing team and the exact counterpart bundle ID. Requests contain an item ID, a content version and a range, never a pathname. In the phase 2 build (M4 and M5), the app resolves a saved share-root grant once per mount session and owns all share I/O and every catalog write. It lists folders into one SQLite catalog per domain, builds each file's path from that catalog beneath the location root, compares the file's fingerprint with the catalog row, and stages read-only POSIX reads in the shared App Group. The extension reads the catalog read-only and never touches the share. The extension moves the completed file into its File Provider temporary directory using an exclusive same-volume rename, then hands it to macOS. Payload bytes are never serialized across XPC [A9]. No separate helper or daemon was added. The [phase 2 plan](phase2-plan.md#3-architecture) gives the processes and flows.
+
+The app must remain running for cache misses and for folders that were never listed; cached reads and listed folders work after it quits. Full app-independent fetching, crash recovery and shipping lifecycle are still gates. The [reader experiment](results/2026-10-10-app-reader.md) verifies NAS access and checksums but records a large throughput gap. This does not select the production transport.
+
+For the read-only milestone, advertise only applicable read/enumeration capabilities and reject remote create/modify/delete/rename callbacks with the appropriate permission error. Enforce this through provider behavior and a read-only NAS account/internal mount, not only by hiding UI controls. Check enforcement using POSIX operations as well as Finder. The phase 2 build returns `fileWriteNoPermission` and counts these calls in its log; only a reimport `createItem`, which is identity matching, completes with the existing item.
 
 **TinyMounterCore** contains domain records, metadata reconciliation, version mapping, scheduler, pins, and transport-neutral contracts. Begin with an internal interface specific to SMB's needs; do not build an elaborate universal protocol framework before a second protocol exists.
 
@@ -68,17 +72,33 @@ Tests/Integration/               signed-extension and failure-recovery tests
 1. Finder or an application accesses a placeholder. macOS invokes the provider for the requested content.
 2. Resolve the stable item ID and requested content version. Connect or reuse an authenticated SMB session/handle.
 3. For a range request, honor the OS's **runtime alignment**, minimum range, requested version, and strict-version flag. Fetch an aligned extent covering the request. Handle empty files, end-of-file ranges, overflow, and cancellation explicitly.
-4. Pipeline bounded SMB reads into a regular, potentially sparse staging file from `NSFileProviderManager.temporaryDirectoryURL()`, on the same volume as the user-visible file. Bytes go at their original offsets; the file must reach at least the returned extent's end [A2].
-5. Complete with the item/version, staging URL, exact fetched range, and appropriate flags. Never mark holes as downloaded zeros. Once handed off, do not mutate the file: macOS clones and unlinks it [A2].
+4. Pipeline bounded SMB reads into a regular, potentially sparse staging file on the same volume as the user-visible file. The current app-owned reader first writes in the shared App Group, then the extension moves that file into `NSFileProviderManager.temporaryDirectoryURL()` before completion. Cross-volume moves fail; there is no copying fallback. Bytes go at their original offsets; the file must reach at least the returned extent's end [A2]. Stage files that a crash leaves are deleted at app launch, before any reader connects, and by each extension process for files created before it started.
+5. Complete with the item/version, staging URL, exact fetched range, and appropriate flags. Never mark holes as downloaded zeros. Once handed off, do not mutate the file: macOS clones and unlinks it [A2]. While the app reads, it reports the bytes done at most every 0.5 s, and the extension updates the fetch's progress. Once the app starts the transfer, the extension ends its wait after 60 s with neither progress nor a reply (phase 2, D2), not after an absolute 300 s, so long healthy downloads go on and time queued for an app worker is not a stall.
 6. macOS resumes the application's read. Later reads of materialized content use local storage without going through SMB or the extension [A3].
 
 Do not wait for an entire video to download before completing a small requested range. Conversely, do not return before the promised extent is present. Use larger extents for sustained sequential access and small prioritized extents after a seek. Coalesce duplicate in-flight requests for the same version/range; each completion needs correct staging-file ownership, not a shared URL that the OS may unlink.
 
 Initial experiment grid: 256 KiB, 1 MiB, and 4 MiB SMB requests, subject to negotiated limits; 1/4/8/16 in-flight requests; provider extents from 1–16 MiB, always respecting the requested minimum/alignment. These are tuning candidates, not constants to hard-code. Account for SMB credits and bytes in flight. A synchronous read loop with small chunks can waste most of the network's capacity.
 
+The [October 11 diagnostic](results/2026-10-11-provider-delay.md) extended returned extents to 64/256 MiB after locating a recurring database-flush wait after handoff. Throughput rose, but first-byte delay and overfetch grew; the prototype default remains 16 MiB. The [full-download attribution](results/2026-10-11-full-download.md) separated source transfer, callback time and macOS materialization. The subsequent [verified cache comparison](results/2026-10-11-cache-states.md) reached 95.1% of native with NAS disk reads and 92.6% with NAS RAM, across five pairs per state. This answers the full-download throughput question on the VM. The [player and read-ahead experiment](results/2026-10-11-player-readahead.md) then raised sequential partial reads from 23.4 to 148.8 MB/s (59.7% of native over 2 GiB). Seek-first settings, which the user asked for, run at 77–93 MB/s. The range-read gate still fails.
+
+The user distinguishes two workloads. **Open** should prioritize the ranges an application needs to begin displaying content or resume a seek; these need not be at the beginning of the file. **Download / Keep Downloaded** should fetch the entire file efficiently, with completion and retention tracked separately. The current full callback already streams the whole source into staging in one request, using bounded memory. Honor the actual full-versus-partial request rather than assigning behavior solely from a filename extension. Some applications require full materialization even when the format permits partial access [A1].
+
+**Bounded read-ahead, implemented experiment.** Cache hits produce no callbacks, so the extension sees only misses. A miss that continues the previous miss of the same item schedules speculative ranges for that item through public range-download requests [A10]. Read-ahead state is per item: up to 8 planners, by item and content version. Speculative completions never extend the window, and a seek makes only its own item's earlier requests stale. The first miss and any seek fetch only the 16 MiB demand extent.
+
+The user prioritized seeks during streaming. `fileproviderd` held a waiting seek for as long as speculative requests kept arriving back to back, up to about 2.7 s. The current settings are one 16 MiB chunk at a time, a window up to 128 MiB, and a 30 ms pause before each chained request. Seeks during streaming then took 0.23–0.27 s, with about 1.03× bytes fetched per byte read, but long sequential reads fell to about 30–37% of native. Throughput-first settings (64 MiB chunks, a 1 GiB window) reached 59.7% with 1.49× and seeks of 0.72–1.37 s. Continuous whole-file downloading remains a separate policy choice.
+
 Prioritize foreground reads and seeks over background pinning and metadata crawling. Bound aggregate buffers per domain and globally; target no more than 256 MiB of transfer buffers for the initial one-stream experiment. Avoid full-file memory buffers, per-chunk database commits, and an `fsync` after every network read. Preserve the handoff and future write durability contracts.
 
-**Application limitation:** Apple states that partial downloads require suitable POSIX reads. Whole-file clones or reads using file coordination request the entire file [A1]. Implement full fetch as well. QuickTime, VLC, IINA, Quick Look, and editing applications must be tested individually. Supporting the range protocol does not guarantee streaming in every app, and a custom player is outside this product's scope.
+**Application limitation:** Apple states that partial downloads require suitable POSIX reads. Whole-file clones or reads using file coordination request the entire file [A1]. Implement full fetch as well. Supporting the range protocol does not guarantee streaming in every app, and a custom player is outside this product's scope. Measured on macOS 27 ([player results](results/2026-10-11-player-readahead.md)):
+
+- **Finder:** double-click, Open With and Cmd-O make a coordinated whole-file read before handing the file to any app. Content that isn't downloaded is therefore fully downloaded before playback starts.
+- **Opt-out:** Apple's `NSFileProviderExtensionNonMaterializingProcessNames` [A2] stops the download, but Finder then silently refuses to open the file, so Finder isn't listed. Only `ScopedBookmarkAgent` is: resolving an app's recent-file bookmarks otherwise downloads each whole file ([M5 follow-up](results/2026-10-14-catalog-browsing-reads.md#follow-up-2026-10-15)).
+- **VLC:** streams with partial reads when opened from its own File > Open or from `open -a`.
+- **QuickTime Player:** always downloads the whole file.
+- **IINA:** streams with partial reads from its own Open, after the extension began clipping IINA's end-of-file reads that run past EOF.
+- **Quick Look:** shows only a generic icon for a file that isn't downloaded, and fetches nothing.
+- **Not yet tested:** editing applications.
 
 ## 5. Native SMB versus direct SMB
 
@@ -112,6 +132,8 @@ Distinguish these states in product language:
 - **Keep Downloaded:** fully materialize and apply the keep-downloaded policy. Claim offline readiness only after completion.
 - **Downloading / unavailable / permission needed:** explicit progress or actionable error, not a permanently spinning mount.
 
+VM test, 2026-10-11: a kept-downloaded file stayed readable with a matching hash while the NAS was unreachable, with the app quit and running ([offline results](results/2026-10-11-offline-reading.md)).
+
 Use `NSFileProviderContentPolicy.downloadEagerlyAndKeepDownloaded` for pins. On macOS 27, combine it with `NSFileProviderNamespacePolicy.materializeEagerly` for pinned folders so unvisited subfolders also enumerate. Track pin intent separately from observed hydration status. Earlier-OS support, if later added, needs a deliberate bounded recursive enumeration strategy [A4].
 
 Folder pinning has a byte/item budget, free-space reserve, progress, and cancellation. Never label a budget-limited or failed tree fully available offline. Retain complete already-downloaded files during a network outage. A sparse file's apparent logical size does not prove offline availability. Remote changes and partial materialization need version-aware invalidation, not unconditional removal of every local copy on reconnect.
@@ -122,7 +144,7 @@ Disconnecting, disabling refresh, removing a connection, and deleting remote fil
 
 ## 7. Identity, versions, and change discovery
 
-Use a persistent opaque UUID as `NSFileProviderItemIdentifier`. Paths change on rename and should not be primary IDs. Map it to domain/account, parent ID, remote name/path, supported remote identity evidence, and metadata. Do not mistake an open SMB handle's FileId for a universally persistent cross-reconnect object ID. Test server-provided identity stability across rename, replacement, reboot, and reconnect.
+Use a persistent opaque UUID as `NSFileProviderItemIdentifier`. Paths change on rename and should not be primary IDs. Map it to domain/account, parent ID, remote name/path, supported remote identity evidence, and metadata. Do not mistake an open SMB handle's FileId for a universally persistent cross-reconnect object ID. Test server-provided identity stability across rename, replacement, reboot, and reconnect. Measured on 2026-10-12 in the VM: after an eject and reconnect of the Finder mount, inode, size, mtime and ctime stayed the same for 268 of 268 entries, while `st_dev` and `f_fsid` changed ([remount results](results/2026-10-12-remount-identity.md)). So content versions leave out the device. Rename, replacement and server reboot are not tested. The phase 2 build keeps one SQLite catalog per domain in the App Group: UUID item IDs kept by parent, name key and kind; content versions `f1:<size>:<mtime_ns>:<ctime_ns>`; sync anchors over a durable change sequence; keyset page tokens; and tombstones written only by a complete listing ([phase 2 §4 and §5](phase2-plan.md#4-data-model)).
 
 Minimum database records:
 
@@ -139,7 +161,7 @@ Use directory listing metadata to avoid a separate `stat` for every child where 
 
 File Provider sync anchors are ordered cursors over tinymounter's durable change log, not wall-clock timestamps or SMB notification sequence numbers. Commit item changes and log entries atomically. Advance an anchor only through changes actually delivered, including tombstones. Expired anchors trigger a supported full resynchronization. Test pagination with interleaved additions, renames, and large deletion batches.
 
-Watch active/materialized directories with SMB `CHANGE_NOTIFY` where supported; reconcile on wake/reconnect, on access when stale, and periodically with backoff. Notifications are invalidation hints, not a durable history of everything that happened offline. Fall back if a server accepts watches but never delivers them. Do not recursively poll millions of files at a fixed short interval or rely on local FSEvents to discover every remote SMB change. Pinned trees get bounded scheduled scans.
+Watch active/materialized directories with SMB `CHANGE_NOTIFY` where supported; reconcile on wake/reconnect, on access when stale, and periodically with backoff. Notifications are invalidation hints, not a durable history of everything that happened offline. Fall back if a server accepts watches but never delivers them. Do not recursively poll millions of files at a fixed short interval or rely on local FSEvents to discover every remote SMB change. Pinned trees get bounded scheduled scans. Phase 2 has no watches and no periodic scans: it lists a folder when the system enumerates it, before the first page if it was never listed and in the background if its last listing is over 60 s old. It lists every materialized folder again at app launch and after the share recovers, and checks the fingerprint at each fetch. A NAS change between these events does not show until the next one ([synchronization.md §10](synchronization.md#10-what-phase-2-implements)).
 
 **Version coherence is a separate feasibility gate.** Plain SMB usually exposes mutable files, not retrievable immutable revisions. Size/mtime/change-time fingerprints are useful change evidence, not cryptographic version IDs. They may miss timestamp-preserving modifications. Never combine ranges after detecting a version change; use Apple's strict-version failure (`versionNoLongerAvailable`) and let the system refetch/retry.
 
@@ -155,7 +177,7 @@ Upload to a uniquely named temporary sibling; close/flush as required, validate 
 
 Crashes after remote commit but before local acknowledgement must be recoverable without duplicate writes or deletions. Renames, safe saves, moves across folders, packages, case-only renames, and remote deletes during local edits are first-class tests. Never silently discard an outbox during domain removal, reset, upgrade, or uninstall. Do not promise arbitrary live SQLite databases, VM disk images, or remote POSIX lock semantics on a synchronized local replica.
 
-## 9. Future native automount mode
+## 9. Future server volume mode
 
 Use public `NetFSMountURLAsync`/cancellation and mount inspection. Run at **user login and wake** through a registered per-user component; pre-login boot mounting is separate future scope. Store no plaintext credentials in shell commands or launch configuration.
 
@@ -168,18 +190,21 @@ An Ethernet/Wi-Fi change is not a reason to forcibly unmount every open file. Ap
 ## 10. Implementation sequence and exit criteria
 
 1. **Feasibility harness.** Signed File Provider with a small local fixture; full/range fetching; cancellation; local-network permissions tested for both app and extension; native SMB baseline; native-backed provider; async SMB comparator. Exit: attribution of throughput overhead, player matrix, and transport/permissions decision. Follow [benchmark-plan.md](benchmark-plan.md). Do this before the full UI.
-2. **Read-only vertical slice.** One SMB share, persistent IDs/database, lazy directory enumeration, range/full reads, Keychain, meaningful offline/auth errors, safe restart. Exit: real Finder browsing and media reading without memory growth or leaked mounts/staging files.
-3. **Offline-read alpha.** Complete-file and recursive folder pins, offline readiness, change discovery, reconnect reconciliation, cache pressure handling, domain lifecycle. Exit: pinned files survive disconnect/reboot and hashes match; incomplete files are never represented as fully offline-ready.
+2. **Read-only vertical slice.** One SMB share, persistent IDs/database, lazy directory enumeration, range/full reads, Keychain, meaningful offline/auth errors, safe restart. Exit: real Finder browsing and media reading without memory growth or leaked mounts/staging files. Started 2026-10-12 before phase 1's exit, on the current transport, with the user's Finder connection standing in for Keychain until the transport decision; see the [phase 2 plan](phase2-plan.md).
+3. **Offline-read alpha.** Complete-file and recursive folder pins, offline readiness, change discovery, reconnect reconciliation, cache pressure handling, domain lifecycle. Exit: pinned files survive disconnect/reboot and hashes match; incomplete files are never represented as available offline.
 4. **Read-only release hardening.** Multiple shares/accounts, load and failure testing, app-closed behavior, signing/notarization, clean install/update/uninstall, accessibility and diagnostics. Performance gates must pass on the physical Mac/NAS pair. Add broader NAS coverage before broad compatibility claims.
 5. **Writable synchronization.** Durable outbox, conflict preservation, remote commit/recovery semantics, then offline editing. This is a separate data-integrity project, not a checkbox added to the downloader.
-6. **Native automount mode.** Reuse connections, Keychain, reachability, and any proven native mount component. Add the policy state machine and safe user controls. It can be prioritized independently after the integrated mode is proven.
+6. **Server volume mode.** Mount server volumes automatically. Reuse connections, Keychain, reachability, and any proven native mount component. Add the policy state machine and safe user controls. It can be prioritized independently after File Provider locations are proven.
 
 ## 11. Open decisions for the first experiment
 
-- Actual Mac hardware, NAS disk/RAID/filesystem, RAM, NIC/link topology, Samba version, and SMB signing/encryption/multichannel state.
+- Physical Mac hardware, exact NAS/disk models, NIC/link topology, and physical-Mac SMB settings. VM/NAS telemetry now establishes 64 GB RAM, Samba 4.17.12-Debian, ext4/LVM/linear md storage and the negotiated VM SMB settings; see the cache report.
 - Current competitor app versions and exact scripts/files used for the reported rates.
-- Whether native bridge permissions/lifecycle are acceptable and whether direct SMB matches its speed.
-- Which players use partial reads on macOS 27, and what coherence guarantee the server can support.
-- Developer signing team/App Group identifiers and product deployment floor when creating the extension.
+- Whether native bridge permissions/lifecycle are acceptable and whether direct SMB matches its speed. The approved app-owned reader resolves the immediate NAS access gate. Full downloads now exceed 90% in both verified NAS cache conditions. [Tracing](results/2026-10-11-provider-delay.md) places most recurring range-read delay after callback completion, waiting for a macOS database batch flush. Bounded read-ahead is now implemented and reaches 59.7% of native for long sequential reads; neither shipping readiness nor an unavoidable OS ceiling is established. The local cached-read gap to ordinary APFS also needs investigation.
+- Which further players use partial reads on macOS 27, and what coherence guarantee the server can support. Finder-launched opens are settled: they always download the whole file first.
+- **Instant playback from Finder.** The user proposes keeping folders used mainly for playback on server volumes, with Finder aliases bringing File Provider locations and server volumes together for navigation; the [interface](ui-design.md), accepted for prototyping, keeps them in a Locations folder. A Finder alias test passed for both kinds of target. Server volume mode stays a later phase, by the user's decision. A server volume covers a whole share, so a server-volume "folder" means a mounted share plus an alias into it.
+- **Synchronization between views.** Proposed in [synchronization.md](synchronization.md). The user wants this model settled before any overlap guard. It covers changes made through a server volume or another device while a File Provider location holds metadata or downloaded copies, and later two-sided writes.
+- **Read-ahead tuning.** The current settings put seeks first, as the user asked. Throughput-first settings would roughly double long sequential partial reads but let seeks wait. One `fileproviderd` materialization failure, with a fallback to a full download, was seen once while a misclassification bug was present; whether correct speculation can still trigger it is unknown.
+- Product deployment floor and distribution signing. The current macOS 27 experiment now runs with the configured Personal Team and a team-prefixed macOS App Group; production signing/lifecycle remains undecided.
 
 No NAS credentials are needed to review this plan. For the experiment, a read-only test account/share and a representative large video/file are enough; the user can connect it in the VM or enter credentials into the app instead of placing secrets in chat. Writes and deliberate server disruption will need a dedicated scratch area and explicit test scope. The VM is appropriate for correctness work; its virtual NIC/storage cannot establish the physical Mac's absolute speed.

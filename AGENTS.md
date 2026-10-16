@@ -25,7 +25,7 @@ current status.
 | `Sources/TransferCore/`  | transfer engine, catalog, folder listing, safe paths, error classifier  |
 | `Sources/TransferBench/` | the `transfer-bench` CLI                                                |
 | `Tests/`                 | unit tests for `TransferCore` (`swift test`)                            |
-| `Prototype/`             | SwiftUI app, File Provider extension, shared fixture config, xcconfig   |
+| `Prototype/`             | SwiftUI app, File Provider extension, shared XPC protocol, xcconfig     |
 | `Tools/`                 | stdlib-only Python: project generator, CLI checks, SMB series runner    |
 | `docs/`                  | plans, research and dated results; [index](docs/README.md)              |
 | `results/`               | raw local evidence. It is gitignored and may hold private paths         |

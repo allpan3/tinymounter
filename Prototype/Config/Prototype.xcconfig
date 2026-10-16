@@ -6,5 +6,5 @@ ENABLE_APP_SANDBOX = YES
 // Set DEVELOPMENT_TEAM in Xcode or on the xcodebuild command line.
 // Replace identifiers with values provisioned for that team before running.
 TINYMOUNTER_BUNDLE_ID = dev.tinymounter.prototype
-TINYMOUNTER_APP_GROUP = group.dev.tinymounter.prototype
+TINYMOUNTER_APP_GROUP = $(DEVELOPMENT_TEAM).$(TINYMOUNTER_BUNDLE_ID)
 

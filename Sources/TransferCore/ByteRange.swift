@@ -36,6 +36,12 @@ public struct ByteRange: Codable, Equatable, Sendable {
         self.length = length
     }
 
+    /// A reader near EOF can ask past it; File Provider passes such ranges through unclipped.
+    public static func clampedToEOF(offset: Int64, length: Int64, fileSize: Int64) throws -> ByteRange {
+        guard offset >= 0, length >= 0, offset <= fileSize else { throw TransferError.invalidRange }
+        return try ByteRange(offset: offset, length: min(length, fileSize - offset), fileSize: fileSize)
+    }
+
     /// Cover the requested range without crossing EOF or overflowing Int64.
     public static func aligned(minimum: ByteRange, alignment: Int64,
                                fileSize: Int64, preferredLength: Int64 = 4 * 1024 * 1024) throws -> ByteRange {

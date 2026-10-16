@@ -1,0 +1,789 @@
+import AppKit
+import Darwin
+import Foundation
+import OSLog
+
+/// Why `ShareAccess.makeGrant` refused a selected folder.
+enum ShareGrantError: Error {
+    /// The folder is not the root of a mounted volume.
+    case notVolumeRoot
+    /// The volume is not an SMB share on another computer.
+    case notSMBShare
+    /// The address has no account, has a password, or is not an SMB address.
+    case addressRejected
+}
+
+/// Tells `ShareHealth` that a share operation made progress, such as one listing batch.
+typealias Progressed = @Sendable () -> Void
+
+/// One mount session's share root. Use it only inside `ShareAccess.withSession`; never keep it.
+final class ShareSession: @unchecked Sendable {
+    /// `O_EVTONLY`, so it never blocks an eject.
+    let root: Int32
+    let identity: MountIdentity
+    /// The bookmark was stale when this session resolved it.
+    let stale: Bool
+    fileprivate let mountOn: String
+    private let url: URL
+    private let lock = NSLock()
+    private var locationRoots: [RelativePath: Int32] = [:]
+
+    fileprivate init(root: Int32, mount: MountEntry, url: URL, stale: Bool) {
+        self.root = root
+        identity = mount.identity
+        self.stale = stale
+        mountOn = mount.mountOn
+        self.url = url
+    }
+
+    deinit {
+        for fd in locationRoots.values { close(fd) }
+        close(root)
+        url.stopAccessingSecurityScopedResource()
+    }
+
+    /// Opens a folder beneath the share root, `O_EVTONLY`. The caller closes the descriptor.
+    func openFolder(_ path: RelativePath) throws -> Int32 {
+        try identity.guarding(root: root) {
+            var fd: Int32
+            repeat {
+                fd = openat(root, path.isRoot ? "." : path.string,
+                            O_EVTONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW_ANY | O_RESOLVE_BENEATH)
+            } while fd < 0 && errno == EINTR
+            guard fd >= 0 else { throw posixError("openat folder") }
+            do { try identity.requireSameMount(fd, root: root) } catch { close(fd); throw error }
+            return fd
+        }
+    }
+
+    /// A location folder's root, opened once per session; the session closes it.
+    func locationRoot(_ folder: RelativePath) throws -> Int32 {
+        if let fd = lock.withLock({ locationRoots[folder] }) { return fd }
+        let fd: Int32
+        do { fd = try openFolder(folder) } catch { throw SourceFailure.classify(error, context: .locationRoot) }
+        return lock.withLock {
+            if let existing = locationRoots[folder] {
+                close(fd)
+                return existing
+            }
+            locationRoots[folder] = fd
+            return fd
+        }
+    }
+
+    fileprivate func isListed(in mounts: [MountEntry]) -> Bool {
+        mounts.contains { $0.identity == identity && $0.mountOn == mountOn }
+    }
+}
+
+/// One per server grant. Metadata work runs on one serial lane; transfers use their own threads.
+final class ShareAccess: @unchecked Sendable {
+    let grantID: UUID
+    private let mountFrom: String
+    private let store: SettingsStore
+    /// The errors to signal resolved, from a session start or a probe that recovered the share.
+    private let onRecovery: @Sendable ([SourceFailure]) -> Void
+    private let lane = DispatchQueue(label: "dev.tinymounter.prototype.share", qos: .userInitiated)
+    private let monitor = DispatchQueue(label: "dev.tinymounter.prototype.share-monitor", qos: .utility)
+    // A probe can block for the mount's timeout, so it never runs on the lane or the monitor.
+    private let prober = DispatchQueue(label: "dev.tinymounter.prototype.share-probe", qos: .utility)
+    private let poll: DispatchSourceTimer
+    private let tick: DispatchSourceTimer
+    private let lock = NSLock()
+    // Held while a session starts, which can wait for the server, so only one starts at a time.
+    private let startLock = NSLock()
+    private var bookmark: Data
+    private var resolutionCount = 0
+    private var session: ShareSession?
+    private var health = ShareHealth()
+    /// The grant's mounts when it failed; needsGrant ends when they change.
+    private var refusedMounts: Set<MountIdentity> = []
+    private var connecting = false
+    private var observers: [NotificationCenter.ObservationToken] = []
+    private static let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "share")
+
+    init(grant: ServerGrant, store: SettingsStore, onRecovery: @escaping @Sendable ([SourceFailure]) -> Void) {
+        grantID = grant.id
+        mountFrom = grant.mountFrom
+        bookmark = grant.bookmark
+        self.store = store
+        self.onRecovery = onRecovery
+        poll = DispatchSource.makeTimerSource(queue: monitor)
+        poll.schedule(deadline: .now() + .seconds(10), repeating: .seconds(10), leeway: .seconds(1))
+        tick = DispatchSource.makeTimerSource(queue: monitor)
+        tick.schedule(deadline: .now() + .seconds(1), repeating: .seconds(1), leeway: .milliseconds(250))
+        poll.setEventHandler { [weak self] in self?.checkMountTable() }
+        tick.setEventHandler { [weak self] in self?.checkHealth() }
+        poll.activate()
+        tick.activate()
+        let center = NSWorkspace.shared.notificationCenter
+        observers = [
+            center.addObserver(of: NSWorkspace.self, for: .willUnmountVolume) { [weak self] message in
+                self?.volumeUnmounting(message.volumeURL, reason: "will_unmount")
+            },
+            center.addObserver(of: NSWorkspace.self, for: .didUnmountVolume) { [weak self] message in
+                self?.volumeUnmounting(message.volumeURL, reason: "did_unmount")
+            },
+        ]
+    }
+
+    deinit {
+        poll.cancel()
+        tick.cancel()
+        for token in observers { NSWorkspace.shared.notificationCenter.removeObserver(token) }
+    }
+
+    /// Checks that `url`, from `NSOpenPanel`, is an SMB volume root, and makes its app-scoped grant.
+    static func makeGrant(for url: URL) async throws -> ServerGrant {
+        try await withCheckedThrowingContinuation { continuation in
+            // Reading the volume's values can wait for the server, so never on the main thread.
+            DispatchQueue.global(qos: .userInitiated).async {
+                let result = Result { try grant(for: url) }
+                switch result {
+                case .success(let grant):
+                    logger.info("share=\(grant.id.uuidString, privacy: .public) grant_created")
+                case .failure(let error):
+                    let error = error as NSError
+                    logger.error("grant_refused domain=\(error.domain, privacy: .public) code=\(error.code)")
+                }
+                continuation.resume(with: result)
+            }
+        }
+    }
+
+    /// Bookmark resolutions tried since this object started, failed ones included.
+    var resolutions: Int { lock.withLock { resolutionCount } }
+
+    var hasSession: Bool { lock.withLock { session != nil } }
+
+    /// The failure to return at once, with no share I/O; nil to try the request.
+    func refusal() -> SourceFailure? { changeHealth { $0.refusal() } }
+
+    /// Runs `body` on the caller's thread with the current session, and starts one if there is none.
+    func withSession<T>(_ body: (ShareSession, @escaping Progressed) throws -> T) throws -> T {
+        if let refusal = refusal() { throw refusal }
+        let session = try currentSession()
+        let activity = changeHealth { $0.begin() }
+        defer { changeHealth { $0.end(activity) } }
+        do {
+            return try body(session) { [weak self] in self?.changeHealth { $0.progressed(activity) } }
+        } catch {
+            noteFailure(SourceFailure.classify(error, context: .listing), session: session)
+            throw error
+        }
+    }
+
+    /// Runs `work` on the lane, after every metadata operation queued before it.
+    func enqueue(_ work: @escaping @Sendable () -> Void) { lane.async(execute: work) }
+
+    /// `withSession` on the lane.
+    func perform<T: Sendable>(_ body: @escaping @Sendable (ShareSession, @escaping Progressed) throws -> T) async throws -> T {
+        if let refusal = refusal() { throw refusal }
+        return try await withCheckedThrowingContinuation { continuation in
+            lane.async { continuation.resume(with: Result { try self.withSession(body) }) }
+        }
+    }
+
+    /// Starts a session if the share is mounted, so that its recovery signals and relisting run.
+    func connect() {
+        let start = lock.withLock {
+            defer { connecting = true }
+            return !connecting
+        }
+        guard start else { return }
+        lane.async { [self] in
+            defer { lock.withLock { connecting = false } }
+            guard refusal() == nil else { return }
+            _ = try? currentSession()
+        }
+    }
+
+    /// A new grant for this share: the next request starts a session with it.
+    func replaceBookmark(_ data: Data) {
+        lock.withLock { bookmark = data }
+        lane.async { [self] in
+            if let session = lock.withLock({ self.session }) { ended(session, reason: "grant_replaced") }
+            changeHealth { $0.mountDisappeared() }
+            connect()
+        }
+    }
+
+    private func currentSession() throws -> ShareSession {
+        try startLock.withLock {
+            let mounts = try MountEntry.current()
+            if let session = lock.withLock({ self.session }) {
+                if session.isListed(in: mounts) { return session }
+                ended(session, reason: "mount_gone")
+            }
+            // Resolution waits about 30 s for an absent server, so it runs only for a mounted share.
+            let candidates = mounts.filter(isCandidate)
+            guard !candidates.isEmpty else { throw SourceFailure.notConnected }
+            let session: ShareSession
+            do {
+                session = try start(candidates)
+            } catch SourceFailure.notAuthenticated {
+                needGrant(ending: nil)
+                throw SourceFailure.notAuthenticated
+            } catch SourceFailure.serverUnreachable {
+                changeHealth { $0.startFailed() }
+                throw SourceFailure.serverUnreachable
+            }
+            let recovered = changeHealth { health in
+                self.session = session
+                return health.mountAppeared()
+            }
+            if !recovered.isEmpty { onRecovery(recovered) }
+            return session
+        }
+    }
+
+    private func isCandidate(_ mount: MountEntry) -> Bool { mount.identity.mountFrom == mountFrom && mount.isRemoteSMB }
+
+    private func start(_ candidates: [MountEntry]) throws -> ShareSession {
+        let clock = ContinuousClock()
+        let started = clock.now
+        var stale = false
+        let url: URL
+        do {
+            let data = lock.withLock {
+                resolutionCount += 1
+                return bookmark
+            }
+            url = try URL(resolvingBookmarkData: data,
+                          options: [.withSecurityScope, .withoutUI, .withoutMounting],
+                          relativeTo: nil, bookmarkDataIsStale: &stale)
+        } catch {
+            failed("resolve", error)
+            let mounts = (try? MountEntry.current()) ?? []
+            let mounted = candidates.contains { candidate in mounts.contains { $0.identity == candidate.identity } }
+            // A listed mount whose server doesn't answer fails resolution, after about 30 s.
+            throw mounted ? SourceFailure.serverUnreachable : SourceFailure.notConnected
+        }
+        let resolved = clock.now
+        let path = Self.filePath(url)
+        guard let mount = candidates.first(where: { $0.mountOn == path }) else {
+            failed("match", nil)
+            throw SourceFailure.notAuthenticated
+        }
+        guard url.startAccessingSecurityScopedResource() else {
+            failed("scope", nil)
+            throw SourceFailure.notAuthenticated
+        }
+        let root: Int32
+        do {
+            root = try Self.openRoot(path, matching: mount)
+        } catch {
+            url.stopAccessingSecurityScopedResource()
+            failed("open", error)
+            throw error
+        }
+        let session = ShareSession(root: root, mount: mount, url: url, stale: stale)
+        let opened = clock.now
+        if stale { refreshBookmark(from: url) }
+        Self.logger.info("""
+            share=\(self.grantID.uuidString, privacy: .public) session_started \
+            resolve_ms=\(started.duration(to: resolved) / .milliseconds(1), format: .fixed(precision: 1)) \
+            open_ms=\(resolved.duration(to: opened) / .milliseconds(1), format: .fixed(precision: 1)) \
+            stale=\(stale ? 1 : 0)
+            """)
+        return session
+    }
+
+    /// `fstatfs` must show the matched mount: smbfs, its `f_fsid` and `f_mntfromname`, and this path.
+    private static func openRoot(_ path: String, matching mount: MountEntry) throws -> Int32 {
+        var fd: Int32
+        repeat {
+            fd = open(path, O_EVTONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
+        } while fd < 0 && errno == EINTR
+        guard fd >= 0 else { throw SourceFailure.classify(errno: errno, context: .shareRoot) }
+        do {
+            let opened = try MountEntry(descriptor: fd)
+            guard opened.identity == mount.identity, opened.mountOn == path else { throw SourceFailure.notConnected }
+            return fd
+        } catch {
+            close(fd)
+            throw SourceFailure.classify(error, context: .shareRoot)
+        }
+    }
+
+    /// Only for a bookmark that still resolved to the matching mount.
+    private func refreshBookmark(from url: URL) {
+        let fresh: Data
+        do {
+            fresh = try url.bookmarkData(options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess],
+                                         includingResourceValuesForKeys: nil, relativeTo: nil)
+        } catch {
+            failed("refresh", error)
+            return
+        }
+        lock.withLock { bookmark = fresh }
+        Task { @MainActor [store, grantID] in
+            do {
+                try store.update { settings in
+                    guard let index = settings.servers.firstIndex(where: { $0.id == grantID }) else { return }
+                    settings.servers[index].bookmark = fresh
+                }
+                Self.logger.info("share=\(grantID.uuidString, privacy: .public) bookmark_saved=1")
+            } catch {
+                let error = error as NSError
+                Self.logger.error("""
+                    share=\(grantID.uuidString, privacy: .public) bookmark_saved=0 \
+                    domain=\(error.domain, privacy: .public) code=\(error.code)
+                    """)
+            }
+        }
+    }
+
+    private func noteFailure(_ failure: SourceFailure, session: ShareSession) {
+        switch failure {
+        case .notConnected: ended(session, reason: "not_connected")
+        case .notAuthenticated: needGrant(ending: session)
+        case .serverUnreachable: changeHealth { $0.failed(.serverUnreachable) }
+        default: break
+        }
+    }
+
+    /// No request reaches the share until its mounts change or the grant is replaced.
+    private func needGrant(ending ended: ShareSession?) {
+        let refused = Set(((try? MountEntry.current()) ?? []).filter(isCandidate).map(\.identity))
+        let removed = changeHealth { health -> Bool in
+            refusedMounts = refused
+            health.failed(.notAuthenticated)
+            guard let ended, session === ended else { return false }
+            session = nil
+            return true
+        }
+        if removed {
+            Self.logger.info("share=\(self.grantID.uuidString, privacy: .public) session_ended reason=needs_grant")
+        }
+    }
+
+    private func volumeUnmounting(_ url: URL, reason: String) {
+        let path = Self.filePath(url)
+        // Off the main thread: the last release closes the root, which can wait for the server.
+        monitor.async { [self] in
+            guard let session = lock.withLock({ self.session }), session.mountOn == path else { return }
+            ended(session, reason: reason)
+        }
+    }
+
+    private func checkMountTable() {
+        guard let mounts = try? MountEntry.current() else { return }
+        let (session, state, refused) = lock.withLock { (self.session, health.state, refusedMounts) }
+        if let session {
+            if !session.isListed(in: mounts) { ended(session, reason: "poll") }
+            return
+        }
+        let present = Set(mounts.filter(isCandidate).map(\.identity))
+        if state == .needsGrant {
+            guard present != refused else { return }
+            changeHealth { $0.mountDisappeared() }
+        }
+        if !present.isEmpty { connect() }
+    }
+
+    private func checkHealth() {
+        let (probe, session) = changeHealth { health in (health.startProbe(), self.session) }
+        guard probe else { return }
+        prober.async { [self] in
+            var succeeded = false
+            if let session {
+                var info = stat()
+                var result: Int32
+                repeat {
+                    result = fstatat(session.root, ".", &info, 0)
+                } while result != 0 && errno == EINTR
+                succeeded = result == 0
+            } else {
+                // Unresponsive with no session: a session start timed out, so the probe starts one.
+                do {
+                    _ = try currentSession()
+                    succeeded = true
+                } catch SourceFailure.notConnected {
+                    changeHealth { $0.mountDisappeared() }
+                } catch {}
+            }
+            let recovered = changeHealth { $0.probeFinished(succeeded: succeeded) }
+            Self.logger.info("share=\(self.grantID.uuidString, privacy: .public) probe ok=\(succeeded ? 1 : 0)")
+            if !recovered.isEmpty { onRecovery(recovered) }
+        }
+    }
+
+    /// The root closes and access stops when the last operation that uses `ended` returns.
+    private func ended(_ ended: ShareSession, reason: String) {
+        let removed = changeHealth { health -> Bool in
+            guard session === ended else { return false }
+            session = nil
+            health.mountDisappeared()
+            return true
+        }
+        guard removed else { return }
+        Self.logger.info("""
+            share=\(self.grantID.uuidString, privacy: .public) session_ended reason=\(reason, privacy: .public)
+            """)
+    }
+
+    /// Every `ShareHealth` change goes through here, so each state change is logged once.
+    private func changeHealth<T>(_ body: (inout ShareHealth) -> T) -> T {
+        let (result, before, after) = lock.withLock {
+            let before = health.state
+            let result = body(&health)
+            return (result, before, health.state)
+        }
+        if before != after {
+            Self.logger.info("""
+                share=\(self.grantID.uuidString, privacy: .public) state=\(String(describing: after), privacy: .public)
+                """)
+        }
+        return result
+    }
+
+    private func failed(_ step: String, _ error: Error?) {
+        let error = error.map { $0 as NSError }
+        Self.logger.error("""
+            share=\(self.grantID.uuidString, privacy: .public) session_failed step=\(step, privacy: .public) \
+            domain=\(error?.domain ?? "none", privacy: .public) code=\(error?.code ?? 0)
+            """)
+    }
+
+    private static func grant(for url: URL) throws -> ServerGrant {
+        let path = filePath(url)
+        guard let mount = try MountEntry.current().first(where: { $0.mountOn == path }) else {
+            throw ShareGrantError.notVolumeRoot
+        }
+        guard mount.isRemoteSMB else { throw ShareGrantError.notSMBShare }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        let values = try url.resourceValues(forKeys: [.isVolumeKey, .volumeURLForRemountingKey])
+        guard values.isVolume == true else { throw ShareGrantError.notVolumeRoot }
+        // Both strings are saved, so neither may hold a password, such as a guest's empty one.
+        guard let remount = values.volumeURLForRemounting, let address = ShareAddress(remount.absoluteString),
+              ShareAddress(mount.identity.mountFrom) != nil else { throw ShareGrantError.addressRejected }
+        let bookmark = try url.bookmarkData(options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess],
+                                            includingResourceValuesForKeys: nil, relativeTo: nil)
+        return ServerGrant(bookmark: bookmark, mountFrom: mount.identity.mountFrom, address: address)
+    }
+
+    /// Without a trailing slash, as in `f_mntonname`.
+    private static func filePath(_ url: URL) -> String {
+        let path = url.standardizedFileURL.path(percentEncoded: false)
+        return path.count > 1 && path.hasSuffix("/") ? String(path.dropLast()) : path
+    }
+}
+
+/// The location's catalog was closed for Remove Location; the extension treats it as unavailable.
+enum LocationError: Error {
+    case catalogClosed
+}
+
+/// One per added location: its writer catalog, listings and reads on the share (plan §5, §6).
+final class LocationSource: @unchecked Sendable {
+    typealias Reply = @Sendable (Result<ListReceipt, Error>) -> Void
+
+    static let maxPendingListings = 16
+    static let signalDelay = DispatchTimeInterval.milliseconds(200)
+
+    let domainID: String
+    let access: ShareAccess
+    private let folder: RelativePath
+    /// Signals the domain's working set; `scheduleSignal` debounces it.
+    private let signal: @Sendable () -> Void
+    // The system SQLite can't share a connection between threads, so every use takes this lock.
+    private let catalogLock = NSLock()
+    private var catalog: Catalog?
+    private let lock = NSLock()
+    /// Folders with a listing queued or running, and the replies that wait for it.
+    private var waiting: [String: [Reply]] = [:]
+    /// D5: when a listing first held each folder's plan.
+    private var heldSince: [String: ContinuousClock.Instant] = [:]
+    private var confirmations: Set<String> = []
+    private var signalScheduled = false
+    private static let listingLog = Logger(subsystem: "dev.tinymounter.prototype", category: "listing")
+    private static let fetchLog = Logger(subsystem: "dev.tinymounter.prototype", category: "fetch")
+
+    init(domainID: String, folder: RelativePath, catalog: Catalog, access: ShareAccess,
+         signal: @escaping @Sendable () -> Void) {
+        self.domainID = domainID
+        self.folder = folder
+        self.catalog = catalog
+        self.access = access
+        self.signal = signal
+    }
+
+    /// Closes the writer connection; later calls fail with `catalogClosed`.
+    func close() { catalogLock.withLock { catalog = nil } }
+
+    func counts() throws -> CatalogCounts { try withCatalog { try $0.counts() } }
+
+    /// Joins a listing of the same folder that is queued or running; a bounded one fails if 16 wait.
+    func list(_ folderID: String, requestID: UUID, bounded: Bool = true, reply: Reply? = nil) {
+        enum Admission { case joined, started, refused }
+        let admission: Admission = lock.withLock {
+            if waiting[folderID] != nil {
+                if let reply { waiting[folderID]?.append(reply) }
+                return .joined
+            }
+            guard !bounded || waiting.count < Self.maxPendingListings else { return .refused }
+            waiting[folderID] = reply.map { [$0] } ?? []
+            return .started
+        }
+        switch admission {
+        case .joined:
+            Self.listingLog.info("""
+                list request=\(requestID.uuidString, privacy: .public) domain=\(self.domainID, privacy: .public) \
+                folder=\(folderID, privacy: .public) joined=1
+                """)
+        case .refused:
+            Self.listingLog.error("""
+                list request=\(requestID.uuidString, privacy: .public) domain=\(self.domainID, privacy: .public) \
+                folder=\(folderID, privacy: .public) refused pending=\(Self.maxPendingListings)
+                """)
+            reply?(.failure(SourceFailure.serverUnreachable))
+        case .started:
+            if let refusal = access.refusal() {
+                finish(folderID, .failure(refusal))
+                return
+            }
+            access.enqueue { [self] in finish(folderID, Result { try listOnLane(folderID, requestID: requestID) }) }
+        }
+    }
+
+    /// The app awaits its own listings one at a time, so a full queue never refuses them.
+    func list(_ folderID: String, requestID: UUID) async throws -> ListReceipt {
+        try await withCheckedThrowingContinuation { continuation in
+            list(folderID, requestID: requestID, bounded: false) { continuation.resume(with: $0) }
+        }
+    }
+
+    /// Plan §6 step 4: the version, the share state, the catalog path, the file, its fingerprint.
+    func transfer(_ request: SourceReadRequest, progress: Progress, stagingDirectory: URL) throws -> TransferOutput {
+        let (row, path) = try withCatalog { catalog -> (CatalogRow, RelativePath) in
+            guard let row = try catalog.item(id: request.item) else { throw CocoaError(.fileReadUnknown) }
+            guard !row.deleted else { throw SourceFailure.missing }
+            guard row.kind == .file else { throw CocoaError(.fileReadUnknown) }
+            guard row.contentVersion == request.version else { throw SourceFailure.versionChanged }
+            guard let path = try catalog.relativePath(of: row.id) else { throw SourceFailure.missing }
+            return (row, path)
+        }
+        let range: ByteRange
+        do {
+            range = try ByteRange(offset: request.range.offset, length: request.range.length, fileSize: row.size)
+        } catch {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        return try access.withSession { session, progressed in
+            let root = try session.locationRoot(folder)
+            let file = try shareCall(request.id, parent: row.parentID, context: .fetch) {
+                try ReadOnlyFile(directoryFD: root, relativePath: path, expected: session.identity, noCache: true)
+            }
+            let expected = ContentFingerprint(size: row.size, mtimeNs: row.mtimeNs, ctimeNs: row.ctimeNs)
+            guard file.snapshot.fingerprint == expected else {
+                fileChanged(request.id, row, file.snapshot)
+                throw SourceFailure.versionChanged
+            }
+            // Each block read is progress, so only a transfer that stops reading counts as a stall.
+            let observation = progress.observe(\.completedUnitCount) { _, _ in progressed() }
+            defer { observation.invalidate() }
+            do {
+                return try shareCall(request.id, parent: row.parentID, context: .fetch) {
+                    try session.identity.guarding(root: root) {
+                        try Transfer.run(source: file, range: range, stagingDirectory: stagingDirectory,
+                                         progress: progress)
+                    }
+                }
+            } catch SourceFailure.versionChanged {
+                // The held descriptor is the file that changed; its path may now name another.
+                if let now = try? file.currentSnapshot() { fileChanged(request.id, row, now) }
+                throw SourceFailure.versionChanged
+            }
+        }
+    }
+
+    private func listOnLane(_ folderID: String, requestID: UUID) throws -> ListReceipt {
+        let started = ContinuousClock.now
+        do {
+            let (parentID, path) = try withCatalog { catalog -> (String?, RelativePath) in
+                guard let row = try catalog.item(id: folderID), row.kind == .folder, !row.deleted,
+                      let path = try catalog.relativePath(of: folderID) else { throw CocoaError(.fileReadUnknown) }
+                return (row.parentID, path)
+            }
+            let confirmed = lock.withLock {
+                heldSince[folderID].map { $0 + Catalog.confirmationDelay <= started } ?? false
+            }
+            return try access.withSession { session, progressed in
+                let root = try session.locationRoot(folder)
+                let listing = try shareCall(requestID, parent: parentID, context: .listing) {
+                    try DirectoryListing.list(locationRoot: root, relativePath: path, expected: session.identity,
+                                              progress: progressed)
+                }
+                let listed = ContinuousClock.now
+                let missing = try withCatalog { try $0.missingChildren(of: folderID, listing: listing) }
+                try shareCall(requestID, parent: parentID, context: .listing) {
+                    try DirectoryListing.confirmMissing(missing, locationRoot: root, relativePath: path,
+                                                        expected: session.identity, progress: progressed)
+                }
+                let checked = ContinuousClock.now
+                var plan: ReconcilePlan?
+                let (applied, generation, entries) = try withCatalog { catalog in
+                    let applied = try catalog.reconcile(folder: folderID, listing: listing) { proposed in
+                        plan = proposed
+                        return confirmed || !Catalog.needsConfirmation(proposed)
+                    } != nil
+                    return (applied, try catalog.item(id: folderID)?.listGen ?? 0,
+                            try catalog.liveChildCount(of: folderID))
+                }
+                let changed = applied ? plan.map { $0.inserted + $0.updated + $0.tombstoned } ?? 0 : 0
+                let skipped = listing.skipped.otherKinds + listing.skipped.invalidNames + listing.skipped.collisions
+                    + (plan?.unreadableSkipped ?? 0)
+                let receipt = try ListReceipt(generation: generation, entries: entries, changed: changed,
+                                              skipped: skipped)
+                let confirm = lock.withLock { () -> Bool in
+                    guard !applied else {
+                        heldSince[folderID] = nil
+                        return false
+                    }
+                    if heldSince[folderID] == nil { heldSince[folderID] = started }
+                    return confirmations.insert(folderID).inserted
+                }
+                if confirm { scheduleConfirmation(folderID) }
+                if changed > 0 { scheduleSignal() }
+                let done = ContinuousClock.now
+                Self.listingLog.info("""
+                    list request=\(requestID.uuidString, privacy: .public) domain=\(self.domainID, privacy: .public) \
+                    folder=\(folderID, privacy: .public) entries=\(entries) changed=\(changed) \
+                    inserted=\(plan?.inserted ?? 0) updated=\(plan?.updated ?? 0) \
+                    tombstoned=\(plan?.tombstoned ?? 0) skipped=\(skipped) checked=\(missing.count) \
+                    held=\(applied ? 0 : 1) confirmed=\(confirmed ? 1 : 0) \
+                    list_ms=\(started.duration(to: listed) / .milliseconds(1), format: .fixed(precision: 1)) \
+                    check_ms=\(listed.duration(to: checked) / .milliseconds(1), format: .fixed(precision: 1)) \
+                    total_ms=\(started.duration(to: done) / .milliseconds(1), format: .fixed(precision: 1))
+                    """)
+                return receipt
+            }
+        } catch {
+            Self.listingLog.error("""
+                list request=\(requestID.uuidString, privacy: .public) domain=\(self.domainID, privacy: .public) \
+                folder=\(folderID, privacy: .public) failed \(logFields(error), privacy: .public) \
+                total_ms=\(started.duration(to: .now) / .milliseconds(1), format: .fixed(precision: 1))
+                """)
+            throw error
+        }
+    }
+
+    private func finish(_ folderID: String, _ result: Result<ListReceipt, Error>) {
+        let replies = lock.withLock { waiting.removeValue(forKey: folderID) ?? [] }
+        for reply in replies { reply(result) }
+    }
+
+    /// D5: a listing that starts 15 s after the hold applies what it finds.
+    private func scheduleConfirmation(_ folderID: String) {
+        let delay = DispatchTimeInterval.seconds(Int(Catalog.confirmationDelay.components.seconds))
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self else { return }
+            lock.withLock { _ = self.confirmations.remove(folderID) }
+            list(folderID, requestID: UUID())
+        }
+    }
+
+    private func scheduleSignal() {
+        let first = lock.withLock {
+            defer { signalScheduled = true }
+            return !signalScheduled
+        }
+        guard first else { return }
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + Self.signalDelay) { [weak self] in
+            guard let self else { return }
+            lock.withLock { self.signalScheduled = false }
+            signal()
+        }
+    }
+
+    /// A missing item lists its parent again: only a complete listing may delete it (plan §7).
+    private func shareCall<T>(_ requestID: UUID, parent: String?, context: SourceFailure.Context,
+                              _ body: () throws -> T) throws -> T {
+        do {
+            return try body()
+        } catch {
+            let failure = SourceFailure.classify(error, context: context)
+            if failure == .missing, let parent { list(parent, requestID: UUID()) }
+            if failure == .pathRejected {
+                Self.fetchLog.error("""
+                    request=\(requestID.uuidString, privacy: .public) domain=\(self.domainID, privacy: .public) \
+                    path_rejected=1
+                    """)
+            }
+            throw failure
+        }
+    }
+
+    /// The file on the share differs from its row: record it, so the system asks for the new version.
+    private func fileChanged(_ requestID: UUID, _ row: CatalogRow, _ snapshot: FileSnapshot) {
+        do {
+            let updated = try withCatalog {
+                try $0.updateFingerprint(item: row.id, fingerprint: snapshot.fingerprint, fileID: snapshot.inode)
+            }
+            if updated { scheduleSignal() }
+            Self.fetchLog.info("""
+                request=\(requestID.uuidString, privacy: .public) item=\(row.id, privacy: .public) \
+                fingerprint_changed=1 updated=\(updated ? 1 : 0)
+                """)
+        } catch {
+            Self.fetchLog.error("""
+                request=\(requestID.uuidString, privacy: .public) item=\(row.id, privacy: .public) \
+                fingerprint_changed=1 updated=0 \(logFields(error), privacy: .public)
+                """)
+        }
+    }
+
+    private func withCatalog<T>(_ body: (Catalog) throws -> T) throws -> T {
+        try catalogLock.withLock {
+            guard let catalog else { throw LocationError.catalogClosed }
+            return try body(catalog)
+        }
+    }
+}
+
+/// A `SourceFailure` case, or a domain and code; never a description, which can hold a path.
+func logFields(_ error: Error) -> String {
+    switch error as? SourceFailure {
+    case .unknown(let domain, let code)?: return "domain=\(domain) code=\(code)"
+    case let failure?: return "failure=\(failure)"
+    case nil:
+        let error = error as NSError
+        return "domain=\(error.domain) code=\(error.code)"
+    }
+}
+
+/// A mount-table row. `identity.mountFrom` holds the SMB account, so never log it.
+private struct MountEntry {
+    let identity: MountIdentity
+    let mountOn: String
+    let isLocal: Bool
+
+    init(_ info: statfs) {
+        identity = MountIdentity(info)
+        mountOn = withUnsafeBytes(of: info.f_mntonname) {
+            String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self)
+        }
+        isLocal = info.f_flags & UInt32(MNT_LOCAL) != 0
+    }
+
+    init(descriptor: Int32) throws {
+        var info = statfs()
+        while fstatfs(descriptor, &info) != 0 {
+            guard errno == EINTR else { throw posixError("fstatfs") }
+        }
+        self.init(info)
+    }
+
+    var isRemoteSMB: Bool { identity.typeName == "smbfs" && !isLocal }
+
+    /// `getmntinfo(MNT_NOWAIT)` without the shared buffer: no I/O, and safe on any thread.
+    static func current() throws -> [MountEntry] {
+        var buffer: UnsafeMutablePointer<statfs>?
+        let count = getmntinfo_r_np(&buffer, MNT_NOWAIT)
+        guard count > 0, let buffer else { throw posixError("getmntinfo_r_np") }
+        defer { free(buffer) }
+        return UnsafeBufferPointer(start: buffer, count: Int(count)).map { MountEntry($0) }
+    }
+}

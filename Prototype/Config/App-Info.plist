@@ -10,7 +10,8 @@
     <key>CFBundleVersion</key><string>1</string>
     <key>LSMinimumSystemVersion</key><string>$(MACOSX_DEPLOYMENT_TARGET)</string>
     <key>NSPrincipalClass</key><string>NSApplication</string>
-    <key>NSLocalNetworkUsageDescription</key><string>Read your selected NAS test file to measure transfer performance.</string>
+    <key>NSLocalNetworkUsageDescription</key><string>tinymounter reads files from the server of the share that you select. The files on the server do not change.</string>
+    <key>NSNetworkVolumesUsageDescription</key><string>tinymounter reads files from the share that you select. The files on the server do not change.</string>
     <key>TinyMounterAppGroup</key><string>$(TINYMOUNTER_APP_GROUP)</string>
 </dict></plist>
 
