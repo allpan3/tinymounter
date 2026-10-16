@@ -204,6 +204,23 @@ final class TransferCoreTests: XCTestCase {
         XCTAssertEqual(planner.classify(offset: 512 * mib, length: mib), .demand(sequential: false))
     }
 
+    func testReadAheadOneChunkWindowStaysOneChunkAhead() throws {
+        let mib: Int64 = 1 << 20
+        let size = 1024 * mib
+        var planner = ReadAheadPlanner(fileSize: size, chunk: 16 * mib, window: 16 * mib, maxInFlight: 1)
+        _ = planner.demandCompleted(try ByteRange(offset: 0, length: 16 * mib, fileSize: size), sequential: false)
+        for step in Int64(0)..<8 {
+            let start = 16 * mib + step * 32 * mib
+            XCTAssertEqual(planner.classify(offset: start, length: mib), .demand(sequential: true))
+            let planned = planner.demandCompleted(try ByteRange(offset: start, length: 16 * mib, fileSize: size),
+                                                  sequential: true)
+            XCTAssertEqual(planned, [try ByteRange(offset: start + 16 * mib, length: 16 * mib, fileSize: size)])
+            XCTAssertEqual(planner.classify(offset: planned[0].offset, length: planned[0].length),
+                           .speculative(current: true))
+            XCTAssertEqual(planner.speculativeFinished(planned[0]), [])
+        }
+    }
+
     func testReadAheadSeekMakesOutstandingRequestsStale() throws {
         let mib: Int64 = 1 << 20
         let size = 100 * mib

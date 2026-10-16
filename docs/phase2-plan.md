@@ -7,15 +7,16 @@ D1](results/2026-10-12-remount-identity.md). M3's [share grant and Finder
 spikes](results/2026-10-12-share-grant.md), verified in the signed app, with its regression read
 passing on 2026-10-13. M4 and M5 [passed their runtime checks](results/2026-10-14-catalog-browsing-reads.md)
 on 2026-10-14 and 2026-10-15. The follow-up on 2026-10-15 fixed IINA's full-download fallbacks
-and read-ahead stalls, and Remove Location now deletes downloaded copies. A system race that can
-still cause a fallback remains. Nothing after M5 is built.
+and read-ahead stalls, and Remove Location now deletes downloaded copies. A system race that caused
+fallbacks was avoided in 11 stress trials after the window became one chunk
+([comparison](results/2026-10-15-read-ahead-window.md)). Nothing after M5 is built.
 
 This is phase 2 of [architecture §10](architecture.md#10-implementation-sequence-and-exit-criteria).
 It starts before phase 1's exit and keeps the current transport. The phase 1 sequential
-partial-read gate still fails. This phase changes neither that nor the seek-first read-ahead
-settings. Evidence tags: **[V]** verified in this VM, **[H]** stated in the macOS 27.0 SDK
-headers, **[D]** documented by Apple online only, **[I]** inferred, **[A, Mx]** an assumption that
-milestone Mx checks.
+partial-read gate still fails. This phase doesn't change that; of the seek-first read-ahead
+settings it changes only the window. Evidence tags: **[V]** verified in this VM, **[H]** stated
+in the macOS 27.0 SDK headers, **[D]** documented by Apple online only, **[I]** inferred,
+**[A, Mx]** an assumption that milestone Mx checks.
 
 ## 1. Decisions
 
@@ -221,8 +222,8 @@ Only `.workingSet` is signalled: replicated domains ignore other containers [H].
 not the catalog, the XPC contract or the UI.
 
 **Kept as is:** full and partial fetch with the EOF clamp and alignment; the seek-first read-ahead
-settings (16 MiB demand extent and chunk, 128 MiB window, one speculative fetch in flight, 30 ms
-chain gap); `versionNoLongerAvailable` on any version change; `O_EXCL` staging and the
+settings (16 MiB demand extent and chunk, one speculative fetch in flight, 30 ms chain gap);
+`versionNoLongerAvailable` on any version change; `O_EXCL` staging and the
 same-volume `RENAME_EXCL` handoff with no copy fallback; both peer code-signing requirements and
 the euid check; no payload bytes over XPC; the 4096-byte message bound; two app transfer workers
 and four jobs per session; pipeline depth 2; `invalidate()` never cancels queued operations; the
@@ -241,6 +242,7 @@ empty trash enumerator; logs only under `dev.tinymounter.prototype`.
 | Fetch progress, 60 s stall deadline instead of 300 s (D2) | Long healthy downloads fail at 300 s; the system stops fetches that show no progress [H] |
 | Reimport `createItem` matched to existing items | A rejection is retried, and `nil` would delete the disk copy [H] |
 | Read-ahead state per item | The planner tracked one file per domain |
+| Read-ahead window 16 MiB, not 128 MiB | A fast reader caught deeper read-ahead and the system downloaded the whole file [V, M5] |
 | A Dock icon instead of the harness window | Decision 5 |
 
 ## 4. Data model
@@ -528,7 +530,8 @@ which falls short of synchronization.md rule 2.
 and content version, and drops the least recently used. A version change starts a new planner.
 The speculative map is keyed by request ID and records the item and version. Items still share the domain's
 pipeline depth of 2, so one file's read-ahead can delay another file's foreground read [I].
-The settings are phase 1's; two planner rules are new [V, M5]:
+The settings are phase 1's, except the window: one 16 MiB chunk past the latest sequential miss
+(above). Two planner rules are new [V, M5]:
 
 - Each planner remembers the ranges it handed to the system (up to 64 merged ranges). A returned
   range never extends into them, and read-ahead skips them. In M5, IINA's second read position
@@ -834,6 +837,10 @@ results](results/2026-10-14-catalog-browsing-reads.md)):
 - Remove Location with `.preserveDownloadedUserData` moved the 5 fully downloaded files, not the
   partly downloaded ones, into a dated, read-only (`uchg`) folder next to the location in
   CloudStorage. Remove Location now uses `.removeAll` (D3).
+- A one-chunk (16 MiB) read-ahead window avoided the system materialization race in 0/11
+  moving-boundary stress trials, against 5/5 failures at 128 MiB. IINA's playback and seeks were
+  unchanged, and it fetched less data that IINA never read
+  ([comparison](results/2026-10-15-read-ahead-window.md)).
 
 ### Unverified assumptions
 
@@ -887,10 +894,6 @@ itself was not reached; the default is unchanged.
   ignored for replicated providers, and requesting a directory enumeration restored children
   without clearing the banner in the October 15 follow-up. Should a notification ask the user
   to click Try Again? User approval is required before adding this UI.
-- Should the read-ahead window become 16 MiB? The October 15 moving-boundary workload failed
-  in 5/5 fresh-replica trials at 128 MiB and 0/5 at 16 MiB. The temporary comparison was restored;
-  adopting it remains proposed and needs player/seek validation. Full-handoff cleanup only
-  removes redundant speculation after a fallback; it does not prevent that fallback.
 - A mount reached by another address or account doesn't match the grant and shows as not
   connected. Is matching on host and share instead worth its risk in phase 3?
 - Can the extension start the app when it needs the reader? No API is known; the plan relies on

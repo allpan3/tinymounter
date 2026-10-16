@@ -5,7 +5,8 @@ import OSLog
 private enum ReadAheadPolicy {
     static let demandExtent: Int64 = 16 << 20
     static let chunk: Int64 = 16 << 20
-    static let window: Int64 = 128 << 20
+    /// Deeper windows let fast readers fault on ranges fileproviderd was still applying.
+    static let window: Int64 = 16 << 20
     /// fileproviderd dispatched a waiting seek only once back-to-back speculative requests paused.
     static let chainGap: DispatchTimeInterval = .milliseconds(30)
 }

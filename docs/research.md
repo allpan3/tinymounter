@@ -36,8 +36,9 @@ The public manager API can request a particular range to be downloaded [A10]. It
 
 The [runtime follow-up](results/2026-10-15-runtime-followup.md) reproduced the materialization
 race in 5/5 moving-boundary reads with the approved 128 MiB window. A temporary 16 MiB window
-had 0/5 failures; source and runtime were restored to 128 MiB. This is a stress workload in the
-VM, not a real-player failure rate or proof that one chunk eliminates the race.
+had 0/5 failures. The [window comparison](results/2026-10-15-read-ahead-window.md) added 0/6
+and adopted the 16 MiB window. This is a stress workload in the VM, not a real-player failure
+rate or proof that one chunk eliminates the race.
 
 The manager header says replicated providers must signal the working set; individual container
 signals are ignored. `signalErrorResolved` cancels error throttling, without guaranteeing a Finder
