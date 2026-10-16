@@ -38,6 +38,16 @@ current status.
 | rely on an external fact or competitor claim    | [research.md](docs/research.md)             |
 | commit, open a PR or cut a release              | [CONTRIBUTING.md](CONTRIBUTING.md)          |
 
+## Where to test
+
+Develop on the Mac, but run every test and check in the VMPal VM `macOS VM 1`. The Mac has only
+the Command Line Tools: `swift build` works there, but `swift test` and `xcodebuild` don't, and
+runtime checks need the signed app in the VM. The VM's clone in `~/Developer/tinymounter` fetches
+from the read-only shared folder `tinymounter-host`, its remote `host`, so commit before you
+test; uncommitted edits don't reach the VM. If `git fetch host` then fails with "not our ref", the
+VM's cached view of the shared folder is stale: send a `git bundle` of the new commits with
+VMPal's file transfer and fetch from it. Raw `results/` and the `.local/` helpers stay in the VM.
+
 ## Non-negotiables
 
 Never break these without an explicit task to do so.
@@ -96,6 +106,8 @@ The user owns the product. The agent researches, proposes, builds and measures.
   paths.
 
 ## Before you finish
+
+Run these checks in the VM.
 
 - `swift test` passes.
 - `swift build -c release && python3 Tools/verify-benchmark.py` passes.
