@@ -86,9 +86,22 @@ public struct ReadAheadPlanner: Sendable {
 
     /// Returns further ranges, still bounded by the limit set at the last sequential demand miss.
     public mutating func speculativeFinished(_ range: ByteRange) -> [ByteRange] {
-        running.remove(range.offset)
+        guard running.remove(range.offset) != nil else { return [] }
         record(range)
         return plan()
+    }
+
+    // A full handoff ends speculation without suppressing reads after a later eviction.
+    public mutating func fullCompleted() {
+        for (offset, request) in pending { satisfied[offset] = request.length }
+        pending.removeAll()
+        running.removeAll()
+        delivered.removeAll()
+        generation += 1
+        runStart = 0
+        demandEnd = -1
+        next = 0
+        limit = 0
     }
 
     /// Ends the current run after a failed speculative fetch instead of retrying blindly.
@@ -183,6 +196,11 @@ public struct ReadAheadRegistry: Sendable {
     public mutating func speculativeFinished(item: String, version: String, range: ByteRange) -> [ByteRange] {
         guard let index = use(item: item, version: version) else { return [] }
         return entries[index].planner.speculativeFinished(range)
+    }
+
+    public mutating func fullCompleted(item: String, version: String) {
+        guard let index = use(item: item, version: version) else { return }
+        entries[index].planner.fullCompleted()
     }
 
     /// Never extends into delivered bytes: a read meeting that rewrite made fileproviderd download

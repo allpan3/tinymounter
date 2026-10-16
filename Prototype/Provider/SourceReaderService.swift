@@ -6,7 +6,9 @@ final class SourceReaderService: NSObject, NSFileProviderServiceSource, NSXPCLis
     let serviceName = SourceReaderBridge.serviceName
     let isRestricted = true
     private let domainID: String
-    private let lock = NSLock()
+    private let lock = NSCondition()
+    private let startupDeadline = ContinuousClock.now.advanced(by: .seconds(5))
+    private var hasConnected = false
     private var listener: NSXPCListener?
     private var connection: NSXPCConnection?
     private var closed = false
@@ -54,12 +56,20 @@ final class SourceReaderService: NSObject, NSFileProviderServiceSource, NSXPCLis
         guard !closed, domainID == self.domainID else { lock.unlock(); throw CocoaError(.fileReadNoPermission) }
         let old = connection
         connection = incoming
+        hasConnected = true
+        lock.broadcast()
         lock.unlock()
         if old !== incoming { old?.invalidate() }
     }
 
     func invalidate() {
-        lock.lock(); closed = true; let current = connection; connection = nil; let listener = listener; lock.unlock()
+        lock.lock()
+        closed = true
+        let current = connection
+        connection = nil
+        let listener = listener
+        lock.broadcast()
+        lock.unlock()
         current?.invalidate()
         listener?.invalidate()
     }
@@ -82,7 +92,7 @@ final class SourceReaderService: NSObject, NSFileProviderServiceSource, NSXPCLis
     func fetch(_ request: SourceReadRequest, directory: URL, progress: Progress) throws -> (URL, TransferMetrics) {
         let id = request.id.uuidString
         let response = Response(progress: progress)
-        let proxy = try proxy { response.finish(.failure($0)) }
+        let proxy = try proxy(startupProgress: progress) { response.finish(.failure($0)) }
         lock.withLock { waiting[id] = response }
         defer {
             lock.withLock { waiting[id] = nil }
@@ -113,8 +123,27 @@ final class SourceReaderService: NSObject, NSFileProviderServiceSource, NSXPCLis
         return (destination, receipt.metrics)
     }
 
-    private func proxy(_ failed: @escaping (Error) -> Void) throws -> SourceReaderProtocol {
-        guard let connection = lock.withLock({ connection }) else { throw NSFileProviderError(.serverUnreachable) }
+    private func proxy(startupProgress: Progress? = nil,
+                       _ failed: @escaping (Error) -> Void) throws -> SourceReaderProtocol {
+        let connection = try lock.withLock {
+            let started = ContinuousClock.now
+            var waited = false
+            defer {
+                if waited {
+                    logger.info("reader_startup wait_ms=\(started.duration(to: .now) / .milliseconds(1), format: .fixed(precision: 1)) connected=\(self.connection != nil)")
+                }
+            }
+            // Only a new extension waits; losing an established reader still fails at once.
+            while let progress = startupProgress, !closed, !hasConnected, connection == nil,
+                  ContinuousClock.now < startupDeadline {
+                guard !progress.isCancelled else { throw TransferError.cancelled }
+                waited = true
+                _ = lock.wait(until: Date(timeIntervalSinceNow: 0.1))
+            }
+            guard startupProgress?.isCancelled != true, !closed else { throw TransferError.cancelled }
+            guard let connection else { throw NSFileProviderError(.serverUnreachable) }
+            return connection
+        }
         // A lost connection means the app's reader is gone, not a Cocoa error for the system.
         return connection.remoteObjectProxyWithErrorHandler { _ in
             failed(NSFileProviderError(.serverUnreachable))

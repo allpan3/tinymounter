@@ -26,7 +26,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
     private var invalidated = false
     private var readAhead = ReadAheadRegistry(chunk: ReadAheadPolicy.chunk, window: ReadAheadPolicy.window, maxInFlight: 1)
     /// Speculative fetches in flight and their items, so a seek cancels only its own item's.
-    private var speculative: [UUID: (item: String, progress: Progress)] = [:]
+    private var speculative: [UUID: (item: String, version: String, progress: Progress)] = [:]
     private var mutations: [String: Int] = [:]
     private let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "fetch")
     private let actionLogger = Logger(subsystem: "dev.tinymounter.prototype", category: "actions")
@@ -130,7 +130,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 }
             }
             active[requestID] = progress
-            if kind == .speculative(current: true) { speculative[requestID] = (row.id, progress) }
+            if kind == .speculative(current: true) { speculative[requestID] = (row.id, row.contentVersion, progress) }
             return (kind, seekCancels, invalidated)
         }
         seekCancels.forEach { $0.cancel() }
@@ -181,7 +181,16 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 completion(staging, CatalogItem(row), NSRange(location: Int(range.offset), length: Int(range.length)), nil)
                 // Ownership now belongs to File Provider; never modify or unlink after handoff.
                 staging = nil
-                if let kind { readAheadCompleted(kind, row: row, range: range) }
+                if let kind {
+                    readAheadCompleted(kind, row: row, range: range)
+                } else {
+                    let cancellations = lock.withLock {
+                        readAhead.fullCompleted(item: row.id, version: row.contentVersion)
+                        return speculative.values.filter { $0.item == row.id && $0.version == row.contentVersion }
+                            .map(\.progress)
+                    }
+                    cancellations.forEach { $0.cancel() }
+                }
             } catch {
                 if let staging { try? FileManager.default.removeItem(at: staging) }
                 let failure = error as NSError

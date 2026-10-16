@@ -32,6 +32,20 @@ The public manager API can request a particular range to be downloaded [A10]. It
 
 `fetchPartialContents` documentation also describes `NSFileProviderExtensionNonMaterializingProcessNames`, a UserDefaults key naming processes whose POSIX or coordinated reads must not fetch content [A2]. With Finder listed, Finder's coordinated open failed with `EPERM` and Finder didn't launch the app, so the key can't turn a Finder open into a streamed one. Listing `ScopedBookmarkAgent` instead stops its recent-file bookmark resolution from downloading whole files, and the bookmarks still resolve (M5 follow-up, 2026-10-15).
 
+## Recovery and race follow-up, 2026-10-15
+
+The [runtime follow-up](results/2026-10-15-runtime-followup.md) reproduced the materialization
+race in 5/5 moving-boundary reads with the approved 128 MiB window. A temporary 16 MiB window
+had 0/5 failures; source and runtime were restored to 128 MiB. This is a stress workload in the
+VM, not a real-player failure rate or proof that one chunk eliminates the race.
+
+The manager header says replicated providers must signal the working set; individual container
+signals are ignored. `signalErrorResolved` cancels error throttling, without guaranteeing a Finder
+retry [A11]. A full-range download request on a dataless directory enumerates only one level and
+leaves its children dataless [A10]. A diagnostic request restored the failed folder's 24 children,
+but Finder retained its error banner. The pending set did not expose that failed folder. These
+observations do not establish a complete supported automatic recovery path.
+
 ## File types and access patterns
 
 Choose the full-versus-partial path from the application's actual request and the user's download intent, not just the file extension. Video and audio are obvious streaming candidates, but readers may also request metadata or indexes near EOF. PDF is not categorically a whole-file workload: Adobe documents linearized PDFs as optimized for page-served network access [P1]. That establishes a format capability, not how Preview or another macOS viewer accesses this provider. Test each viewer with representative documents; a coordinated open still requests full materialization under Apple's documented rules [A1].
@@ -95,6 +109,7 @@ No reviewed page establishes ≥90% native throughput for an offline-caching SMB
 - **A8:** Installed Xcode 27 SDK `usr/include/sys/resource.h` — `getiopolicy_np`, `setiopolicy_np`, `IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES` and process scope; `sys/stat.h` — `SF_DATALESS`. Actual inherited OFF policy and opt-in ON behavior were tested in the runtime experiment.
 - **A9:** Installed Xcode 27 SDK `FileProvider.framework/Headers/NSFileProviderService.h` and `NSFileProviderReplicatedExtension.h` — `NSFileProviderServicing`, anonymous listener endpoints, restricted services available to domain managers, and `NSFileProviderManager.getService`. `Foundation.framework/Headers/NSFileManager.h` documents `NSFileProviderService.getFileProviderConnection`; `NSXPCConnection.h` documents peer code-signing requirements. These public APIs bootstrap the app-owned reader without a Mach lookup exception or separate helper. Runtime proved the expected signed peers connect; adversarial peer rejection remains untested.
 - **A10:** Installed Xcode 27 SDK `FileProvider.framework/Headers/NSFileProviderManager.h`, Materialize category, and the framework Swift interface — `requestDownloadForItem(withIdentifier:requestedRange:completionHandler:)`, available on macOS 13. Range requests schedule partial fetches; completion is scheduling acknowledgement. `NSFileProviderReplicatedExtension.h` documents valid range layout and `knownSparseRanges`: that flag applies to complete-file sparse content, not a way to mark unfetched holes as downloaded. `NSFileProviderRequest.h` restricts requesting-executable information to managed deployments; it cannot serve as a general player-position signal.
+- **A11:** Installed Xcode 27 SDK `FileProvider.framework/Headers/NSFileProviderManager.h`, reviewed 2026-10-15 — working-set-only signaling for replicated providers, `signalErrorResolved` removes throttling, and directory `requestDownloadForItem` performs one-level enumeration. The reimport API can widen its scope and restarts the extension; it is not a targeted Finder error reset.
 
 ### Vendors and SMB implementations
 

@@ -34,8 +34,7 @@ the README status line. Keep this order:
 
 A past log is a record. Correct it with a new log or a dated note, not by rewriting it.
 
-Latest completed experiment: [2026-10-14 — catalog browsing and reads by
-item](results/2026-10-14-catalog-browsing-reads.md). Earlier: [share grant and Finder
+Latest completed experiment: [2026-10-15 — runtime race and recovery follow-up](results/2026-10-15-runtime-followup.md). Earlier: [catalog browsing and reads by item](results/2026-10-14-catalog-browsing-reads.md), [share grant and Finder
 spikes](results/2026-10-12-share-grant.md), [core library listing on the NAS share](results/2026-10-12-nas-listing.md),
 [remount identity](results/2026-10-12-remount-identity.md), [offline reading with the NAS
 unreachable](results/2026-10-11-offline-reading.md), [player launch paths and bounded

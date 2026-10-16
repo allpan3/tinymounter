@@ -485,6 +485,10 @@ which falls short of synchronization.md rule 2.
    preferring the 16 MiB demand extent or the planned speculative length. A full fetch is
    `[0, size)`.
 3. **Request.** XPC `fetch {id, item, version, range}` on the existing two-worker queue.
+   Before the first reader connection, fetches share a deadline 5 s after the extension's
+   per-domain reader service starts. Attachment wakes them; cancellation is checked at most
+   100 ms apart. Expiry gives `serverUnreachable`. Losing an established connection still fails
+   at once. This startup wait is separate from the transfer stall deadline below.
 4. **App.** Check the version against the row, then the share state: not connected or
    unresponsive gives `serverUnreachable` with no I/O. Build the path from the catalog and open
    `ReadOnlyFile(directoryFD: locationRoot, relativePath:, expected:, noCache: true)`. It uses
@@ -516,10 +520,13 @@ which falls short of synchronization.md rule 2.
 7. **Read-ahead follow-up.** `demandCompleted` and `speculativeFinished` per item lead to
    `requestDownloadForItem(withIdentifier: item, requestedRange:)`, with the 30 ms chain gap.
    The range returned for a demand stops at the first byte already delivered (`ReadAheadRegistry.extent`).
+   A successful full handoff retires that item/version's pending speculation and cancels its
+   running speculation. Late completions cannot extend that chain. A later demand after eviction
+   can start a fresh run; the planner does not remember the whole file as permanently delivered.
 
 **Per-item read-ahead.** `ReadAheadRegistry` holds up to 8 `ReadAheadPlanner`s, keyed by item ID
 and content version, and drops the least recently used. A version change starts a new planner.
-The speculative map is keyed by request ID and records the item. Items still share the domain's
+The speculative map is keyed by request ID and records the item and version. Items still share the domain's
 pipeline depth of 2, so one file's read-ahead can delay another file's foreground read [I].
 The settings are phase 1's; two planner rules are new [V, M5]:
 
@@ -556,7 +563,7 @@ only, as today.
 
 | Condition | Extension returns | Location status |
 | --- | --- | --- |
-| Reader not connected (app quit or starting) | listed folders from the catalog; otherwise `serverUnreachable` | — |
+| Reader not connected (app quit or starting) | listed folders from the catalog; fetches wait only within the initial 5 s connection window, otherwise `serverUnreachable` | — |
 | No matching mount in the mount table | `serverUnreachable` at once, with no I/O | "Connect to the share with Connect to Server in Finder." (new) |
 | ENOENT or ENOTDIR at the share root; a share or location root whose `fstatfs` fails or no longer matches (`notConnected`) | `serverUnreachable`; the share stays not connected until a new mount, and no probe runs | as the row above |
 | ETIMEDOUT, ENOTCONN, ENETDOWN, ENETUNREACH, EHOSTDOWN, EHOSTUNREACH, ECONNRESET, ENXIO, ESTALE; an operation with no progress for 15 s; bookmark resolution fails while the mount is present (offline in phase 1: Cocoa 257 after about 30 s [V]) | `serverUnreachable`; the share becomes unresponsive | "tinymounter cannot connect to <host>. Make sure that <host> is on. Make sure that this Mac is on the same network." (approved) |
@@ -594,6 +601,13 @@ the mount's own timeout: about 30 s measured [V], up to 600 s if the mount is ha
 extension [H]. Evicted folders with a complete listing come from the catalog. Never-listed folders
 fail with `serverUnreachable`. Nothing is invented: rows come only from complete listings and
 `fstat` results.
+
+**Failed folder recovery.** `signalErrorResolved` lifts error throttling; it does not promise
+that Finder retries an enumeration. Replicated extensions signal `.workingSet`; the SDK says
+individual folder signals are ignored. In the [October 15 follow-up](results/2026-10-15-runtime-followup.md),
+a diagnostic one-level directory download request repopulated all children, but Finder retained
+the error banner even after another resolution signal and a folder metadata update. The pending
+set did not expose the failed folder. No automatic recovery workaround or notification is installed.
 
 **Notifications** (decision 5), when General › Notifications is on. One per share per outage,
 never at launch and never with a file name:
@@ -633,7 +647,8 @@ shows retry storms, propose `deletionRejected` and `cannotSynchronize` to the us
   removed.
 - **Extension start:** delete `tinymounter-<UUID>.stage` regular files in its temporary directory
   that were created before this process started and are not active; log `temp_removed=N` and
-  the stage files left. The header requires this cleanup [H]. Planners start empty.
+  the stage files left. The header requires this cleanup [H]. Planners start empty. The first
+  fetches can wait for the reader connection within the shared 5 s startup window described in §6.
 - **`fileproviderd` restart:** anchors and tombstones are durable, so the system resumes.
 - **macOS restart:** the share stays unmounted until the user connects it in Finder, and sessions
   never mount it. That kept files stay readable across a full restart is not tested.
@@ -856,6 +871,7 @@ itself was not reached; the default is unchanged.
 | Entries per folder | at most 100,000 |
 | Pending listings per session | 16 |
 | Read-ahead planners kept | 8 items |
+| Initial reader connection deadline; cancellation polling | 5 s from service creation; 100 ms |
 | Keep IDs per message; per action | 100; 1,000 |
 | Progress message interval; fetch stall deadline from `started` (D2) | 0.5 s; 60 s |
 | Working-set signal debounce; D5 confirmation listing | 200 ms; 15 s |
@@ -867,8 +883,14 @@ itself was not reached; the default is unchanged.
 - Does the system call `enumerateChanges` on folder or item enumerators in a replicated domain?
   Both implement it, so either case works.
 - Does a kept file whose parent folder is not materialized get its eager download?
-- Finder keeps a failed folder's error until Try Again (M4). Should the app nudge it, for example by
-  signalling the folder itself, or should a notification ask the user to click Try Again?
+- Finder keeps a failed folder's error until Try Again (M4). Individual folder signals are
+  ignored for replicated providers, and requesting a directory enumeration restored children
+  without clearing the banner in the October 15 follow-up. Should a notification ask the user
+  to click Try Again? User approval is required before adding this UI.
+- Should the read-ahead window become 16 MiB? The October 15 moving-boundary workload failed
+  in 5/5 fresh-replica trials at 128 MiB and 0/5 at 16 MiB. The temporary comparison was restored;
+  adopting it remains proposed and needs player/seek validation. Full-handoff cleanup only
+  removes redundant speculation after a fallback; it does not prevent that fallback.
 - A mount reached by another address or account doesn't match the grant and shows as not
   connected. Is matching on host and share instead worth its risk in phase 3?
 - Can the extension start the app when it needs the reader? No API is known; the plan relies on

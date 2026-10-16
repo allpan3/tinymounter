@@ -126,7 +126,7 @@ final class CatalogEnumerator: NSObject, NSFileProviderEnumerator {
         reader.list(folderID, requestID: requestID) { [self] result in
             guard once.claim() else {
                 log(result.isSuccess ? "late_listed" : "late_failed")
-                // The system retries what failed with serverUnreachable once it is resolved.
+                // Resolving the error lifts throttling; Finder may still require Try Again.
                 if result.isSuccess { resolveServerUnreachable() }
                 return
             }

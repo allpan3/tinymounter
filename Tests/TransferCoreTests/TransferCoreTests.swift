@@ -299,6 +299,52 @@ final class TransferCoreTests: XCTestCase {
         XCTAssertGreaterThan(delivered.count, 10)
     }
 
+    func testFullHandoffRetiresPendingAndRunningReadAhead() throws {
+        let mib: Int64 = 1 << 20, size: Int64 = 1024 << 20
+        for running in [false, true] {
+            var planner = ReadAheadPlanner(fileSize: size, chunk: 16 * mib, window: 128 * mib, maxInFlight: 1)
+            let first = try ByteRange(offset: 0, length: 16 * mib, fileSize: size)
+            let second = try ByteRange(offset: 16 * mib, length: 16 * mib, fileSize: size)
+            _ = planner.classify(offset: 0, length: 65536)
+            _ = planner.demandCompleted(first, sequential: false)
+            _ = planner.classify(offset: second.offset, length: 65536)
+            let pending = try XCTUnwrap(planner.demandCompleted(second, sequential: true).first)
+            if running {
+                XCTAssertEqual(planner.classify(offset: pending.offset, length: pending.length),
+                               .speculative(current: true))
+            }
+            planner.fullCompleted()
+            if !running {
+                XCTAssertEqual(planner.classify(offset: pending.offset, length: pending.length),
+                               .speculative(current: false))
+            }
+            XCTAssertEqual(planner.speculativeFinished(pending), [])
+            XCTAssertNil(planner.deliveredStart(after: 0))
+            XCTAssertEqual(planner.classify(offset: 0, length: 65536), .demand(sequential: false))
+            XCTAssertEqual(planner.demandCompleted(first, sequential: false), [])
+            XCTAssertEqual(planner.classify(offset: second.offset, length: 65536), .demand(sequential: true))
+            XCTAssertEqual(planner.demandCompleted(second, sequential: true), [pending])
+        }
+    }
+
+    func testFullHandoffOnlyRetiresMatchingItemVersion() throws {
+        let mib: Int64 = 1 << 20, size: Int64 = 1024 << 20
+        var registry = ReadAheadRegistry(chunk: 16 * mib, window: 128 * mib, maxInFlight: 1)
+        for item in ["A", "B"] {
+            _ = registry.classify(item: item, version: "v2", fileSize: size, offset: 0, length: 65536)
+            _ = registry.demandCompleted(item: item, version: "v2", range: try ByteRange(
+                offset: 0, length: 16 * mib, fileSize: size), sequential: false)
+            _ = registry.demandCompleted(item: item, version: "v2", range: try ByteRange(
+                offset: 16 * mib, length: 16 * mib, fileSize: size), sequential: true)
+        }
+        registry.fullCompleted(item: "A", version: "v1")
+        registry.fullCompleted(item: "B", version: "v2")
+        XCTAssertEqual(registry.classify(item: "A", version: "v2", fileSize: size,
+                                         offset: 32 * mib, length: 16 * mib), .speculative(current: true))
+        XCTAssertEqual(registry.classify(item: "B", version: "v2", fileSize: size,
+                                         offset: 32 * mib, length: 16 * mib), .speculative(current: false))
+    }
+
     func testFingerprintMatchesStatAndVersionFormat() throws {
         try withFixture { url, _, bytes in
             var times = [timespec(tv_sec: 1_700_000_000, tv_nsec: 0), timespec(tv_sec: 1_700_000_001, tv_nsec: 5)]
