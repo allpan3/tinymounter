@@ -12,6 +12,10 @@ final class LocationController {
     private(set) var problem: String?
     /// Until launch reconciliation ends, a new catalog could look like one without a record.
     private(set) var isReady = false
+    /// Pause Downloads, for every location. Each launch starts with it off (plan §7).
+    private(set) var paused = false
+    /// The latest Pause Downloads change.
+    private var pauseChange: Task<Bool, Never>?
     var onChange: (() -> Void)?
     private let reader = SourceReaderHost()
     private var shares: [UUID: ShareAccess] = [:]
@@ -141,6 +145,7 @@ final class LocationController {
             throw error
         }
         sources[record.domainID] = source
+        if paused { Self.pause(source, true) }
         onChange?()
         try await NSFileProviderManager.add(domain(for: record))
         await refreshDomains()
@@ -172,13 +177,51 @@ final class LocationController {
         onChange?()
     }
 
+    /// Plan §6: Keep Downloaded downloads and read-ahead stop; a file that the user opens downloads.
+    /// Returns false if a catalog kept its earlier state.
+    func setPaused(_ paused: Bool) async -> Bool {
+        // Each change waits for the one before it, so the last request is the state that stays.
+        let previous = pauseChange
+        let change = Task {
+            _ = await previous?.value
+            self.paused = paused
+            let all = Array(sources.values)
+            // Catalog writes can wait for a listing's commit, so they run off the main actor.
+            let failed = await Task.detached { all.count { !Self.pause($0, paused) } }.value
+            // Only after every commit: a fetch that the extension checks later sees `paused`.
+            if paused { reader.pauseDownloads() }
+            // A catalog that stays paused needs Resume.
+            if failed > 0 { self.paused = true }
+            onChange?()
+            return failed == 0
+        }
+        pauseChange = change
+        return await change.value
+    }
+
+    @discardableResult
+    nonisolated private static func pause(_ source: LocationSource, _ paused: Bool) -> Bool {
+        do {
+            let changed = try source.setPaused(paused)
+            catalogLog.info("""
+                paused=\(paused) domain=\(source.domainID, privacy: .public) kept_changed=\(changed)
+                """)
+            return true
+        } catch {
+            catalogLog.error("""
+                paused=\(paused) domain=\(source.domainID, privacy: .public) failed \(logFields(error), privacy: .public)
+                """)
+            return false
+        }
+    }
+
     func manager(for record: LocationRecord) -> NSFileProviderManager? {
         NSFileProviderManager(for: domains[record.domainID] ?? domain(for: record))
     }
 
     /// Plan §7 diagnostics: counts only, at launch and on SIGUSR1.
     func logDiagnostics(reason: String) {
-        var open = 0, unavailable = 0, items = 0, tombstones = 0, listed = 0
+        var open = 0, unavailable = 0, items = 0, tombstones = 0, listed = 0, kept = 0, paused = 0
         for source in sources.values {
             do {
                 let counts = try source.counts()
@@ -186,6 +229,8 @@ final class LocationController {
                 items += counts.live
                 tombstones += counts.tombstones
                 listed += counts.listedFolders
+                kept += counts.kept
+                if try source.isPaused() { paused += 1 }
             } catch {
                 unavailable += 1
             }
@@ -197,7 +242,7 @@ final class LocationController {
             diagnostics reason=\(reason, privacy: .public) catalog_files=\(files) catalogs_open=\(open) \
             catalogs_unavailable=\(unavailable) items=\(items) tombstones=\(tombstones) listed_folders=\(listed) \
             stage_files=\(stageFiles) descriptors=\(descriptors) rss_bytes=\(rss) shares=\(self.shares.count) \
-            sessions=\(sessions)
+            sessions=\(sessions) kept=\(kept) catalogs_paused=\(paused)
             """)
     }
 
@@ -241,7 +286,10 @@ final class LocationController {
                       let folder = RelativePath(record.folder) else { throw CocoaError(.fileReadCorruptFile) }
                 let catalog = try Catalog.openWriter(at: SharedContainer.catalogURL(domainID: record.domainID),
                                                      domainID: record.domainID)
-                sources[record.domainID] = makeSource(record, folder: folder, grant: grant, catalog: catalog)
+                let source = makeSource(record, folder: folder, grant: grant, catalog: catalog)
+                sources[record.domainID] = source
+                // Pause Downloads ends with the app process that set it. If it stays, offer Resume.
+                if !Self.pause(source, false) { paused = true }
             } catch {
                 Self.catalogLog.error("""
                     catalog_unavailable domain=\(record.domainID, privacy: .public) \(logFields(error), privacy: .public)

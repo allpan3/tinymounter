@@ -102,6 +102,56 @@ public struct SourceReadStarted: Codable, Equatable, Sendable {
     public init(id: UUID) { self.id = id }
 }
 
+/// Keep Downloaded (`keep` true) or Allow Removal for some files. Only the app writes it (M6).
+public struct KeepRequest: Codable, Equatable, Sendable {
+    /// 100 UUIDs make a message of about 4,000 bytes, within `ReaderMessage.maxBytes`.
+    public static let maxItems = 100
+    public static let maxItemsPerAction = 1_000
+
+    public let id: UUID
+    public let items: [String]
+    public let keep: Bool
+
+    /// Only file IDs: the root is a folder, and its longer ID would break the size bound.
+    public init(id: UUID = UUID(), items: [String], keep: Bool) throws {
+        guard (1...Self.maxItems).contains(items.count),
+              items.allSatisfy({ $0 != Catalog.rootItemID && ReaderMessage.isItemID($0) }) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        self.id = id
+        self.items = items
+        self.keep = keep
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(id: container.decode(UUID.self, forKey: .id), items: container.decode([String].self, forKey: .items),
+                      keep: container.decode(Bool.self, forKey: .keep))
+    }
+
+    /// One action's items in messages of at most `maxItems`; more than `maxItemsPerAction` is refused.
+    public static func batches(_ items: [String], keep: Bool) throws -> [KeepRequest] {
+        guard items.count <= maxItemsPerAction else { throw CocoaError(.featureUnsupported) }
+        return try stride(from: 0, to: items.count, by: maxItems).map {
+            try KeepRequest(items: Array(items[$0..<min($0 + maxItems, items.count)]), keep: keep)
+        }
+    }
+}
+
+public struct KeepReceipt: Codable, Equatable, Sendable {
+    /// Rows whose request changed. IDs that aren't live files, or already had the value, don't count.
+    public let changed: Int
+
+    public init(changed: Int) throws {
+        guard changed >= 0 else { throw CocoaError(.fileReadCorruptFile) }
+        self.changed = changed
+    }
+
+    public init(from decoder: any Decoder) throws {
+        try self.init(changed: decoder.container(keyedBy: CodingKeys.self).decode(Int.self, forKey: .changed))
+    }
+}
+
 public struct SourceReadReceipt: Codable, Sendable {
     public let stagingName: String
     public let metrics: TransferMetrics

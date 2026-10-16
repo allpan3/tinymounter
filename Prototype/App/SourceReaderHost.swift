@@ -75,6 +75,13 @@ final class SourceReaderHost {
         }
     }
 
+    /// Call after every catalog has `paused` set, so the extensions' later checks see it.
+    func pauseDownloads() {
+        for connection in connections.values {
+            (connection.remoteObjectProxyWithErrorHandler { _ in } as? SourceReaderRegistration)?.pauseDownloads()
+        }
+    }
+
     private func retry(_ domain: NSFileProviderDomain) {
         let id = domain.identifier.rawValue
         guard domains[id] != nil else { return }
@@ -139,6 +146,33 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
             queue.addOperation { [self] in run(request, job: job, source: source, reply: reply) }
         } catch {
             logger.error("fetch failed \(logFields(error), privacy: .public)")
+            reply(nil, Self.replyError(error))
+        }
+    }
+
+    func keep(_ data: Data, reply: @escaping (Data?, NSError?) -> Void) {
+        do {
+            let request = try ReaderMessage.decode(KeepRequest.self, from: data)
+            guard let source else { throw LocationError.catalogClosed }
+            // The write can wait for a listing's commit; this connection's other messages don't.
+            DispatchQueue.global(qos: .userInitiated).async { [self] in
+                do {
+                    let changed = try source.keep(request.items, value: request.keep)
+                    logger.info("""
+                        keep request=\(request.id.uuidString, privacy: .public) domain=\(self.domainID, privacy: .public) \
+                        items=\(request.items.count) value=\(request.keep) changed=\(changed)
+                        """)
+                    reply(try ReaderMessage.encode(KeepReceipt(changed: changed)), nil)
+                } catch {
+                    logger.error("""
+                        keep request=\(request.id.uuidString, privacy: .public) domain=\(self.domainID, privacy: .public) \
+                        failed \(logFields(error), privacy: .public)
+                        """)
+                    reply(nil, Self.replyError(error))
+                }
+            }
+        } catch {
+            logger.error("keep failed \(logFields(error), privacy: .public)")
             reply(nil, Self.replyError(error))
         }
     }

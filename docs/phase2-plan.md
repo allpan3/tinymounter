@@ -9,7 +9,9 @@ passing on 2026-10-13. M4 and M5 [passed their runtime checks](results/2026-10-1
 on 2026-10-14 and 2026-10-15. The follow-up on 2026-10-15 fixed IINA's full-download fallbacks
 and read-ahead stalls, and Remove Location now deletes downloaded copies. A system race that caused
 fallbacks was avoided in 11 stress trials after the window became one chunk
-([comparison](results/2026-10-15-read-ahead-window.md)). Nothing after M5 is built.
+([comparison](results/2026-10-15-read-ahead-window.md)). M6 [passed its runtime
+checks](results/2026-10-16-keep-pause.md) on 2026-10-16, which also verified the D2 deadline.
+Nothing after M6 is built.
 
 This is phase 2 of [architecture §10](architecture.md#10-implementation-sequence-and-exit-criteria).
 It starts before phase 1's exit and keeps the current transport. The phase 1 sequential
@@ -510,9 +512,9 @@ which falls short of synchronization.md rule 2.
 5. **Progress (D2).** When a worker begins the transfer, the app sends `started {id}`. Then it
    sends `progress(requestID, completedBytes)` at most every 0.5 s, and the extension sets
    `Progress.completedUnitCount`. From `started`, the wait ends with `serverUnreachable` after
-   60 s with neither progress nor a reply. This replaces the absolute 300 s deadline. Before
-   `started`, only the reply, a lost XPC connection or cancellation ends the wait, so time queued
-   for the two workers that all locations share is not a stall. The app bounds that time: each
+   60 s with neither progress nor a reply [V, M6]. This replaces the absolute 300 s deadline.
+   Before `started`, only the reply, a lost XPC connection or cancellation ends the wait, so time
+   queued for the two workers that all locations share is not a stall. The app bounds that time: each
    running transfer progresses, fails with the mount's own timeout, or is refused at once while
    the share is unresponsive. The system cancels a fetch that stops making progress, after a time
    that it doesn't state [H], so it may still cancel a queued fetch [A, M5] (section 9).
@@ -548,14 +550,26 @@ the key set, the agent's read fails with EPERM, the recent items still show, and
 streams [V, M5]. Other uses of the agent are untested.
 
 **Keep Downloaded downloads** are ordinary full fetches after the item reports
-`.downloadEagerlyAndKeepDownloaded`. A request is not proof of a download (decision 3).
+`.downloadEagerlyAndKeepDownloaded`. A request is not proof of a download (decision 3). The
+system downloads a kept file only when its parent folder is materialized: a kept file in a folder
+that the system never enumerated waits until the folder is enumerated [V, M6]. Evicting a kept
+file fails; evicting its folder evicts it, and the system downloads it again at once [V, M6].
 
 **Pause Downloads** (decision 5). The app sets `paused` in each catalog and signals `.workingSet`.
 While it is set, kept items report `.downloadLazily`, so the system starts no eager downloads, and
-the extension requests no read-ahead. Eager fetches already running complete with `userCancelled`
-when `request.isSystemRequest` is true [A, M6]. A file that the user opens downloads as usual.
-Resume and app launch clear `paused`. Kept files already on disk stay unless the system needs the
-space while paused [A, M6].
+the extension requests no read-ahead. After the commits, the app tells each connected extension,
+which cancels its running fetches that are system requests or speculative; such a fetch that
+starts later fails at once. A fetch that checked `paused` before the commit and still waits for
+the first reader connection (up to 5 s) misses the cancel and downloads; M7 adds a `paused` check
+when the connection is ready. A reader that waits on a cancelled speculative range gets it from its
+own fetch about 0.7 s later [V, M6]. Eager Keep Downloaded fetches are system requests
+(`request.isSystemRequest`) [V, M6], so they complete with `userCancelled`. A file that the user
+opens downloads as usual, and so does Finder's Download Now, which is not a system request
+[V, M6]. Resume and app launch clear `paused`. Pause and Resume changes run one at a time, in
+order. A failed change shows a message, and while a catalog may still be paused, the app offers
+Resume. Kept files already on disk stay while paused [V, M6, without disk pressure], unless the
+system needs the space [A]. While paused, the user can also remove their downloads, and Resume
+downloads them again [V, M6].
 
 ## 7. Errors, offline and restart
 
@@ -755,8 +769,8 @@ Downloads or Resume Downloads, Settings… and Quit tinymounter.
 Only files publish `userInfo["keep"]`, so a selection with a folder matches neither rule. Kept
 files report `.downloadEagerlyAndKeepDownloaded`, except while paused; other items keep
 `.downloadLazily`, as today. `performAction` sends at most 100 IDs per message, to stay within
-4096 bytes, and accepts at most 1,000 IDs per action. With the app quit it fails with
-`serverUnreachable`. Finder's own Download Now and Remove Download stay.
+4096 bytes, and accepts at most 1,000 IDs per action. With the app quit, or with no reply in
+10 s, it fails with `serverUnreachable`. Finder's own Download Now and Remove Download stay.
 
 **Strings.** All UI text lives in `Prototype/App/UIText.swift`, so the STE checker reads one file.
 Reused from the mockup: the sidebar and pane labels, "Not added", "Connected", "Full share",
@@ -794,8 +808,9 @@ from end to end:
   system cancels B, propose to the user a demand-read priority or a worker kept for each location.
 - A transfer that stops after `started` logs `stalled=1` about 60 s after its last progress. A
   share outage doesn't show this, because the mount's own timeout (about 30 s) makes the app reply
-  first, so stop the app's process with `SIGSTOP` during a transfer, then continue it. Until this
-  check runs, the `started` path from the app to the extension is unverified.
+  first, so stop the app's process with `SIGSTOP` during a transfer, then continue it. M6 ran
+  this check on 2026-10-16: `stalled=1` came 60.0 s after the stop
+  ([results](results/2026-10-16-keep-pause.md)).
 
 M1 also built `setKeep`, `setPaused`, `keptItems` and `ShareHealth`, which belong to M6 and M4.
 They stay in M1: D5's kept-file rule needs `keep` in its tests. M4 extends `ShareHealth` with the
@@ -842,12 +857,29 @@ results](results/2026-10-14-catalog-browsing-reads.md)):
   unchanged, and it fetched less data that IINA never read
   ([comparison](results/2026-10-15-read-ahead-window.md)).
 
+### Verified in M6
+
+On 2026-10-16 in the signed app in the VM ([M6 results](results/2026-10-16-keep-pause.md)):
+
+- Keep Downloaded and Allow Removal changed one row each and switched the Finder action. All 6
+  completed eager downloads of kept files were system requests. With the app quit, the action
+  failed with `serverUnreachable`.
+- Pause cancelled a running 2.74 GB eager download in the same millisecond as its commit, and the
+  system's retry failed at once. A user read and Finder's Download Now still downloaded, and
+  read-ahead stopped and started again with Resume. Resume and a relaunch downloaded the files
+  kept while paused. Cancelling a running speculative fetch didn't fail the read that waited on it
+  (3 of 3), and a kept file's download could be removed while paused.
+- A kept file in a folder that the system never enumerated didn't download in 74 s. It downloaded
+  0.14 s after the folder was listed.
+- D2: a fetch failed 60.0 s after `SIGSTOP` of the app, and after `SIGCONT` the app released the
+  job and left no stage file.
+
 ### Unverified assumptions
 
 | Assumption | Checked in |
 | --- | --- |
 | File IDs, mtime and ctime after a second remount, a server restart, a rename or a replacement (one remount measured: unchanged) | M2, M9 |
-| `isSystemRequest` marks eager Keep Downloaded fetches, and kept files stay on disk while they report `.downloadLazily` | M6 |
+| Kept files stay on disk while paused when the system needs the space (2.5 min without disk pressure measured) | not tested: it needs a full disk |
 | The system applies a root update from the working set, and a `displayName` update renames the CloudStorage folder | M7 |
 | Notification permission and `SMAppService` work from the build folder | M7 |
 | Materialized-set sizes give the disk space used; partly downloaded files make it an estimate | M8 |
@@ -880,6 +912,7 @@ itself was not reached; the default is unchanged.
 | Read-ahead planners kept | 8 items |
 | Initial reader connection deadline; cancellation polling | 5 s from service creation; 100 ms |
 | Keep IDs per message; per action | 100; 1,000 |
+| Keep reply wait in the extension | 10 s |
 | Progress message interval; fetch stall deadline from `started` (D2) | 0.5 s; 60 s |
 | Working-set signal debounce; D5 confirmation listing | 200 ms; 15 s |
 | Folder completion | 150 ms after typing; 50 suggestions |
@@ -889,7 +922,10 @@ itself was not reached; the default is unchanged.
 
 - Does the system call `enumerateChanges` on folder or item enumerators in a replicated domain?
   Both implement it, so either case works.
-- Does a kept file whose parent folder is not materialized get its eager download?
+- A restored saved Keep Downloaded list (M7) holds kept files whose folders aren't
+  materialized, and they don't download until the user opens each folder (M6).
+  `requestDownloadForItemWithIdentifier:` on a dataless folder materializes it one level down
+  [H]. Should M7 call it for each folder above a kept file, or is another design needed?
 - Finder keeps a failed folder's error until Try Again (M4). Individual folder signals are
   ignored for replicated providers, and requesting a directory enumeration restored children
   without clearing the banner in the October 15 follow-up. Should a notification ask the user
