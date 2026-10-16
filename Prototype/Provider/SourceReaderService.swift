@@ -14,6 +14,8 @@ final class SourceReaderService: NSObject, NSFileProviderServiceSource, NSXPCLis
     private var closed = false
     /// Fetches that wait for a reply, by request ID; started and progress messages find them here.
     private var waiting: [String: Response] = [:]
+    /// A catalog write takes milliseconds; a stopped app must not hold a Finder action open.
+    static let keepDeadline = Duration.seconds(10)
     private let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "source-reader")
 
     init(domainID: String) { self.domainID = domainID }
@@ -121,6 +123,24 @@ final class SourceReaderService: NSObject, NSFileProviderServiceSource, NSXPCLis
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
         }
         return (destination, receipt.metrics)
+    }
+
+    /// Waits for the app's commit, as a fetch waits before `started`, but never past `keepDeadline`.
+    func keep(_ request: KeepRequest, progress: Progress) throws -> KeepReceipt {
+        let response = Response(progress: progress)
+        let proxy = try proxy(startupProgress: progress) { response.finish(.failure($0)) }
+        proxy.keep(try ReaderMessage.encode(request)) { data, error in
+            response.finish(Result { try Self.payload(data, error) })
+        }
+        let deadline = ContinuousClock.now.advanced(by: Self.keepDeadline)
+        while response.ready.wait(timeout: .now() + 0.1) == .timedOut {
+            guard !progress.isCancelled else { throw TransferError.cancelled }
+            guard ContinuousClock.now < deadline else {
+                logger.error("keep request=\(request.id.uuidString, privacy: .public) deadline=1")
+                throw NSFileProviderError(.serverUnreachable)
+            }
+        }
+        return try ReaderMessage.decode(KeepReceipt.self, from: response.value())
     }
 
     private func proxy(startupProgress: Progress? = nil,

@@ -22,7 +22,7 @@ final class CatalogItem: NSObject, NSFileProviderItem {
     var contentModificationDate: Date? { row.parentID == nil ? nil : row.modificationDate }
     var capabilities: NSFileProviderItemCapabilities { isFolder ? .allowsContentEnumerating : .allowsReading }
     var fileSystemFlags: NSFileProviderFileSystemFlags { isFolder ? [.userReadable, .userExecutable] : .userReadable }
-    var contentPolicy: NSFileProviderContentPolicy { .downloadLazily }
+    var contentPolicy: NSFileProviderContentPolicy { row.keep ? .downloadEagerlyAndKeepDownloaded : .downloadLazily }
     /// Only files publish `keep`, so a selection with a folder matches neither Finder action.
     var userInfo: [AnyHashable: Any]? { isFolder ? nil : ["keep": row.keep ? 1 : 0] }
     var itemVersion: NSFileProviderItemVersion {

@@ -6,6 +6,8 @@ import FileProvider
     func fetch(_ request: Data, reply: @escaping (Data?, NSError?) -> Void)
     /// A `ListRequest`; the reply is a `ListReceipt` after the listing commits.
     func list(_ request: Data, reply: @escaping (Data?, NSError?) -> Void)
+    /// A `KeepRequest`; the reply is a `KeepReceipt` after the catalog write commits.
+    func keep(_ request: Data, reply: @escaping (Data?, NSError?) -> Void)
     func release(_ requestID: String)
 }
 

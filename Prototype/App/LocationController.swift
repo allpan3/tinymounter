@@ -178,7 +178,7 @@ final class LocationController {
 
     /// Plan §7 diagnostics: counts only, at launch and on SIGUSR1.
     func logDiagnostics(reason: String) {
-        var open = 0, unavailable = 0, items = 0, tombstones = 0, listed = 0
+        var open = 0, unavailable = 0, items = 0, tombstones = 0, listed = 0, kept = 0
         for source in sources.values {
             do {
                 let counts = try source.counts()
@@ -186,6 +186,7 @@ final class LocationController {
                 items += counts.live
                 tombstones += counts.tombstones
                 listed += counts.listedFolders
+                kept += counts.kept
             } catch {
                 unavailable += 1
             }
@@ -197,7 +198,7 @@ final class LocationController {
             diagnostics reason=\(reason, privacy: .public) catalog_files=\(files) catalogs_open=\(open) \
             catalogs_unavailable=\(unavailable) items=\(items) tombstones=\(tombstones) listed_folders=\(listed) \
             stage_files=\(stageFiles) descriptors=\(descriptors) rss_bytes=\(rss) shares=\(self.shares.count) \
-            sessions=\(sessions)
+            sessions=\(sessions) kept=\(kept)
             """)
     }
 

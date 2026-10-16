@@ -143,6 +143,33 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
         }
     }
 
+    func keep(_ data: Data, reply: @escaping (Data?, NSError?) -> Void) {
+        do {
+            let request = try ReaderMessage.decode(KeepRequest.self, from: data)
+            guard let source else { throw LocationError.catalogClosed }
+            // The write can wait for a listing's commit; this connection's other messages don't.
+            DispatchQueue.global(qos: .userInitiated).async { [self] in
+                do {
+                    let changed = try source.keep(request.items, value: request.keep)
+                    logger.info("""
+                        keep request=\(request.id.uuidString, privacy: .public) domain=\(self.domainID, privacy: .public) \
+                        items=\(request.items.count) value=\(request.keep) changed=\(changed)
+                        """)
+                    reply(try ReaderMessage.encode(KeepReceipt(changed: changed)), nil)
+                } catch {
+                    logger.error("""
+                        keep request=\(request.id.uuidString, privacy: .public) domain=\(self.domainID, privacy: .public) \
+                        failed \(logFields(error), privacy: .public)
+                        """)
+                    reply(nil, Self.replyError(error))
+                }
+            }
+        } catch {
+            logger.error("keep failed \(logFields(error), privacy: .public)")
+            reply(nil, Self.replyError(error))
+        }
+    }
+
     func release(_ requestID: String) {
         guard let id = UUID(uuidString: requestID) else { return }
         let job = lock.withLock { jobs.removeValue(forKey: id) }

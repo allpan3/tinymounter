@@ -263,13 +263,44 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         }
     }
 
-    /// Changes nothing until M6 records keep requests through the app.
+    /// Keep Downloaded and Allow Removal record a request through the app (plan §8).
     func performAction(identifier actionIdentifier: NSFileProviderExtensionActionIdentifier,
                        onItemsWithIdentifiers itemIdentifiers: [NSFileProviderItemIdentifier],
                        completionHandler: @escaping (Error?) -> Void) -> Progress {
-        actionLogger.info("action=\(actionIdentifier.rawValue, privacy: .public) items=\(itemIdentifiers.count)")
-        completionHandler(nil)
-        return Progress()
+        let progress = Progress(totalUnitCount: Int64(itemIdentifiers.count))
+        let once = Once()
+        let action = actionIdentifier.rawValue
+        let finish = { [actionLogger] (changed: Int, error: Error?) in
+            guard once.claim() else { return }
+            let code = (error as NSError?)?.code ?? 0
+            actionLogger.log(level: error == nil ? .info : .error, """
+                action=\(action, privacy: .public) items=\(itemIdentifiers.count) changed=\(changed) code=\(code)
+                """)
+            completionHandler(error)
+        }
+        // The header asks for userCancelled at once, from the cancellation handler.
+        progress.cancellationHandler = { finish(0, CocoaError(.userCancelled)) }
+        let keep: Bool
+        switch action {
+        case "dev.tinymounter.action.keep-downloaded": keep = true
+        case "dev.tinymounter.action.allow-removal": keep = false
+        default:
+            finish(0, CocoaError(.featureUnsupported))
+            return progress
+        }
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            var changed = 0
+            do {
+                for batch in try KeepRequest.batches(itemIdentifiers.map(\.rawValue), keep: keep) {
+                    changed += try sourceReader.keep(batch, progress: progress).changed
+                    progress.completedUnitCount += Int64(batch.items.count)
+                }
+                finish(changed, nil)
+            } catch {
+                finish(changed, providerError(error))
+            }
+        }
+        return progress
     }
 
     /// A reimport is matched to the catalog (plan §7); any other creation is refused.

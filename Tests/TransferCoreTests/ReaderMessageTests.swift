@@ -68,6 +68,49 @@ final class ReaderMessageTests: XCTestCase {
         XCTAssertThrowsError(try ReaderMessage.decode(ListReceipt.self, from: Data("{}".utf8)))
     }
 
+    func testKeepRequestsStayWithinTheBoundAndSplitAnAction() throws {
+        let ids = (0..<KeepRequest.maxItemsPerAction).map { _ in UUID().uuidString }
+        let largest = try KeepRequest(items: Array(ids.prefix(KeepRequest.maxItems)), keep: false)
+        let data = try ReaderMessage.encode(largest)
+        XCTAssertLessThanOrEqual(data.count, ReaderMessage.maxBytes)
+        XCTAssertEqual(try ReaderMessage.decode(KeepRequest.self, from: data), largest)
+        let receipt = try KeepReceipt(changed: KeepRequest.maxItems)
+        XCTAssertEqual(try ReaderMessage.decode(KeepReceipt.self, from: ReaderMessage.encode(receipt)), receipt)
+
+        let batches = try KeepRequest.batches(Array(ids.prefix(250)), keep: true)
+        XCTAssertEqual(batches.map(\.items.count), [100, 100, 50])
+        XCTAssertEqual(batches.flatMap(\.items), Array(ids.prefix(250)))
+        XCTAssertTrue(batches.allSatisfy(\.keep))
+        XCTAssertEqual(Set(batches.map(\.id)).count, 3)
+        XCTAssertEqual(try KeepRequest.batches(ids, keep: false).count, 10)
+        XCTAssertEqual(try KeepRequest.batches([], keep: true), [])
+        XCTAssertThrowsError(try KeepRequest.batches(ids + [item], keep: true)) {
+            XCTAssertEqual($0 as? CocoaError, CocoaError(.featureUnsupported))
+        }
+    }
+
+    func testInvalidKeepRequestsAreRejected() throws {
+        XCTAssertThrowsError(try KeepRequest(items: [], keep: true))
+        let over = (0...KeepRequest.maxItems).map { _ in UUID().uuidString }
+        XCTAssertThrowsError(try KeepRequest(items: over, keep: true))
+        let overData = try JSONSerialization.data(withJSONObject: ["id": UUID().uuidString, "items": over, "keep": true])
+        XCTAssertLessThanOrEqual(overData.count, ReaderMessage.maxBytes, "the count check, not the size, rejects it")
+        XCTAssertThrowsError(try ReaderMessage.decode(KeepRequest.self, from: overData))
+        for invalid in ["", "fixture", item.lowercased(), "a/b", Catalog.rootItemID] {
+            XCTAssertThrowsError(try KeepRequest(items: [item, invalid], keep: true), invalid)
+            XCTAssertThrowsError(try KeepRequest.batches([item, invalid], keep: true), invalid)
+            let json = try JSONSerialization.data(withJSONObject: ["id": UUID().uuidString, "items": [item, invalid],
+                                                                   "keep": true])
+            XCTAssertThrowsError(try ReaderMessage.decode(KeepRequest.self, from: json), invalid) {
+                XCTAssertEqual($0 as? CocoaError, CocoaError(.fileReadCorruptFile))
+            }
+        }
+        let noValue = try JSONSerialization.data(withJSONObject: ["id": UUID().uuidString, "items": [item]])
+        XCTAssertThrowsError(try ReaderMessage.decode(KeepRequest.self, from: noValue))
+        XCTAssertThrowsError(try KeepReceipt(changed: -1))
+        XCTAssertThrowsError(try ReaderMessage.decode(KeepReceipt.self, from: Data(#"{"changed":-1}"#.utf8)))
+    }
+
     func testMessagesOverTheBoundAreRejected() throws {
         let list = try ReaderMessage.encode(ListRequest(folder: item))
         let largest = padded(list, to: ReaderMessage.maxBytes)

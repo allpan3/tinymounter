@@ -755,8 +755,8 @@ Downloads or Resume Downloads, Settings… and Quit tinymounter.
 Only files publish `userInfo["keep"]`, so a selection with a folder matches neither rule. Kept
 files report `.downloadEagerlyAndKeepDownloaded`, except while paused; other items keep
 `.downloadLazily`, as today. `performAction` sends at most 100 IDs per message, to stay within
-4096 bytes, and accepts at most 1,000 IDs per action. With the app quit it fails with
-`serverUnreachable`. Finder's own Download Now and Remove Download stay.
+4096 bytes, and accepts at most 1,000 IDs per action. With the app quit, or with no reply in
+10 s, it fails with `serverUnreachable`. Finder's own Download Now and Remove Download stay.
 
 **Strings.** All UI text lives in `Prototype/App/UIText.swift`, so the STE checker reads one file.
 Reused from the mockup: the sidebar and pane labels, "Not added", "Connected", "Full share",
@@ -880,6 +880,7 @@ itself was not reached; the default is unchanged.
 | Read-ahead planners kept | 8 items |
 | Initial reader connection deadline; cancellation polling | 5 s from service creation; 100 ms |
 | Keep IDs per message; per action | 100; 1,000 |
+| Keep reply wait in the extension | 10 s |
 | Progress message interval; fetch stall deadline from `started` (D2) | 0.5 s; 60 s |
 | Working-set signal debounce; D5 confirmation listing | 200 ms; 15 s |
 | Folder completion | 150 ms after typing; 50 suggestions |

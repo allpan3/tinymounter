@@ -16,11 +16,11 @@ The phase 1 one-file fixture build is gone (D3).
 - Full/range reads, runtime-aligned ranges, empty files, metadata fingerprint checks, progress/cancellation, and cleanup on handled failures.
 - JSONL reporting of byte range, filesystem, open/transfer/first-read time, sustained rate after the first chunk, CPU, process-lifetime peak RSS, cache label, and optional post-timing SHA-256 verification.
 - A SwiftUI test harness and a replicated File Provider extension (section 2). The app saves a share-root grant, adds and removes locations, and owns all share I/O and every catalog write: it lists folders into each location's SQLite catalog and stages file bytes with the transfer engine. The extension reads the catalog read-only to page folders, fetches full and partial ranges by item ID from the app through a restricted File Provider service, runs read-ahead per item, and rejects all remote mutations.
-- 126 unit tests passed on 2026-10-15. They cover transfer correctness and cancellation,
+- 129 unit tests passed on 2026-10-16. They cover transfer correctness and cancellation,
   read-ahead bounds and stale requests, full-handoff cleanup, catalog and listing consistency,
   safe paths, mount identity, share health, error classification, staging, settings, XPC messages,
   deadlines and launch reconciliation. Fixtures are local; unit tests do not read the NAS.
-- Release CLI build and local end-to-end checks passed on 2026-10-15. The unsigned Release app and extension build succeeded with Xcode 27. Only Xcode's informational App Intents extraction warnings remained; there are no Swift compiler warnings in that build.
+- Release CLI build and local end-to-end checks passed on 2026-10-16. The unsigned Release app and extension build succeeded with Xcode 27. Only Xcode's informational App Intents extraction warnings remained; there are no Swift compiler warnings in that build.
 - The M3 build also built with Personal Team development signing and automatically generated Mac
   Team provisioning profiles. `codesign --verify --deep --strict` passed for the app including its
   embedded extension. Its signed artifacts were in `.build/xcode-personal/Build/Products/Release/`
@@ -140,20 +140,22 @@ any bytes. A changed file updates the row and fails with `versionNoLongerAvailab
 asks for the new version. A missing file fails with the transient `fileReadNoSuchFile`, and the
 app lists its parent again.
 
-**Finder action spike (M3).** The extension declares Keep Downloaded and Allow Removal under
+**Finder actions (M3, M6).** The extension declares Keep Downloaded and Allow Removal under
 `NSExtension` › `NSExtensionFileProviderActions`, with the identifiers and rules of
-[phase 2 §8](phase2-plan.md#8-ui). Each file publishes `userInfo["keep"]` from its catalog row,
-which stays 0 until M6. With the fixture build on macOS 27.0.1, Finder showed the matching custom
-action near the bottom of its context menu after the item was republished. Finder's own Keep
-Downloaded was absent; Download Now and Remove Download remain. A click reaches `performAction`,
-which only logs the action and item count; M6 implements its effects.
+[phase 2 §8](phase2-plan.md#8-ui). Each file publishes `userInfo["keep"]` from its catalog row.
+With the fixture build on macOS 27.0.1, Finder showed the matching custom action near the bottom
+of its context menu after the item was republished. Finder's own Keep Downloaded was absent;
+Download Now and Remove Download remain. `performAction` sends the file IDs to the app, at most
+100 in each message and 1,000 in each action. The app records the request in the catalog and
+signals the working set, and a kept file then reports `.downloadEagerlyAndKeepDownloaded`. With
+the app quit, or with no reply in 10 s, the action fails with `serverUnreachable`.
 
 Each new location makes macOS ask whether a test shell may access files it manages; allow it only
 for that location.
 
 This bookmark does not grant the extension Network Volumes privacy access on the tested macOS build. The main app resolves it for source reads. Both components retain the sandbox; no Full Disk Access, TCC reset, or sandbox exception is needed for this tested route.
 
-The extension publishes a restricted File Provider service. The app connects via the domain manager and exports a per-domain reader on the resulting XPC connection, only for domains whose catalog it opened. Messages are JSON of at most 4096 bytes and hold IDs, versions and counts, never names. A list request carries a request ID and a folder's item ID; its reply, sent after the commit, carries the folder's listing generation and its entry, change and skip counts. A fetch carries a request ID, an item ID, the content version and a byte range; its receipt carries a staging leaf name and metrics. When a worker starts a fetch's transfer, the app sends a started message with the request ID; then it sends the bytes done at most every 0.5 s. Both sides check peer signing identity. At most two app transfers run concurrently for all domains, with at most four outstanding fetches per domain connection. A location queues at most 16 folders for listing, and a request for a folder that is already queued joins it. The app's own listings for Add Location and relisting run one at a time and are never refused. The app writes an exclusive staging file in the shared App Group, and the extension moves it into the provider's temporary directory before handing it to macOS. The move must remain on the same volume. No bulk bytes pass over XPC.
+The extension publishes a restricted File Provider service. The app connects via the domain manager and exports a per-domain reader on the resulting XPC connection, only for domains whose catalog it opened. Messages are JSON of at most 4096 bytes and hold IDs, versions and counts, never names. A list request carries a request ID and a folder's item ID; its reply, sent after the commit, carries the folder's listing generation and its entry, change and skip counts. A fetch carries a request ID, an item ID, the content version and a byte range; its receipt carries a staging leaf name and metrics. A keep request carries a request ID, at most 100 file IDs and the requested value; its reply, sent after the commit, carries the number of rows that changed. When a worker starts a fetch's transfer, the app sends a started message with the request ID; then it sends the bytes done at most every 0.5 s. Both sides check peer signing identity. At most two app transfers run concurrently for all domains, with at most four outstanding fetches per domain connection. A location queues at most 16 folders for listing, and a request for a folder that is already queued joins it. The app's own listings for Add Location and relisting run one at a time and are never refused. The app writes an exclusive staging file in the shared App Group, and the extension moves it into the provider's temporary directory before handing it to macOS. The move must remain on the same volume. No bulk bytes pass over XPC.
 
 The app retries lost connections with bounded backoff. A new per-domain extension reader service gives fetches up to 5 s from its creation for the first connection, checking cancellation every 100 ms. After attachment, losing the reader still fails at once. The deadline is shared, so subsequent requests cannot restart the wait. Never-listed folder enumeration retains its existing connection requirement. The 60 s transfer stall deadline still starts at the app’s `started` message. Closing the window is different from quitting the process; the prototype must remain running to supply missing content and to list folders that were never listed.
 
@@ -185,7 +187,7 @@ xcodebuild -project TinyMounter.xcodeproj -scheme TinyMounterPrototype -configur
 4. Watch the logs while you browse, read, or seek in a video. Lines hold request, item and domain
    UUIDs, counts, sizes, times and error codes, never names or paths. `kill -USR1 <app pid>` logs
    the app's diagnostic counts: catalogs, items, tombstones, listed folders, stage files,
-   descriptors and RSS.
+   descriptors, RSS and kept files.
 
    ```sh
    log stream --level info --predicate 'subsystem == "dev.tinymounter.prototype"'
@@ -211,7 +213,8 @@ once, wired, with nothing else heavy running. About 30 minutes:
 5. **Players.** Evict again. Open the file from VLC's or IINA's own File > Open, and note the time to
    the first picture. Do 20 seeks to unplayed parts and note any wait over 1 second. Then try a
    Finder double-click to see the full-download wait.
-6. **Offline.** Keep Downloaded returns in M6. Until then, skip this step.
+6. **Offline.** Right-click the file, click Keep Downloaded, and wait until the cloud badge
+   disappears. Disconnect the Mac from the network, play the file and seek in it, then connect again.
 7. **Logs.** Keep `log stream --level info --predicate 'subsystem == "dev.tinymounter.prototype"'`
    running during steps 3–5 and save its output. It contains no file names or paths.
 
@@ -220,7 +223,8 @@ not the raw `results/` folder, which can hold private paths.
 
 ## Deliberate limitations
 
-- Read-only, on the user's own Finder connection: one grant per share, and locations that are folders on it. The app never mounts, writes, renames or deletes on the share. Keep Downloaded, Pause Downloads, the Settings window, the menu bar, notifications and the Storage pane are not built (M6–M8); the Finder actions only log.
+- Read-only, on the user's own Finder connection: one grant per share, and locations that are folders on it. The app never mounts, writes, renames or deletes on the share. Pause Downloads, the Settings window, the menu bar, notifications and the Storage pane are not built (M6–M8).
+- Keep Downloaded is a request for each file, not proof of a download (phase 2 decision 3). The system downloads a kept file and doesn't evict it. The app doesn't list the requests or show download state yet (M7), and Remove Location deletes them with the catalog.
 - NAS changes show only after a listing: when the system enumerates a never-listed or evicted folder; in the background when it enumerates a folder listed over 60 s ago; for each materialized folder at app launch and after the share recovers; and as a fingerprint check at each fetch. There is no `CHANGE_NOTIFY` and no polling, so a change between these events doesn't show, and a downloaded copy stays stale until then. A NAS rename is a delete plus a create.
 - Only a complete listing changes the catalog, after `fstatat` confirmed that each missing name is gone. A listing that would remove every child of a folder, remove a kept file, or change a kind is held; a listing that starts at least 15 s later applies what it finds (D5). Symlinks, special files, invalid names and name-key collisions are not shown; the listing log counts them as skipped.
 - Content versions are `f1:<size>:<mtime_ns>:<ctime_ns>` (D1), so a remount does not download copies again. Each transfer still checks the full snapshot, device and inode included, on its open descriptor. A change that keeps size and timestamps can't be detected.
