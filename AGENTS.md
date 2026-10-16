@@ -46,7 +46,7 @@ Never break these without an explicit task to do so.
   deletes remote content. Run disruptive tests only against an isolated fixture or share, within an
   agreed scope.
 - **Never present incomplete data as complete.** An uncached range fails clearly and is never filled
-  with zeroes. A requested pin is not "offline-ready" until the download is verified.
+  with zeroes. A requested pin is not "available offline" until the download is verified.
 - **No secrets in the repo, logs or chat.** Credentials go through Keychain or the user's own Finder
   connection. Signing material is never committed. Logs never include source names or paths.
   Sanitize `results/` before sharing it.

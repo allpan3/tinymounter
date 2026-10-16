@@ -4,5 +4,6 @@ DerivedData/
 xcuserdata/
 *.xcuserstate
 /results/
+/.local/
 __pycache__/
 *.pyc
