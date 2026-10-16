@@ -1,0 +1,494 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tinymounter — UI mockup (proposed)</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --win: #f3f3f5; --side: rgba(232,232,237,.92); --side-text: #1d1d1f; --muted: #6e6e73;
+  --card: #ffffff; --line: rgba(0,0,0,.09); --accent: #0a84ff; --accent-text: #fff;
+  --field: rgba(0,0,0,.05); --input: #fff; --ok: #28a745; --warn: #e5a50a; --bad: #d70015; --shadow: 0 18px 50px rgba(0,0,0,.22);
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --win: #1e1e20; --side: rgba(44,44,48,.94); --side-text: #f5f5f7; --muted: #98989d;
+    --card: #2c2c2e; --line: rgba(255,255,255,.09); --field: rgba(255,255,255,.08); --input: rgba(255,255,255,.06);
+    --ok: #32d74b; --warn: #ffd60a; --bad: #ff453a; --shadow: 0 18px 50px rgba(0,0,0,.6);
+  }
+}
+:root.dark {
+    --win: #1e1e20; --side: rgba(44,44,48,.94); --side-text: #f5f5f7; --muted: #98989d;
+    --card: #2c2c2e; --line: rgba(255,255,255,.09); --field: rgba(255,255,255,.08); --input: rgba(255,255,255,.06);
+    --ok: #32d74b; --warn: #ffd60a; --bad: #ff453a; --shadow: 0 18px 50px rgba(0,0,0,.6);
+}
+:root.light { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; font: 13px/1.38 var(--font); color: var(--side-text); }
+.page { padding: 4px 0 8px; }
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 14px; }
+.tabs button { font: 12px var(--font); padding: 5px 12px; border-radius: 7px; border: 1px solid var(--line);
+  background: var(--card); color: var(--side-text); cursor: pointer; }
+.tabs button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); border-color: transparent; }
+.stage { padding: 18px; border-radius: 14px; background: linear-gradient(135deg, #5b7fa8, #a37b9d 55%, #d3a172); }
+.window { display: flex; height: 560px; border-radius: 12px; overflow: hidden; background: var(--win);
+  box-shadow: var(--shadow); border: 1px solid rgba(0,0,0,.25); }
+.sidebar { width: 210px; flex: none; background: var(--side); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; padding: 12px 10px 10px; }
+.lights { display: flex; gap: 8px; padding: 2px 4px 14px; }
+.lights i { width: 12px; height: 12px; border-radius: 50%; display: block; }
+.lights i:nth-child(1) { background: #ff5f57; } .lights i:nth-child(2) { background: #febc2e; } .lights i:nth-child(3) { background: #28c840; }
+.search { display: flex; align-items: center; gap: 6px; background: var(--field); border-radius: 7px; padding: 5px 8px;
+  color: var(--muted); margin-bottom: 12px; }
+.group { font-size: 11px; font-weight: 600; color: var(--muted); padding: 8px 8px 4px; }
+.row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 7px; cursor: pointer;
+  white-space: nowrap; overflow: hidden; }
+.row:hover { background: var(--field); }
+.row[aria-selected="true"] { background: var(--accent); color: var(--accent-text); }
+.row[aria-selected="true"] .st, .row[aria-selected="true"] .sub { color: var(--accent-text); opacity: .9; }
+.row .name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.row .sub { color: var(--muted); font-size: 11px; }
+.ico { width: 18px; height: 18px; flex: none; display: grid; place-items: center; border-radius: 5px; color: #fff; font-size: 11px; }
+.ico svg { width: 12px; height: 12px; }
+.st { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 3px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex: none; }
+.spacer { flex: 1; }
+.add { display: flex; gap: 2px; padding: 6px 2px 0; border-top: 1px solid var(--line); }
+.add button { font: 15px var(--font); width: 26px; height: 22px; border: 0; background: transparent; color: var(--side-text);
+  border-radius: 5px; cursor: pointer; }
+.add button:hover { background: var(--field); }
+.detail { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.toolbar { height: 46px; flex: none; display: flex; align-items: center; padding: 0 18px; font-weight: 600; font-size: 14px;
+  border-bottom: 1px solid var(--line); gap: 10px; }
+.toolbar .nav { color: var(--muted); font-weight: 400; display: flex; gap: 14px; }
+.content { flex: 1; overflow-y: auto; padding: 18px 22px 26px; }
+.section-title { font-size: 12px; font-weight: 600; color: var(--muted); margin: 16px 6px 6px; }
+.card { background: var(--card); border-radius: 10px; border: 1px solid var(--line); }
+.card .item { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 7px 12px; }
+.card .item + .item { border-top: 1px solid var(--line); }
+.item .label { flex: 1; min-width: 0; }
+.label small { display: block; color: var(--muted); font-size: 11px; }
+.item .key { width: 92px; flex: none; }
+.value { color: var(--muted); }
+.hdr { display: flex; gap: 14px; align-items: center; padding: 14px; }
+.hdr .big { width: 48px; height: 48px; border-radius: 11px; display: grid; place-items: center; color: #fff; flex: none; }
+.hdr .big svg { width: 26px; height: 26px; }
+.hdr h2 { margin: 0; font-size: 17px; }
+.hdr .path { color: var(--muted); font-size: 12px; }
+.hdr .status { font-size: 12px; margin-top: 3px; display: flex; align-items: center; gap: 5px; }
+.hdr .buttons { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 9px; }
+.btn { font: 13px var(--font); padding: 3px 11px; border-radius: 6px; border: 1px solid var(--line); background: var(--field);
+  color: var(--side-text); cursor: default; white-space: nowrap; }
+button.btn { cursor: pointer; }
+.btn.danger { color: var(--bad); }
+.btn.primary { background: var(--accent); color: #fff; border-color: transparent; }
+.btn[disabled] { opacity: .45; }
+input.field, select.field { font: 13px var(--font); color: var(--side-text); background: var(--input); border: 1px solid var(--line);
+  border-radius: 6px; padding: 3px 8px; min-width: 0; flex: 1; height: 24px; }
+select.field { flex: 0 1 auto; padding-right: 22px; }
+input.field:focus, select.field:focus { outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 0; }
+.toggle { width: 34px; height: 20px; border-radius: 10px; background: var(--field); position: relative; flex: none; cursor: pointer; border: 0; }
+.toggle::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff;
+  box-shadow: 0 1px 2px rgba(0,0,0,.3); transition: left .15s; }
+.toggle[aria-checked="true"] { background: var(--ok); }
+.toggle[aria-checked="true"]::after { left: 16px; }
+.radio { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--muted); flex: none; position: relative; }
+.radio.on { border-color: var(--accent); }
+.radio.on::after { content: ""; position: absolute; inset: 3px; border-radius: 50%; background: var(--accent); }
+.dim { opacity: .5; }
+.chip { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--field); white-space: nowrap; display: inline-flex;
+  align-items: center; gap: 4px; }
+.bar { height: 5px; border-radius: 3px; background: var(--field); overflow: hidden; width: 90px; flex: none; }
+.bar b { display: block; height: 100%; background: var(--accent); }
+.usage { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--field); margin: 6px 0 8px; }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 11px; color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px;
+  background: var(--c); vertical-align: -1px; }
+.footnote { color: var(--muted); font-size: 11px; margin: 6px 6px 0; }
+.listfoot { display: flex; gap: 2px; padding: 4px 8px; border-top: 1px solid var(--line); }
+.listfoot button { width: 24px; height: 20px; border: 0; background: transparent; color: var(--side-text); border-radius: 4px; font-size: 14px; }
+.applybar { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 9px 12px; border-radius: 10px;
+  background: color-mix(in srgb, var(--warn) 16%, var(--card)); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); }
+.applybar .label { flex: 1; font-size: 12px; }
+#loc-pane .applybar { position: sticky; bottom: 0; margin-top: 14px; box-shadow: 0 -6px 14px var(--win); }
+#loc-rows { display: contents; }
+.item[data-mode] { cursor: pointer; }
+.row.ctx { box-shadow: inset 0 0 0 2px var(--accent); }
+.ctxmenu { position: fixed; z-index: 10; min-width: 200px; padding: 5px; border-radius: 9px; background: var(--side);
+  backdrop-filter: blur(20px); border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+.ctxmenu button { display: flex; justify-content: space-between; gap: 18px; width: 100%; padding: 3px 10px; border: 0;
+  border-radius: 5px; background: transparent; color: var(--side-text); font: 13px var(--font); text-align: left; }
+.ctxmenu button:not([disabled]):hover { background: var(--accent); color: #fff; }
+.ctxmenu button[disabled] { opacity: .4; }
+.ctxmenu .value { color: inherit; opacity: .6; }
+.ctxmenu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 8px; }
+.item[data-mode] .radio { align-self: flex-start; margin-top: 2px; }
+/* menu bar */
+.menubar { height: 26px; border-radius: 12px 12px 0 0; background: rgba(255,255,255,.28); backdrop-filter: blur(8px);
+  display: flex; justify-content: flex-end; align-items: center; gap: 14px; padding: 0 14px; color: #fff; font-size: 12px; }
+.menubar .tm { background: rgba(255,255,255,.35); border-radius: 5px; padding: 1px 6px; display: flex; gap: 4px; align-items: center; }
+.menu { width: 310px; margin: 6px 14px 0 auto; background: var(--side); border-radius: 12px; box-shadow: var(--shadow);
+  padding: 6px; border: 1px solid var(--line); }
+.menu .mi { display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: 6px; }
+.menu .mi:hover { background: var(--accent); color: #fff; }
+.menu .mi:hover .value, .menu .mi:hover small { color: #fff; }
+.menu hr { border: 0; border-top: 1px solid var(--line); margin: 5px 6px; }
+.menu small { display: block; color: var(--muted); font-size: 11px; }
+.menuwrap { height: 420px; }
+.note { margin: 12px 2px 0; color: rgba(255,255,255,.92); font-size: 11px; text-shadow: 0 1px 2px rgba(0,0,0,.35); }
+[hidden] { display: none !important; }
+@media (max-width: 640px) {
+  .window { flex-direction: column; height: auto; }
+  .sidebar { width: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+  .sidebar .groups { display: flex; gap: 4px; overflow-x: auto; }
+  .sidebar .group, .lights, .search, .add, .row .st, .row .sub { display: none; }
+  .row { flex: none; }
+  .content { max-height: 560px; padding: 14px; }
+  .stage { padding: 10px; }
+  .hdr { flex-wrap: wrap; }
+  .hdr > div:nth-child(2) { flex-basis: calc(100% - 62px); }
+  .item .key { width: 64px; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="tabs" role="tablist">
+    <button aria-pressed="true" data-view="settings">Settings window</button>
+    <button aria-pressed="false" data-view="menu">Menu bar item</button>
+  </div>
+
+  <div class="stage" id="v-settings">
+    <div class="window">
+      <nav class="sidebar" aria-label="Settings sections">
+        <div class="lights"><i></i><i></i><i></i></div>
+        <div class="search">⌕ <span>Search</span></div>
+        <div class="groups">
+          <div class="group">Locations</div>
+          <div id="loc-rows"></div>
+          <div class="group">Settings</div>
+          <div class="row" data-pane="general"><span class="ico" style="background:#8e8e93">⚙︎</span><span class="name">General</span></div>
+          <div class="row" data-pane="storage"><span class="ico" style="background:#30b0c7"><svg viewBox="0 0 16 16" fill="currentColor"><rect x="1.5" y="5" width="13" height="6" rx="1.5"/></svg></span><span class="name">Storage</span></div>
+          <div class="row" data-pane="servers"><span class="ico" style="background:#34c759"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="2.5" width="12" height="4.5" rx="1"/><rect x="2" y="9" width="12" height="4.5" rx="1"/></svg></span><span class="name">Servers</span></div>
+          <div class="row" data-pane="about"><span class="ico" style="background:#636366">i</span><span class="name">About</span></div>
+        </div>
+        <div class="spacer"></div>
+        <div class="add"><button title="New Location (⌘N)" data-new>＋</button><button title="Remove Location">－</button></div>
+      </nav>
+
+      <section class="detail">
+        <div class="toolbar"><span class="nav">‹ ›</span><span id="title">Documents</span></div>
+        <div class="content">
+
+          <div data-panel="loc" id="loc-pane"></div>
+
+          <div data-panel="general" hidden>
+            <div class="card">
+              <div class="item"><div class="label">Open at login</div><button class="toggle" aria-checked="true" aria-label="Open at login"></button></div>
+              <div class="item"><div class="label">Show in menu bar</div><button class="toggle" aria-checked="true" aria-label="Show in menu bar"></button></div>
+              <div class="item"><div class="label">Notifications<small>Sign-in problems, no connection during a download, and low disk space.</small></div><span class="value">Problems only ⌄</span></div>
+            </div>
+            <div class="section-title">Locations folder</div>
+            <div class="card">
+              <div class="item"><div class="label">Keep an alias to each location in one folder<small>You can open all locations from one folder in Finder.</small></div><button class="toggle" aria-checked="true" aria-label="Locations folder"></button></div>
+              <div class="item"><div class="label">Folder</div><span class="value">~/tinymounter</span><span class="btn">Select…</span></div>
+            </div>
+            <div class="footnote">tinymounter changes only the aliases that it made. It does not change your other files in this folder.</div>
+          </div>
+
+          <div data-panel="storage" hidden>
+            <div class="card" style="padding:12px 14px">
+              <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>On this Mac</b><span class="value">31.6 GB downloaded · 412 GB free</span></div>
+              <div class="usage"><b style="width:9%;background:#0a84ff"></b><b style="width:7%;background:#bf5af2"></b><b style="width:3%;background:#8e8e93"></b></div>
+              <div class="legend"><span style="--c:#0a84ff">Documents 18.4 GB</span><span style="--c:#bf5af2">Photos 12.1 GB</span><span style="--c:#8e8e93">Other 1.1 GB</span></div>
+            </div>
+            <div class="section-title">Downloads</div>
+            <div class="card">
+              <div class="item"><div class="label">Keep this much disk space free<small>tinymounter stops kept downloads before the disk becomes too full.</small></div><span class="value">20 GB ⌄</span></div>
+              <div class="item"><div class="label">Downloads that you do not keep<small>macOS removes these first when disk space is low.</small></div><span class="btn">Remove Downloads…</span></div>
+            </div>
+          </div>
+
+          <div data-panel="servers" hidden>
+            <div class="card">
+              <div class="item"><span class="dot" style="background:var(--ok)"></span><div class="label">home-nas.local<small>user · SMB 3.1.1 · signed · password in Keychain</small></div><span class="value">Connected</span><span class="btn">Edit…</span></div>
+              <div class="listfoot"><button title="Add Server">＋</button><button title="Remove Server">－</button></div>
+            </div>
+            <div class="footnote">An account and password change here applies to all locations on that server.</div>
+            <div class="section-title">Server volumes</div>
+            <div class="card dim">
+              <div class="item"><div class="label">Connect again after sleep and network changes</div><button class="toggle" aria-checked="true" aria-label="Connect again"></button></div>
+              <div class="item"><div class="label">Only on these networks</div><span class="value">All networks ⌄</span></div>
+            </div>
+            <div class="footnote">Server volumes are not available in this version.</div>
+          </div>
+
+          <div data-panel="about" hidden>
+            <div class="card hdr"><div class="big" style="background:linear-gradient(135deg,#0a84ff,#5e5ce6)"><svg viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="4" width="14" height="8" rx="2"/></svg></div>
+              <div style="flex:1"><h2>tinymounter</h2><div class="path">Version 0.1 (prototype)</div></div></div>
+            <div class="section-title">&nbsp;</div>
+            <div class="card">
+              <div class="item"><div class="label">Diagnostics<small>This report helps to find problems. It does not include file names, paths, or passwords.</small></div><span class="btn">Export…</span></div>
+              <div class="item"><div class="label">Acknowledgements</div><span class="btn">Show</span></div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+    </div>
+    <p class="note">This mockup shows a proposal. It is not in the app. To add a location, right-click a location in the sidebar. Then click Duplicate. SwiftUI: Settings scene, NavigationSplitView sidebar, grouped Form.</p>
+    <div class="ctxmenu" id="ctxmenu" role="menu" hidden>
+      <button data-act="finder">Show in Finder</button>
+      <button data-act="duplicate">Duplicate<span class="value">⌘D</span></button>
+      <hr>
+      <button data-act="remove">Remove Location…</button>
+    </div>
+  </div>
+
+  <div class="stage menuwrap" id="v-menu" hidden>
+    <div class="menubar"><span>⌁</span><span class="tm">▭ <small>↓</small></span><span>Sun 10:41</span></div>
+    <div class="menu">
+      <div class="mi"><span class="dot" style="background:var(--ok)"></span><div class="label" style="flex:1">Documents<small>Connected</small></div></div>
+      <div class="mi"><span class="dot" style="background:var(--accent)"></span><div class="label" style="flex:1">Photos<small>42% downloaded · 3 minutes remaining</small></div><span class="bar"><b style="width:42%"></b></span></div>
+      <div class="mi"><span class="dot" style="background:var(--muted)"></span><div class="label" style="flex:1">Media<small>Server volume · not available</small></div></div>
+      <hr>
+      <div class="mi"><div class="label" style="flex:1">Open Locations Folder</div><span class="value">⌘O</span></div>
+      <div class="mi"><div class="label" style="flex:1">Pause Downloads</div></div>
+      <hr>
+      <div class="mi"><div class="label" style="flex:1">Settings…</div><span class="value">⌘,</span></div>
+      <div class="mi"><div class="label" style="flex:1">Quit tinymounter<small>Files that are not downloaded cannot open until tinymounter starts again.</small></div></div>
+    </div>
+    <p class="note" style="text-align:right;margin-right:14px">The menu bar item keeps tinymounter open. tinymounter must be open to read data that is not downloaded.</p>
+  </div>
+</div>
+<script>
+// Follow a host page's theme variable when embedded; otherwise the system appearance applies.
+(() => {
+  const bg = getComputedStyle(document.documentElement).getPropertyValue('--background').trim();
+  if (!bg) return;
+  const probe = document.createElement('i'); probe.style.color = bg; document.body.appendChild(probe);
+  const color = getComputedStyle(probe).color; probe.remove();
+  const n = (color.match(/[\d.]+/g) || []).map(Number);
+  const dark = color.startsWith('rgb') ? 0.299 * n[0] + 0.587 * n[1] + 0.114 * n[2] < 128
+    : (n[0] > 1 ? n[0] / 100 : n[0]) < 0.5;
+  document.documentElement.classList.add(dark ? 'dark' : 'light');
+})();
+const $ = s => document.querySelector(s), $$ = s => document.querySelectorAll(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const FOLDER = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M1 4.5A1.5 1.5 0 0 1 2.5 3h3.6l1.4 1.5h6A1.5 1.5 0 0 1 15 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 11.5z"/></svg>';
+const DRIVE = '<svg viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="4" width="14" height="8" rx="2"/></svg>';
+const SHARES = ['Files', 'Media'];
+const MODES = {
+  fp: ['File Provider', 'Finder shows the files below Locations. A file downloads when you open it. You can keep files on this Mac for offline use.'],
+  sv: ['Server volume', 'macOS connects to the share, the same as Connect to Server in Finder. Files open directly from the server. You cannot use it offline. Not available in this version.'],
+};
+const NOT_ADDED = ['muted', 'Not added'];
+const titles = { general: 'General', storage: 'Storage', servers: 'Servers', about: 'About' };
+
+let seq = 0;
+let locs = [
+  { id: 'docs', name: 'Documents', color: '#0a84ff', share: 'Files', folder: '/Documents', mode: 'fp',
+    status: ['ok', 'Connected · 18.4 GB downloaded · 3 items available offline'],
+    kept: [{ name: 'Taxes', note: '2.1 GB', state: 'ok' }, { name: 'Projects/Thesis', note: '6.8 GB', state: 42 },
+      { name: 'Lease.pdf', file: true, note: 'Changed on the server', state: 'update' }] },
+  { id: 'photos', name: 'Photos', color: '#bf5af2', share: 'Files', folder: '/Photos', mode: 'fp', progress: 42,
+    status: ['accent', '42% downloaded · 28.3 of 67.0 GB · 3 minutes remaining'],
+    kept: [{ name: 'All items in this location', note: '67.0 GB', state: 42 }] },
+  { id: 'media', name: 'Media', color: '#8e8e93', share: 'Media', folder: '', mode: 'sv',
+    status: ['muted', 'Server volume · not available in this version'], kept: [] },
+];
+locs.forEach(l => l.saved = { share: l.share, folder: l.folder, mode: l.mode });
+let current = 'docs';
+
+const pathOf = l => ['home-nas.local', l.share, ...l.folder.split('/').filter(Boolean)].join(' › ');
+const folderName = l => l.folder.split('/').filter(Boolean).pop() || l.share;
+function uniqueName(name, self) {
+  const taken = n => locs.some(x => x !== self && x.name === n);
+  let n = name, i = 2;
+  while (taken(n)) n = `${name} ${i++}`;
+  return n;
+}
+function chip(state) {
+  if (state === 'ok') return '<span class="chip" style="color:var(--ok)">✓ Available offline</span>';
+  if (state === 'update') return '<span class="chip" style="color:var(--warn)">↻ Update in progress</span>';
+  return `<span class="chip">${state}% downloaded</span><span class="bar"><b style="width:${state}%"></b></span>`;
+}
+const shownMode = l => l.draft ? l.mode : l.saved.mode;
+function sideStatus(l) {
+  if (l.draft) return '<span class="sub">Not added</span>';
+  if (shownMode(l) === 'sv') return '<span class="sub">Server volume</span>';
+  if (l.progress != null) return `<span class="st">↓ ${l.progress}%</span>`;
+  return '<span class="st"><span class="dot" style="background:var(--ok)" aria-label="Connected"></span></span>';
+}
+
+function renderRows() {
+  $('#loc-rows').innerHTML = locs.map(l => `<div class="row" data-pane="${l.id}" aria-selected="${l.id === current}">
+    <span class="ico" style="background:${l.color}">${shownMode(l) === 'sv' ? DRIVE : FOLDER}</span>
+    <span class="name">${esc(l.name || 'Untitled')}</span>${sideStatus(l)}</div>`).join('');
+  $$('#loc-rows .row').forEach(r => {
+    r.addEventListener('click', () => select(r.dataset.pane));
+    r.addEventListener('contextmenu', e => { e.preventDefault(); openMenu(r, e.clientX, e.clientY); });
+  });
+  $$('.groups > .row').forEach(r => r.setAttribute('aria-selected', String(r.dataset.pane === current)));
+}
+
+function paneHTML(l) {
+  const sv = l.mode === 'sv';
+  const option = (v, on) => `<option${v === on ? ' selected' : ''}>${v}</option>`;
+  return `
+  <div class="card hdr">
+    <div class="big" style="background:${l.color}">${shownMode(l) === 'sv' ? DRIVE : FOLDER}</div>
+    <div style="flex:1;min-width:0">
+      <h2 data-name>${esc(l.name || 'Untitled')}</h2>
+      <div class="path" data-path>${esc(pathOf(l))}</div>
+      <div class="status"><span class="dot" style="background:var(--${l.status[0]})"></span>${l.status[1]}</div>
+      ${l.draft ? '' : '<div class="buttons"><span class="btn">Show in Finder</span></div>'}
+    </div>
+  </div>
+  <div class="section-title">Source</div>
+  <div class="card">
+    <div class="item"><span class="key">Server</span><select class="field" data-f="server"><option>user@home-nas.local</option><option>Add Server…</option></select></div>
+    <div class="item"><span class="key">Share</span><select class="field" data-f="share">${SHARES.map(s => option(s, l.share)).join('')}</select></div>
+    <div class="item"><span class="key">Folder</span><input class="field" data-f="folder" value="${esc(l.folder)}" placeholder="Full share" aria-label="Folder"><span class="btn">Select…</span></div>
+    <div class="item"><span class="key">Name</span><input class="field" data-f="name" value="${esc(l.name)}" aria-label="Name"></div>
+  </div>
+  <div class="section-title">Connection Mode</div>
+  <div class="card">${Object.entries(MODES).map(([k, [t, d]]) => `
+    <div class="item" data-mode="${k}"><span class="radio${k === l.mode ? ' on' : ''}"></span><div class="label">${t}<small>${d}</small></div></div>`).join('')}
+  </div>
+  <div data-keep${sv ? ' hidden' : ''}>
+    <div class="section-title">Keep Downloaded</div>
+    <div class="card">${l.kept.map(k => `
+      <div class="item"><span>${k.file ? '📄' : '📁'}</span><div class="label">${esc(k.name)}${l.draft ? '' : `<small>${k.note}</small>`}</div>${l.draft ? '' : chip(k.state)}</div>`).join('')}
+      <div class="listfoot"><button title="Add">＋</button><button title="Remove">－</button></div>
+    </div>
+    <div class="footnote">${l.draft ? (l.kept.length ? 'tinymounter downloads these items after you click Add. If an item is not in the folder, tinymounter shows “Not on the server”.' : '')
+      : 'tinymounter shows “Available offline” only when this Mac has a full copy of the last version on the server.'}</div>
+  </div>
+  <div class="footnote" data-svnote${sv ? '' : ' hidden'} style="margin-top:10px">Server volumes are not available in this version. Until then, connect to the share with Connect to Server in Finder. Open it from the Locations folder.</div>
+  ${l.draft ? '' : `<div class="section-title">&nbsp;</div>
+  <div class="card"><div class="item"><div class="label">Remove this location from this Mac. The files on the server do not change.</div><span class="btn danger">Remove Location…</span></div></div>`}
+  <div class="applybar" data-bar${l.draft ? '' : ' hidden'}>
+    <div class="label">${l.draft ? 'Finder does not show this location until you click Add.'
+      : 'If you change the source or the connection mode, tinymounter removes the downloaded copies of this location. The files on the server do not change.'}</div>
+    <button class="btn" data-cancel>${l.draft ? 'Cancel' : 'Revert'}</button><button class="btn primary" data-commit>${l.draft ? 'Add' : 'Apply'}</button>
+  </div>`;
+}
+
+function bindPane(l) {
+  const pane = $('#loc-pane'), field = n => pane.querySelector(`[data-f="${n}"]`);
+  const dirty = () => ['share', 'folder', 'mode'].some(k => l[k] !== l.saved[k]);
+  const sync = () => { if (!l.draft) pane.querySelector('[data-bar]').hidden = !dirty(); };
+  const showName = () => {
+    pane.querySelector('[data-name]').textContent = $('#title').textContent = l.name || 'Untitled';
+    renderRows();
+  };
+  // A new location's name follows its folder until the user types a name; a source edit waits for Apply.
+  const follow = () => {
+    if (l.draft) pane.querySelector('[data-path]').textContent = pathOf(l);
+    if (!l.autoName) return;
+    l.name = field('name').value = uniqueName(folderName(l), l);
+    showName();
+  };
+  field('share').addEventListener('change', e => { l.share = e.target.value; follow(); sync(); });
+  field('folder').addEventListener('input', e => { l.folder = e.target.value; follow(); sync(); });
+  field('name').addEventListener('input', e => { l.autoName = false; l.name = e.target.value; showName(); });
+  pane.querySelectorAll('[data-mode]').forEach(row => row.addEventListener('click', () => {
+    l.mode = row.dataset.mode;
+    pane.querySelectorAll('[data-mode] .radio').forEach(r => r.classList.toggle('on', r.parentNode === row));
+    pane.querySelector('[data-keep]').hidden = l.mode === 'sv';
+    pane.querySelector('[data-svnote]').hidden = l.mode !== 'sv';
+    sync(); renderRows();
+  }));
+  pane.querySelector('[data-cancel]').addEventListener('click', () => {
+    if (!l.draft) { Object.assign(l, l.saved); return select(l.id); }
+    removeDraft(l);
+  });
+  pane.querySelector('[data-commit]').addEventListener('click', () => commit(l));
+  if (l.draft) pane.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.tagName === 'INPUT') commit(l); });
+}
+
+function commit(l) {
+  l.draft = false; l.autoName = false; l.progress = null;
+  l.saved = { share: l.share, folder: l.folder, mode: l.mode };
+  l.status = l.mode === 'sv' ? ['muted', 'Server volume · not available in this version'] : ['ok', 'Connected · 0 KB downloaded'];
+  l.kept.forEach(k => { k.state = 0; k.note = ''; });
+  select(l.id);
+}
+
+function removeDraft(l) {
+  locs = locs.filter(x => x !== l);
+  if (current !== l.id) return renderRows();
+  select(locs.some(x => x.id === l.from) || titles[l.from] ? l.from : locs[0].id);
+}
+function addDraft(l, after) {
+  locs.splice(after ? locs.indexOf(after) + 1 : locs.length, 0, l);
+  select(l.id);
+  const folder = $('#loc-pane [data-f="folder"]'); folder.focus(); folder.select();
+}
+function duplicate(src) {
+  const s = src.saved;
+  addDraft({ id: 'new' + ++seq, name: uniqueName(`${src.name} copy`), color: src.color, share: s.share, folder: s.folder,
+    mode: s.mode, kept: [], draft: true, autoName: true, from: src.id, status: NOT_ADDED,
+    saved: { ...s } }, src);
+}
+function newLocation() {
+  const l = { id: 'new' + ++seq, color: '#0a84ff', share: SHARES[0], folder: '', mode: 'fp', kept: [], draft: true,
+    autoName: true, from: current, status: NOT_ADDED, saved: { share: SHARES[0], folder: '', mode: 'fp' } };
+  l.name = uniqueName(folderName(l));
+  addDraft(l);
+}
+
+// The shortcut menu acts on the row that was right-clicked, which need not be the selected one.
+let menuFor = null;
+function openMenu(row, x, y) {
+  closeMenu();
+  menuFor = locs.find(l => l.id === row.dataset.pane);
+  row.classList.add('ctx');
+  const menu = $('#ctxmenu');
+  menu.querySelector('[data-act="finder"]').disabled = menu.querySelector('[data-act="duplicate"]').disabled = menuFor.draft;
+  menu.hidden = false;
+  menu.style.left = Math.min(x, innerWidth - menu.offsetWidth - 4) + 'px';
+  menu.style.top = Math.min(y, innerHeight - menu.offsetHeight - 4) + 'px';
+}
+function closeMenu() {
+  $('#ctxmenu').hidden = true;
+  $$('.row.ctx').forEach(r => r.classList.remove('ctx'));
+}
+$$('#ctxmenu button').forEach(b => b.addEventListener('click', () => {
+  const l = menuFor; closeMenu();
+  if (b.dataset.act === 'duplicate') duplicate(l);
+  if (b.dataset.act === 'remove' && l.draft) removeDraft(l);
+}));
+document.addEventListener('mousedown', e => { if (!e.target.closest?.('#ctxmenu')) closeMenu(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenu(); });
+$('.content').addEventListener('scroll', closeMenu);
+
+function select(pane) {
+  current = pane;
+  const l = locs.find(x => x.id === pane);
+  $$('[data-panel]').forEach(p => p.hidden = p.dataset.panel !== (l ? 'loc' : pane));
+  $('#title').textContent = l ? l.name || 'Untitled' : titles[pane];
+  if (l) { $('#loc-pane').innerHTML = paneHTML(l); bindPane(l); }
+  $('.content').scrollTop = 0;
+  renderRows();
+}
+
+$$('.groups > .row').forEach(r => r.addEventListener('click', () => select(r.dataset.pane)));
+$('[data-new]').addEventListener('click', newLocation);
+document.addEventListener('keydown', e => {
+  const l = locs.find(x => x.id === current);
+  if (e.metaKey && e.key === 'd' && l && !l.draft) { e.preventDefault(); duplicate(l); }
+});
+function show(view) {
+  $$('.tabs button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.view === view)));
+  ['settings', 'menu'].forEach(v => document.getElementById('v-' + v).hidden = v !== view);
+}
+$$('.tabs button').forEach(b => b.addEventListener('click', () => show(b.dataset.view)));
+$$('.toggle').forEach(t => t.addEventListener('click', () => t.setAttribute('aria-checked', String(t.getAttribute('aria-checked') !== 'true'))));
+select('docs');
+</script>
+</body>
+</html>
