@@ -10,6 +10,7 @@ Usage: transfer-bench FILE [options]
   --block-size BYTES     POSIX request size: 4096..16777216 (default 1048576).
   --runs COUNT           Reopen and repeat 1..100 times (default 1).
   --no-cache             Request F_NOCACHE; does NOT prove the NAS cache is cold.
+  --allow-hydration      Allow this process to download missing File Provider content.
   --sync                Include fsync of the staging file in the transfer time.
   --verify              SHA-256 compare source/staged range AFTER timing; requires --stage-dir.
   --cache-label TEXT     Operator's description, default 'unknown'; not verified by this tool.
@@ -28,6 +29,7 @@ struct Options {
     var blockSize = 1024 * 1024
     var runs = 1
     var noCache = false
+    var allowHydration = false
     var sync = false
     var verify = false
     var cacheLabel = "unknown"
@@ -39,6 +41,7 @@ struct Options {
         while i < args.count {
             let flag = args[i]; i += 1
             if flag == "--no-cache" { noCache = true; continue }
+            if flag == "--allow-hydration" { allowHydration = true; continue }
             if flag == "--sync" { sync = true; continue }
             if flag == "--verify" { verify = true; continue }
             guard i < args.count else { throw CLIError.message("Missing value for \(flag)") }
@@ -80,6 +83,10 @@ struct Record: Encodable {
     let mode: String
     let blockSize: Int
     let noCacheRequested: Bool
+    let hydrationAllowed: Bool
+    let inheritedHydrationPolicy: Int32
+    let effectiveHydrationPolicy: Int32
+    let ignoresMaterializationChangeTime: Bool
     let cacheLabel: String
     let cacheStateVerified = false
     let syncStaging: Bool
@@ -95,9 +102,23 @@ struct Record: Encodable {
 }
 
 func run(_ options: Options, iteration: Int) throws {
+    let policyType = IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES
+    let inheritedPolicy = getiopolicy_np(policyType, IOPOL_SCOPE_PROCESS)
+    guard inheritedPolicy >= 0 else { throw CLIError.message("Cannot read process hydration policy: errno \(errno)") }
+    if options.allowHydration {
+        guard setiopolicy_np(policyType, IOPOL_SCOPE_PROCESS, IOPOL_MATERIALIZE_DATALESS_FILES_ON) == 0 else {
+            throw CLIError.message("Cannot enable process hydration: errno \(errno)")
+        }
+    }
+    defer {
+        if options.allowHydration { _ = setiopolicy_np(policyType, IOPOL_SCOPE_PROCESS, inheritedPolicy) }
+    }
+    let effectivePolicy = getiopolicy_np(policyType, IOPOL_SCOPE_PROCESS)
+    guard effectivePolicy >= 0 else { throw CLIError.message("Cannot read effective hydration policy: errno \(errno)") }
     let start = DispatchTime.now().uptimeNanoseconds
     let sourceURL = URL(fileURLWithPath: options.path).standardizedFileURL
-    let source = try ReadOnlyFile(url: sourceURL, noCache: options.noCache)
+    let source = try ReadOnlyFile(url: sourceURL, noCache: options.noCache,
+                                  allowMaterialization: options.allowHydration)
     guard options.offset <= source.snapshot.size else { throw TransferError.invalidRange }
     let range = try ByteRange(offset: options.offset,
         length: options.length ?? (source.snapshot.size - options.offset), fileSize: source.snapshot.size)
@@ -121,7 +142,10 @@ func run(_ options: Options, iteration: Int) throws {
     let record = Record(runID: UUID().uuidString, run: iteration, timestamp: ISO8601DateFormatter().string(from: Date()),
         sourcePath: sourceURL.path, sourceFilesystem: source.filesystem, sourceSnapshot: source.snapshot,
         range: range, mode: output.stagingURL == nil ? "read-to-sink" : "read-to-local-stage",
-        blockSize: options.blockSize, noCacheRequested: options.noCache, cacheLabel: options.cacheLabel,
+        blockSize: options.blockSize, noCacheRequested: options.noCache,
+        hydrationAllowed: options.allowHydration, inheritedHydrationPolicy: inheritedPolicy,
+        effectiveHydrationPolicy: effectivePolicy,
+        ignoresMaterializationChangeTime: source.ignoresMaterializationChangeTime, cacheLabel: options.cacheLabel,
         syncStaging: options.sync, openSeconds: Double(opened - start) / 1e9,
         totalSeconds: Double(completed - start) / 1e9, metrics: output.metrics,
         megabytesPerSecond: output.metrics.megabytesPerSecond,

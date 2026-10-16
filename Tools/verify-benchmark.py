@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Local correctness checks, not a NAS or throughput benchmark. Build Release first."""
 import hashlib
+import ctypes
 import json
 import os
 from pathlib import Path
@@ -17,7 +18,12 @@ with tempfile.TemporaryDirectory(prefix="tinymounter-cli-check-") as temporary:
     payload = os.urandom(8 * 1024 * 1024 + 173)
     fixture.write_bytes(payload)
     cases = [[], ["--offset", "12345", "--length", "51119", "--stage-dir", str(stage), "--verify", "--sync"],
-             ["--stage-dir", str(stage), "--verify", "--no-cache"], ["--runs", "2"]]
+             ["--stage-dir", str(stage), "--verify", "--no-cache"], ["--runs", "2"],
+             ["--allow-hydration", "--runs", "2"]]
+    libc = ctypes.CDLL(None, use_errno=True)
+    inherited_policy = libc.getiopolicy_np(3, 0)
+    assert inherited_policy >= 0
+    assert libc.setiopolicy_np(3, 0, 1) == 0
     for args in cases:
         result = subprocess.run([str(bench), str(fixture), *args], text=True, capture_output=True, check=True)
         records = [json.loads(line) for line in result.stdout.splitlines()]
@@ -25,6 +31,10 @@ with tempfile.TemporaryDirectory(prefix="tinymounter-cli-check-") as temporary:
         for record in records:
             assert record["cacheStateVerified"] is False
             assert record["sourceFilesystem"]["isLocal"] is True
+            assert record["ignoresMaterializationChangeTime"] is False
+            assert record["inheritedHydrationPolicy"] == 1
+            assert record["hydrationAllowed"] == ("--allow-hydration" in args)
+            assert record["effectiveHydrationPolicy"] == (2 if "--allow-hydration" in args else 1)
             if "--verify" in args:
                 extent = record["range"]
                 expected = payload[extent["offset"]:extent["offset"] + extent["length"]]
@@ -38,4 +48,6 @@ with tempfile.TemporaryDirectory(prefix="tinymounter-cli-check-") as temporary:
         result = subprocess.run([str(bench), str(fixture), *args], text=True, capture_output=True)
         assert result.returncode != 0 and not result.stdout
         print("PASS invalid input rejected", args)
+    assert libc.getiopolicy_np(3, 0) == 1
+    assert libc.setiopolicy_np(3, 0, inherited_policy) == 0
 print("Local CLI checks passed. No NAS measurement performed.")

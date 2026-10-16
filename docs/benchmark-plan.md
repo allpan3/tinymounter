@@ -1,6 +1,6 @@
 # Performance and reliability validation plan
 
-This is a proposed experiment, not benchmark results. Research completed 2026-10-10; no transfers were measured. See [architecture.md](architecture.md) for the implementation design and [research.md](research.md) for sources.
+This document defines the proposed validation program. As of 2026-10-11, [native SMB/staging](results/2026-10-10-native-smb.md), [local File Provider correctness](results/2026-10-10-provider-runtime.md), the approved [app-owned NAS reader](results/2026-10-10-app-reader.md), [per-read delay tracing](results/2026-10-11-provider-delay.md), [verified NAS/local cache measurements](results/2026-10-11-cache-states.md), and [player launch paths with bounded read-ahead](results/2026-10-11-player-readahead.md) have run. Full-download medians exceed 90% of native in both verified NAS cache states; the complete sequential range-read, latency and reliability gates have not passed. See [architecture.md](architecture.md) for the implementation design and [research.md](research.md) for sources.
 
 ## 1. What we need to prove
 
@@ -19,13 +19,15 @@ These figures do not establish an Apple API ceiling or identify a competitor's b
 
 ## 2. Define every cache state
 
-Record server page cache, Mac SMB/client cache, provider materialization, and local filesystem cache separately. A second read of the integrated path can become a local SSD benchmark; it no longer measures SMB.
+Record server page cache, Mac SMB/client cache, provider materialization, and local filesystem cache separately. A second read of the File Provider path can become a local SSD benchmark; it no longer measures SMB.
 
 - **Remote cold, provider cold:** storage read from NAS, no local provider content. The 190 MB/s observation appears to describe this, but confirm the original test.
 - **Remote hot, provider cold:** NAS serves from RAM, but bytes still cross the network and hydrate the provider. This is the important comparison to 280 MB/s.
 - **Provider fully materialized:** bytes are local. Compare with equivalent local APFS reads, not network speed.
 - **Provider partially materialized:** record exact requested/downloaded extents and test both hits and misses.
 - **Offline pinned:** network unavailable, fully downloaded pinned content survives restart.
+
+The user requires separate NAS-cold and NAS-cached measurements before adaptive work. Their NAS has 64 GB RAM, enough to hold both current fixtures. Use server-side residency and physical-disk counters to verify those states; rates alone cannot distinguish them. For the explicitly approved 2.55 GiB fixture only, `POSIX_FADV_DONTNEED` through a read-only NAS descriptor can request page-cache eviction; require `fincore` to report zero resident pages before a cold sample. Warm that file with a local NAS read and require every page resident before a hot sample. Capture physical `sda`/`sdb` read counters before and after, avoiding double-counting md/LVM devices. Confirm cold reads reach the disks and hot runs have negligible physical data reads; retain measured deltas and unrelated-activity limitations. This controls Linux page cache, not a disk drive's internal cache. Do not use global `drop_caches` or extend eviction to other files. For naturally uncached alternatives, verify residency first; using a different movie alone does not prove a cold cache.
 
 Use a sufficiently large or rotating dataset, or controlled eviction/recreation of test provider items, to obtain the intended state. Evict only the dedicated clean test files. `F_NOCACHE` can help characterize client caching but does not flush the NAS or prove all caches cold. Record cache state as unknown if it cannot be established; do not label it cold on faith. Server cache dropping/reboots are not part of the default test because they affect unrelated workloads.
 
@@ -49,7 +51,7 @@ Use the same bytes, read pattern, environment, and cache state for each row wher
 | B | Native mounted SMB → same-volume APFS staging file | Cost of creating local downloaded content |
 | C1 | Local pre-existing fixture → minimal File Provider with clone handoff → reader | Lower bound on provider dispatch/handoff; not a network simulation |
 | C2 | Local fixture → matching range writes/staging → File Provider → reader | Provider scheduling plus real staging; local disk contention must be recorded |
-| D | Native SMB → staging → File Provider → reader | Integrated path while keeping Apple's SMB client |
+| D | Native SMB → staging → File Provider → reader | File Provider path while keeping Apple's SMB client |
 | E | Async direct SMB → sink | Direct transport versus A |
 | F | Async direct SMB → APFS staging | Direct transport plus local writes versus B |
 | G | Async direct SMB → staging → File Provider → reader | Complete alternative implementation versus D |
@@ -57,6 +59,16 @@ Use the same bytes, read pattern, environment, and cache state for each row wher
 | I | Mountain Duck integrated / Driio → same readers | Reproduce user experience with exact versions/settings |
 
 For read-to-sink tests, account for client page cache explicitly. A file that fits in Mac memory can otherwise make native SMB appear faster than the network. For provider tests, verify byte ingress and materialization; a cached response invalidates the remote-read comparison. Test POSIX `read`/`pread`, actual Finder copy, and `NSFileCoordinator` access separately. Never compare a coordinated whole-file fetch against a native tiny-range read without labeling the semantic difference.
+
+The current CLI's `--allow-hydration` explicitly enables process-local dataless-file downloads and records inherited/effective policy. For an initially local dataless source, the benchmark allows materialization-induced ctime changes while checking identity, size and mtime; the actual NAS source remains strictly validated by the app-owned reader. See [prototype setup](prototype.md). A managed-file privacy prompt must be completed before timed repetitions. Record callback and reader time separately: the first local experiment observed a 7.028 ms callback but a 604.518 ms reader transfer for one 256 KiB miss; this single probe is not a throughput result.
+
+The app-reader diagnostic uses five interleaved native/provider pairs of **64 MiB**, each on a fresh provider extent, with 1 MiB POSIX reads and SMB session RX deltas. It compares 4 MiB and 16 MiB returned extents; the app's NAS descriptor uses `F_NOCACHE`. This deliberately short diagnostic locates the large per-fetch delay; it does not replace the large-file acceptance series or relax the 90% gate. Report all samples, including variable native rates and the exploratory series, and keep server cache state unknown. No concurrent development builds should run during timed series.
+
+The October 11 follow-up separates heavy system tracing from throughput trials. The trace records each `pread` interval and correlates it with fetch completion and macOS's flush events, using a local source as a network-independent control. Temporary 64/256 MiB returned extents use five paired **256 MiB** samples with first-byte latency and ingress counters. These larger diagnostic sizes extend the initial tuning grid without changing the default or acceptance gates. Four-reader trials are labeled cooperative-reader controls, not ordinary sequential/player performance. For read-ahead work, measure downloaded/requested byte amplification and avoid speculative callbacks scheduling further unbounded downloads.
+
+Player launch paths are tested separately from throughput. Evict the provider copy, then open it from Finder (double-click, Open With, Cmd-O), from the player's own File > Open, and with `open -a`. For each, record the fetch mode and bytes, the Finder flag on the request, and when the player reports the file playing. Interleave native-SMB controls. Wait several seconds between read-ahead samples so speculative tails don't overlap the next sample's counters, and report fetched bytes per byte read from the extension's callback log. A seek probe must actually collide with an in-flight speculative fetch, confirmed in the log, before it can claim anything about seek priority. Verify eviction by allocated size before each arm; the `dataless` flag stays set on partially downloaded copies. Space samples so one sample's speculation can't reach the next sample's start, or the planner treats them as one run.
+
+For the user's requested **full-download attribution before adaptive read-ahead**, use the following method. Use a complete immutable NAS file, an evicted clean provider item, and a coordinated read to request full materialization. Time from the coordination request to accessor entry, verify `mode=full` in the extension log, compare app transfer and callback duration, and confirm complete materialization with hydration disabled. The scheduling acknowledgement of a range/download request is not a completion measurement. Interleave five native-to-sink, native-to-staging, and provider full-download runs; retain the first sample even if server-cache warming appears likely. Record an additional large-file control separately from the repeated smaller fixture. Verify original-source and provider hashes outside all timing windows. A pin-triggered full download is an additional behavior check: downloaded and retained are distinct states. These controls explain the cost of full download; they do not substitute for the existing large sequential range-read and media gates.
 
 The harness should output one JSONL record per run: configuration, dataset hash, requested cache state and verification, logical bytes, wire bytes where observable, first-byte latency, total duration, sustained MB/s, CPU, peak RSS, local bytes written, range/request counts, negotiated security, cancellation outcome, and success/hash verification. Later scripts summarize these records; raw runs remain reviewable.
 
@@ -68,7 +80,7 @@ Benchmark signatures and next action:
 
 - **A fast, E slow:** direct transport/auth/security/pipelining issue; File Provider is not involved yet.
 - **A/E fast, B/F slow:** local storage/copying/staging bottleneck.
-- **B fast, D slow:** investigate provider queueing, extent sizing, file handoff, version lookups, or reading-app semantics. This implicates the integrated path, not automatically an unavoidable OS ceiling.
+- **B fast, D slow:** investigate provider queueing, extent sizing, file handoff, version lookups, or reading-app semantics. This implicates the File Provider path, not automatically an unavoidable OS ceiling.
 - **D fast, G slow:** investigate the direct adapter/scheduler or interaction with the provider.
 - **D/G fast bulk rate, slow video start:** inspect whole-file fetches, codec access patterns, range alignment and prefetch, and seek priorities.
 - **H slow or contacts the server for ordinary cached reads:** investigate local disk/content eviction or unnecessary provider work.

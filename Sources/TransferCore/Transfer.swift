@@ -57,16 +57,26 @@ public final class ReadOnlyFile {
     public let descriptor: Int32
     public let snapshot: FileSnapshot
     public let filesystem: FileSystemInfo
+    public let ignoresMaterializationChangeTime: Bool
 
-    public init(url: URL, noCache: Bool = false) throws {
+    public convenience init(url: URL, noCache: Bool = false, allowMaterialization: Bool = false) throws {
         // O_NONBLOCK prevents an accidental FIFO from blocking before the regular-file check.
         let fd = url.withUnsafeFileSystemRepresentation {
             Darwin.open($0!, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK)
         }
         guard fd >= 0 else { throw posixError("open source read-only") }
+        try self.init(descriptor: fd, noCache: noCache, allowMaterialization: allowMaterialization)
+    }
+
+    /// Takes ownership of `fd` and closes it if a check fails.
+    private init(descriptor fd: Int32, noCache: Bool, allowMaterialization: Bool) throws {
         do {
             snapshot = try FileSnapshot(fd: fd)
             filesystem = try FileSystemInfo(fd: fd)
+            var metadata = stat()
+            guard fstat(fd, &metadata) == 0 else { throw posixError("fstat flags") }
+            ignoresMaterializationChangeTime = allowMaterialization && filesystem.isLocal
+                && metadata.st_flags & UInt32(SF_DATALESS) != 0
             if noCache, fcntl(fd, F_NOCACHE, 1) == -1 { throw posixError("F_NOCACHE") }
         } catch { Darwin.close(fd); throw error }
         descriptor = fd
@@ -74,8 +84,19 @@ public final class ReadOnlyFile {
 
     deinit { Darwin.close(descriptor) }
 
+    /// The open file as it is now, which can differ from `snapshot`.
+    public func currentSnapshot() throws -> FileSnapshot { try FileSnapshot(fd: descriptor) }
+
     public func validateUnchanged() throws {
-        guard try FileSnapshot(fd: descriptor) == snapshot else { throw TransferError.sourceChanged }
+        let current = try currentSnapshot()
+        // Hydrating a local dataless file changes ctime without changing its content version.
+        if ignoresMaterializationChangeTime {
+            guard current.device == snapshot.device, current.inode == snapshot.inode,
+                  current.size == snapshot.size, current.modifiedSeconds == snapshot.modifiedSeconds,
+                  current.modifiedNanoseconds == snapshot.modifiedNanoseconds else {
+                throw TransferError.sourceChanged
+            }
+        } else if current != snapshot { throw TransferError.sourceChanged }
     }
 
     public func checksum(range: ByteRange) throws -> String {
