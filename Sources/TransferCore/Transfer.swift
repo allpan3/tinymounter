@@ -2,7 +2,7 @@ import CryptoKit
 import Darwin
 import Foundation
 
-private func posixError(_ operation: String) -> NSError {
+func posixError(_ operation: String) -> NSError {
     let code = errno
     return NSError(domain: NSPOSIXErrorDomain, code: Int(code), userInfo: [
         NSLocalizedDescriptionKey: "\(operation): \(String(cString: strerror(code)))"
@@ -37,6 +37,35 @@ public struct FileSnapshot: Codable, Equatable, Sendable {
     public var versionData: Data {
         Data("\(device):\(inode):\(size):\(modifiedSeconds):\(modifiedNanoseconds):\(changedSeconds):\(changedNanoseconds)".utf8)
     }
+
+    public var fingerprint: ContentFingerprint {
+        ContentFingerprint(
+            size: size,
+            mtimeNs: ContentFingerprint.nanoseconds(seconds: modifiedSeconds, nanoseconds: modifiedNanoseconds),
+            ctimeNs: ContentFingerprint.nanoseconds(seconds: changedSeconds, nanoseconds: changedNanoseconds))
+    }
+}
+
+/// The fields of a published content version: unlike `FileSnapshot`, no device or inode (D1).
+public struct ContentFingerprint: Hashable, Sendable {
+    public let size: Int64
+    public let mtimeNs: Int64
+    public let ctimeNs: Int64
+
+    public init(size: Int64, mtimeNs: Int64, ctimeNs: Int64) {
+        self.size = size
+        self.mtimeNs = mtimeNs
+        self.ctimeNs = ctimeNs
+    }
+
+    /// At most 65 UTF-8 bytes, within File Provider's 128-byte version limit.
+    public var contentVersion: String { "f1:\(size):\(mtimeNs):\(ctimeNs)" }
+
+    /// Nanoseconds since 1970, clamped to Int64.
+    public static func nanoseconds(seconds: Int64, nanoseconds: Int64) -> Int64 {
+        // APFS's earliest time is Int64.min nanoseconds, yet its seconds * 10^9 overflows Int64.
+        Int64(clamping: Int128(seconds) * 1_000_000_000 + Int128(nanoseconds))
+    }
 }
 
 public struct FileSystemInfo: Codable, Sendable {
@@ -66,6 +95,12 @@ public final class ReadOnlyFile {
         }
         guard fd >= 0 else { throw posixError("open source read-only") }
         try self.init(descriptor: fd, noCache: noCache, allowMaterialization: allowMaterialization)
+    }
+
+    convenience init(directoryFD: Int32, path: String, noCache: Bool) throws {
+        let fd = openat(directoryFD, path, O_RDONLY | O_CLOEXEC | O_NONBLOCK | O_NOFOLLOW_ANY | O_RESOLVE_BENEATH)
+        guard fd >= 0 else { throw posixError("openat source read-only") }
+        try self.init(descriptor: fd, noCache: noCache, allowMaterialization: false)
     }
 
     /// Takes ownership of `fd` and closes it if a check fails.

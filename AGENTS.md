@@ -22,7 +22,7 @@ current status.
 
 | Path                     | Holds                                                                   |
 | ------------------------ | ----------------------------------------------------------------------- |
-| `Sources/TransferCore/`  | the transfer engine shared by CLI and extension: ranges, reads, staging |
+| `Sources/TransferCore/`  | transfer engine, catalog, folder listing, safe paths, error classifier  |
 | `Sources/TransferBench/` | the `transfer-bench` CLI                                                |
 | `Tests/`                 | unit tests for `TransferCore` (`swift test`)                            |
 | `Prototype/`             | SwiftUI app, File Provider extension, shared fixture config, xcconfig   |

@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "TinyMounterPrototype",
-    platforms: [.macOS(.v13)],
+    platforms: [.macOS("27.0")],
     products: [.executable(name: "transfer-bench", targets: ["TransferBench"])],
     targets: [
         .target(name: "TransferCore"),
