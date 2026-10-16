@@ -515,9 +515,20 @@ final class LocationSource: @unchecked Sendable {
 
     func counts() throws -> CatalogCounts { try withCatalog { try $0.counts() } }
 
+    /// `meta.paused`, which every row read carries.
+    func isPaused() throws -> Bool { try withCatalog { try $0.item(id: Catalog.rootItemID)?.paused ?? false } }
+
     /// Keep Downloaded requests need no share I/O; the system downloads after the signal.
     func keep(_ ids: [String], value: Bool) throws -> Int {
         let changed = try withCatalog { try $0.setKeep(ids: ids, value: value) }
+        if changed > 0 { scheduleSignal() }
+        return changed
+    }
+
+    /// Returns the kept rows whose download policy changed.
+    @discardableResult
+    func setPaused(_ paused: Bool) throws -> Int {
+        let changed = try withCatalog { try $0.setPaused(paused) }
         if changed > 0 { scheduleSignal() }
         return changed
     }

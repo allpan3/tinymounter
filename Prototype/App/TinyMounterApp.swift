@@ -11,7 +11,13 @@ struct TinyMounterPrototypeApp: App {
     var body: some Scene {
         WindowGroup("tinymounter · Prototype") {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Locations").font(.title2.bold())
+                HStack {
+                    Text("Locations").font(.title2.bold())
+                    Spacer()
+                    // Temporary until the menu bar item (M7).
+                    Button(model.paused ? "Resume Downloads" : "Pause Downloads", action: model.togglePause)
+                        .disabled(!model.ready)
+                }
                 Text("A location shows a folder of a share in Finder. tinymounter only reads the files on the server.")
                     .foregroundStyle(.secondary)
                 if let problem = model.problem { Text(problem).foregroundStyle(.red) }
@@ -64,6 +70,7 @@ final class PrototypeModel: ObservableObject {
     @Published private(set) var problem: String?
     @Published private(set) var grantID: UUID?
     @Published private(set) var ready = false
+    @Published private(set) var paused = false
     @Published var status = ""
     @Published var busy = false
     @Published var folderText = ""
@@ -109,6 +116,15 @@ final class PrototypeModel: ObservableObject {
             } catch {
                 status = "Finder cannot show this location (\(logFields(error)))."
             }
+        }
+    }
+
+    func togglePause() {
+        let pause = !paused
+        Task {
+            await controller.setPaused(pause)
+            status = pause ? "tinymounter stopped background downloads. Files that you open still download."
+                : "tinymounter started background downloads again."
         }
     }
 
@@ -224,6 +240,7 @@ final class PrototypeModel: ObservableObject {
         locations = store.settings?.locations ?? []
         problem = controller.problem
         ready = controller.isReady
+        paused = controller.paused
     }
 
     private static func message(for error: Error) -> String {

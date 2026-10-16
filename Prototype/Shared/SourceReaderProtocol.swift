@@ -18,6 +18,8 @@ import FileProvider
     func started(_ message: Data)
     /// At most every `SourceReaderBridge.progressInterval` during a fetch; bytes done of its range.
     func progress(_ requestID: String, completedBytes: Int64)
+    /// Sent after the app set `paused` in the domain's catalog: background fetches stop now.
+    func pauseDownloads()
 }
 
 enum SourceReaderBridge {

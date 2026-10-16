@@ -552,8 +552,11 @@ streams [V, M5]. Other uses of the agent are untested.
 
 **Pause Downloads** (decision 5). The app sets `paused` in each catalog and signals `.workingSet`.
 While it is set, kept items report `.downloadLazily`, so the system starts no eager downloads, and
-the extension requests no read-ahead. Eager fetches already running complete with `userCancelled`
-when `request.isSystemRequest` is true [A, M6]. A file that the user opens downloads as usual.
+the extension requests no read-ahead. After the commits, the app tells each connected extension,
+which cancels its running fetches that are system requests or speculative; such a fetch that
+starts later fails at once. Eager Keep Downloaded fetches are system requests
+(`request.isSystemRequest`) [A, M6], so they complete with `userCancelled`. A file that the user
+opens downloads as usual.
 Resume and app launch clear `paused`. Kept files already on disk stay unless the system needs the
 space while paused [A, M6].
 

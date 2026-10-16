@@ -28,6 +28,8 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
     private var readAhead = ReadAheadRegistry(chunk: ReadAheadPolicy.chunk, window: ReadAheadPolicy.window, maxInFlight: 1)
     /// Speculative fetches in flight and their items, so a seek cancels only its own item's.
     private var speculative: [UUID: (item: String, version: String, progress: Progress)] = [:]
+    /// System and speculative fetches in `active`: the ones that Pause Downloads stops.
+    private var background: Set<UUID> = []
     private var mutations: [String: Int] = [:]
     private let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "fetch")
     private let actionLogger = Logger(subsystem: "dev.tinymounter.prototype", category: "actions")
@@ -38,6 +40,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         sourceReader = SourceReaderService(domainID: domain.identifier.rawValue)
         catalog = CatalogReader(domainID: domain.identifier.rawValue)
         super.init()
+        sourceReader.onPauseDownloads { [weak self] in self?.cancelBackgroundFetches() }
         // Resolving an app's recent-file bookmarks would otherwise download each whole file.
         UserDefaults.standard.set(["ScopedBookmarkAgent"], forKey: "NSFileProviderExtensionNonMaterializingProcessNames")
         let cutoff = Self.processStart
@@ -132,6 +135,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             }
             active[requestID] = progress
             if kind == .speculative(current: true) { speculative[requestID] = (row.id, row.contentVersion, progress) }
+            if request.isSystemRequest || kind == .speculative(current: true) { background.insert(requestID) }
             return (kind, seekCancels, invalidated)
         }
         seekCancels.forEach { $0.cancel() }
@@ -142,17 +146,24 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 kind=stale-speculative offset=\(start ?? 0)
                 """)
             completion(nil, nil, NSRange(location: 0, length: 0), CocoaError(.userCancelled))
-            lock.withLock { active[requestID] = nil }
+            lock.withLock { active[requestID] = nil; background.remove(requestID) }
             return progress
         }
         let queuedAt = DispatchTime.now().uptimeNanoseconds
         queue.addOperation { [self] in
-            defer { lock.withLock { active[requestID] = nil; speculative[requestID] = nil } }
+            defer {
+                lock.withLock { active[requestID] = nil; speculative[requestID] = nil; background.remove(requestID) }
+            }
             let startedAt = DispatchTime.now().uptimeNanoseconds
             var staging: URL?
             var stage = "range"
             do {
                 guard !progress.isCancelled else { throw TransferError.cancelled }
+                // Read after joining `active`: a Pause that commits later also cancels this fetch.
+                if lock.withLock({ background.contains(requestID) }), (try? catalog.liveRow(item))?.paused == true {
+                    stage = "paused"
+                    throw TransferError.cancelled
+                }
                 let range: ByteRange
                 if let partial {
                     let required = try ByteRange.clampedToEOF(offset: Int64(partial.location), length: Int64(partial.length),
@@ -236,6 +247,17 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
     private func requestDownloads(_ ranges: [ByteRange], row: CatalogRow) {
         lock.lock(); let stopped = invalidated; lock.unlock()
         guard !stopped, let manager = NSFileProviderManager(for: domain) else { return }
+        let paused = (try? catalog.liveRow(row.id))?.paused
+        guard paused == false else {
+            // Pause Downloads, or the row is gone: retire the plan so a later miss plans again.
+            lock.withLock {
+                for range in ranges { readAhead.requestFailed(item: row.id, version: row.contentVersion, range: range) }
+            }
+            logger.info("""
+                readahead item=\(row.id, privacy: .public) ranges=\(ranges.count) skipped=1 paused=\(paused == true)
+                """)
+            return
+        }
         for range in ranges {
             // Completion only acknowledges scheduling; the bytes arrive later as a partial fetch.
             manager.requestDownloadForItem(withIdentifier: NSFileProviderItemIdentifier(row.id),
@@ -261,6 +283,13 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             let failure = error as NSError
             logger.error("temp_sweep failed error_domain=\(failure.domain, privacy: .public) code=\(failure.code)")
         }
+    }
+
+    /// Plan §6: the app set `paused` before it sent this, so fetches that start later stop too.
+    private func cancelBackgroundFetches() {
+        let cancels = lock.withLock { background.compactMap { active[$0] } }
+        cancels.forEach { $0.cancel() }
+        logger.info("pause_downloads cancelled=\(cancels.count)")
     }
 
     /// Keep Downloaded and Allow Removal record a request through the app (plan §8).

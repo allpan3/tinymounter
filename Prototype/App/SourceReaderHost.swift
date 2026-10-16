@@ -75,6 +75,13 @@ final class SourceReaderHost {
         }
     }
 
+    /// Call after every catalog has `paused` set, so the extensions' later checks see it.
+    func pauseDownloads() {
+        for connection in connections.values {
+            (connection.remoteObjectProxyWithErrorHandler { _ in } as? SourceReaderRegistration)?.pauseDownloads()
+        }
+    }
+
     private func retry(_ domain: NSFileProviderDomain) {
         let id = domain.identifier.rawValue
         guard domains[id] != nil else { return }

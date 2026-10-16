@@ -89,7 +89,8 @@ Apple's paid Developer Program is [US$99 per membership year](https://developer.
 **VM sign-in resolved:** Xcode now loads the Personal Team and has successfully created a development certificate. Earlier failures included DNS and AVP guest identity errors; see the [sign-in diagnostic notes](results/2026-10-10-xcode-signin.md). The exact cause of recovery is not isolated. Signed build/provisioning and local extension loading have now succeeded; see the separate runtime report.
 
 Build and run the `TinyMounterPrototype` scheme with normal development signing. Its window is a
-test harness for M4 and M5, not the phase 2 interface (M7). Nothing migrates from phase 1: remove
+test harness for M4–M6, not the phase 2 interface (M7). Its Pause Downloads button stands in for
+the menu bar item until M7. Nothing migrates from phase 1: remove
 the fixture domains with the phase 1 build before the first run (D3). A domain without a catalog
 fails every request with `serverUnreachable` and never reports an item as deleted.
 
@@ -187,7 +188,7 @@ xcodebuild -project TinyMounter.xcodeproj -scheme TinyMounterPrototype -configur
 4. Watch the logs while you browse, read, or seek in a video. Lines hold request, item and domain
    UUIDs, counts, sizes, times and error codes, never names or paths. `kill -USR1 <app pid>` logs
    the app's diagnostic counts: catalogs, items, tombstones, listed folders, stage files,
-   descriptors, RSS and kept files.
+   descriptors, RSS, kept files and paused catalogs.
 
    ```sh
    log stream --level info --predicate 'subsystem == "dev.tinymounter.prototype"'
@@ -223,8 +224,9 @@ not the raw `results/` folder, which can hold private paths.
 
 ## Deliberate limitations
 
-- Read-only, on the user's own Finder connection: one grant per share, and locations that are folders on it. The app never mounts, writes, renames or deletes on the share. Pause Downloads, the Settings window, the menu bar, notifications and the Storage pane are not built (M6–M8).
+- Read-only, on the user's own Finder connection: one grant per share, and locations that are folders on it. The app never mounts, writes, renames or deletes on the share. The Settings window, the menu bar, notifications and the Storage pane are not built (M7–M8).
 - Keep Downloaded is a request for each file, not proof of a download (phase 2 decision 3). The system downloads a kept file and doesn't evict it. The app doesn't list the requests or show download state yet (M7), and Remove Location deletes them with the catalog.
+- Pause Downloads sets `paused` in every catalog. Kept files then report `.downloadLazily` and read-ahead stops. The extension cancels its running system and speculative fetches and refuses those that start while paused. Files that apps open still download. Resume and each app launch clear Pause.
 - NAS changes show only after a listing: when the system enumerates a never-listed or evicted folder; in the background when it enumerates a folder listed over 60 s ago; for each materialized folder at app launch and after the share recovers; and as a fingerprint check at each fetch. There is no `CHANGE_NOTIFY` and no polling, so a change between these events doesn't show, and a downloaded copy stays stale until then. A NAS rename is a delete plus a create.
 - Only a complete listing changes the catalog, after `fstatat` confirmed that each missing name is gone. A listing that would remove every child of a folder, remove a kept file, or change a kind is held; a listing that starts at least 15 s later applies what it finds (D5). Symlinks, special files, invalid names and name-key collisions are not shown; the listing log counts them as skipped.
 - Content versions are `f1:<size>:<mtime_ns>:<ctime_ns>` (D1), so a remount does not download copies again. Each transfer still checks the full snapshot, device and inode included, on its open descriptor. A change that keeps size and timestamps can't be detected.
