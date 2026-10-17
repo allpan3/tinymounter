@@ -168,7 +168,8 @@ Decisions 3 to 6 add Keep Downloaded requests, the UI and relisting.
   - runs one serial metadata lane, the `ShareHealth` state and one probe while unhealthy;
   - closes its descriptors and stops access on `NSWorkspace` will-unmount and did-unmount, and
     polls the mount table every 10 s as a backstop and to start a session when the share is
-    mounted.
+    mounted. A mount from will-unmount gets no new session until it leaves the mount table, or
+    for at most 60 s (M7).
 - `LocationSource`, one per added location: the writer catalog, a location-root descriptor opened
   beneath the share root once per mount session, coalesced listings, `transfer(request)` for
   reads, and `keep(ids, value)` (M6).

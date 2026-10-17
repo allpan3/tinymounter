@@ -94,6 +94,9 @@ final class ShareAccess: @unchecked Sendable {
     private var health = ShareHealth()
     /// The grant's mounts when it failed; needsGrant ends when they change.
     private var refusedMounts: Set<MountIdentity> = []
+    /// Mounts from willUnmount, listed for seconds more: no session starts on one until it goes.
+    private var unmounting: [MountIdentity: ContinuousClock.Instant] = [:]
+    private static let unmountWait: Duration = .seconds(60)
     private var connecting = false
     private var stateHandler: (@Sendable (ShareHealth.State) -> Void)?
     private var observers: [NotificationCenter.ObservationToken] = []
@@ -158,7 +161,7 @@ final class ShareAccess: @unchecked Sendable {
     }
 
     /// Where the share is mounted, from the mount table with no I/O; nil if it isn't.
-    func mountPath() -> String? { (try? MountEntry.current())?.first(where: isCandidate)?.mountOn }
+    func mountPath() -> String? { (try? MountEntry.current()).flatMap { candidates(in: $0).first }?.mountOn }
 
     /// The failure to return at once, with no share I/O; nil to try the request.
     func refusal() -> SourceFailure? { changeHealth { $0.refusal() } }
@@ -212,7 +215,7 @@ final class ShareAccess: @unchecked Sendable {
                 ended(session, reason: "mount_gone")
             }
             // Resolution waits about 30 s for an absent server, so it runs only for a mounted share.
-            let candidates = mounts.filter(isCandidate)
+            let candidates = self.candidates(in: mounts)
             guard !candidates.isEmpty else { throw SourceFailure.notConnected }
             let session: ShareSession
             do {
@@ -233,7 +236,13 @@ final class ShareAccess: @unchecked Sendable {
         }
     }
 
-    private func isCandidate(_ mount: MountEntry) -> Bool { mount.identity.mountFrom == mountFrom && mount.isRemoteSMB }
+    /// The grant's SMB mounts, except those that macOS is unmounting.
+    private func candidates(in mounts: [MountEntry]) -> [MountEntry] {
+        let unmounting = lock.withLock { self.unmounting }
+        return mounts.filter { mount in
+            mount.identity.mountFrom == mountFrom && mount.isRemoteSMB && unmounting[mount.identity] == nil
+        }
+    }
 
     private func start(_ candidates: [MountEntry]) throws -> ShareSession {
         let clock = ContinuousClock()
@@ -338,7 +347,7 @@ final class ShareAccess: @unchecked Sendable {
 
     /// No request reaches the share until its mounts change or the grant is replaced.
     private func needGrant(ending ended: ShareSession?) {
-        let refused = Set(((try? MountEntry.current()) ?? []).filter(isCandidate).map(\.identity))
+        let refused = Set(candidates(in: (try? MountEntry.current()) ?? []).map(\.identity))
         let removed = changeHealth { health -> Bool in
             refusedMounts = refused
             health.failed(.notAuthenticated)
@@ -355,6 +364,9 @@ final class ShareAccess: @unchecked Sendable {
         let path = Self.filePath(url)
         // Off the main thread: the last release closes the root, which can wait for the server.
         monitor.async { [self] in
+            if let mount = (try? MountEntry.current())?.first(where: { $0.mountOn == path }) {
+                lock.withLock { unmounting[mount.identity] = .now }
+            }
             guard let session = lock.withLock({ self.session }), session.mountOn == path else { return }
             ended(session, reason: reason)
         }
@@ -362,12 +374,17 @@ final class ShareAccess: @unchecked Sendable {
 
     private func checkMountTable() {
         guard let mounts = try? MountEntry.current() else { return }
-        let (session, state, refused) = lock.withLock { (self.session, health.state, refusedMounts) }
+        let listed = Set(mounts.map(\.identity))
+        let now = ContinuousClock.now
+        let (session, state, refused) = lock.withLock {
+            unmounting = unmounting.filter { listed.contains($0.key) && $0.value.duration(to: now) < Self.unmountWait }
+            return (self.session, health.state, refusedMounts)
+        }
         if let session {
             if !session.isListed(in: mounts) { ended(session, reason: "poll") }
             return
         }
-        let present = Set(mounts.filter(isCandidate).map(\.identity))
+        let present = Set(candidates(in: mounts).map(\.identity))
         if state == .needsGrant {
             guard present != refused else { return }
             changeHealth { $0.mountDisappeared() }
