@@ -40,7 +40,9 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         sourceReader = SourceReaderService(domainID: domain.identifier.rawValue)
         catalog = CatalogReader(domainID: domain.identifier.rawValue)
         super.init()
-        sourceReader.onPauseDownloads { [weak self] in self?.cancelBackgroundFetches() }
+        sourceReader.onPauseDownloads { [weak self] in self?.cancelBackgroundFetches(reason: "pause_downloads") }
+        // A fetch that waited for the reader missed the cancel that Pause sent before it connected.
+        sourceReader.onConnect { [weak self] in self?.cancelBackgroundFetchesIfPaused() }
         // Resolving an app's recent-file bookmarks would otherwise download each whole file.
         UserDefaults.standard.set(["ScopedBookmarkAgent"], forKey: "NSFileProviderExtensionNonMaterializingProcessNames")
         let cutoff = Self.processStart
@@ -286,10 +288,15 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
     }
 
     /// Plan §6: the app set `paused` before it sent this, so fetches that start later stop too.
-    private func cancelBackgroundFetches() {
+    private func cancelBackgroundFetches(reason: String) {
         let cancels = lock.withLock { background.compactMap { active[$0] } }
         cancels.forEach { $0.cancel() }
-        logger.info("pause_downloads cancelled=\(cancels.count)")
+        logger.info("\(reason, privacy: .public) cancelled=\(cancels.count)")
+    }
+
+    private func cancelBackgroundFetchesIfPaused() {
+        guard (try? catalog.liveRow(Catalog.rootItemID))?.paused == true else { return }
+        cancelBackgroundFetches(reason: "reader_connected_paused")
     }
 
     /// Keep Downloaded and Allow Removal record a request through the app (plan §8).
