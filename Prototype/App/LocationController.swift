@@ -7,9 +7,21 @@ import UniformTypeIdentifiers
 /// Domain steps, launch reconciliation, recovery signals and relisting (plan §3 and §7).
 @MainActor
 final class LocationController {
+    enum Problem: Equatable {
+        /// Launch reconciliation stopped: nothing is added or removed.
+        case settingsUnreadable
+        case domainsUnreadable
+    }
+
+    struct Diagnostics: Equatable {
+        var catalogFiles = 0, catalogsOpen = 0, catalogsUnavailable = 0, items = 0, tombstones = 0
+        var listedFolders = 0, kept = 0, catalogsPaused = 0, stageFiles = 0, descriptors = 0
+        var residentBytes: UInt64 = 0
+        var shares = 0, sessions = 0
+    }
+
     let store: SettingsStore
-    /// Set when launch reconciliation can't run; nothing is added or removed then.
-    private(set) var problem: String?
+    private(set) var problem: Problem?
     /// Until launch reconciliation ends, a new catalog could look like one without a record.
     private(set) var isReady = false
     /// Pause Downloads, for every location. Each launch starts with it off (plan §7).
@@ -17,10 +29,28 @@ final class LocationController {
     /// The latest Pause Downloads change.
     private var pauseChange: Task<Bool, Never>?
     var onChange: (() -> Void)?
+    /// A share's state changed: the grant, the state before and the state now.
+    var onShareState: ((UUID, ShareHealth.State, ShareHealth.State) -> Void)?
+    /// A fetch that a user waits for failed on its share: the grant and the failure.
+    var onUserFetchFailed: ((UUID, SourceFailure) -> Void)?
+    /// Saved Keep Downloaded paths became kept files: the record and the item IDs.
+    var onKeepsRestored: ((LocationRecord, [String]) -> Void)?
+    /// A location's kept files or root state changed: its domain ID.
+    var onLocationChange: ((String) -> Void)?
+    /// Saved Keep Downloaded paths that a complete listing showed are not on the server, by record.
+    private(set) var notOnServer: [UUID: Set<String>] = [:]
+    private var restoring: Set<UUID> = []
+    /// Each domain's download progress while the system downloads; absent at rest.
+    private(set) var downloading: [String: Double] = [:]
+    /// Domains that the user turned off in System Settings.
+    private(set) var turnedOff: Set<String> = []
     private let reader = SourceReaderHost()
     private var shares: [UUID: ShareAccess] = [:]
+    private var shareStates: [UUID: ShareHealth.State] = [:]
     private var sources: [String: LocationSource] = [:]
     private var domains: [String: NSFileProviderDomain] = [:]
+    private var progress: [String: (progress: Progress, observation: NSKeyValueObservation)] = [:]
+    private var domainObserver: (any NSObjectProtocol)?
     /// Grants with a relisting running; true if a recovery asked for another one.
     private var relisting: [UUID: Bool] = [:]
     private var diagnosticsSignal: (any DispatchSourceSignal)?
@@ -35,36 +65,40 @@ final class LocationController {
         reader.onConnected = { [weak self] domainID in
             Task { await self?.signalResolved(domainID, [.serverUnreachable]) }
         }
+        reader.onUserFetchFailed = { [weak self] domainID, failure in
+            guard let self, let grantID = sources[domainID]?.access.grantID else { return }
+            onUserFetchFailed?(grantID, failure)
+        }
     }
 
-    var onReaderStatus: ((String) -> Void)? {
-        get { reader.onStatus }
-        set { reader.onStatus = newValue }
-    }
+    /// The share's state; not connected until its first session starts.
+    func shareState(_ grantID: UUID) -> ShareHealth.State { shareStates[grantID] ?? .notConnected }
+
+    /// Nil for a record without an open catalog: "catalog unavailable" (plan §7).
+    func isRootMissing(_ record: LocationRecord) -> Bool? { sources[record.domainID]?.isRootMissing }
 
     /// Plan §7 app launch: the staging sweep before any reader connects, then the domain steps.
     func launch() async {
         sweepStaging()
         guard case .ready(let settings) = store.state else {
-            problem = "tinymounter cannot read its settings file. tinymounter does not change the locations."
+            problem = .settingsUnreadable
             Self.catalogLog.error("launch_reconciliation stopped reason=settings")
             onChange?()
             return
         }
-        let registered: [NSFileProviderDomain]
+        let registered: [String: NSFileProviderDomain]
         let catalogs: Set<String>
         do {
-            registered = try await NSFileProviderManager.domains()
+            registered = try await registeredDomains()
             catalogs = try SharedContainer.catalogDomainIDs()
         } catch {
-            problem = "tinymounter cannot read the locations of this Mac (\(logFields(error)))."
+            problem = .domainsUnreadable
             Self.catalogLog.error("launch_reconciliation stopped \(logFields(error), privacy: .public)")
             onChange?()
             return
         }
-        let byID = Dictionary(registered.map { ($0.identifier.rawValue, $0) }, uniquingKeysWith: { first, _ in first })
         let plan = LaunchReconciliation.plan(records: .success(settings.locations), catalogs: catalogs,
-                                             domains: Set(byID.keys))
+                                             domains: Set(registered.keys))
         for id in plan.unknownDomains {
             Self.catalogLog.info("launch_reconciliation unknown_domain=\(id, privacy: .public) kept=1")
         }
@@ -72,7 +106,7 @@ final class LocationController {
         for sequence in plan.sequences {
             for step in sequence {
                 do {
-                    try await run(step, registered: byID)
+                    try await run(step, registered: registered)
                     Self.catalogLog.info("launch_step \(Self.label(step), privacy: .public) ok=1")
                 } catch {
                     failed += 1
@@ -89,17 +123,16 @@ final class LocationController {
             """)
         openSources()
         await refreshDomains()
-        for share in shares.values { share.connect() }
-        logDiagnostics(reason: "launch")
+        // Posted only after a first domains() call, such as refreshDomains made.
+        domainObserver = NotificationCenter.default.addObserver(forName: .fileProviderDomainDidChange, object: nil,
+                                                                queue: .main) { [weak self] _ in
+            Task { @MainActor in await self?.refreshDomains() }
+        }
+        for grant in store.settings?.servers ?? [] { share(for: grant).connect() }
+        await logDiagnostics(reason: "launch")
         installDiagnosticsSignal()
         isReady = true
         onChange?()
-    }
-
-    /// The access for a saved grant, made on first use.
-    func share(forGrantID id: UUID) -> ShareAccess? {
-        if let share = shares[id] { return share }
-        return store.settings?.servers.first { $0.id == id }.map(share(for:))
     }
 
     /// Saves a grant. A grant for a share that has one replaces its bookmark and keeps its ID.
@@ -113,65 +146,176 @@ final class LocationController {
                 settings.servers.append(grant)
             }
         }
-        shares[saved]?.replaceBookmark(grant.bookmark)
+        if let share = shares[saved] {
+            share.replaceBookmark(grant.bookmark)
+        } else if let saved = store.settings?.servers.first(where: { $0.id == saved }) {
+            share(for: saved).connect()
+        }
+        onChange?()
         return saved
     }
 
+    /// Servers `−`: only for a grant that no location uses.
+    func removeGrant(_ id: UUID) throws {
+        guard store.settings?.locations.contains(where: { $0.serverID == id }) == false else {
+            throw CocoaError(.fileWriteNoPermission)
+        }
+        try store.update { $0.servers.removeAll { $0.id == id } }
+        // The session closes its root and stops access when the last reference goes.
+        shares[id] = nil
+        shareStates[id] = nil
+        onChange?()
+    }
+
+    /// The share's mount path, for Select…; nil if it isn't mounted.
+    func mountPath(_ grantID: UUID) -> String? {
+        guard let grant = store.settings?.servers.first(where: { $0.id == grantID }) else { return nil }
+        return share(for: grant).mountPath()
+    }
+
     /// Plan §7: create the catalog, list the root into it, save the record, then add the domain.
-    func add(name: String, folder: RelativePath, grantID: UUID) async throws {
+    /// The record takes the saved Keep Downloaded paths inside its folder (plan §4). A copy goes
+    /// below its original (design §4.2).
+    func add(id: UUID, name: String, folder: RelativePath, grantID: UUID,
+             after original: UUID? = nil) async throws -> LocationRecord {
         guard isReady, let settings = store.settings, let grant = settings.servers.first(where: { $0.id == grantID }) else {
             throw CocoaError(.fileReadUnknown)
         }
-        let record = LocationRecord(name: LocationRecord.uniqueName(name, among: settings.locations.map(\.name)),
+        var record = LocationRecord(id: id, name: LocationRecord.uniqueName(name, among: settings.locations.map(\.name)),
                                     serverID: grantID, folder: folder)
-        let url = try SharedContainer.catalogURL(domainID: record.domainID)
-        try FileManager.default.createDirectory(at: SharedContainer.catalogsDirectory(), withIntermediateDirectories: true)
-        let source = makeSource(record, folder: folder, grant: grant,
-                                catalog: try Catalog.create(at: url, domainID: record.domainID, rootName: record.name))
+        let listedName = record.name
+        let source = try await makeListedSource(record, folder: folder, grant: grant)
         do {
-            let receipt = try await source.list(Catalog.rootItemID, requestID: UUID())
-            try store.update { $0.locations.append(record) }
-            Self.catalogLog.info("""
-                location_added domain=\(record.domainID, privacy: .public) entries=\(receipt.entries) \
-                skipped=\(receipt.skipped)
-                """)
-        } catch {
-            source.close()
-            domains[record.domainID] = nil
-            // A catalog left here has no record, so the next launch deletes it.
-            do { try Catalog.delete(at: url) } catch {
-                Self.catalogLog.error("location_add_cleanup ok=0 \(logFields(error), privacy: .public)")
+            try store.update { settings in
+                // Another Add or a rename can take the name during the root listing.
+                record.name = LocationRecord.uniqueName(name, among: settings.locations.map(\.name))
+                record.pendingKeeps = settings.takeSavedKeeps(host: grant.host, share: grant.share, inside: folder)
+                if let index = settings.locations.firstIndex(where: { $0.id == original }) {
+                    settings.locations.insert(record, at: index + 1)
+                } else {
+                    settings.locations.append(record)
+                }
             }
+        } catch {
+            discard(source, record.domainID)
             throw error
         }
+        Self.catalogLog.info("""
+            location_added domain=\(record.domainID, privacy: .public) pending_keeps=\(record.pendingKeeps.count)
+            """)
+        if record.name != listedName { try? await Self.offMain { [name = record.name] in try source.setRootName(name) } }
         sources[record.domainID] = source
         if paused { Self.pause(source, true) }
         onChange?()
         try await NSFileProviderManager.add(domain(for: record))
         await refreshDomains()
+        return record
     }
 
-    /// Plan §7: mark the record, remove the domain, delete the catalog, delete the record.
-    func remove(_ recordID: UUID) async throws {
-        guard isReady, let record = store.settings?.locations.first(where: { $0.id == recordID }) else {
+    /// Plan §8 Name: a unique name in the record and the root row, then `add` again with the same ID.
+    func rename(_ recordID: UUID, to name: String) async throws -> String {
+        guard isReady, let settings = store.settings,
+              var record = settings.locations.first(where: { $0.id == recordID }), !record.removing else {
             throw CocoaError(.fileReadUnknown)
         }
+        let unique = LocationRecord.uniqueName(name, among: settings.locations.filter { $0.id != recordID }.map(\.name))
+        guard unique != record.name else { return unique }
         try store.update { settings in
             guard let index = settings.locations.firstIndex(where: { $0.id == recordID }) else { return }
+            settings.locations[index].name = unique
+        }
+        record.name = unique
+        domains[record.domainID] = domain(for: record)
+        onChange?()
+        if let source = sources[record.domainID] { try await Self.offMain { try source.setRootName(unique) } }
+        try await NSFileProviderManager.add(domain(for: record))
+        Self.catalogLog.info("location_renamed domain=\(record.domainID, privacy: .public)")
+        await refreshDomains()
+        return unique
+    }
+
+    /// Plan §7 Apply: a new catalog with its root listed, the record with both domain IDs, the old
+    /// domain removed, then the new one added. Kept paths inside the new source stay pending on the
+    /// location; the others go to the old share's saved list.
+    func apply(_ recordID: UUID, grantID: UUID, folder: RelativePath) async throws -> LocationRecord {
+        guard isReady, let settings = store.settings,
+              let record = settings.locations.first(where: { $0.id == recordID }), !record.removing,
+              let grant = settings.servers.first(where: { $0.id == grantID }) else {
+            throw CocoaError(.fileReadUnknown)
+        }
+        let oldGrant = settings.servers.first { $0.id == record.serverID }
+        let kept = await keptSharePaths(record) + record.pendingKeeps
+        let sameShare = oldGrant?.isSameShare(host: grant.host, share: grant.share) ?? false
+        let moving = sameShare ? kept.filter { LocationRecord.path($0, inside: folder) != nil } : []
+        var updated = record
+        updated.domainID = UUID().uuidString
+        updated.retiredDomainID = record.domainID
+        updated.serverID = grantID
+        updated.folder = folder.string
+        let source = try await makeListedSource(updated, folder: folder, grant: grant)
+        do {
+            try store.update { settings in
+                guard let index = settings.locations.firstIndex(where: { $0.id == recordID }) else { return }
+                if let oldGrant {
+                    settings.saveKeeps(kept.filter { !moving.contains($0) }, host: oldGrant.host, share: oldGrant.share)
+                }
+                var added = Set<String>()
+                updated.pendingKeeps = (moving + settings.takeSavedKeeps(host: grant.host, share: grant.share, inside: folder))
+                    .filter { added.insert($0).inserted }
+                settings.locations[index] = updated
+            }
+        } catch {
+            discard(source, updated.domainID)
+            throw error
+        }
+        notOnServer[recordID] = nil
+        sources.removeValue(forKey: record.domainID)?.close()
+        domains[record.domainID] = nil
+        sources[updated.domainID] = source
+        if paused { Self.pause(source, true) }
+        onChange?()
+        // Remove before add, so two domains never share a display name or a disk location [H].
+        try await run(.removeDomain(record.domainID), registered: registeredDomains())
+        try Catalog.delete(at: SharedContainer.catalogURL(domainID: record.domainID))
+        try store.update { settings in
+            guard let index = settings.locations.firstIndex(where: { $0.id == recordID }) else { return }
+            settings.locations[index].retiredDomainID = nil
+        }
+        updated.retiredDomainID = nil
+        try await NSFileProviderManager.add(domain(for: updated))
+        Self.catalogLog.info("""
+            location_applied domain=\(updated.domainID, privacy: .public) retired=\(record.domainID, privacy: .public) \
+            pending_keeps=\(updated.pendingKeeps.count)
+            """)
+        await refreshDomains()
+        onChange?()
+        return updated
+    }
+
+    /// Plan §7: save the kept paths if asked, mark the record, remove the domain, delete the
+    /// catalog, delete the record.
+    func remove(_ recordID: UUID, saveKeeps: Bool) async throws {
+        guard isReady, let settings = store.settings, let record = settings.locations.first(where: { $0.id == recordID }) else {
+            throw CocoaError(.fileReadUnknown)
+        }
+        let grant = settings.servers.first { $0.id == record.serverID }
+        // A location whose catalog can't be read saves only its pending paths; it must stay removable.
+        let paths = saveKeeps && !record.removing ? await keptSharePaths(record) + record.pendingKeeps : []
+        try store.update { settings in
+            guard let index = settings.locations.firstIndex(where: { $0.id == recordID }) else { return }
+            if let grant { settings.saveKeeps(paths, host: grant.host, share: grant.share) }
             settings.locations[index].removing = true
         }
+        notOnServer[recordID] = nil
         onChange?()
-        if let registered = try await NSFileProviderManager.domains()
-            .first(where: { $0.identifier.rawValue == record.domainID }) {
-            // Downloaded copies are only NAS files again; a later location downloads them anew.
-            _ = try await NSFileProviderManager.remove(registered, mode: .removeAll)
-        }
+        // Downloaded copies are only NAS files again; a later location downloads them anew.
+        try await run(.removeDomain(record.domainID), registered: registeredDomains())
         sources.removeValue(forKey: record.domainID)?.close()
         domains[record.domainID] = nil
         try Catalog.delete(at: SharedContainer.catalogURL(domainID: record.domainID))
         try store.update { $0.locations.removeAll { $0.id == recordID } }
         Self.catalogLog.info("""
-            location_removed domain=\(record.domainID, privacy: .public)
+            location_removed domain=\(record.domainID, privacy: .public) saved_keeps=\(paths.count)
             """)
         await refreshDomains()
         onChange?()
@@ -219,30 +363,182 @@ final class LocationController {
         NSFileProviderManager(for: domains[record.domainID] ?? domain(for: record))
     }
 
-    /// Plan §7 diagnostics: counts only, at launch and on SIGUSR1.
-    func logDiagnostics(reason: String) {
-        var open = 0, unavailable = 0, items = 0, tombstones = 0, listed = 0, kept = 0, paused = 0
-        for source in sources.values {
+    /// The kept files of a location, with their paths below its folder, in the order kept.
+    func keptPaths(_ record: LocationRecord) async -> [(id: String, path: RelativePath)] {
+        guard let source = sources[record.domainID] else { return [] }
+        do { return try await Self.offMain { try source.keptPaths() } } catch {
+            Self.catalogLog.error("kept_paths domain=\(record.domainID, privacy: .public) \(logFields(error), privacy: .public)")
+            return []
+        }
+    }
+
+    /// `−` on a request: Allow Removal for the file.
+    func unkeep(_ itemID: String, in record: LocationRecord) async throws {
+        guard let source = sources[record.domainID] else { throw LocationError.catalogClosed }
+        _ = try await Self.offMain { try source.keep([itemID], value: false) }
+    }
+
+    /// `−` on a saved path that the location hasn't found.
+    func discardPendingKeep(_ path: String, in recordID: UUID) throws {
+        try store.update { settings in
+            guard let index = settings.locations.firstIndex(where: { $0.id == recordID }) else { return }
+            settings.locations[index].pendingKeeps.removeAll { $0 == path }
+        }
+        notOnServer[recordID]?.remove(path)
+        onChange?()
+    }
+
+    /// Plan §4: lists the parent folders of each pending path, as flow 1 does, and keeps the files
+    /// it finds. A path that a complete listing of its parent lacks is not on the server; one that
+    /// can't be checked yet stays for the next recovery.
+    func restorePendingKeeps(_ recordID: UUID) async {
+        guard let record = store.settings?.locations.first(where: { $0.id == recordID }), !record.removing,
+              !record.pendingKeeps.isEmpty, let source = sources[record.domainID],
+              let folder = RelativePath(record.folder), restoring.insert(recordID).inserted else { return }
+        defer { restoring.remove(recordID) }
+        var listed: Set<String> = []
+        var found: [(path: String, id: String)] = []
+        var missing: Set<String> = []
+        var waiting = 0
+        for path in record.pendingKeeps {
+            guard let below = LocationRecord.path(path, inside: folder) else {
+                missing.insert(path)
+                continue
+            }
             do {
-                let counts = try source.counts()
-                open += 1
-                items += counts.live
-                tombstones += counts.tombstones
-                listed += counts.listedFolders
-                kept += counts.kept
-                if try source.isPaused() { paused += 1 }
+                if let id = try await resolveFile(below, in: source, listed: &listed) {
+                    found.append((path, id))
+                } else {
+                    missing.insert(path)
+                }
             } catch {
-                unavailable += 1
+                waiting += 1
+                // Every path would fail the same way; the next recovery tries them again.
+                if let failure = error as? SourceFailure,
+                   [SourceFailure.serverUnreachable, .notConnected, .notAuthenticated].contains(failure) { break }
             }
         }
-        let files = (try? SharedContainer.catalogDomainIDs().count) ?? -1
-        let stageFiles = Self.stageFileCount(), descriptors = Self.descriptorCount(), rss = Self.residentBytes()
-        let sessions = shares.values.count { $0.hasSession }
+        var kept: [String] = []
+        if !found.isEmpty {
+            do {
+                let ids = found.map(\.id)
+                _ = try await Self.offMain { try source.keep(ids, value: true) }
+                let done = Set(found.map(\.path))
+                try store.update { settings in
+                    guard let index = settings.locations.firstIndex(where: { $0.domainID == record.domainID }) else { return }
+                    settings.locations[index].pendingKeeps.removeAll(where: done.contains)
+                }
+                kept = ids
+            } catch {
+                Self.catalogLog.error("""
+                    restore_keeps domain=\(record.domainID, privacy: .public) failed \(logFields(error), privacy: .public)
+                    """)
+            }
+        }
+        guard store.settings?.locations.contains(where: { $0.domainID == record.domainID }) == true else { return }
+        notOnServer[recordID] = missing.isEmpty ? nil : missing
         Self.catalogLog.info("""
-            diagnostics reason=\(reason, privacy: .public) catalog_files=\(files) catalogs_open=\(open) \
-            catalogs_unavailable=\(unavailable) items=\(items) tombstones=\(tombstones) listed_folders=\(listed) \
-            stage_files=\(stageFiles) descriptors=\(descriptors) rss_bytes=\(rss) shares=\(self.shares.count) \
-            sessions=\(sessions) kept=\(kept) catalogs_paused=\(paused)
+            restore_keeps domain=\(record.domainID, privacy: .public) pending=\(record.pendingKeeps.count) \
+            kept=\(kept.count) not_on_server=\(missing.count) waiting=\(waiting) listed=\(listed.count)
+            """)
+        onChange?()
+        if !kept.isEmpty { onKeepsRestored?(record, kept) }
+    }
+
+    /// The kept files below a folder that the system hasn't materialized; they download only when
+    /// the user opens that folder (M6).
+    func filesInFoldersNotMaterialized(_ ids: [String], in record: LocationRecord) async -> [String] {
+        guard !ids.isEmpty, let source = sources[record.domainID], let manager = manager(for: record) else { return [] }
+        do {
+            let materialized = Set(try await MaterializedFolders.read(manager))
+            return try await Self.offMain {
+                try ids.filter { id in try source.parentChain(of: id).contains { !materialized.contains($0) } }
+            }
+        } catch {
+            Self.listingLog.error("materialized domain=\(record.domainID, privacy: .public) \(logFields(error), privacy: .public)")
+            return ids
+        }
+    }
+
+    /// Asks the system to enumerate each folder above these files, the root first, so that it
+    /// downloads the kept files in them. A request on a folder materializes only its children [H].
+    func requestFolders(above ids: [String], in record: LocationRecord) async {
+        guard let source = sources[record.domainID], let manager = manager(for: record) else { return }
+        var requested = 0, failed = 0
+        do {
+            let materialized = Set(try await MaterializedFolders.read(manager))
+            let folders = try await Self.offMain {
+                var folders: [String] = []
+                var seen: Set<String> = []
+                for id in ids {
+                    for folder in try source.parentChain(of: id)
+                    where !materialized.contains(folder) && seen.insert(folder).inserted {
+                        folders.append(folder)
+                    }
+                }
+                return folders
+            }
+            for folder in folders {
+                do {
+                    try await manager.requestDownloadForItem(withIdentifier: NSFileProviderItemIdentifier(folder))
+                    requested += 1
+                } catch {
+                    failed += 1
+                    Self.listingLog.error("""
+                        request_folder domain=\(record.domainID, privacy: .public) folder=\(folder, privacy: .public) \
+                        \(logFields(error), privacy: .public)
+                        """)
+                }
+            }
+        } catch {
+            Self.listingLog.error("request_folders domain=\(record.domainID, privacy: .public) \(logFields(error), privacy: .public)")
+        }
+        Self.listingLog.info("""
+            request_folders domain=\(record.domainID, privacy: .public) files=\(ids.count) requested=\(requested) \
+            failed=\(failed)
+            """)
+    }
+
+    /// Plan §7 diagnostics: counts only.
+    func diagnostics() async -> Diagnostics {
+        let sources = Array(sources.values)
+        let shares = Array(shares.values)
+        return (try? await Self.offMain { Self.diagnostics(sources, shares) }) ?? Diagnostics()
+    }
+
+    private nonisolated static func diagnostics(_ sources: [LocationSource], _ shares: [ShareAccess]) -> Diagnostics {
+        var counts = Diagnostics()
+        for source in sources {
+            do {
+                let catalog = try source.counts()
+                counts.catalogsOpen += 1
+                counts.items += catalog.live
+                counts.tombstones += catalog.tombstones
+                counts.listedFolders += catalog.listedFolders
+                counts.kept += catalog.kept
+                if try source.isPaused() { counts.catalogsPaused += 1 }
+            } catch {
+                counts.catalogsUnavailable += 1
+            }
+        }
+        counts.catalogFiles = (try? SharedContainer.catalogDomainIDs().count) ?? -1
+        counts.stageFiles = stageFileCount()
+        counts.descriptors = descriptorCount()
+        counts.residentBytes = residentBytes()
+        counts.shares = shares.count
+        counts.sessions = shares.count { $0.hasSession }
+        return counts
+    }
+
+    /// At launch and on SIGUSR1.
+    func logDiagnostics(reason: String) async {
+        let counts = await diagnostics()
+        Self.catalogLog.info("""
+            diagnostics reason=\(reason, privacy: .public) catalog_files=\(counts.catalogFiles) \
+            catalogs_open=\(counts.catalogsOpen) catalogs_unavailable=\(counts.catalogsUnavailable) \
+            items=\(counts.items) tombstones=\(counts.tombstones) listed_folders=\(counts.listedFolders) \
+            stage_files=\(counts.stageFiles) descriptors=\(counts.descriptors) rss_bytes=\(counts.residentBytes) \
+            shares=\(counts.shares) sessions=\(counts.sessions) kept=\(counts.kept) catalogs_paused=\(counts.catalogsPaused)
             """)
     }
 
@@ -303,12 +599,21 @@ final class LocationController {
         let domain = domain(for: record)
         domains[record.domainID] = domain
         let domainID = record.domainID
-        return LocationSource(domainID: domainID, folder: folder, catalog: catalog, access: share(for: grant)) {
+        let source = LocationSource(domainID: domainID, folder: folder, catalog: catalog, access: share(for: grant)) {
             NSFileProviderManager(for: domain)?.signalEnumerator(for: .workingSet) { error in
                 guard let error else { return }
                 Self.listingLog.error("signal domain=\(domainID, privacy: .public) \(logFields(error), privacy: .public)")
             }
         }
+        source.onChange { [weak self] in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self?.onLocationChange?(domainID)
+                    self?.onChange?()
+                }
+            }
+        }
+        return source
     }
 
     private func domain(for record: LocationRecord) -> NSFileProviderDomain {
@@ -321,17 +626,60 @@ final class LocationController {
         let share = ShareAccess(grant: grant, store: store) { [weak self] failures in
             Task { @MainActor in await self?.recovered(grantID, failures) }
         }
+        // Changes on two threads can be queued in reverse order, so read the state on main.
+        share.onStateChange { [weak self, weak share] _ in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { if let share { self?.shareChanged(grantID, share.state) } }
+            }
+        }
         shares[grant.id] = share
+        shareStates[grant.id] = share.state
         return share
+    }
+
+    private func shareChanged(_ grantID: UUID, _ state: ShareHealth.State) {
+        guard shares[grantID] != nil else { return }
+        let before = shareStates[grantID] ?? .notConnected
+        guard before != state else { return }
+        shareStates[grantID] = state
+        onShareState?(grantID, before, state)
+        onChange?()
     }
 
     /// Only domains with an open catalog get a reader; the others fail without one.
     private func refreshDomains() async {
+        let current: [NSFileProviderDomain]
         do {
-            reader.update(try await NSFileProviderManager.domains().filter { sources[$0.identifier.rawValue] != nil })
+            current = try await NSFileProviderManager.domains().filter { sources[$0.identifier.rawValue] != nil }
         } catch {
             Self.readerLog.error("domains_unavailable \(logFields(error), privacy: .public)")
+            return
         }
+        reader.update(current)
+        turnedOff = Set(current.filter { !$0.userEnabled }.map(\.identifier.rawValue))
+        let ids = Set(current.map(\.identifier.rawValue))
+        for id in progress.keys where !ids.contains(id) {
+            progress[id] = nil
+            downloading[id] = nil
+        }
+        for domain in current where progress[domain.identifier.rawValue] == nil {
+            guard let manager = NSFileProviderManager(for: domain) else { continue }
+            let id = domain.identifier.rawValue
+            let global = manager.globalProgress(for: .downloading)
+            // The system updates it on the main queue [H]; a finished one has no downloads.
+            let observation = global.observe(\.fractionCompleted, options: [.initial]) { [weak self] observed, _ in
+                let fraction = observed.isFinished ? nil : observed.fractionCompleted
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        guard let self, self.progress[id] != nil, self.downloading[id] != fraction else { return }
+                        self.downloading[id] = fraction
+                        self.onChange?()
+                    }
+                }
+            }
+            progress[id] = (global, observation)
+        }
+        onChange?()
     }
 
     /// Plan §3 flow 4: the system retries what failed, then flow 5 lists materialized folders again.
@@ -343,6 +691,9 @@ final class LocationController {
             """)
         for domainID in affected { await signalResolved(domainID, failures) }
         relist(grantID)
+        for record in store.settings?.locations ?? [] where record.serverID == grantID && !record.pendingKeeps.isEmpty {
+            await restorePendingKeeps(record.id)
+        }
     }
 
     private func signalResolved(_ domainID: String, _ failures: [SourceFailure]) async {
@@ -409,6 +760,70 @@ final class LocationController {
             """)
     }
 
+    /// A file below the location root: its live row's ID, or nil if a complete listing lacks it.
+    private func resolveFile(_ path: RelativePath, in source: LocationSource,
+                             listed: inout Set<String>) async throws -> String? {
+        var parent = Catalog.rootItemID
+        let names = path.components
+        for (index, name) in names.enumerated() {
+            if !listed.contains(parent) {
+                _ = try await source.list(parent, requestID: UUID())
+                listed.insert(parent)
+            }
+            let folder = parent
+            guard let row = try await Self.offMain({ try source.liveChild(of: folder, named: name) }) else { return nil }
+            let last = index == names.count - 1
+            guard row.kind == (last ? .file : .folder) else { return nil }
+            if last { return row.id }
+            parent = row.id
+        }
+        return nil
+    }
+
+    private func keptSharePaths(_ record: LocationRecord) async -> [String] {
+        guard let folder = RelativePath(record.folder) else { return [] }
+        return await keptPaths(record).compactMap { folder.appending($0.path)?.string }
+    }
+
+    /// Catalog calls can wait for a listing's commit, so they don't run on the main actor.
+    private static func offMain<T: Sendable>(_ body: @escaping @Sendable () throws -> T) async throws -> T {
+        try await Task.detached(priority: .userInitiated, operation: body).value
+    }
+
+    /// A new catalog with its root listed, for Add and Apply. On failure nothing is left.
+    private func makeListedSource(_ record: LocationRecord, folder: RelativePath,
+                                  grant: ServerGrant) async throws -> LocationSource {
+        let url = try SharedContainer.catalogURL(domainID: record.domainID)
+        try FileManager.default.createDirectory(at: SharedContainer.catalogsDirectory(), withIntermediateDirectories: true)
+        let source = makeSource(record, folder: folder, grant: grant,
+                                catalog: try Catalog.create(at: url, domainID: record.domainID, rootName: record.name))
+        do {
+            let receipt = try await source.list(Catalog.rootItemID, requestID: UUID())
+            Self.catalogLog.info("""
+                root_listed domain=\(record.domainID, privacy: .public) entries=\(receipt.entries) \
+                skipped=\(receipt.skipped)
+                """)
+            return source
+        } catch {
+            discard(source, record.domainID)
+            throw error
+        }
+    }
+
+    private func discard(_ source: LocationSource, _ domainID: String) {
+        source.close()
+        domains[domainID] = nil
+        // A catalog left here has no record, so the next launch deletes it.
+        do { try Catalog.delete(at: SharedContainer.catalogURL(domainID: domainID)) } catch {
+            Self.catalogLog.error("location_add_cleanup ok=0 \(logFields(error), privacy: .public)")
+        }
+    }
+
+    private func registeredDomains() async throws -> [String: NSFileProviderDomain] {
+        Dictionary(try await NSFileProviderManager.domains().map { ($0.identifier.rawValue, $0) },
+                   uniquingKeysWith: { first, _ in first })
+    }
+
     private func sweepStaging() {
         do {
             let removed = try Staging.removeLeftoverStageFiles(in: SharedContainer.stagingDirectory(), createdBefore: Date())
@@ -424,13 +839,13 @@ final class LocationController {
         signal(SIGUSR1, SIG_IGN)
         let source = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
         source.setEventHandler { [weak self] in
-            MainActor.assumeIsolated { self?.logDiagnostics(reason: "signal") }
+            Task { @MainActor in await self?.logDiagnostics(reason: "signal") }
         }
         source.activate()
         diagnosticsSignal = source
     }
 
-    private static func stageFileCount() -> Int {
+    private nonisolated static func stageFileCount() -> Int {
         guard let directory = try? SharedContainer.stagingDirectory(),
               let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path(percentEncoded: false)) else {
             return -1
@@ -438,7 +853,7 @@ final class LocationController {
         return names.count(where: Staging.isStageFileName)
     }
 
-    private static func descriptorCount() -> Int {
+    private nonisolated static func descriptorCount() -> Int {
         let size = proc_pidinfo(getpid(), PROC_PIDLISTFDS, 0, nil, 0)
         guard size > 0 else { return -1 }
         let stride = MemoryLayout<proc_fdinfo>.stride
@@ -447,7 +862,7 @@ final class LocationController {
         return used > 0 ? Int(used) / stride : -1
     }
 
-    private static func residentBytes() -> UInt64 {
+    private nonisolated static func residentBytes() -> UInt64 {
         var info = mach_task_basic_info()
         var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size / MemoryLayout<natural_t>.size)
         let result = withUnsafeMutablePointer(to: &info) {

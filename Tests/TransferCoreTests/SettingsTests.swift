@@ -106,8 +106,6 @@ final class SettingsTests: XCTestCase {
         record.pendingKeeps = ["Movies/2024/a.mkv"]
         var settings = AppSettings(servers: [grant], locations: [record, LocationRecord(name: "Media", serverID: grant.id, folder: .root)],
                                    savedKeeps: [SavedKeepList(host: address.host, share: address.share, paths: ["Movies/a.mkv"])])
-        settings.showInMenuBar = false
-        settings.notifications = false
         let url = directory.appending(path: "tinymounter/Settings.json")
 
         try settings.save(to: url)
