@@ -64,6 +64,13 @@ declined if the feature isn't worth its weight. Docs-only changes and obvious fi
   things a second pass would have caught.
 - An automated or AI reviewer can help review a PR, but it doesn't gate it. The checks in
   `AGENTS.md` are still run locally.
+- **CI runs `Tools/run-checks.sh` in the VM for each push to a PR.** The `Checks` workflow posts
+  the PR's commit to the VMPal hook of the Hub script `tinymounter checks` on the Mac, whose URL is
+  the secret `VMPAL_HOOK_URL`. The script fetches the commit from the shared folder into
+  `~/ci/tinymounter` and runs the checks there, so a commit made on GitHub, such as by Update
+  branch, fails until the Mac fetches it. It runs only while VMPal is open and the Mac is awake;
+  otherwise the job fails after 35 minutes. One check runs at a time, so a newer push cancels an
+  older one; run it again from the PR.
 
 ## Changelog and releases
 

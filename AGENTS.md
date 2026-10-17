@@ -44,9 +44,12 @@ Develop on the Mac, but run every test and check in the VMPal VM `macOS VM 1`. T
 the Command Line Tools: `swift build` works there, but `swift test` and `xcodebuild` don't, and
 runtime checks need the signed app in the VM. The VM's clone in `~/Developer/tinymounter` fetches
 from the read-only shared folder `tinymounter-host`, its remote `host`, so commit before you
-test; uncommitted edits don't reach the VM. If `git fetch host` then fails with "not our ref", the
-VM's cached view of the shared folder is stale: send a `git bundle` of the new commits with
-VMPal's file transfer and fetch from it. Raw `results/` and the `.local/` helpers stay in the VM.
+test; uncommitted edits don't reach the VM. The VM's view of the shared folder's refs can stay
+stale, so `git fetch host` can miss new commits or fail with "not our ref", but new objects show:
+fetch the commit itself with `git -c uploadpack.allowAnySHA1InWant=true fetch host <commit>`. If
+that fails too, send a `git bundle` of the new commits with VMPal's file transfer and fetch from
+it. Raw `results/` and the `.local/` helpers stay in the VM. CI has its own clone in
+`~/ci/tinymounter`; don't work in it.
 
 ## Non-negotiables
 
@@ -107,12 +110,17 @@ The user owns the product. The agent researches, proposes, builds and measures.
 
 ## Before you finish
 
-Run these checks in the VM.
+Run `Tools/run-checks.sh` in the VM. It stops at the first failure, and CI runs it for each pull
+request ([CONTRIBUTING.md](CONTRIBUTING.md#pull-requests)). It checks that:
 
+- The checked-in project matches `Tools/generate-project.py`.
 - `swift test` passes.
 - `swift build -c release && python3 Tools/verify-benchmark.py` passes.
-- The unsigned app build succeeds with no new Swift warnings:
+- The unsigned app build succeeds with no Swift warnings:
   `xcodebuild -project TinyMounter.xcodeproj -scheme TinyMounterPrototype -configuration Release -derivedDataPath .build/xcode CODE_SIGNING_ALLOWED=NO build`
-- If files or targets changed, the regenerated project is part of the change.
+
+Then check by hand that:
+
+- If files or targets changed, `Tools/generate-project.py` includes them.
 - Every doc your change made wrong is fixed, and status claims say what was not verified.
 - You read your own diff from top to bottom.

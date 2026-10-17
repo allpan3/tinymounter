@@ -1,0 +1,81 @@
+name: Checks
+
+on:
+  pull_request:
+
+# The VM runs one check at a time, so a newer push cancels an older one, also on another PR.
+concurrency:
+  group: vm-checks
+  cancel-in-progress: true
+
+jobs:
+  vm:
+    name: Tools/run-checks.sh in the VM
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Run the checks in macOS VM 1
+        # The hook's URL is the repository secret VMPAL_HOOK_URL (Settings › Secrets and variables › Actions).
+        env:
+          VMPAL_HOOK_URL: ${{ secrets.VMPAL_HOOK_URL }}
+          # The PR's own commit, which is on the Mac; GITHUB_SHA is GitHub's merge commit.
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: python3 {0}
+        run: |
+          import http.client, json, os, sys, time, urllib.error, urllib.request
+
+          def refused(error):
+              # vmpal.com's reason, such as a hook whose Mac was removed from its license.
+              try:
+                  reason = json.load(error).get('error')
+              except (OSError, ValueError, AttributeError):
+                  reason = None
+              sys.exit(f'vmpal.com answered {error.code}: {reason}' if reason else f'vmpal.com answered {error.code}.')
+
+          url = os.environ['VMPAL_HOOK_URL']
+          # Cloudflare refuses Python's own User-Agent (error 1010).
+          agent = {'User-Agent': 'tinymounter-checks'}
+          posted = urllib.request.Request(url, data=json.dumps({'ref': os.environ['GITHUB_REF'], 'sha': os.environ['HEAD_SHA']}).encode(), method='POST', headers={**agent, 'Content-Type': 'application/json', 'Idempotency-Key': os.environ['GITHUB_RUN_ID'] + '-' + os.environ['GITHUB_RUN_ATTEMPT']})
+          started = time.time()
+          while True:
+              try:
+                  message = json.load(urllib.request.urlopen(posted, timeout=30))['message_id']
+                  break
+              except urllib.error.HTTPError as error:
+                  # Too many messages a minute: nothing was kept, so it's sent again once it may, for 35 minutes.
+                  if error.code != 429 or time.time() - started > 35 * 60:
+                      refused(error)
+                  wait = error.headers.get('Retry-After') or ''
+                  time.sleep(int(wait) if wait.isdigit() else 5)
+          # How its runs go, as VMPal reports them. Their output is the hook owner's, in vmpal.com's License Manager.
+          results, said, runs = f'{url}/messages/{message}', {}, []
+          while True:
+              # No runs 35 minutes on: VMPal passed over the message, or wasn't open, so it never runs.
+              if not runs and time.time() - started > 35 * 60:
+                  sys.exit("VMPal didn't take the message.")
+              if time.time() - started > 6 * 3600:
+                  sys.exit('No result from VMPal in 6 hours.')
+              try:
+                  with urllib.request.urlopen(urllib.request.Request(results, headers=agent), timeout=30) as response:
+                      status = json.load(response)
+              except urllib.error.HTTPError as error:
+                  # Busy, or a proxy's error for a moment: asked again. Others end it, saying why: 404, the message
+                  # expired; 409, nothing runs the hook any more, such as its Mac removed from its license.
+                  if error.code != 429 and error.code < 500:
+                      refused(error)
+                  wait = error.headers.get('Retry-After') or ''
+                  time.sleep(int(wait) if wait.isdigit() else 5)
+                  continue
+              except (OSError, http.client.HTTPException, ValueError):
+                  # Out of reach, or cut off, for a moment.
+                  time.sleep(5)
+                  continue
+              runs = status['runs']
+              for run in runs:
+                  if said.get(run['id']) != run['state']:
+                      said[run['id']] = run['state']
+                      print(f"{run['target']}: {run['state']}" + (f" ({run['detail']})" if run['detail'] else ''), flush=True)
+              if status['done']:
+                  codes = [run['exit_code'] or 1 for run in runs if run['state'] != 'passed']
+                  sys.exit(0 if not codes else codes[0] if codes[0] % 256 else 1)
+              time.sleep(5)
