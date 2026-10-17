@@ -560,10 +560,11 @@ While it is set, kept items report `.downloadLazily`, so the system starts no ea
 the extension requests no read-ahead. After the commits, the app tells each connected extension,
 which cancels its running fetches that are system requests or speculative; such a fetch that
 starts later fails at once. A fetch that checked `paused` before the commit and still waits for
-the first reader connection (up to 5 s) misses the cancel and downloads; M7 adds a `paused` check
-when the connection is ready. A reader that waits on a cancelled speculative range gets it from its
-own fetch about 0.7 s later [V, M6]. Eager Keep Downloaded fetches are system requests
-(`request.isSystemRequest`) [V, M6], so they complete with `userCancelled`. A file that the user
+the first reader connection (up to 5 s) can't get that cancel, so when the reader connects, the
+extension checks `paused` again and cancels it [I, not reproduced]. A reader that waits on
+a cancelled speculative range gets it from its own fetch about 0.7 s later [V, M6]. Eager
+Keep Downloaded fetches are system requests (`request.isSystemRequest`) [V, M6], so they
+complete with `userCancelled`. A file that the user
 opens downloads as usual, and so does Finder's Download Now, which is not a system request
 [V, M6]. Resume and app launch clear `paused`. Pause and Resume changes run one at a time, in
 order. A failed change shows a message, and while a catalog may still be paused, the app offers

@@ -15,6 +15,7 @@ final class SourceReaderService: NSObject, NSFileProviderServiceSource, NSXPCLis
     /// Fetches that wait for a reply, by request ID; started and progress messages find them here.
     private var waiting: [String: Response] = [:]
     private var pauseHandler: (() -> Void)?
+    private var connectHandler: (() -> Void)?
     /// A catalog write takes milliseconds; a stopped app must not hold a Finder action open.
     static let keepDeadline = Duration.seconds(10)
     private let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "source-reader")
@@ -23,6 +24,9 @@ final class SourceReaderService: NSObject, NSFileProviderServiceSource, NSXPCLis
 
     /// Called on the connection's queue when the app pauses downloads.
     func onPauseDownloads(_ handler: @escaping () -> Void) { lock.withLock { pauseHandler = handler } }
+
+    /// Called on the connection's queue each time the app's reader attaches.
+    func onConnect(_ handler: @escaping () -> Void) { lock.withLock { connectHandler = handler } }
 
     /// The app's reader took this domain; without it, only listed folders can be served.
     var isConnected: Bool { lock.withLock { connection != nil } }
@@ -63,9 +67,11 @@ final class SourceReaderService: NSObject, NSFileProviderServiceSource, NSXPCLis
         let old = connection
         connection = incoming
         hasConnected = true
+        let connected = connectHandler
         lock.broadcast()
         lock.unlock()
         if old !== incoming { old?.invalidate() }
+        connected?()
     }
 
     func invalidate() {
