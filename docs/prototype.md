@@ -8,7 +8,9 @@ connection wait. The [window comparison](results/2026-10-15-read-ahead-window.md
 16 MiB read-ahead window, which avoided the system materialization race in 11 stress trials.
 Finder's retained folder error remains open.
 M6 adds Keep Downloaded, Allow Removal and Pause Downloads, verified in the
-[M6 results](results/2026-10-16-keep-pause.md).
+[M6 results](results/2026-10-16-keep-pause.md). M7 replaces the test window with the Settings
+window, the menu bar item and notifications, verified in the
+[M7 results](results/2026-10-16-settings-window.md).
 The phase 1 one-file fixture build is gone (D3).
 
 ## Implemented and checked
@@ -18,7 +20,7 @@ The phase 1 one-file fixture build is gone (D3).
 - Full/range reads, runtime-aligned ranges, empty files, metadata fingerprint checks, progress/cancellation, and cleanup on handled failures.
 - JSONL reporting of byte range, filesystem, open/transfer/first-read time, sustained rate after the first chunk, CPU, process-lifetime peak RSS, cache label, and optional post-timing SHA-256 verification.
 - A SwiftUI app with a Settings window and a menu bar item, and a replicated File Provider extension (section 2). The app saves a share-root grant, adds and removes locations, and owns all share I/O and every catalog write: it lists folders into each location's SQLite catalog and stages file bytes with the transfer engine. The extension reads the catalog read-only to page folders, fetches full and partial ranges by item ID from the app through a restricted File Provider service, runs read-ahead per item, and rejects all remote mutations.
-- 129 unit tests passed on 2026-10-16. They cover transfer correctness and cancellation,
+- 134 unit tests passed on 2026-10-16. They cover transfer correctness and cancellation,
   read-ahead bounds and stale requests, full-handoff cleanup, catalog and listing consistency,
   safe paths, mount identity, share health, error classification, staging, settings, XPC messages,
   deadlines and launch reconciliation. Fixtures are local; unit tests do not read the NAS.
