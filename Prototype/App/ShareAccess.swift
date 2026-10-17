@@ -21,17 +21,14 @@ final class ShareSession: @unchecked Sendable {
     /// `O_EVTONLY`, so it never blocks an eject.
     let root: Int32
     let identity: MountIdentity
-    /// The bookmark was stale when this session resolved it.
-    let stale: Bool
     fileprivate let mountOn: String
     private let url: URL
     private let lock = NSLock()
     private var locationRoots: [RelativePath: Int32] = [:]
 
-    fileprivate init(root: Int32, mount: MountEntry, url: URL, stale: Bool) {
+    fileprivate init(root: Int32, mount: MountEntry, url: URL) {
         self.root = root
         identity = mount.identity
-        self.stale = stale
         mountOn = mount.mountOn
         self.url = url
     }
@@ -93,12 +90,12 @@ final class ShareAccess: @unchecked Sendable {
     // Held while a session starts, which can wait for the server, so only one starts at a time.
     private let startLock = NSLock()
     private var bookmark: Data
-    private var resolutionCount = 0
     private var session: ShareSession?
     private var health = ShareHealth()
     /// The grant's mounts when it failed; needsGrant ends when they change.
     private var refusedMounts: Set<MountIdentity> = []
     private var connecting = false
+    private var stateHandler: (@Sendable (ShareHealth.State) -> Void)?
     private var observers: [NotificationCenter.ObservationToken] = []
     private static let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "share")
 
@@ -151,10 +148,17 @@ final class ShareAccess: @unchecked Sendable {
         }
     }
 
-    /// Bookmark resolutions tried since this object started, failed ones included.
-    var resolutions: Int { lock.withLock { resolutionCount } }
-
     var hasSession: Bool { lock.withLock { session != nil } }
+
+    var state: ShareHealth.State { lock.withLock { health.state } }
+
+    /// Called after each state change, on the thread that made it.
+    func onStateChange(_ handler: @escaping @Sendable (ShareHealth.State) -> Void) {
+        lock.withLock { stateHandler = handler }
+    }
+
+    /// Where the share is mounted, from the mount table with no I/O; nil if it isn't.
+    func mountPath() -> String? { (try? MountEntry.current())?.first(where: isCandidate)?.mountOn }
 
     /// The failure to return at once, with no share I/O; nil to try the request.
     func refusal() -> SourceFailure? { changeHealth { $0.refusal() } }
@@ -175,14 +179,6 @@ final class ShareAccess: @unchecked Sendable {
 
     /// Runs `work` on the lane, after every metadata operation queued before it.
     func enqueue(_ work: @escaping @Sendable () -> Void) { lane.async(execute: work) }
-
-    /// `withSession` on the lane.
-    func perform<T: Sendable>(_ body: @escaping @Sendable (ShareSession, @escaping Progressed) throws -> T) async throws -> T {
-        if let refusal = refusal() { throw refusal }
-        return try await withCheckedThrowingContinuation { continuation in
-            lane.async { continuation.resume(with: Result { try self.withSession(body) }) }
-        }
-    }
 
     /// Starts a session if the share is mounted, so that its recovery signals and relisting run.
     func connect() {
@@ -245,10 +241,7 @@ final class ShareAccess: @unchecked Sendable {
         var stale = false
         let url: URL
         do {
-            let data = lock.withLock {
-                resolutionCount += 1
-                return bookmark
-            }
+            let data = lock.withLock { bookmark }
             url = try URL(resolvingBookmarkData: data,
                           options: [.withSecurityScope, .withoutUI, .withoutMounting],
                           relativeTo: nil, bookmarkDataIsStale: &stale)
@@ -277,7 +270,7 @@ final class ShareAccess: @unchecked Sendable {
             failed("open", error)
             throw error
         }
-        let session = ShareSession(root: root, mount: mount, url: url, stale: stale)
+        let session = ShareSession(root: root, mount: mount, url: url)
         let opened = clock.now
         if stale { refreshBookmark(from: url) }
         Self.logger.info("""
@@ -425,15 +418,16 @@ final class ShareAccess: @unchecked Sendable {
 
     /// Every `ShareHealth` change goes through here, so each state change is logged once.
     private func changeHealth<T>(_ body: (inout ShareHealth) -> T) -> T {
-        let (result, before, after) = lock.withLock {
+        let (result, before, after, handler) = lock.withLock {
             let before = health.state
             let result = body(&health)
-            return (result, before, health.state)
+            return (result, before, health.state, stateHandler)
         }
         if before != after {
             Self.logger.info("""
                 share=\(self.grantID.uuidString, privacy: .public) state=\(String(describing: after), privacy: .public)
                 """)
+            handler?(after)
         }
         return result
     }
@@ -498,6 +492,9 @@ final class LocationSource: @unchecked Sendable {
     private var heldSince: [String: ContinuousClock.Instant] = [:]
     private var confirmations: Set<String> = []
     private var signalScheduled = false
+    /// The last root listing found no location folder (plan §7, "This folder is not on the share").
+    private var rootMissing = false
+    private var changeHandler: (@Sendable () -> Void)?
     private static let listingLog = Logger(subsystem: "dev.tinymounter.prototype", category: "listing")
     private static let fetchLog = Logger(subsystem: "dev.tinymounter.prototype", category: "fetch")
 
@@ -513,6 +510,40 @@ final class LocationSource: @unchecked Sendable {
     /// Closes the writer connection; later calls fail with `catalogClosed`.
     func close() { catalogLock.withLock { catalog = nil } }
 
+    var isRootMissing: Bool { lock.withLock { rootMissing } }
+
+    /// Called when `isRootMissing` or the kept files change, on the queue that changed them.
+    func onChange(_ handler: @escaping @Sendable () -> Void) { lock.withLock { changeHandler = handler } }
+
+    /// The kept files, by item ID, with their paths below the location folder.
+    func keptPaths() throws -> [(id: String, path: RelativePath)] {
+        try withCatalog { catalog in
+            try catalog.keptItems().compactMap { row in try catalog.relativePath(of: row.id).map { (row.id, $0) } }
+        }
+    }
+
+    func liveChild(of parentID: String, named name: String) throws -> CatalogRow? {
+        try withCatalog { try $0.liveChild(parent: parentID, nameKey: NameKey(name)) }
+    }
+
+    /// The folders above an item, the root first.
+    func parentChain(of id: String) throws -> [String] {
+        try withCatalog { catalog in
+            var chain: [String] = []
+            var next = try catalog.item(id: id)?.parentID
+            while let parent = next, chain.count <= Catalog.maxDepth {
+                chain.append(parent)
+                next = try catalog.item(id: parent)?.parentID
+            }
+            return chain.reversed()
+        }
+    }
+
+    /// The location's name in Finder comes from the root row; the system reads it from the working set.
+    func setRootName(_ name: String) throws {
+        if try withCatalog({ try $0.setRootName(name) }) { scheduleSignal() }
+    }
+
     func counts() throws -> CatalogCounts { try withCatalog { try $0.counts() } }
 
     /// `meta.paused`, which every row read carries.
@@ -521,7 +552,10 @@ final class LocationSource: @unchecked Sendable {
     /// Keep Downloaded requests need no share I/O; the system downloads after the signal.
     func keep(_ ids: [String], value: Bool) throws -> Int {
         let changed = try withCatalog { try $0.setKeep(ids: ids, value: value) }
-        if changed > 0 { scheduleSignal() }
+        if changed > 0 {
+            scheduleSignal()
+            lock.withLock { changeHandler }?()
+        }
         return changed
     }
 
@@ -665,6 +699,7 @@ final class LocationSource: @unchecked Sendable {
                 }
                 if confirm { scheduleConfirmation(folderID) }
                 if changed > 0 { scheduleSignal() }
+                if folderID == Catalog.rootItemID { setRootMissing(false) }
                 let done = ContinuousClock.now
                 Self.listingLog.info("""
                     list request=\(requestID.uuidString, privacy: .public) domain=\(self.domainID, privacy: .public) \
@@ -679,6 +714,7 @@ final class LocationSource: @unchecked Sendable {
                 return receipt
             }
         } catch {
+            if folderID == Catalog.rootItemID, error as? SourceFailure == .missing { setRootMissing(true) }
             Self.listingLog.error("""
                 list request=\(requestID.uuidString, privacy: .public) domain=\(self.domainID, privacy: .public) \
                 folder=\(folderID, privacy: .public) failed \(logFields(error), privacy: .public) \
@@ -686,6 +722,15 @@ final class LocationSource: @unchecked Sendable {
                 """)
             throw error
         }
+    }
+
+    private func setRootMissing(_ missing: Bool) {
+        let handler = lock.withLock { () -> (@Sendable () -> Void)? in
+            guard rootMissing != missing else { return nil }
+            rootMissing = missing
+            return changeHandler
+        }
+        handler?()
     }
 
     private func finish(_ folderID: String, _ result: Result<ListReceipt, Error>) {

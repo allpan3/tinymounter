@@ -13,8 +13,6 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var servers: [ServerGrant]
     public var locations: [LocationRecord]
     public var savedKeeps: [SavedKeepList]
-    public var showInMenuBar = true
-    public var notifications = true
 
     public init(servers: [ServerGrant] = [], locations: [LocationRecord] = [], savedKeeps: [SavedKeepList] = []) {
         self.servers = servers
@@ -30,8 +28,6 @@ public struct AppSettings: Codable, Equatable, Sendable {
         servers = try container.decode([ServerGrant].self, forKey: .servers)
         locations = try container.decode([LocationRecord].self, forKey: .locations)
         savedKeeps = try container.decode([SavedKeepList].self, forKey: .savedKeeps)
-        showInMenuBar = try container.decode(Bool.self, forKey: .showInMenuBar)
-        notifications = try container.decode(Bool.self, forKey: .notifications)
     }
 
     /// A missing file is a first launch. Every other failure throws and is never empty settings.

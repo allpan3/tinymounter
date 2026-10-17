@@ -15,9 +15,10 @@ final class SourceReaderHost {
         queue.qualityOfService = .userInitiated
         return queue
     }()
-    var onStatus: ((String) -> Void)?
     /// A domain's extension took this app's reader (plan §3 flow 4).
     var onConnected: ((String) -> Void)?
+    /// A fetch that a user waits for failed because the share is down: the domain and the failure.
+    var onUserFetchFailed: ((String, SourceFailure) -> Void)?
 
     func update(_ current: [NSFileProviderDomain]) {
         domains = Dictionary(uniqueKeysWithValues: current.map { ($0.identifier.rawValue, $0) })
@@ -38,7 +39,9 @@ final class SourceReaderHost {
                 }
                 let connection = try await service.fileProviderConnection()
                 guard domains[id] != nil else { connection.invalidate(); connecting.remove(id); return }
-                let session = SourceReaderSession(domainID: id, source: source(id), queue: queue)
+                let session = SourceReaderSession(domainID: id, source: source(id), queue: queue) { [weak self] failure in
+                    Task { @MainActor in self?.onUserFetchFailed?(id, failure) }
+                }
                 session.connection = connection
                 connection.setCodeSigningRequirement(try SourceReaderBridge.requirement(forProvider: true))
                 connection.exportedInterface = NSXPCInterface(with: SourceReaderProtocol.self)
@@ -63,13 +66,14 @@ final class SourceReaderHost {
                     if error != nil { connection?.invalidate(); return }
                     Task { @MainActor in
                         self?.retryDelay[id] = 1
-                        self?.onStatus?("Source reader connected. Keep this prototype app running during downloads.")
                         self?.onConnected?(id)
                     }
                 }
             } catch {
                 connecting.remove(id)
-                onStatus?("Source reader connection unavailable (\((error as NSError).code)). Retrying while the app is open.")
+                SourceReaderSession.logger.error("""
+                    connect domain=\(id, privacy: .public) failed \(logFields(error), privacy: .public)
+                    """)
                 retry(domain)
             }
         }
@@ -105,18 +109,22 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
     private let domainID: String
     private let source: LocationSource?
     private let queue: OperationQueue
+    private let userFetchFailed: @Sendable (SourceFailure) -> Void
     private let progressQueue = DispatchQueue(label: "dev.tinymounter.prototype.reader-progress", qos: .utility)
     /// Set before the connection activates; progress messages go through it.
     weak var connection: NSXPCConnection?
     private let lock = NSLock()
     private var jobs: [UUID: Job] = [:]
     private var closed = false
-    private let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "source-reader")
+    static let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "source-reader")
+    private var logger: Logger { Self.logger }
 
-    init(domainID: String, source: LocationSource?, queue: OperationQueue) {
+    init(domainID: String, source: LocationSource?, queue: OperationQueue,
+         userFetchFailed: @escaping @Sendable (SourceFailure) -> Void) {
         self.domainID = domainID
         self.source = source
         self.queue = queue
+        self.userFetchFailed = userFetchFailed
     }
 
     func list(_ data: Data, reply: @escaping (Data?, NSError?) -> Void) {
@@ -227,6 +235,9 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
                 item=\(request.item, privacy: .public) failed \(logFields(error), privacy: .public) \
                 reply_domain=\(failure.domain, privacy: .public) reply_code=\(failure.code)
                 """)
+            if !request.background, let share = error as? SourceFailure, [.notConnected, .serverUnreachable].contains(share) {
+                userFetchFailed(share)
+            }
             reply(nil, failure)
         }
     }

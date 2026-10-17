@@ -7,7 +7,7 @@ The [runtime follow-up](results/2026-10-15-runtime-followup.md) verifies the ini
 connection wait. The [window comparison](results/2026-10-15-read-ahead-window.md) adopted a
 16 MiB read-ahead window, which avoided the system materialization race in 11 stress trials.
 Finder's retained folder error remains open.
-M6 adds Keep Downloaded, Allow Removal and a temporary Pause Downloads button, verified in the
+M6 adds Keep Downloaded, Allow Removal and Pause Downloads, verified in the
 [M6 results](results/2026-10-16-keep-pause.md).
 The phase 1 one-file fixture build is gone (D3).
 
@@ -17,7 +17,7 @@ The phase 1 one-file fixture build is gone (D3).
 - Source files opened read-only, using bounded `pread` calls; optional local staging uses exclusive creation and `pwrite` at the source offsets.
 - Full/range reads, runtime-aligned ranges, empty files, metadata fingerprint checks, progress/cancellation, and cleanup on handled failures.
 - JSONL reporting of byte range, filesystem, open/transfer/first-read time, sustained rate after the first chunk, CPU, process-lifetime peak RSS, cache label, and optional post-timing SHA-256 verification.
-- A SwiftUI test harness and a replicated File Provider extension (section 2). The app saves a share-root grant, adds and removes locations, and owns all share I/O and every catalog write: it lists folders into each location's SQLite catalog and stages file bytes with the transfer engine. The extension reads the catalog read-only to page folders, fetches full and partial ranges by item ID from the app through a restricted File Provider service, runs read-ahead per item, and rejects all remote mutations.
+- A SwiftUI app with a Settings window and a menu bar item, and a replicated File Provider extension (section 2). The app saves a share-root grant, adds and removes locations, and owns all share I/O and every catalog write: it lists folders into each location's SQLite catalog and stages file bytes with the transfer engine. The extension reads the catalog read-only to page folders, fetches full and partial ranges by item ID from the app through a restricted File Provider service, runs read-ahead per item, and rejects all remote mutations.
 - 129 unit tests passed on 2026-10-16. They cover transfer correctness and cancellation,
   read-ahead bounds and stale requests, full-handoff cleanup, catalog and listing consistency,
   safe paths, mount identity, share health, error classification, staging, settings, XPC messages,
@@ -90,20 +90,23 @@ Apple's paid Developer Program is [US$99 per membership year](https://developer.
 
 **VM sign-in resolved:** Xcode now loads the Personal Team and has successfully created a development certificate. Earlier failures included DNS and AVP guest identity errors; see the [sign-in diagnostic notes](results/2026-10-10-xcode-signin.md). The exact cause of recovery is not isolated. Signed build/provisioning and local extension loading have now succeeded; see the separate runtime report.
 
-Build and run the `TinyMounterPrototype` scheme with normal development signing. Its window is a
-test harness for M4–M6, not the phase 2 interface (M7). Its Pause Downloads button stands in for
-the menu bar item until M7. Nothing migrates from phase 1: remove
+Build and run the `TinyMounterPrototype` scheme with normal development signing. The app has the
+phase 2 interface of [ui-design.md](ui-design.md): a Settings window (⌘,) with the locations in
+its sidebar, and a menu bar item with Pause Downloads. With no locations, or with the menu bar
+item hidden, the window opens at launch. Closing it keeps the app running; the Dock icon or the
+menu bar item opens it again. Nothing migrates from phase 1: remove
 the fixture domains with the phase 1 build before the first run (D3). A domain without a catalog
 fails every request with `serverUnreachable` and never reports an item as deleted.
 
 **Share grant (M3).** Verified in the signed sandboxed app on 2026-10-12; see the
-[M3 results](results/2026-10-12-share-grant.md). **Select Share…** opens `NSOpenPanel` at
-`/Volumes`. The app accepts only a mounted smbfs volume root with `MNT_LOCAL` clear whose address
-has an account and no password. It saves a read-only, security-scoped **app-scoped** bookmark and
-the mount's `f_mntfromname` in `Application Support/tinymounter/Settings.json` in the app container
-(mode 0600, never in the App Group: the bookmark holds the account and server address). Selecting
-the same share again replaces the bookmark and keeps the grant, so its locations stay. Only the
-app has `com.apple.security.files.bookmarks.app-scope` and `files.user-selected.read-only`; neither
+[M3 results](results/2026-10-12-share-grant.md). **Add Share…**, in a location's Server menu or
+with `+` in Servers, opens `NSOpenPanel` at `/Volumes`. The app accepts only a mounted smbfs
+volume root with `MNT_LOCAL` clear whose address has an account and no password. It saves a
+read-only, security-scoped **app-scoped** bookmark and the mount's `f_mntfromname` in
+`Application Support/tinymounter/Settings.json` in the app container (mode 0600, never in the App
+Group: the bookmark holds the account and server address). **Select Again…** in Servers replaces
+the bookmark and keeps the grant, so its locations stay. Only the app has
+`com.apple.security.files.bookmarks.app-scope` and `files.user-selected.read-only`; neither
 target has document-scope. Whether app-scope is necessary in addition to user-selected access was
 not isolated by the M3 test.
 
@@ -111,21 +114,28 @@ The app resolves the bookmark only while the mount table lists the share, once p
 with `.withoutMounting`. Per session it holds one `O_EVTONLY` share-root descriptor and one per
 location root, and it ends the session on unmount. It polls the mount table every 10 s and starts
 a session by itself when the share is mounted. **Folder** is relative to the share; empty means
-the full share. **Check Location** lists it and up to 3 child folders, then opens one file at
-depth 2 or more with `fstat` only. It logs counts and times, never names. In M3, the depth-2
-listing and depth-4 file open passed before and after relaunch, without another panel, privacy
-prompt or mount. Only a healthy share was tested.
+the full share. In M3, a test button listed a depth-2 folder and opened a depth-4 file before and
+after relaunch, without another panel, privacy prompt or mount. Only a healthy share was tested.
 
 M4 and M5 passed their runtime checks in the signed app on 2026-10-14 and 2026-10-15; see the
 [M4 and M5 results](results/2026-10-14-catalog-browsing-reads.md) for what is still unverified.
 
-**Locations (M4).** Type a folder and a name, then click **Add Location**. The app creates the
-location's catalog, `Catalogs/<domain ID>.sqlite` in the App Group, lists the folder into it,
-saves the record in `Settings.json`, then adds the File Provider domain. Each location has **Show
-in Finder** and **Remove Location**. Remove marks the record, removes the domain with
+**Locations (M4, M7).** Click `+` or **New Location** (⌘N), or **Duplicate** a location, which
+makes a "Not added" draft. Choose the Server, type or select the Folder, then click **Add**. The
+app creates the location's catalog, `Catalogs/<domain ID>.sqlite` in the App Group, lists the
+folder into it, saves the record in `Settings.json`, then adds the File Provider domain. A Name
+change applies at once. A Server or Folder change needs **Apply**, which replaces the domain and
+its downloaded copies. Each location has **Show in Finder** and **Remove Location…**, which asks
+whether to save the Keep Downloaded list. Remove marks the record, removes the domain with
 `.removeAll`, which deletes its downloaded copies, then deletes the catalog and the record. At launch, the app finishes any step that a crash interrupted, adds every
 domain again, deletes catalogs that have no record, and leaves unknown domains alone. The same
 folder can be two locations, each with its own domain and catalog.
+
+**Menu bar and notifications (M7).** The menu bar item shows each location's state, or "42%
+downloaded" while it downloads. Quit warns while downloads are in progress. A notification posts
+once per share per outage: when a share that has locations disconnects or stops responding, or
+when a download that the user started fails for that reason. None posts at launch, and none
+holds a file name. General turns notifications and the menu bar item off.
 
 **Browsing (M4).** The extension opens the catalog read-only and never creates one. For a folder
 that was never listed, it asks the app to list it and waits at most 5 s; after that, Finder gets
@@ -175,8 +185,8 @@ xcodebuild -project TinyMounter.xcodeproj -scheme TinyMounterPrototype -configur
 ## 3. First runtime validation
 
 1. Remove the phase 1 fixture domains first (D3). Then build, sign and launch the app. With the
-   share connected in Finder, click **Select Share…** and select the share root.
-2. Type a folder and a name, click **Add Location**, then **Show in Finder**. Browse the root and
+   share connected in Finder, click **Add Share…** in the Server menu and select the share root.
+2. Type a folder and a name, click **Add**, then **Show in Finder**. Browse the root and
    two levels down. The listing log gives each folder's entry count, skipped names and times.
 3. Read a range of a file at least two levels deep through its CloudStorage path, then the same
    range natively, and compare the two `sha256` values. The JSONL holds the source path, so
@@ -197,7 +207,7 @@ xcodebuild -project TinyMounter.xcodeproj -scheme TinyMounterPrototype -configur
    ```
 
 5. Use Finder's **Remove Download** when resetting clean test content. A partially downloaded copy offers only **Download Now**: download it fully, then remove it. Check eviction by allocated size (`du`), not the `dataless` flag, which stays set on partial copies. Right after a download, Remove Download can briefly report “Resource busy”; retry after a few seconds. Do not remove/re-add the domain as ordinary reconnect logic. Do not evict a file in use by a player during timed runs.
-6. Use **Remove Location** to remove the domain. It also deletes the location's downloaded copies and its CloudStorage folder (D3). The files on the share never change.
+6. Use **Remove Location…** to remove the domain. It also deletes the location's downloaded copies and its CloudStorage folder (D3). The files on the share never change.
 
 ## 4. Physical-Mac check
 
@@ -226,9 +236,9 @@ not the raw `results/` folder, which can hold private paths.
 
 ## Deliberate limitations
 
-- Read-only, on the user's own Finder connection: one grant per share, and locations that are folders on it. The app never mounts, writes, renames or deletes on the share. The Settings window, the menu bar, notifications and the Storage pane are not built (M7–M8).
-- Keep Downloaded is a request for each file, not proof of a download (phase 2 decision 3). The system downloads a kept file only when its parent folder is materialized: a kept file in a folder that the system never enumerated waits until the folder is enumerated. Evicting a kept file fails; evicting its folder evicts it, and the system downloads it again at once. The app doesn't list the requests or show download state yet (M7), and Remove Location deletes them with the catalog.
-- Pause Downloads sets `paused` in every catalog. Kept files then report `.downloadLazily` and read-ahead stops. The extension cancels its running system and speculative fetches and refuses those that start while paused. A background fetch that is still waiting for the first reader connection is cancelled when the reader connects. Files that apps open, and Finder's Download Now, still download. Resume and each app launch clear Pause. Changes run one at a time, in order. A failed change shows a message, and while a catalog may still be paused, the window offers Resume Downloads. While paused, the user can also remove a kept file's download; Resume downloads it again. Whether kept files stay on disk while paused when the system needs the space is untested.
+- Read-only, on the user's own Finder connection: one grant per share, and locations that are folders on it. The app never mounts, writes, renames or deletes on the share. The Storage pane and folder completion are not built (M8).
+- Keep Downloaded is a request for each file, not proof of a download (phase 2 decision 3). The system downloads a kept file only when its parent folder is materialized: a kept file in a folder that the system never enumerated waits until the folder is enumerated. Evicting a kept file fails; evicting its folder evicts it, and the system downloads it again at once. The location pane lists the requests as "Requested", not their download state. Remove Location can save them, and a later location on the same share takes the ones inside its folder; for files in folders that the system hasn't listed, the app asks whether to download them now (M7).
+- Pause Downloads sets `paused` in every catalog. Kept files then report `.downloadLazily` and read-ahead stops. The extension cancels its running system and speculative fetches and refuses those that start while paused. A background fetch that is still waiting for the first reader connection is cancelled when the reader connects. Files that apps open, and Finder's Download Now, still download. Resume and each app launch clear Pause. Changes run one at a time, in order. A failed change shows a message, and while a catalog may still be paused, the menu bar item offers Resume Downloads. While paused, the user can also remove a kept file's download; Resume downloads it again. Whether kept files stay on disk while paused when the system needs the space is untested.
 - NAS changes show only after a listing: when the system enumerates a never-listed or evicted folder; in the background when it enumerates a folder listed over 60 s ago; for each materialized folder at app launch and after the share recovers; and as a fingerprint check at each fetch. There is no `CHANGE_NOTIFY` and no polling, so a change between these events doesn't show, and a downloaded copy stays stale until then. A NAS rename is a delete plus a create.
 - Only a complete listing changes the catalog, after `fstatat` confirmed that each missing name is gone. A listing that would remove every child of a folder, remove a kept file, or change a kind is held; a listing that starts at least 15 s later applies what it finds (D5). Symlinks, special files, invalid names and name-key collisions are not shown; the listing log counts them as skipped.
 - Content versions are `f1:<size>:<mtime_ns>:<ctime_ns>` (D1), so a remount does not download copies again. Each transfer still checks the full snapshot, device and inode included, on its open descriptor. A change that keeps size and timestamps can't be detected.

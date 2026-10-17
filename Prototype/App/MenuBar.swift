@@ -1,0 +1,42 @@
+import AppKit
+import SwiftUI
+
+enum MenuBarSettings {
+    static let showKey = "showMenuBar"
+}
+
+/// Design §5: one line per location, Pause Downloads, Settings… and Quit tinymounter.
+/// A menu-style menu can't show a progress bar, so a download shows as "42% downloaded".
+struct MenuBarContent: View {
+    var model: AppModel
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        if let problem = model.problem { Text(problem) }
+        if model.records.isEmpty { Text(UIText.noLocations) }
+        ForEach(model.records, id: \.id) { record in
+            Text(UIText.joined(record.name, model.shortStatus(record)))
+        }
+        Divider()
+        Button(model.paused ? UIText.resumeDownloads : UIText.pauseDownloads, action: model.togglePause)
+            .disabled(!model.isReady)
+        Divider()
+        Button(UIText.settingsMenu) {
+            openWindow(id: SettingsWindow.id)
+            NSApp.activate()
+        }
+        .keyboardShortcut(",")
+        Button(UIText.quit) { NSApp.terminate(nil) }.keyboardShortcut("q")
+    }
+}
+
+struct MenuBarLabel: View {
+    var model: AppModel
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Image(systemName: model.menuSymbol)
+            .accessibilityLabel(UIText.appName)
+            .onAppear { model.openSettings = { openWindow(id: SettingsWindow.id) } }
+    }
+}

@@ -1,0 +1,169 @@
+import Foundation
+
+/// All UI text, in ASD-STE100 (docs/ui-design.md §8), so the STE checker reads one file.
+enum UIText {
+    static let appName = "tinymounter"
+
+    // Sidebar
+    static let locations = "Locations"
+    static let settings = "Settings"
+    static let general = "General"
+    static let servers = "Servers"
+    static let about = "About"
+    static let search = "Search"
+    static let notAdded = "Not added"
+    static let newLocation = "New Location"
+    static let duplicate = "Duplicate"
+    static let showInFinder = "Show in Finder"
+    static let removeLocationMenu = "Remove Location…"
+    static let settingsMenu = "Settings…"
+
+    // Location pane
+    static let source = "Source"
+    static let server = "Server"
+    static let share = "Share"
+    static let folder = "Folder"
+    static let name = "Name"
+    static let fullShare = "Full share"
+    static let select = "Select…"
+    static let addShare = "Add Share…"
+    static let noShare = "No share"
+    static let connectionMode = "Connection Mode"
+    static let fileProvider = "File Provider"
+    static let fileProviderDescription = """
+        Finder shows the files below Locations. A file downloads when you open it. \
+        You can keep files on this Mac for offline use.
+        """
+    static let serverVolume = "Server volume"
+    static let serverVolumeDescription = """
+        macOS connects to the share, the same as Connect to Server in Finder. Files open directly from the \
+        server. You cannot use it offline. Not available in this version.
+        """
+    static let keepDownloaded = "Keep Downloaded"
+    static let requested = "Requested"
+    static let notOnServer = "Not on the server"
+    static let keepHint = "To keep a file downloaded, right-click it in Finder. Then click Keep Downloaded."
+    static let draftKeepHint = """
+        tinymounter downloads these items after you click Add. If an item is not in the folder, tinymounter \
+        shows “Not on the server”.
+        """
+    static let removeLocationDescription = "Remove this location from this Mac. The files on the server do not change."
+    static let draftBar = "Finder does not show this location until you click Add."
+    static let applyBar = """
+        If you change the source or the connection mode, tinymounter removes the downloaded copies of this \
+        location. The files on the server do not change.
+        """
+    static let add = "Add"
+    static let cancel = "Cancel"
+    static let apply = "Apply"
+    static let revert = "Revert"
+    static let removeItem = "Remove"
+
+    // Location state
+    static let connected = "Connected"
+    static let notConnected = "Not connected"
+    static let removalNotComplete = "The removal is not complete."
+    static let connectInFinder = "Connect to the share with Connect to Server in Finder."
+    static let selectShareAgain = "Select the share again in Servers."
+    static let folderNotOnShare = "This folder is not on the share."
+    static let catalogUnavailable = "tinymounter cannot read the data for this location. Remove the location. Then add it again."
+    static let turnedOff = "This location is turned off in System Settings."
+    static let problem = "Problem"
+
+    static func cannotConnect(_ host: String) -> String {
+        "tinymounter cannot connect to \(host). Make sure that \(host) is on. Make sure that this Mac is on the same network."
+    }
+
+    static func downloaded(_ fraction: Double) -> String {
+        "\(Int((fraction * 100).rounded(.down)))% downloaded"
+    }
+
+    static func joined(_ parts: String...) -> String { parts.joined(separator: " · ") }
+
+    static func source(host: String, share: String, folder: String) -> String {
+        [host, share, folder.isEmpty ? fullShare : folder].joined(separator: " › ")
+    }
+
+    // Confirmations
+    static func removeTitle(_ name: String) -> String { "Remove “\(name)” from this Mac?" }
+    static let removeMessage = """
+        The files on the server do not change. tinymounter removes the downloaded copies of this location \
+        from this Mac.
+        """
+    static let saveKeepList = "Save the Keep Downloaded list"
+    static let removeLocation = "Remove Location"
+    static func applyTitle(_ name: String) -> String { "Change the source of “\(name)”?" }
+    static func downloadTitle(_ count: Int) -> String {
+        count == 1 ? "Download 1 kept file now?" : "Download \(count) kept files now?"
+    }
+    static func downloadMessage(_ name: String) -> String {
+        """
+        tinymounter found items of the saved Keep Downloaded list in “\(name)”. They are in folders that you \
+        did not open in Finder. They download only when you open these folders.
+        """
+    }
+    static let downloadNow = "Download Now"
+    static let notNow = "Not Now"
+
+    // Errors
+    static let settingsUnreadable = "tinymounter cannot read its settings file. You cannot add or change a location."
+    static let domainsUnreadable = "tinymounter cannot read its locations from macOS. Quit tinymounter. Then open it again."
+    static let wrongFolderPath = "This folder path is not correct. Type a path in the share."
+    static let wrongName = "This name is not correct. Type a different name."
+    static let notVolumeRoot = "This folder is not a share. Select the share that you connected in Finder."
+    static let notSMBShare = "This volume is not an SMB share. Select the share that you connected in Finder."
+    static let addressRejected = "tinymounter cannot use the address of this share."
+    static let otherShare = "This is a different share. To add it, click Add Share…."
+    static let shareNotMounted = "Connect to the share with Connect to Server in Finder. Then click Select… again."
+    static let tooManyItems = "This folder has more than 100,000 items. tinymounter cannot show it."
+    static let cannotShow = "Finder cannot show this location."
+    static let serverInUse = "A location uses this share. Remove the location first."
+    static func cannotDo(_ code: String) -> String { "tinymounter cannot do this (\(code))." }
+
+    // Panels
+    static let selectShareMessage = "Select the share that you connected in Finder."
+    static let selectFolderMessage = "Select a folder in the share."
+
+    // Servers
+    static let selectAgain = "Select Again…"
+    static let notResponding = "Cannot connect"
+    static let selectShareAgainShort = "Select the share again."
+    static func accountAndShare(_ account: String, _ share: String) -> String { "\(account) · \(share)" }
+    static let noServers = "Add the share that you connected in Finder. Click Add Share…."
+
+    // General
+    static let openAtLogin = "Open at login"
+    static let openAtLoginApproval = "Allow tinymounter in System Settings › General › Login Items & Extensions."
+    static let showInMenuBar = "Show in menu bar"
+    static let menuBarDescription = """
+        The menu bar item keeps tinymounter open. tinymounter must be open to read data that is not downloaded.
+        """
+    static let notifications = "Notifications"
+    static let notificationsDescription = "Show a notification when a share disconnects or a download cannot start."
+
+    // About
+    static let version = "Version 0.1 (prototype)"
+    static let diagnostics = "Diagnostics"
+    static let diagnosticsDescription = "This report helps to find problems. It does not include file names, paths, or passwords."
+    static let copy = "Copy"
+
+    // Menu bar
+    static let pauseDownloads = "Pause Downloads"
+    static let resumeDownloads = "Resume Downloads"
+    static let quit = "Quit tinymounter"
+    static let noLocations = "No locations"
+    static let pauseFailed = "tinymounter cannot stop background downloads for one or more locations."
+    static let resumeFailed = "tinymounter cannot start background downloads again for one or more locations."
+
+    // Quit
+    static let quitTitle = "Downloads are in progress."
+    static let quitMessage = "Files that are not downloaded cannot open until tinymounter starts again."
+
+    // Notifications
+    static func shareDisconnected(_ share: String) -> String { "“\(share)” is not connected" }
+    static func cannotConnectTitle(_ host: String) -> String { "tinymounter cannot connect to \(host)" }
+    static let downloadFailedTitle = "A file cannot download"
+    static func onSameNetwork(_ host: String) -> String {
+        "Make sure that \(host) is on. Make sure that this Mac is on the same network."
+    }
+}

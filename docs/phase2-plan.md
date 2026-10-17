@@ -42,8 +42,8 @@ The user's decisions:
    at once, Connection Mode with Server volume "Not available in this version", and a menu bar
    item. Text follows ASD-STE100 and reuses the mockup's checked strings.
 5. **Phase 2 UI scope.**
-   - Built: a Dock icon (a regular app, not menu-bar-only); a menu bar progress bar for active
-     transfers, a transfer badge and Pause Downloads; the Storage pane, with disk space used per
+   - Built: a Dock icon (a regular app, not menu-bar-only); download progress in the menu bar
+     item, a transfer symbol and Pause Downloads; the Storage pane, with disk space used per
      location and Remove Downloads; notifications; folder-path completion, built last.
    - Changed from the design: Add Share… instead of Add Server… (decision 2). Duplicate does not
      copy Keep Downloaded requests: it is only a starting point for a new location. The same
@@ -255,7 +255,6 @@ empty trash enumerator; logs only under `dev.tinymounter.prototype`.
 struct AppSettings: Codable {
   var version = 1; var servers: [ServerGrant]; var locations: [LocationRecord]
   var savedKeeps: [SavedKeepList]
-  var showInMenuBar = true; var notifications = true
 }
 struct ServerGrant: Codable {
   let id: UUID
@@ -269,6 +268,7 @@ struct LocationRecord: Codable {
   var domainID: String          // NSFileProviderDomainIdentifier, a UUID
   var retiredDomainID: String?  // Apply in progress: the old domain still to remove
   var removing = false
+  var pendingKeeps: [String] = []  // saved paths, from the share root, not found yet (M7)
 }
 struct SavedKeepList: Codable {
   let host: String, share: String  // not the grant ID, so a new grant for the share matches
@@ -278,7 +278,8 @@ struct SavedKeepList: Codable {
 
 The bookmark, `mountFrom`, host, account and saved paths are private. They are never logged and
 never in the App Group: the bookmark holds the SMB account and the server address [V]. Drafts
-("Not added") live in memory only.
+("Not added") live in memory only. Show in menu bar and Notifications are not in this file: they
+are `UserDefaults` preferences, which SwiftUI's `@AppStorage` reads at launch (M7).
 
 **Saved keep lists.** When the user removes a location with "Save the Keep Downloaded list"
 selected, the app adds the location's kept paths, from the share root, to the list for the grant's
@@ -287,6 +288,15 @@ the list. After the root listing, the app lists the parent folders of each taken
 does, and sets `keep` on the rows it finds. A path that a complete listing of its parent lacks
 shows "Not on the server", and `−` discards it. A path that can't be checked yet waits for the next
 recovery.
+
+A kept file whose folders the system hasn't materialized doesn't download (M6). So when a location
+finds such files, the app asks "Download N kept files now?". Download Now calls
+`requestDownloadForItem(withIdentifier:)` on each folder above them, root first; Not Now leaves
+them to download when the user opens the folders (M7).
+
+Apply keeps the location's Keep Downloaded requests where it can. On the same share, the kept and
+pending paths inside the new folder become pending paths of the new domain. The others go to the
+old share's saved list without a question, so a later location can take them.
 
 **Catalog**, `<AppGroup>/Catalogs/<domainID>.sqlite` with `-wal` and `-shm`. The app creates it
 before `NSFileProviderManager.add`, and creation fails if the file exists. The app deletes it
@@ -754,10 +764,12 @@ Select… stays.
   the files in the materialized set [A, M8]; files that are open stay (EBUSY) and are counted.
 - **About:** "Version 0.1 (prototype)" and diagnostic counts with Copy.
 
-**Menu bar.** A drive symbol, with a transfer badge during downloads and a warning badge on a
-problem. One line per location with its state, and a progress bar while it downloads, from
-`globalProgress(for: .downloading)` on the domain's manager [V, M3, idle read only]. Then Pause
-Downloads or Resume Downloads, Settings… and Quit tinymounter.
+**Menu bar.** A drive symbol, `arrow.down.circle` during downloads (SF Symbols has no drive with a
+transfer badge) and a warning badge on a problem. One line per location with its state, or "42%
+downloaded" while it downloads, from `globalProgress(for: .downloading)` on the domain's manager
+[V, M7]. A menu-style `MenuBarExtra` shows only menu items, so there is no progress bar; one would
+need an `NSStatusItem` with a custom item view. Then Pause Downloads or Resume Downloads,
+Settings… and Quit tinymounter.
 
 **Finder actions**, in `Provider-Info.plist` under `NSExtension` ›
 `NSExtensionFileProviderActions` (key names [D]):
@@ -923,14 +935,11 @@ itself was not reached; the default is unchanged.
 
 - Does the system call `enumerateChanges` on folder or item enumerators in a replicated domain?
   Both implement it, so either case works.
-- A restored saved Keep Downloaded list (M7) holds kept files whose folders aren't
-  materialized, and they don't download until the user opens each folder (M6).
-  `requestDownloadForItemWithIdentifier:` on a dataless folder materializes it one level down
-  [H]. Should M7 call it for each folder above a kept file, or is another design needed?
 - Finder keeps a failed folder's error until Try Again (M4). Individual folder signals are
   ignored for replicated providers, and requesting a directory enumeration restored children
   without clearing the banner in the October 15 follow-up. Should a notification ask the user
-  to click Try Again? User approval is required before adding this UI.
+  to click Try Again? User approval is required before adding this UI; it is not in M7, by the
+  user's decision.
 - A mount reached by another address or account doesn't match the grant and shows as not
   connected. Is matching on host and share instead worth its risk in phase 3?
 - Can the extension start the app when it needs the reader? No API is known; the plan relies on
