@@ -57,11 +57,53 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(LocationRecord.uniqueName("Media", among: []), "Media")
     }
 
+    func testCopyNameFollowsFinder() {
+        XCTAssertEqual(LocationRecord.copyName("Documents", among: ["Documents"]), "Documents copy")
+        XCTAssertEqual(LocationRecord.copyName("Documents", among: ["Documents", "documents copy"]), "Documents copy 2")
+    }
+
+    func testPathInsideAFolderIsBelowItAndNeverTheFolderItself() {
+        let movies = RelativePath("Movies")!
+        XCTAssertEqual(LocationRecord.path("Movies/2024/a.mkv", inside: movies)?.string, "2024/a.mkv")
+        XCTAssertEqual(LocationRecord.path("Movies/a.mkv", inside: .root)?.string, "Movies/a.mkv")
+        XCTAssertEqual(LocationRecord.path("a.mkv", inside: RelativePath("Movies/2024")!), nil)
+        for outside in ["Movies", "Movies/", "Movies2/a.mkv", "movies/a.mkv", "Other/Movies/a.mkv", "Movies//a.mkv"] {
+            XCTAssertNil(LocationRecord.path(outside, inside: movies), outside)
+        }
+    }
+
+    func testANewLocationTakesOnlyTheSavedPathsInsideItsFolder() {
+        var settings = AppSettings(savedKeeps: [
+            SavedKeepList(host: "NAS.local", share: "media", paths: ["Movies/a.mkv", "Movies/2024/b.mkv", "Music/c.flac"]),
+            SavedKeepList(host: "other.local", share: "Media", paths: ["Movies/d.mkv"]),
+        ])
+        XCTAssertEqual(settings.savedKeeps(host: "nas.local", share: "Media", inside: RelativePath("Movies")!),
+                       ["Movies/a.mkv", "Movies/2024/b.mkv"])
+        XCTAssertEqual(settings.takeSavedKeeps(host: "nas.local", share: "Media", inside: RelativePath("Movies")!),
+                       ["Movies/a.mkv", "Movies/2024/b.mkv"])
+        XCTAssertEqual(settings.savedKeeps.map(\.paths), [["Music/c.flac"], ["Movies/d.mkv"]])
+        XCTAssertEqual(settings.takeSavedKeeps(host: "nas.local", share: "Media", inside: .root), ["Music/c.flac"])
+        XCTAssertEqual(settings.savedKeeps.map(\.host), ["other.local"], "an empty list is removed")
+        XCTAssertEqual(settings.takeSavedKeeps(host: "nas.local", share: "Media", inside: .root), [])
+    }
+
+    func testSavedKeepsAreAddedOnceToTheShareList() {
+        var settings = AppSettings()
+        settings.saveKeeps([], host: "nas.local", share: "Media")
+        XCTAssertTrue(settings.savedKeeps.isEmpty)
+        settings.saveKeeps(["a.mkv", "b.mkv", "a.mkv"], host: "nas.local", share: "Media")
+        settings.saveKeeps(["b.mkv", "c.mkv"], host: "NAS.local", share: "MEDIA")
+        settings.saveKeeps(["a.mkv"], host: "nas.local", share: "Other")
+        XCTAssertEqual(settings.savedKeeps, [SavedKeepList(host: "nas.local", share: "Media", paths: ["a.mkv", "b.mkv", "c.mkv"]),
+                                             SavedKeepList(host: "nas.local", share: "Other", paths: ["a.mkv"])])
+    }
+
     func testSettingsRoundTripThroughAPrivateFile() throws {
         let address = try XCTUnwrap(ShareAddress("//account@nas.local/Media"))
         let grant = ServerGrant(bookmark: Data([1, 2, 3]), mountFrom: "//account@nas.local/Media", address: address)
         var record = LocationRecord(name: "Movies", serverID: grant.id, folder: try XCTUnwrap(RelativePath("Movies/2024")))
         record.retiredDomainID = UUID().uuidString
+        record.pendingKeeps = ["Movies/2024/a.mkv"]
         var settings = AppSettings(servers: [grant], locations: [record, LocationRecord(name: "Media", serverID: grant.id, folder: .root)],
                                    savedKeeps: [SavedKeepList(host: address.host, share: address.share, paths: ["Movies/a.mkv"])])
         settings.showInMenuBar = false

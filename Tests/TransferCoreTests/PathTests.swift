@@ -37,6 +37,20 @@ final class PathTests: XCTestCase {
         XCTAssertNotNil(RelativePath(".\u{301}"))
     }
 
+    func testComponentsAndJoiningPaths() throws {
+        XCTAssertEqual(RelativePath.root.components, [])
+        XCTAssertEqual(RelativePath("a/\u{301}b/c")?.components, ["a", "\u{301}b", "c"])
+        let movies = try XCTUnwrap(RelativePath("Movies"))
+        let clip = try XCTUnwrap(RelativePath("2024/clip.mkv"))
+        XCTAssertEqual(movies.appending(clip)?.string, "Movies/2024/clip.mkv")
+        XCTAssertEqual(RelativePath.root.appending(clip), clip)
+        XCTAssertEqual(movies.appending(RelativePath.root), movies)
+        let component = String(repeating: "x", count: 255)
+        let long = try XCTUnwrap(RelativePath([component, component].joined(separator: "/")))
+        XCTAssertEqual(long.appending(long)?.string.utf8.count, RelativePath.maxBytes)
+        XCTAssertNil(long.appending(long)?.appending(try XCTUnwrap(RelativePath("y"))))
+    }
+
     func testComponentValidator() {
         XCTAssertTrue(RelativePath.isValidComponent("Report (final).pdf"))
         XCTAssertTrue(RelativePath.isValidComponent("..."))
