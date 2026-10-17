@@ -84,6 +84,16 @@ public struct ServerGrant: Codable, Equatable, Sendable {
         account = address.account
         share = address.share
     }
+
+    /// The same share, maybe through another account: Apply keeps its kept paths on the location.
+    public func isSameShare(host: String, share: String) -> Bool {
+        Self.isSameShare(self.host, self.share, host, share)
+    }
+
+    /// Host names and SMB share names don't depend on case.
+    static func isSameShare(_ host: String, _ share: String, _ otherHost: String, _ otherShare: String) -> Bool {
+        host.caseInsensitiveCompare(otherHost) == .orderedSame && share.caseInsensitiveCompare(otherShare) == .orderedSame
+    }
 }
 
 public struct LocationRecord: Codable, Equatable, Sendable {
@@ -97,6 +107,8 @@ public struct LocationRecord: Codable, Equatable, Sendable {
     /// Set while Apply runs: the old domain that is still to be removed.
     public var retiredDomainID: String?
     public var removing = false
+    /// Saved Keep Downloaded paths, from the share root, that this location took but hasn't found yet.
+    public var pendingKeeps: [String] = []
 
     public init(id: UUID = UUID(), name: String, serverID: UUID, folder: RelativePath,
                 domainID: String = UUID().uuidString) {
@@ -114,6 +126,20 @@ public struct LocationRecord: Codable, Equatable, Sendable {
         guard let first = scalars.firstIndex(where: { $0 != "/" }),
               let last = scalars.lastIndex(where: { $0 != "/" }) else { return .root }
         return RelativePath(String(scalars[first...last]))
+    }
+
+    /// "name copy", as Finder names a copy, made unique.
+    public static func copyName(_ name: String, among names: some Sequence<String>) -> String {
+        uniqueName(name + " copy", among: names)
+    }
+
+    /// The path below the location folder for `path` from the share root; nil if it is outside.
+    public static func path(_ path: String, inside folder: RelativePath) -> RelativePath? {
+        if folder.isRoot { return RelativePath(path) }
+        guard path.utf8.count > folder.string.utf8.count + 1, path.utf8.starts(with: (folder.string + "/").utf8) else {
+            return nil
+        }
+        return RelativePath(String(decoding: path.utf8.dropFirst(folder.string.utf8.count + 1), as: UTF8.self))
     }
 
     /// `name` if no other name has its key, else "name 2", "name 3" and so on.
@@ -137,6 +163,40 @@ public struct SavedKeepList: Codable, Equatable, Sendable {
         self.host = host
         self.share = share
         self.paths = paths
+    }
+
+    func isFor(host: String, share: String) -> Bool { ServerGrant.isSameShare(self.host, self.share, host, share) }
+}
+
+extension AppSettings {
+    /// Plan §4: a new location takes the saved paths inside its folder out of the share's list.
+    public mutating func takeSavedKeeps(host: String, share: String, inside folder: RelativePath) -> [String] {
+        var taken: [String] = []
+        for index in savedKeeps.indices where savedKeeps[index].isFor(host: host, share: share) {
+            taken += savedKeeps[index].paths.filter { LocationRecord.path($0, inside: folder) != nil }
+            savedKeeps[index].paths.removeAll { LocationRecord.path($0, inside: folder) != nil }
+        }
+        savedKeeps.removeAll(where: \.paths.isEmpty)
+        return taken
+    }
+
+    /// Adds paths from the share root to the share's saved list, each once.
+    public mutating func saveKeeps(_ paths: [String], host: String, share: String) {
+        guard !paths.isEmpty else { return }
+        if let index = savedKeeps.firstIndex(where: { $0.isFor(host: host, share: share) }) {
+            let saved = Set(savedKeeps[index].paths)
+            var added = Set<String>()
+            savedKeeps[index].paths += paths.filter { !saved.contains($0) && added.insert($0).inserted }
+        } else {
+            var added = Set<String>()
+            savedKeeps.append(SavedKeepList(host: host, share: share, paths: paths.filter { added.insert($0).inserted }))
+        }
+    }
+
+    /// The saved paths that a location on this share and folder would take.
+    public func savedKeeps(host: String, share: String, inside folder: RelativePath) -> [String] {
+        savedKeeps.filter { $0.isFor(host: host, share: share) }.flatMap(\.paths)
+            .filter { LocationRecord.path($0, inside: folder) != nil }
     }
 }
 

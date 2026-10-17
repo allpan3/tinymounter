@@ -28,6 +28,17 @@ public struct RelativePath: Hashable, Sendable {
 
     public var isRoot: Bool { string.isEmpty }
 
+    public var components: [String] {
+        string.utf8.split(separator: Self.slash).map { String(decoding: $0, as: UTF8.self) }
+    }
+
+    /// `other` below this path; nil past `maxBytes`.
+    public func appending(_ other: RelativePath) -> RelativePath? {
+        guard !isRoot, !other.isRoot else { return isRoot ? other : self }
+        let joined = string + "/" + other.string
+        return joined.utf8.count <= Self.maxBytes ? RelativePath(validated: joined) : nil
+    }
+
     public func appending(_ component: String) -> RelativePath? {
         guard Self.isValidComponent(component) else { return nil }
         let joined = isRoot ? component : string + "/" + component
