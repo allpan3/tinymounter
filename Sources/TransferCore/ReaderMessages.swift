@@ -76,8 +76,10 @@ public struct SourceReadRequest: Codable, Equatable, Sendable {
     /// The row's `contentVersion` that the extension checked against the requested version.
     public let version: String
     public let range: ByteRange
+    /// A system or speculative fetch, which no user waits for; Pause Downloads stops these.
+    public let background: Bool
 
-    public init(id: UUID, item: String, version: String, range: ByteRange) throws {
+    public init(id: UUID, item: String, version: String, range: ByteRange, background: Bool) throws {
         guard ReaderMessage.isItemID(item), version.utf8.count <= Self.maxVersionBytes else {
             throw CocoaError(.fileReadCorruptFile)
         }
@@ -85,13 +87,15 @@ public struct SourceReadRequest: Codable, Equatable, Sendable {
         self.item = item
         self.version = version
         self.range = range
+        self.background = background
     }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         try self.init(id: container.decode(UUID.self, forKey: .id), item: container.decode(String.self, forKey: .item),
                       version: container.decode(String.self, forKey: .version),
-                      range: container.decode(ByteRange.self, forKey: .range))
+                      range: container.decode(ByteRange.self, forKey: .range),
+                      background: container.decode(Bool.self, forKey: .background))
     }
 }
 
