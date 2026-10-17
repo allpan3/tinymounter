@@ -888,17 +888,32 @@ On 2026-10-16 in the signed app in the VM ([M6 results](results/2026-10-16-keep-
 - D2: a fetch failed 60.0 s after `SIGSTOP` of the app, and after `SIGCONT` the app released the
   job and left no stage file.
 
+### Verified in M7
+
+On 2026-10-16 in the signed app in the VM ([M7 results](results/2026-10-16-settings-window.md)):
+
+- A Name change, a root update in the working set plus `add` with the new `displayName`, renamed
+  the CloudStorage folder in the same second. macOS drops spaces from the folder name.
+- A saved Keep Downloaded list came back in a later location, and Apply carried a kept path to the
+  new domain. After Download Now, the system fetched the kept file 46.7 s and 51.0 s after the
+  folder request, in two runs.
+- Notification permission and `SMAppService.mainApp` worked from the build folder.
+- NSWorkspace's `willUnmount` and `didUnmount` reached the sandboxed app on eject. An eject
+  posted one notification, after a fix: the app had started a new session on the volume that
+  `willUnmount` announced, because it stayed in the mount table for 10.7 s. Only an unmount that
+  ended at once was tested after the fix.
+- A Dock click doesn't open a closed `Window` scene by itself, so the app opens it in
+  `applicationShouldHandleReopen`.
+
 ### Unverified assumptions
 
 | Assumption | Checked in |
 | --- | --- |
 | File IDs, mtime and ctime after a second remount, a server restart, a rename or a replacement (one remount measured: unchanged) | M2, M9 |
 | Kept files stay on disk while paused when the system needs the space (2.5 min without disk pressure measured) | not tested: it needs a full disk |
-| The system applies a root update from the working set, and a `displayName` update renames the CloudStorage folder | M7 |
-| Notification permission and `SMAppService` work from the build folder | M7 |
+| The system applies a root update from the working set by itself (M7's rename also changes `displayName`, and the two together renamed the folder at once) | not tested separately |
 | Materialized-set sizes give the disk space used; partly downloaded files make it an estimate | M8 |
 | Two domains on the same folder, or on nested folders, don't affect each other | M9 |
-| NSWorkspace mount notifications reach the sandboxed app on eject | M9 |
 | The Finder mount is soft (about 30 s timeout), not hard (up to 600 s) | M9 |
 | After an eject, held `O_EVTONLY` smbfs descriptors fail `fstatfs`, and other calls give ENOTDIR, EIO or EBADF (modelled only with revoke(2) on a pty) | M9 |
 | A volume mounted inside the share gives `pathRejected` (modelled only with `/` and the data volume) | not tested: it needs a mount inside the share |
