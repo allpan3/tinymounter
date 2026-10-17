@@ -182,8 +182,10 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 guard let manager = NSFileProviderManager(for: domain) else { throw CocoaError(.fileReadUnknown) }
                 let directory = try manager.temporaryDirectoryURL()
                 progress.totalUnitCount = range.length
+                let isBackground = lock.withLock { background.contains(requestID) }
                 let result = try sourceReader.fetch(SourceReadRequest(id: requestID, item: row.id, version: row.contentVersion,
-                                                                      range: range), directory: directory, progress: progress)
+                                                                      range: range, background: isBackground),
+                                                    directory: directory, progress: progress)
                 staging = result.0
                 progress.completedUnitCount = range.length
                 guard !progress.isCancelled else { throw TransferError.cancelled }

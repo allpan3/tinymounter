@@ -25,7 +25,7 @@ final class ReaderMessageTests: XCTestCase {
 
         let range = try ByteRange(offset: 16 << 20, length: 16 << 20, fileSize: 1 << 40)
         let version = ContentFingerprint(size: .max, mtimeNs: .min, ctimeNs: .min).contentVersion
-        let read = try SourceReadRequest(id: UUID(), item: item, version: version, range: range)
+        let read = try SourceReadRequest(id: UUID(), item: item, version: version, range: range, background: true)
         let data = try ReaderMessage.encode(read)
         XCTAssertEqual(try ReaderMessage.decode(SourceReadRequest.self, from: data), read)
         XCTAssertLessThan(data.count, 512)
@@ -41,14 +41,14 @@ final class ReaderMessageTests: XCTestCase {
         let range = try ByteRange(offset: 0, length: 1, fileSize: 1)
         for invalid in ["", "fixture", item.lowercased(), "a/b"] {
             XCTAssertThrowsError(try ListRequest(folder: invalid), invalid)
-            XCTAssertThrowsError(try SourceReadRequest(id: UUID(), item: invalid, version: "f1:1:2:3", range: range),
+            XCTAssertThrowsError(try SourceReadRequest(id: UUID(), item: invalid, version: "f1:1:2:3", range: range, background: false),
                                  invalid)
             let list = try JSONSerialization.data(withJSONObject: ["id": UUID().uuidString, "folder": invalid])
             XCTAssertThrowsError(try ReaderMessage.decode(ListRequest.self, from: list), invalid) {
                 XCTAssertEqual($0 as? CocoaError, CocoaError(.fileReadCorruptFile))
             }
             var read = try XCTUnwrap(JSONSerialization.jsonObject(with: ReaderMessage.encode(
-                SourceReadRequest(id: UUID(), item: item, version: "f1:1:2:3", range: range))) as? [String: Any])
+                SourceReadRequest(id: UUID(), item: item, version: "f1:1:2:3", range: range, background: false))) as? [String: Any])
             read["item"] = invalid
             XCTAssertThrowsError(try ReaderMessage.decode(SourceReadRequest.self,
                                                           from: JSONSerialization.data(withJSONObject: read)), invalid)
@@ -61,7 +61,7 @@ final class ReaderMessageTests: XCTestCase {
         }
         XCTAssertThrowsError(try ReaderMessage.decode(SourceReadStarted.self, from: Data("{}".utf8)))
         let longVersion = String(repeating: "9", count: SourceReadRequest.maxVersionBytes + 1)
-        XCTAssertThrowsError(try SourceReadRequest(id: UUID(), item: item, version: longVersion, range: range))
+        XCTAssertThrowsError(try SourceReadRequest(id: UUID(), item: item, version: longVersion, range: range, background: false))
         XCTAssertThrowsError(try ListReceipt(generation: 1, entries: -1, changed: 0, skipped: 0))
         let negative = Data(#"{"generation":-1,"entries":0,"changed":0,"skipped":0}"#.utf8)
         XCTAssertThrowsError(try ReaderMessage.decode(ListReceipt.self, from: negative))
