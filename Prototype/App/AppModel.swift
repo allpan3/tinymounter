@@ -550,6 +550,38 @@ final class AppModel {
         update(\.availableBytes, values?.volumeAvailableCapacityForImportantUsage)
     }
 
+    func canRemoveDownloads(_ recordID: UUID) -> Bool {
+        !(storage[recordID]?.removable.isEmpty ?? true) && !busy.contains(recordID)
+    }
+
+    /// Plan §8: evicts the downloaded files that are not kept, after a confirmation.
+    func confirmRemoveDownloads(_ recordID: UUID) {
+        guard let record = record(recordID), canRemoveDownloads(recordID) else { return }
+        Task {
+            // The count must be current: a file can be kept or evicted after the pane read it.
+            guard let usage = await controller.storage(record) else { return show(UIText.cannotRemoveDownloads) }
+            storage[recordID] = usage
+            guard !usage.removable.isEmpty else { return }
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = UIText.removeDownloadsTitle(record.name)
+            alert.informativeText = UIText.removeDownloadsMessage(files: usage.removable.count,
+                                                                  bytes: usage.removableBytes)
+            alert.addButton(withTitle: UIText.removeDownloads).hasDestructiveAction = true
+            alert.addButton(withTitle: UIText.cancel)
+            guard await present(alert) == .alertFirstButtonReturn else { return }
+            busy.insert(recordID)
+            let result = await controller.removeDownloads(record)
+            busy.remove(recordID)
+            await refreshStorage()
+            if let result {
+                if result.stayed > 0 { show(UIText.downloadsStayed(result.stayed)) }
+            } else {
+                show(UIText.cannotRemoveDownloads)
+            }
+        }
+    }
+
     // MARK: Servers
 
     /// Add Share… or Select Again…. Returns the saved grant's ID.

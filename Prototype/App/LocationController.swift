@@ -61,6 +61,8 @@ final class LocationController {
     nonisolated private static let listingLog = Logger(subsystem: "dev.tinymounter.prototype", category: "listing")
     nonisolated private static let shareLog = Logger(subsystem: "dev.tinymounter.prototype", category: "share")
     nonisolated private static let readerLog = Logger(subsystem: "dev.tinymounter.prototype", category: "source-reader")
+    /// Remove Downloads reads the kept state again before each batch of evictions.
+    private static let evictionBatch = 100
 
     init(store: SettingsStore) {
         self.store = store
@@ -517,6 +519,43 @@ final class LocationController {
             Self.catalogLog.error("storage domain=\(record.domainID, privacy: .public) \(logFields(error), privacy: .public)")
             return nil
         }
+    }
+
+    /// Plan §8 Remove Downloads: evicts the materialized files that are not kept. A file that an app
+    /// has open stays. Returns the files removed and the files that stayed; nil if none were read.
+    func removeDownloads(_ record: LocationRecord) async -> (removed: Int, stayed: Int)? {
+        guard let source = sources[record.domainID], let manager = manager(for: record) else { return nil }
+        let started = ContinuousClock.now
+        var files = 0, removed = 0, stayed = 0, firstError: Error?
+        do {
+            let materialized = try await MaterializedItems.read(manager).files
+            files = materialized.count
+            for start in stride(from: 0, to: materialized.count, by: Self.evictionBatch) {
+                let batch = Array(materialized[start..<min(start + Self.evictionBatch, materialized.count)])
+                // Read just before each batch, so a file kept since the pane showed stays.
+                for id in try await Self.offMain({ try source.storage(materialized: batch).removable }) {
+                    do {
+                        try await manager.evictItem(identifier: NSFileProviderItemIdentifier(id))
+                        removed += 1
+                    } catch {
+                        stayed += 1
+                        if firstError == nil { firstError = error }
+                    }
+                }
+            }
+        } catch {
+            Self.catalogLog.error("""
+                remove_downloads domain=\(record.domainID, privacy: .public) removed=\(removed) \
+                \(logFields(error), privacy: .public)
+                """)
+            return nil
+        }
+        Self.catalogLog.info("""
+            remove_downloads domain=\(record.domainID, privacy: .public) files=\(files) removed=\(removed) \
+            stayed=\(stayed) \(firstError.map { "first_error " + logFields($0) } ?? "", privacy: .public) \
+            total_ms=\(started.duration(to: .now) / .milliseconds(1), format: .fixed(precision: 1))
+            """)
+        return (removed, stayed)
     }
 
     /// Plan §7 diagnostics: counts only.

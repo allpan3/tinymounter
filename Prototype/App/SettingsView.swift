@@ -367,7 +367,14 @@ private struct StoragePane: View {
         Form {
             Section {
                 ForEach(locations, id: \.id) { record in
-                    LabeledContent(record.name, value: model.storageText(record))
+                    LabeledContent(record.name) {
+                        HStack {
+                            Text(model.storageText(record))
+                            if model.busy.contains(record.id) { ProgressView().controlSize(.small) }
+                            Button(UIText.removeDownloadsMenu) { model.confirmRemoveDownloads(record.id) }
+                                .disabled(!model.canRemoveDownloads(record.id))
+                        }
+                    }
                 }
             } header: {
                 Text(UIText.locations)
