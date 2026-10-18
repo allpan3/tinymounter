@@ -147,8 +147,26 @@ enum UIText {
     static let total = "Total"
     static let storageDescription = """
         This includes the kept files. When disk space is low, macOS removes the downloaded files that you do \
-        not keep.
+        not keep. Remove Downloads removes them immediately.
         """
+    static let removeDownloadsMenu = "Remove Downloads…"
+    static let removeDownloads = "Remove Downloads"
+    static let cannotRemoveDownloads = "tinymounter cannot remove the downloads of this location."
+
+    static func removeDownloadsTitle(_ name: String) -> String { "Remove the downloads of “\(name)”?" }
+
+    static func removeDownloadsMessage(files: Int, bytes: Int64) -> String {
+        let count = files == 1 ? "1 file" : "\(files) files"
+        return """
+            tinymounter removes the downloaded copies of \(count) (\(size(bytes))) that you do not keep. Kept files \
+            stay on this Mac. The files on the server do not change.
+            """
+    }
+
+    static func downloadsStayed(_ files: Int) -> String {
+        let (count, them) = files == 1 ? ("1 downloaded file", "it") : ("\(files) downloaded files", "them")
+        return "tinymounter cannot remove \(count). If an app uses \(them), close the app. Then try again."
+    }
 
     static func size(_ bytes: Int64) -> String {
         let formatter = ByteCountFormatter()
