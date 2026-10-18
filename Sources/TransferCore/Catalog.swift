@@ -83,6 +83,24 @@ public struct ChangeBatch: Sendable {
     public let moreComing: Bool
 }
 
+/// The downloaded files of a location, by their catalog sizes.
+public struct StorageUsage: Equatable, Sendable {
+    /// A partly downloaded file is not in the materialized set, so its bytes don't count.
+    public let bytes: Int64
+    public let files: Int
+    /// Files that are not kept, for Remove Downloads; a deleted row's file is the system's to remove.
+    public let removable: [String]
+    public let removableBytes: Int64
+
+    init(_ rows: [CatalogRow]) {
+        let removable = rows.filter { !$0.keep && !$0.deleted }
+        bytes = rows.reduce(0) { $0 + $1.size }
+        files = rows.count
+        self.removable = removable.map(\.id)
+        removableBytes = removable.reduce(0) { $0 + $1.size }
+    }
+}
+
 public struct CatalogCounts: Equatable, Sendable {
     /// Live rows, the root included.
     public let live: Int
@@ -310,6 +328,15 @@ public final class Catalog {
 
     public func keptItems() throws -> [CatalogRow] {
         try items("SELECT \(CatalogRow.columns) FROM items WHERE keep = 1 AND deleted = 0 ORDER BY row")
+    }
+
+    /// The space of the files among these materialized item IDs, from their rows (plan §8).
+    public func storage(materialized ids: [String]) throws -> StorageUsage {
+        let list = String(decoding: try JSONEncoder().encode(ids), as: UTF8.self)
+        return StorageUsage(try items("""
+            SELECT \(CatalogRow.columns) FROM items
+            WHERE kind = \(CatalogRow.Kind.file.rawValue) AND id IN (SELECT value FROM json_each(?)) ORDER BY row
+            """) { try $0.bind(1, list) })
     }
 
     public func counts() throws -> CatalogCounts {

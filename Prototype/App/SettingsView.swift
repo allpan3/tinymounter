@@ -14,6 +14,7 @@ struct SettingsView: View {
             switch model.selection {
             case .location(let id)?: LocationPane(model: model, id: id).id(id)
             case .general?: GeneralPane(model: model)
+            case .storage?: StoragePane(model: model)
             case .servers?: ServersPane(model: model)
             case .about?: AboutPane(model: model)
             case nil: Color.clear
@@ -43,6 +44,7 @@ private struct Sidebar: View {
             }
             Section(UIText.settings) {
                 Label(UIText.general, systemImage: "gearshape").tag(AppModel.Pane.general)
+                Label(UIText.storage, systemImage: "internaldrive").tag(AppModel.Pane.storage)
                 Label(UIText.servers, systemImage: "server.rack").tag(AppModel.Pane.servers)
                 Label(UIText.about, systemImage: "info.circle").tag(AppModel.Pane.about)
             }
@@ -354,6 +356,42 @@ private struct GeneralPane: View {
         }
         .formStyle(.grouped)
         .onAppear(perform: model.refreshLoginStatus)
+    }
+}
+
+/// Plan §8: the disk space of each location's downloaded files, then the total.
+private struct StoragePane: View {
+    @Bindable var model: AppModel
+
+    var body: some View {
+        Form {
+            Section {
+                ForEach(locations, id: \.id) { record in
+                    LabeledContent(record.name, value: model.storageText(record))
+                }
+            } header: {
+                Text(UIText.locations)
+            } footer: {
+                Text(UIText.storageDescription).foregroundStyle(.secondary)
+            }
+            Section {
+                LabeledContent(UIText.total, value: model.totalStorageText)
+            }
+        }
+        .formStyle(.grouped)
+        .task(id: StorageKey(locations: locations.map(\.id), kept: model.keepRevision,
+                             materialized: model.materializedRevision)) {
+            await model.refreshStorage()
+        }
+    }
+
+    private var locations: [LocationRecord] { model.records.filter { !$0.removing } }
+
+    /// Storage reads again when the locations, their kept files or the downloaded files change.
+    private struct StorageKey: Hashable {
+        let locations: [UUID]
+        let kept: [UUID: Int]
+        let materialized: Int
     }
 }
 

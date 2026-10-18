@@ -37,6 +37,8 @@ final class LocationController {
     var onKeepsRestored: ((LocationRecord, [String]) -> Void)?
     /// A location's kept files or root state changed: its domain ID.
     var onLocationChange: ((String) -> Void)?
+    /// The system's set of downloaded files changed, in any domain.
+    var onMaterializedChange: (() -> Void)?
     /// Saved Keep Downloaded paths that a complete listing showed are not on the server, by record.
     private(set) var notOnServer: [UUID: Set<String>] = [:]
     private var restoring: Set<UUID> = []
@@ -51,6 +53,7 @@ final class LocationController {
     private var domains: [String: NSFileProviderDomain] = [:]
     private var progress: [String: (progress: Progress, observation: NSKeyValueObservation)] = [:]
     private var domainObserver: (any NSObjectProtocol)?
+    private var materializedObserver: (any NSObjectProtocol)?
     /// Grants with a relisting running; true if a recovery asked for another one.
     private var relisting: [UUID: Bool] = [:]
     private var diagnosticsSignal: (any DispatchSourceSignal)?
@@ -127,6 +130,11 @@ final class LocationController {
         domainObserver = NotificationCenter.default.addObserver(forName: .fileProviderDomainDidChange, object: nil,
                                                                 queue: .main) { [weak self] _ in
             Task { @MainActor in await self?.refreshDomains() }
+        }
+        // Downloads and evictions, also Finder's and the system's.
+        materializedObserver = NotificationCenter.default.addObserver(forName: .fileProviderMaterializedSetDidChange,
+                                                                      object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.onMaterializedChange?() }
         }
         for grant in store.settings?.servers ?? [] { share(for: grant).connect() }
         await logDiagnostics(reason: "launch")
@@ -450,7 +458,7 @@ final class LocationController {
     func filesInFoldersNotMaterialized(_ ids: [String], in record: LocationRecord) async -> [String] {
         guard !ids.isEmpty, let source = sources[record.domainID], let manager = manager(for: record) else { return [] }
         do {
-            let materialized = Set(try await MaterializedFolders.read(manager))
+            let materialized = Set(try await MaterializedItems.read(manager).folders)
             return try await Self.offMain {
                 try ids.filter { id in try source.parentChain(of: id).contains { !materialized.contains($0) } }
             }
@@ -466,7 +474,7 @@ final class LocationController {
         guard let source = sources[record.domainID], let manager = manager(for: record) else { return }
         var requested = 0, failed = 0
         do {
-            let materialized = Set(try await MaterializedFolders.read(manager))
+            let materialized = Set(try await MaterializedItems.read(manager).folders)
             let folders = try await Self.offMain {
                 var folders: [String] = []
                 var seen: Set<String> = []
@@ -497,6 +505,18 @@ final class LocationController {
             request_folders domain=\(record.domainID, privacy: .public) files=\(ids.count) requested=\(requested) \
             failed=\(failed)
             """)
+    }
+
+    /// Plan §8 Storage: the catalog sizes of the materialized files; nil if they can't be read.
+    func storage(_ record: LocationRecord) async -> StorageUsage? {
+        guard let source = sources[record.domainID], let manager = manager(for: record) else { return nil }
+        do {
+            let files = try await MaterializedItems.read(manager).files
+            return try await Self.offMain { try source.storage(materialized: files) }
+        } catch {
+            Self.catalogLog.error("storage domain=\(record.domainID, privacy: .public) \(logFields(error), privacy: .public)")
+            return nil
+        }
     }
 
     /// Plan §7 diagnostics: counts only.
@@ -735,7 +755,7 @@ final class LocationController {
         let started = ContinuousClock.now
         let folders: [String]
         do {
-            folders = try await MaterializedFolders.read(manager)
+            folders = try await MaterializedItems.read(manager).folders
         } catch {
             Self.listingLog.error("relist domain=\(source.domainID, privacy: .public) \(logFields(error), privacy: .public)")
             return
@@ -874,9 +894,12 @@ final class LocationController {
     }
 }
 
-/// The folders of a domain's materialized set: the items that the system keeps on this Mac.
-enum MaterializedFolders {
-    static func read(_ manager: NSFileProviderManager) async throws -> [String] {
+/// A domain's materialized set: the items that the system keeps on this Mac.
+struct MaterializedItems {
+    var folders: [String] = []
+    var files: [String] = []
+
+    static func read(_ manager: NSFileProviderManager) async throws -> MaterializedItems {
         let enumerator = manager.enumeratorForMaterializedItems()
         defer { enumerator.invalidate() }
         let observer = MaterializedObserver()
@@ -885,17 +908,17 @@ enum MaterializedFolders {
         while let current = page {
             page = try await observer.next(enumerator, from: current)
         }
-        return observer.folders
+        return observer.items
     }
 }
 
 /// The system calls it on its own queue, one page at a time.
 private final class MaterializedObserver: NSObject, NSFileProviderEnumerationObserver, @unchecked Sendable {
     private let lock = NSLock()
-    private var found: [String] = []
+    private var found = MaterializedItems()
     private var waiting: CheckedContinuation<NSFileProviderPage?, Error>?
 
-    var folders: [String] { lock.withLock { found } }
+    var items: MaterializedItems { lock.withLock { found } }
 
     func next(_ enumerator: NSFileProviderEnumerator, from page: NSFileProviderPage) async throws -> NSFileProviderPage? {
         try await withCheckedThrowingContinuation { continuation in
@@ -906,10 +929,13 @@ private final class MaterializedObserver: NSObject, NSFileProviderEnumerationObs
 
     func didEnumerate(_ updatedItems: [NSFileProviderItem]) {
         // The system materializes its own Trash folder, which is not in the catalog.
-        let folders = updatedItems
-            .filter { $0.contentType?.conforms(to: .folder) == true && $0.itemIdentifier != .trashContainer }
-            .map(\.itemIdentifier.rawValue)
-        lock.withLock { found += folders }
+        let items = updatedItems.filter { $0.itemIdentifier != .trashContainer }
+        let folders = items.filter { $0.contentType?.conforms(to: .folder) == true }.map(\.itemIdentifier.rawValue)
+        let files = items.filter { $0.contentType?.conforms(to: .folder) != true }.map(\.itemIdentifier.rawValue)
+        lock.withLock {
+            found.folders += folders
+            found.files += files
+        }
     }
 
     func finishEnumerating(upTo nextPage: NSFileProviderPage?) { take()?.resume(returning: nextPage) }
