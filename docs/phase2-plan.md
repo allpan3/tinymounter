@@ -11,7 +11,10 @@ and read-ahead stalls, and Remove Location now deletes downloaded copies. A syst
 fallbacks was avoided in 11 stress trials after the window became one chunk
 ([comparison](results/2026-10-15-read-ahead-window.md)). M6 [passed its runtime
 checks](results/2026-10-16-keep-pause.md) on 2026-10-16, which also verified the D2 deadline.
-Nothing after M6 is built.
+M7 and M8 passed theirs on 2026-10-16 and 2026-10-18 ([M7](results/2026-10-16-settings-window.md),
+[M8](results/2026-10-18-storage-pane.md)). On 2026-10-18, M9 [showed exit criteria 1 to
+6](results/2026-10-18-exit-validation.md) in the VM, and M10's VM part passed. M10's run on the
+physical Mac is left.
 
 This is phase 2 of [architecture §10](architecture.md#10-implementation-sequence-and-exit-criteria).
 It starts before phase 1's exit and keeps the current transport. The phase 1 sequential
@@ -924,22 +927,39 @@ On 2026-10-18 in the signed app in the VM ([M8 results](results/2026-10-18-stora
   it, a 307 MB file read again got 1 MiB fetches 0.65 s apart.
 - Folder completion listed a folder of 8 subfolders in 8.6 ms.
 
+### Verified in M9
+
+On 2026-10-18 in the signed app in the VM ([M9 results](results/2026-10-18-exit-validation.md)):
+
+- Exit criteria 1 to 6 hold. 15 folders 3 levels deep matched the share, every read matched it by
+  SHA-256, RSS changed by less than 1% in 20 soak cycles, and no mount, stage file or tombstone
+  leaked, also after `kill -9` of the app and of the extension.
+- The Finder mount is soft: a read in progress failed with ETIMEDOUT 30.6 s and 40.7 s after the
+  NAS stopped answering. After a 30 s outage, a probe succeeded 11 s after it ended. After a 70 s
+  outage, macOS unmounted the share 18 s after it ended.
+- A second remount kept the inode, size, mtime and ctime of 1,301 entries and changed `st_dev`, as
+  in M2.
+- A slow unmount took 11 s. The app ended its session at `willUnmount`, posted one notification,
+  and started no session before the unmount ended.
+- An update kept the locations, downloads and Keep Downloaded requests. Deleting the app left its
+  domain, downloads and Finder sidebar entry. The next launch finished a Remove Location that
+  `kill -9` interrupted.
+
 ### Unverified assumptions
 
 | Assumption | Checked in |
 | --- | --- |
-| File IDs, mtime and ctime after a second remount, a server restart, a rename or a replacement (one remount measured: unchanged) | M2, M9 |
+| File IDs, mtime and ctime after a server restart, a rename or a replacement (two remounts measured: unchanged) | phase 3 for the changes; a server restart needs the user |
 | Kept files stay on disk while paused when the system needs the space (2.5 min without disk pressure measured) | not tested: it needs a full disk |
 | The system applies a root update from the working set by itself (M7's rename also changes `displayName`, and the two together renamed the folder at once) | not tested separately |
 | Under disk pressure, macOS also removes partly downloaded files, which Remove Downloads leaves | not tested: it needs a full disk |
 | Two domains on the same folder, or on nested folders, don't affect each other | phase 6 |
-| The Finder mount is soft (about 30 s timeout), not hard (up to 600 s) | M9 |
-| After an eject, held `O_EVTONLY` smbfs descriptors fail `fstatfs`, and other calls give ENOTDIR, EIO or EBADF (modelled only with revoke(2) on a pty) | M9 |
+| After an eject, held `O_EVTONLY` smbfs descriptors fail `fstatfs`, and other calls give ENOTDIR, EIO or EBADF (modelled only with revoke(2) on a pty) | not tested: the app closes them at `willUnmount` or `didUnmount` (M9) |
 | A volume mounted inside the share gives `pathRejected` (modelled only with `/` and the data volume) | not tested: it needs a mount inside the share |
-| On smbfs, `fstatat`'s `st_ino` equals the listing's `ATTR_CMN_FILEID` (true in M1's sweep; not rechecked in the app) | M9 |
+| On smbfs, `fstatat`'s `st_ino` equals the listing's `ATTR_CMN_FILEID` (true in M1's sweep; not rechecked in the app) | phase 3: only a case-only rename on the NAS needs it |
 | After a case-only rename on the NAS, `fstatat` of the old name finds the renamed item (modelled only on case-insensitive APFS) | not tested: it needs a change on the NAS |
 | smbfs errno values for authentication failures | not testable without a server change |
-| Kept files stay readable across a full macOS restart; physical-Mac behaviour | needs the user or real hardware |
+| Kept files stay readable across a full macOS restart; physical-Mac behaviour | M10, on the physical Mac |
 
 ### Defaults (D9)
 
