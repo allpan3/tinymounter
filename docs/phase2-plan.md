@@ -754,7 +754,8 @@ removes before it adds, so two domains never share a display name or a disk loca
 **Folder completion**, built last (M8). While the user types in Folder, the app lists the typed
 parent folder on the metadata lane, 150 ms after the last keystroke, and suggests at most 50
 subfolders whose names start with the typed text. It never lists more than one folder at a time.
-Select… stays.
+Return on a highlighted suggestion fills the field and also submits it, as in Finder's Go to
+Folder, so it adds a draft [V, M8]. Select… stays.
 
 **Other panes.**
 
@@ -764,7 +765,8 @@ Select… stays.
 - **Storage:** for each location, the disk space that its downloaded files use, and Remove
   Downloads, which evicts the downloaded files that are not kept, after a confirmation that the
   files on the server do not change. Then the total. The space is the sum of the catalog sizes of
-  the files in the materialized set [A, M8]; files that are open stay (EBUSY) and are counted.
+  the files in the materialized set [V, M8]; files that are open stay (EBUSY) and are counted. A
+  partly downloaded file is not in the set: it doesn't count, and Remove Downloads leaves it.
 - **About:** "Version 0.1 (prototype)" and diagnostic counts with Copy.
 
 **Menu bar.** A drive symbol, `arrow.down.circle` during downloads (SF Symbols has no drive with a
@@ -907,6 +909,18 @@ On 2026-10-16 in the signed app in the VM ([M7 results](results/2026-10-16-setti
 - A Dock click doesn't open a closed `Window` scene by itself, so the app opens it in
   `applicationShouldHandleReopen`.
 
+### Verified in M8
+
+On 2026-10-18 in the signed app in the VM ([M8 results](results/2026-10-18-storage-pane.md)):
+
+- The materialized set holds the complete downloads only. The pane's totals matched the sizes of
+  the files that were not dataless, and a file with its first 16 MiB downloaded was not in the set.
+- Remove Downloads kept a kept file in three runs. An open file's eviction failed with EBUSY.
+- `NSFileProviderMaterializedSetDidChange` reached the app for an eviction from outside it.
+- After an eviction, read-ahead started again only with the 10 s rule (section 6, step 7): before
+  it, a 307 MB file read again got 1 MiB fetches 0.65 s apart.
+- Folder completion listed a folder of 8 subfolders in 8.6 ms.
+
 ### Unverified assumptions
 
 | Assumption | Checked in |
@@ -914,7 +928,7 @@ On 2026-10-16 in the signed app in the VM ([M7 results](results/2026-10-16-setti
 | File IDs, mtime and ctime after a second remount, a server restart, a rename or a replacement (one remount measured: unchanged) | M2, M9 |
 | Kept files stay on disk while paused when the system needs the space (2.5 min without disk pressure measured) | not tested: it needs a full disk |
 | The system applies a root update from the working set by itself (M7's rename also changes `displayName`, and the two together renamed the folder at once) | not tested separately |
-| Materialized-set sizes give the disk space used; partly downloaded files make it an estimate | M8 |
+| Under disk pressure, macOS also removes partly downloaded files, which Remove Downloads leaves | not tested: it needs a full disk |
 | Two domains on the same folder, or on nested folders, don't affect each other | M9 |
 | The Finder mount is soft (about 30 s timeout), not hard (up to 600 s) | M9 |
 | After an eject, held `O_EVTONLY` smbfs descriptors fail `fstatfs`, and other calls give ENOTDIR, EIO or EBADF (modelled only with revoke(2) on a pty) | M9 |

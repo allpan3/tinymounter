@@ -5,7 +5,8 @@ accepted for prototyping on 2026-10-11. The user evaluates it again on the proto
 lists the decisions that are still open. On 2026-10-12 the user decided Duplicate, overlapping
 locations, saved Keep Downloaded lists and Pause Downloads (sections 4 and 5). Phase 2 builds the
 subset in [phase2-plan.md](phase2-plan.md#1-decisions); M7 built the Settings window, the menu
-bar item and notifications, with the changes that [phase 2 §8](phase2-plan.md#8-ui) records.
+bar item and notifications, and M8 the Storage pane and folder completion, with the changes that
+[phase 2 §8](phase2-plan.md#8-ui) records.
 Interactive mockup: [ui-mockup.html](ui-mockup.html).
 
 ## 1. Principles

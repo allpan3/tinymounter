@@ -1,6 +1,6 @@
 # First performance prototype
 
-Status: 2026-10-16. The signed [phase 2](phase2-plan.md) M4/M5 build browses granted SMB
+Status: 2026-10-18. The signed [phase 2](phase2-plan.md) M4/M5 build browses granted SMB
 folders from one catalog per location and reads files by item ID. VM browsing, checksummed reads,
 restarts and outage checks are recorded in the [M4/M5 results](results/2026-10-14-catalog-browsing-reads.md).
 The [runtime follow-up](results/2026-10-15-runtime-followup.md) verifies the initial reader
@@ -10,7 +10,8 @@ Finder's retained folder error remains open.
 M6 adds Keep Downloaded, Allow Removal and Pause Downloads, verified in the
 [M6 results](results/2026-10-16-keep-pause.md). M7 replaces the test window with the Settings
 window, the menu bar item and notifications, verified in the
-[M7 results](results/2026-10-16-settings-window.md).
+[M7 results](results/2026-10-16-settings-window.md). M8 adds the Storage pane, Remove Downloads
+and folder completion, verified in the [M8 results](results/2026-10-18-storage-pane.md).
 The phase 1 one-file fixture build is gone (D3).
 
 ## Implemented and checked
@@ -20,11 +21,12 @@ The phase 1 one-file fixture build is gone (D3).
 - Full/range reads, runtime-aligned ranges, empty files, metadata fingerprint checks, progress/cancellation, and cleanup on handled failures.
 - JSONL reporting of byte range, filesystem, open/transfer/first-read time, sustained rate after the first chunk, CPU, process-lifetime peak RSS, cache label, and optional post-timing SHA-256 verification.
 - A SwiftUI app with a Settings window and a menu bar item, and a replicated File Provider extension (section 2). The app saves a share-root grant, adds and removes locations, and owns all share I/O and every catalog write: it lists folders into each location's SQLite catalog and stages file bytes with the transfer engine. The extension reads the catalog read-only to page folders, fetches full and partial ranges by item ID from the app through a restricted File Provider service, runs read-ahead per item, and rejects all remote mutations.
-- 134 unit tests passed on 2026-10-16. They cover transfer correctness and cancellation,
-  read-ahead bounds and stale requests, full-handoff cleanup, catalog and listing consistency,
-  safe paths, mount identity, share health, error classification, staging, settings, XPC messages,
-  deadlines and launch reconciliation. Fixtures are local; unit tests do not read the NAS.
-- Release CLI build and local end-to-end checks passed on 2026-10-16. The unsigned Release app and extension build succeeded with Xcode 27. Only Xcode's informational App Intents extraction warnings remained; there are no Swift compiler warnings in that build.
+- 140 unit tests passed on 2026-10-18. They cover transfer correctness and cancellation,
+  read-ahead bounds, stale requests and evictions, full-handoff cleanup, catalog and listing
+  consistency, storage sums, folder completion, safe paths, mount identity, share health, error
+  classification, staging, settings, XPC messages, deadlines and launch reconciliation. Fixtures
+  are local; unit tests do not read the NAS.
+- Release CLI build and local end-to-end checks passed on 2026-10-18. The unsigned Release app and extension build succeeded with Xcode 27. Only Xcode's informational App Intents extraction warnings remained; there are no Swift compiler warnings in that build.
 - The M3 build also built with Personal Team development signing and automatically generated Mac
   Team provisioning profiles. `codesign --verify --deep --strict` passed for the app including its
   embedded extension. Its signed artifacts were in `.build/xcode-personal/Build/Products/Release/`
@@ -138,6 +140,13 @@ downloaded" while it downloads. Quit warns while downloads are in progress. A no
 once per share per outage: when a share that has locations disconnects or stops responding, or
 when a download that the user started fails for that reason. None posts at launch, and none
 holds a file name. General turns notifications and the menu bar item off.
+
+**Storage and folder completion (M8).** Storage shows each location's downloaded space, the sum
+of the catalog sizes of the files in its materialized set, then the total and the space left. A
+partly downloaded file isn't in that set, so it doesn't count. **Remove Downloads…** evicts the
+downloaded files that are not kept, after a confirmation; a file that an app has open stays, and
+the app says how many stayed. While the user types in Folder, the app lists the typed parent
+folder and suggests its subfolders. Return on a suggestion also submits it, so a draft is added.
 
 **Browsing (M4).** The extension opens the catalog read-only and never creates one. For a folder
 that was never listed, it asks the app to list it and waits at most 5 s; after that, Finder gets
