@@ -121,6 +121,7 @@ private struct LocationPane: View {
         .onChange(of: model.focusFolder) { takeFocus() }
         .onChange(of: focus) { old, _ in
             if old == .name, model.record(id) != nil { model.commitName(id) }
+            if old == .folder { model.endFolderCompletion() }
         }
     }
 
@@ -195,6 +196,14 @@ private struct LocationPane: View {
                         .labelsHidden()
                         .focused($focus, equals: .folder)
                         .onSubmit(submit)
+                        .textInputSuggestions {
+                            ForEach(model.folderSuggestions, id: \.self) { Text($0).textInputCompletion($0) }
+                        }
+                        .task(id: focus == .folder ? model.folderText(id) : nil) {
+                            guard focus == .folder else { return }
+                            try? await Task.sleep(for: Self.completionDelay)
+                            if !Task.isCancelled { await model.suggestFolders(id) }
+                        }
                     Button(UIText.select) { model.selectFolder(id) }.disabled(model.grantID(id) == nil)
                 }
             }
@@ -293,6 +302,7 @@ private struct LocationPane: View {
     }
 
     private static let addShareTag = "\u{0}add-share"
+    private static let completionDelay = Duration.milliseconds(150)
 
     /// "account@host", one for each server with a saved share.
     private var serverKeys: [String] {

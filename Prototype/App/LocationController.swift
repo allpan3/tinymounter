@@ -57,6 +57,9 @@ final class LocationController {
     /// Grants with a relisting running; true if a recovery asked for another one.
     private var relisting: [UUID: Bool] = [:]
     private var diagnosticsSignal: (any DispatchSourceSignal)?
+    /// Folder completion's last listing, reused while the user types in the same folder.
+    private var completion: (grantID: UUID, parent: RelativePath, names: [String])?
+    private var completionListing: Task<Void, Never>?
     nonisolated private static let catalogLog = Logger(subsystem: "dev.tinymounter.prototype", category: "catalog")
     nonisolated private static let listingLog = Logger(subsystem: "dev.tinymounter.prototype", category: "listing")
     nonisolated private static let shareLog = Logger(subsystem: "dev.tinymounter.prototype", category: "share")
@@ -507,6 +510,45 @@ final class LocationController {
             request_folders domain=\(record.domainID, privacy: .public) files=\(ids.count) requested=\(requested) \
             failed=\(failed)
             """)
+    }
+
+    /// Plan §8 folder completion: lists the typed parent folder unless the last listing was of it.
+    /// It never lists more than one folder at a time, and a cancelled request lists nothing.
+    func folderSuggestions(grantID: UUID, typed: String) async -> [String] {
+        guard let query = FolderCompletion(typed: typed),
+              let grant = store.settings?.servers.first(where: { $0.id == grantID }) else { return [] }
+        while completion?.grantID != grantID || completion?.parent != query.parent {
+            if let running = completionListing {
+                await running.value
+                continue
+            }
+            guard !Task.isCancelled else { return [] }
+            let share = share(for: grant)
+            let listing = Task {
+                let started = ContinuousClock.now
+                do {
+                    let names = try await share.folderNames(in: query.parent)
+                    completion = (grantID, query.parent, names)
+                    Self.listingLog.info("""
+                        completion_list folders=\(names.count) \
+                        total_ms=\(started.duration(to: .now) / .milliseconds(1), format: .fixed(precision: 1))
+                        """)
+                } catch {
+                    // Typing on in the same folder doesn't list it again.
+                    completion = (grantID, query.parent, [])
+                    Self.listingLog.error("completion_list \(logFields(error), privacy: .public)")
+                }
+                completionListing = nil
+            }
+            completionListing = listing
+            await listing.value
+        }
+        return completion.map { query.suggestions(from: $0.names) } ?? []
+    }
+
+    /// The Folder field lost focus: the next completion lists again.
+    func endFolderCompletion() {
+        completion = nil
     }
 
     /// Plan §8 Storage: the catalog sizes of the materialized files; nil if they can't be read.

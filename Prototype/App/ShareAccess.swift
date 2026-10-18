@@ -183,6 +183,20 @@ final class ShareAccess: @unchecked Sendable {
     /// Runs `work` on the lane, after every metadata operation queued before it.
     func enqueue(_ work: @escaping @Sendable () -> Void) { lane.async(execute: work) }
 
+    /// Folder completion: the subfolder names of a folder in the share, listed on the lane.
+    func folderNames(in path: RelativePath) async throws -> [String] {
+        try await withCheckedThrowingContinuation { continuation in
+            enqueue { [self] in
+                continuation.resume(with: Result {
+                    try withSession { session, progressed in
+                        try DirectoryListing.list(locationRoot: session.root, relativePath: path,
+                                                  expected: session.identity, progress: progressed)
+                    }.entries.filter { $0.kind == .folder }.map(\.name)
+                })
+            }
+        }
+    }
+
     /// Starts a session if the share is mounted, so that its recovery signals and relisting run.
     func connect() {
         let start = lock.withLock {

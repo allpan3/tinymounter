@@ -101,6 +101,8 @@ final class AppModel {
     var names: [UUID: String] = [:]
     /// The entry whose Folder field takes focus next.
     var focusFolder: UUID?
+    /// Folder completion for the entry whose Folder field has focus.
+    private(set) var folderSuggestions: [String] = []
     private(set) var records: [LocationRecord] = []
     private(set) var servers: [ServerGrant] = []
     private(set) var states: [UUID: LocationState] = [:]
@@ -284,6 +286,18 @@ final class AppModel {
     }
 
     func hasEdit(_ id: UUID) -> Bool { edits[id] != nil }
+
+    /// Plan §8: the subfolders of the typed folder; the view calls it 150 ms after the last change.
+    func suggestFolders(_ id: UUID) async {
+        guard let grantID = grantID(id) else { return update(\.folderSuggestions, []) }
+        let suggestions = await controller.folderSuggestions(grantID: grantID, typed: folderText(id))
+        if !Task.isCancelled { update(\.folderSuggestions, suggestions) }
+    }
+
+    func endFolderCompletion() {
+        update(\.folderSuggestions, [])
+        controller.endFolderCompletion()
+    }
 
     private func setEdit(_ record: LocationRecord, _ edit: SourceEdit) {
         let folder = LocationRecord.normalizedFolder(edit.folder)?.string
