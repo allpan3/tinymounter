@@ -11,6 +11,8 @@ final class SettingsStore {
 
     let url: URL
     private(set) var state: State
+    /// Called after each saved update.
+    var onUpdate: (() -> Void)?
 
     init(url: URL = URL.applicationSupportDirectory.appending(path: "tinymounter/Settings.json")) {
         self.url = url
@@ -32,6 +34,7 @@ final class SettingsStore {
             try change(&settings)
             try settings.save(to: url)
             state = .ready(settings)
+            onUpdate?()
         }
     }
 

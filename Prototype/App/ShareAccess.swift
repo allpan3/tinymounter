@@ -1,6 +1,8 @@
 import AppKit
 import Darwin
 import Foundation
+import NetFS
+import Network
 import OSLog
 
 /// Why `ShareAccess.makeGrant` refused a selected folder.
@@ -98,6 +100,9 @@ final class ShareAccess: @unchecked Sendable {
     private var unmounting: [MountIdentity: ContinuousClock.Instant] = [:]
     private static let unmountWait: Duration = .seconds(60)
     private var connecting = false
+    private var remount = RemountPolicy()
+    private var mountRequest: AsyncRequestID?
+    private let network = NWPathMonitor()
     private var stateHandler: (@Sendable (ShareHealth.State) -> Void)?
     private var observers: [NotificationCenter.ObservationToken] = []
     private static let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "share")
@@ -124,12 +129,21 @@ final class ShareAccess: @unchecked Sendable {
             center.addObserver(of: NSWorkspace.self, for: .didUnmountVolume) { [weak self] message in
                 self?.volumeUnmounting(message.volumeURL, reason: "did_unmount")
             },
+            center.addObserver(of: NSWorkspace.self, for: .didWake) { [weak self] _ in
+                self?.conditionsChanged()
+            },
         ]
+        network.pathUpdateHandler = { [weak self] update in
+            if update.status == .satisfied { self?.conditionsChanged() }
+        }
+        network.start(queue: monitor)
     }
 
     deinit {
         poll.cancel()
         tick.cancel()
+        network.cancel()
+        if let mountRequest { NetFSMountURLCancel(mountRequest) }
         for token in observers { NSWorkspace.shared.notificationCenter.removeObserver(token) }
     }
 
@@ -209,6 +223,15 @@ final class ShareAccess: @unchecked Sendable {
             guard refusal() == nil else { return }
             _ = try? currentSession()
         }
+    }
+
+    /// Phase 3 plan §1: only a share that a location uses is mounted again.
+    func setRemountWanted(_ wanted: Bool) {
+        let changed = lock.withLock {
+            defer { remount.wanted = wanted }
+            return remount.wanted != wanted
+        }
+        if changed && wanted { monitor.async { [self] in checkMountTable() } }
     }
 
     /// A new grant for this share: the next request starts a session with it.
@@ -379,10 +402,19 @@ final class ShareAccess: @unchecked Sendable {
         // Off the main thread: the last release closes the root, which can wait for the server.
         monitor.async { [self] in
             if let mount = (try? MountEntry.current())?.first(where: { $0.mountOn == path }) {
-                lock.withLock { unmounting[mount.identity] = .now }
+                // Only an eject posts willUnmount; macOS's unmount after an outage doesn't (M9).
+                let ejected = reason == "will_unmount" && mount.identity.mountFrom == mountFrom
+                lock.withLock {
+                    unmounting[mount.identity] = .now
+                    if ejected { remount.ejectStarted() }
+                }
+                if ejected {
+                    Self.logger.info("share=\(self.grantID.uuidString, privacy: .public) remount_held")
+                }
             }
-            guard let session = lock.withLock({ self.session }), session.mountOn == path else { return }
-            ended(session, reason: reason)
+            if let session = lock.withLock({ self.session }), session.mountOn == path { ended(session, reason: reason) }
+            // Without an eject, mount again now rather than at the next poll.
+            if reason == "did_unmount" { checkMountTable() }
         }
     }
 
@@ -395,16 +427,76 @@ final class ShareAccess: @unchecked Sendable {
             return (self.session, health.state, refusedMounts)
         }
         if let session {
-            if !session.isListed(in: mounts) { ended(session, reason: "poll") }
-            return
+            guard !session.isListed(in: mounts) else {
+                lock.withLock { remount.mountListed() }
+                return
+            }
+            ended(session, reason: "poll")
         }
         let present = Set(candidates(in: mounts).map(\.identity))
+        if !present.isEmpty {
+            lock.withLock { remount.mountListed() }
+        } else if !mounts.contains(where: { $0.identity.mountFrom == mountFrom }) {
+            // A mount that is still unmounting is listed, so it isn't mounted a second time.
+            mountAgain()
+        }
         if state == .needsGrant {
             guard present != refused else { return }
             changeHealth { $0.mountDisappeared() }
         }
         if !present.isEmpty { connect() }
     }
+
+    /// Phase 3 plan §1: macOS mounts the share with the Keychain password, and shows no dialog.
+    private func mountAgain() {
+        guard lock.withLock({ remount.startMount(now: Self.uptime()) }) else { return }
+        let started = ContinuousClock.now
+        // The grant's address has an account and no password (makeGrant).
+        guard let url = URL(string: "smb:" + mountFrom) else {
+            mountFinished(status: EINVAL, started: started)
+            return
+        }
+        Self.logger.info("share=\(self.grantID.uuidString, privacy: .public) remount_started")
+        let options = NSMutableDictionary()
+        options["UIOption"] = "NoUI"
+        var request: AsyncRequestID?
+        let status = NetFSMountURLAsync(url as CFURL, nil, nil, nil, options, nil, &request, monitor) {
+            [weak self] status, _, _ in self?.mountFinished(status: status, started: started)
+        }
+        if status == 0 {
+            lock.withLock { mountRequest = request }
+        } else {
+            mountFinished(status: status, started: started)
+        }
+    }
+
+    private func mountFinished(status: Int32, started: ContinuousClock.Instant) {
+        let outcome = lock.withLock {
+            mountRequest = nil
+            return remount.finished(status: status, now: Self.uptime())
+        }
+        let next = switch outcome {
+        case .mounted: "mounted"
+        case .retry(let delay): "retry_s=\(delay.components.seconds)"
+        case .stopped: "stopped"
+        }
+        let ms = started.duration(to: .now) / .milliseconds(1)
+        Self.logger.info("""
+            share=\(self.grantID.uuidString, privacy: .public) remount_finished status=\(status) \
+            ms=\(ms, format: .fixed(precision: 1)) \(next, privacy: .public)
+            """)
+        if outcome == .mounted { checkMountTable() }
+    }
+
+    /// Wake or a network change: the next mount try runs at once.
+    private func conditionsChanged() {
+        monitor.async { [self] in
+            lock.withLock { remount.conditionsChanged() }
+            checkMountTable()
+        }
+    }
+
+    private static func uptime() -> Duration { .nanoseconds(DispatchTime.now().uptimeNanoseconds) }
 
     private func checkHealth() {
         let (probe, session) = changeHealth { health in (health.startProbe(), self.session) }

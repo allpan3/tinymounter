@@ -69,6 +69,7 @@ final class LocationController {
 
     init(store: SettingsStore) {
         self.store = store
+        store.onUpdate = { [weak self] in self?.updateRemountWanted() }
         reader.source = { [weak self] in self?.sources[$0] }
         reader.onConnected = { [weak self] domainID in
             Task { await self?.signalResolved(domainID, [.serverUnreachable]) }
@@ -735,7 +736,14 @@ final class LocationController {
         }
         shares[grant.id] = share
         shareStates[grant.id] = share.state
+        share.setRemountWanted(store.settings?.locations.contains { $0.serverID == grantID } == true)
         return share
+    }
+
+    /// Phase 3 plan §1: the app mounts again only a share that a location uses.
+    private func updateRemountWanted() {
+        let used = Set(store.settings?.locations.map(\.serverID) ?? [])
+        for (id, share) in shares { share.setRemountWanted(used.contains(id)) }
     }
 
     private func shareChanged(_ grantID: UUID, _ state: ShareHealth.State) {
