@@ -12,6 +12,9 @@ M6 adds Keep Downloaded, Allow Removal and Pause Downloads, verified in the
 window, the menu bar item and notifications, verified in the
 [M7 results](results/2026-10-16-settings-window.md). M8 adds the Storage pane, Remove Downloads
 and folder completion, verified in the [M8 results](results/2026-10-18-storage-pane.md).
+M9 showed phase 2's exit criteria 1 to 6 in the VM, also after crashes and outages, and M10's VM
+part checked an update, a deleted app and a crash during Remove Location; see the
+[M9 results](results/2026-10-18-exit-validation.md) and [section 5](#5-install-update-and-remove).
 The phase 1 one-file fixture build is gone (D3).
 
 ## Implemented and checked
@@ -245,6 +248,40 @@ once, wired, with nothing else heavy running. About 30 minutes:
 Record the Mac model, macOS build, link speed and NAS cache state where known. Share the numbers,
 not the raw `results/` folder, which can hold private paths.
 
+## 5. Install, update and remove
+
+These steps keep the prototype for daily use. The VM checked them on 2026-10-18
+([M9 results](results/2026-10-18-exit-validation.md#daily-use-in-the-vm-m10)); the physical Mac hasn't yet.
+
+**Install.** Build and sign with the Personal Team, as in section 2, and keep one copy of the app.
+The build embeds no provisioning profile, because its entitlements need none on macOS, so the
+7-day limit of free provisioning profiles doesn't apply. Its signature uses Xcode's Apple
+Development certificate, which is valid for one year (in the VM, from 2026-10-11 to 2027-10-11).
+Build again with a new certificate before it expires: what an expired one does is untested.
+
+**Update.** Quit tinymounter, build the new version, and open it. The locations, their downloads
+and their Keep Downloaded requests stay. Keep the same team and bundle identifier, because the
+settings and catalogs are in containers named after them. A build opens only the `Settings.json`
+and catalog formats it knows, so a format change needs a migration.
+
+**Remove.** In this order:
+
+1. In Settings, click **Remove Location…** for each location. This removes it from Finder with its
+   downloaded copies. The files on the share don't change.
+2. In General, turn off **Open at login**.
+3. Click **Quit tinymounter** in the menu bar item.
+4. Delete `TinyMounterPrototype.app`.
+5. Optionally, delete its data: `~/Library/Containers/<bundle ID>` and
+   `~/Library/Containers/<bundle ID>.provider`, and
+   `~/Library/Group Containers/<team>.<bundle ID>`. They hold the share grant, the settings and the
+   catalogs, which hold the names of the files on the share.
+
+If you delete the app first, its locations stay: Finder's sidebar keeps them, macOS keeps their
+domains and downloaded copies, and the old extension keeps running. Downloaded files still open;
+the others fail. To clean up, build and open the app again, then remove the locations. If the app
+stops during Remove Location, it says "The removal is not complete", and its next launch finishes
+the removal.
+
 ## Deliberate limitations
 
 - Read-only, on the user's own Finder connection: one grant per share, and locations that are folders on it. The app never mounts, writes, renames or deletes on the share.
@@ -255,8 +292,8 @@ not the raw `results/` folder, which can hold private paths.
 - Content versions are `f1:<size>:<mtime_ns>:<ctime_ns>` (D1), so a remount does not download copies again. Each transfer still checks the full snapshot, device and inode included, on its open descriptor. A change that keeps size and timestamps can't be detected.
 - Two concurrent extension fetches per domain, two app transfers for all domains, 1 MiB POSIX buffers, and a preferred 16 MiB returned extent for demand misses. OS minimum ranges may be larger. A small seek can download up to 16 MiB.
 - Read-ahead is per item: up to 8 planners, by item and content version, and the least recently used goes. It starts only when a miss continues the previous miss of the same item. It keeps one 16 MiB speculative fetch in flight, at most one chunk past the latest sequential miss, and pauses 30 ms before each chained request. Without that pause, `fileproviderd` held a waiting seek until speculation stopped. A seek cancels only its own item's speculation. A successful full handoff retires that item/version's pending speculation and cancels its running speculation; future misses after eviction can start a new run. After a reader stops, up to 16 MiB can still download. A fetch counts as speculative only if it covers the planned offset and length. A returned range never extends into bytes already delivered, and speculation skips them: rewriting them raced IINA's reads and made `fileproviderd` download the whole file. A miss in delivered bytes when no new bytes came for 10 s means macOS evicted them, so the planner starts again; before this, a file read again after Remove Downloads got 1 MiB fetches and no read-ahead (M8). A demand that overtakes a request the system hasn't delivered retires it. A 128 MiB window let a moving-boundary stress reader trigger a system materialization race and a full download in 5/5 trials; the one-chunk window avoided it in 11, which doesn't prove it gone. Items share the domain's pipeline depth of 2, so one file's read-ahead can delay another file's read. The sequential partial-read gate still fails.
-- The first request in an outage waits for the mount's own timeout, about 30 s measured. After a call fails with a timeout-class errno, or a listing or transfer makes no progress for 15 s, the share is unresponsive: requests fail at once with `serverUnreachable`, and one probe runs every 5 s until the server answers. A session start whose bookmark resolution fails while the share is mounted is handled the same way, and the probe then starts the session. A blocked SMB kernel call can't be interrupted. Downloaded files keep working; see the [offline results](results/2026-10-11-offline-reading.md), measured with the fixture build.
-- The main app must stay running for misses and for folders never listed. When a worker starts a fetch, the app says so and then reports progress at most every 0.5 s. From that start, the extension ends its wait after 60 s with neither progress nor a reply (D2). Before it, a fetch that waits for one of the two workers that all locations share has no deadline: only the reply, a lost connection or cancellation ends it. With the app stopped by `SIGSTOP`, a fetch failed 60.0 s after its last progress (M6). Not verified at runtime: whether the system cancels a waiting fetch, as it can cancel one that stops making progress ([phase 2 §9](phase2-plan.md#9-milestones)).
+- The first request in an outage waits for the mount's own timeout, about 30 s measured. After a call fails with a timeout-class errno, or a listing or transfer makes no progress for 15 s, the share is unresponsive: requests fail at once with `serverUnreachable`, and one probe runs every 5 s until the server answers. A session start whose bookmark resolution fails while the share is mounted is handled the same way, and the probe then starts the session. A blocked SMB kernel call can't be interrupted, and a read that runs when the share stops answering fails after 30–41 s and doesn't resume. After a 70 s outage, macOS unmounted the share, and the user had to connect again in Finder; the app then started a session by itself. After a 30 s outage, the app recovered by itself 11 s after it ended (M9). Downloaded files keep working; see the [offline results](results/2026-10-11-offline-reading.md), measured with the fixture build.
+- The main app must stay running for misses and for folders never listed. When a worker starts a fetch, the app says so and then reports progress at most every 0.5 s. From that start, the extension ends its wait after 60 s with neither progress nor a reply (D2). Before it, a fetch that waits for one of the two workers that all locations share has no deadline: only the reply, a lost connection or cancellation ends it. With the app stopped by `SIGSTOP`, a fetch failed 60.0 s after its last progress (M6). Nothing starts the app again after a crash: running transfers fail, and misses fail at once until the user opens it (M9). Not verified at runtime: whether the system cancels a waiting fetch, as it can cancel one that stops making progress ([phase 2 §9](phase2-plan.md#9-milestones)).
 - A staging URL is never changed after completion; macOS owns the handoff. App staging leases are released on completion, cancellation or connection invalidation. At launch, before any reader connects, the app deletes leftover stage files in `ReaderStaging`. Each extension process deletes the stage files in its temporary directory that were created before it started, and logs `temp_removed` and the stage files left. Runtime cancellation races, adversarial IPC requests and long-duration staging growth remain unverified.
 - Create, modify and delete return `fileWriteNoPermission` and are counted in the log (`mutation=`). A reimport `createItem` (`.mayAlreadyExist`) completes with the live row of the same name and kind, and with `nil` only for a file without contents that no row matches; anything else keeps the error. A matched file with contents is downloaded again from the NAS unless its size equals the row's and its modification date is less than 1 µs from the row's, as measured between `Date`s. A NAS change that keeps the size and mtime and changes only the ctime is not found on reimport, so the old disk copy stays as the current version. Not verified at runtime: it needs a system reimport.
 - Per-request logs record full or partial mode, demand, sequential or speculative kind, Finder (`viewer`) and system flags, queue and transfer times. They don't instrument actual player first frame or system reader resumption.
