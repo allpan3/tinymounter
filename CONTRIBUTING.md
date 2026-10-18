@@ -16,8 +16,8 @@ declined if the feature isn't worth its weight. Docs-only changes and obvious fi
 
 - `main` always builds and passes the checks in [`AGENTS.md`](AGENTS.md#before-you-finish).
 - Do the work on a short-lived topic branch named for the change, such as `provider-range-reads`.
-- Rebase onto `main` instead of merging it in. Squash-merge each PR, so it lands as one commit whose
-  subject is the PR title plus `(#N)`.
+- Rebase onto `main` instead of merging it in. Merge a PR with Rebase and merge, not a squash, so
+  its commits land on `main` as they are. Each of them must build and pass the checks.
 
 ## Commits
 
@@ -47,6 +47,10 @@ declined if the feature isn't worth its weight. Docs-only changes and obvious fi
   [`.claude/settings.json`](.claude/settings.json) turns off Claude Code's attribution. Other tools
   need the same setting.
 - **One logical change per commit.** Put cleanup you noticed along the way in a separate commit.
+- **Clean up a PR's commits before it merges.** Squash a commit that only fixes up an earlier commit
+  in the PR into that commit, so `main` gets the finished change instead of the steps to it. Squash
+  a very small fix, such as a typo fix, into the commit it belongs to as well. Keep it separate only
+  if it isn't related to the rest of the PR.
 - **Never commit** secrets, signing material, raw `results/`, or build output.
 
 ## Pull requests
