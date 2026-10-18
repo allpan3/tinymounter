@@ -40,4 +40,4 @@ File Provider supports partial-file downloads. It is not a native SMB mount, and
 
 Project rules for people and agents are in [AGENTS.md](AGENTS.md). Commits, PRs and the changelog are covered in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Initial target: macOS 27 and the user's UGREEN NAS running Debian, using SMB2/3. Offline reading comes first; offline editing and syncing changes back are a later phase. A wholly read-only first release is the proposed scope, rather than a requirement the user has imposed on all future versions.
+Initial target: macOS 27 and the user's UGREEN NAS running Debian, using SMB2/3. Offline reading comes first. Writes come next, before release hardening: on 2026-10-18 the user ordered the phases so that what a daily user needs comes first ([architecture §10](docs/architecture.md#10-implementation-sequence-and-exit-criteria)).

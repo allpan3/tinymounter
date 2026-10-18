@@ -47,7 +47,7 @@ The user's decisions:
      location and Remove Downloads; notifications; folder-path completion, built last.
    - Changed from the design: Add Share… instead of Add Server… (decision 2). Duplicate does not
      copy Keep Downloaded requests: it is only a starting point for a new location. The same
-     folder, and nested folders, can be locations more than once, and M9 tests that this works.
+     folder, and nested folders, can be locations more than once. Phase 6 tests that this works.
    - Remove Location asks whether to save the Keep Downloaded list. A saved list comes back when
      a later location on the same share contains those files.
    - Pause Downloads stops background downloads only: Keep Downloaded downloads and read-ahead. A
@@ -116,7 +116,9 @@ Choices this plan makes where the reviewed designs disagreed, one reason each:
 
 Decisions 3 to 6 add Keep Downloaded requests, the UI and relisting.
 
-**Exit criteria.** M9 shows each one with dated evidence in a results log:
+**Exit criteria.** M9 shows criteria 1 to 6 with dated evidence in a results log. The new phase
+order of 2026-10-18 ([architecture §10](architecture.md#10-implementation-sequence-and-exit-criteria))
+moved criterion 7 to phase 6, and criterion 8 to phase 3, whose tests need a writable share:
 
 1. Real Finder browsing at least 3 folder levels deep. Child counts equal a native listing minus
    the entries that the log reports as skipped.
@@ -813,7 +815,8 @@ the reworded usage descriptions. Status text names the grant's host, never a fix
 | M6 | Keep Downloaded and Pause | Do Finder actions record durable requests, and does Pause stop only background downloads? | M5 |
 | M7 | Settings window, menu bar and notifications | Does the phase 2 UI replace the harness, with saved keep lists, progress and notifications? | M6 |
 | M8 | Storage pane and folder completion | Are the space totals right, and does Remove Downloads keep kept files? | M7 |
-| M9 | Exit validation | Do the exit criteria hold, with evidence? | M8 |
+| M9 | Exit validation | Do exit criteria 1 to 6 hold, with evidence, after crashes and with a share that stops responding? | M8 |
+| M10 | Daily use on the physical Mac | Does an update keep the locations, and what removes tinymounter cleanly? How long does the signature last? Do criteria 1 to 6 hold on the physical Mac? | M9; the user, for the physical Mac |
 
 Reads are unavailable between M4 and M5, so M4 and M5 land together. Every milestone ends with
 the AGENTS.md checks, the docs it made wrong fixed, and its results in writing.
@@ -929,7 +932,7 @@ On 2026-10-18 in the signed app in the VM ([M8 results](results/2026-10-18-stora
 | Kept files stay on disk while paused when the system needs the space (2.5 min without disk pressure measured) | not tested: it needs a full disk |
 | The system applies a root update from the working set by itself (M7's rename also changes `displayName`, and the two together renamed the folder at once) | not tested separately |
 | Under disk pressure, macOS also removes partly downloaded files, which Remove Downloads leaves | not tested: it needs a full disk |
-| Two domains on the same folder, or on nested folders, don't affect each other | M9 |
+| Two domains on the same folder, or on nested folders, don't affect each other | phase 6 |
 | The Finder mount is soft (about 30 s timeout), not hard (up to 600 s) | M9 |
 | After an eject, held `O_EVTONLY` smbfs descriptors fail `fstatfs`, and other calls give ENOTDIR, EIO or EBADF (modelled only with revoke(2) on a pty) | M9 |
 | A volume mounted inside the share gives `pathRejected` (modelled only with `/` and the data volume) | not tested: it needs a mount inside the share |
