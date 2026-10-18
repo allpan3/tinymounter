@@ -21,8 +21,8 @@ finished at the next launch. The run found no tinymounter defect.
 | M10: how long does the signature last? | **One year, by the certificate.** The build has no provisioning profile, so the 7-day limit on free profiles doesn't apply. The VM's development certificate is valid to 2027-10-11. |
 
 Three results matter for daily use. A network outage of 70 s made macOS drop the Finder
-connection, and the user must connect again in Finder; phase 5 (own connection) plans to
-reconnect by itself. If the app crashes, files that aren't downloaded fail at once until the user opens the app
+connection, and the user must connect again in Finder; phase 3 now starts with
+reconnection by the app. If the app crashes, files that aren't downloaded fail at once until the user opens the app
 again; nothing restarts it. And a user who deletes the app without removing its locations keeps
 them in Finder.
 
@@ -187,5 +187,5 @@ Private, gitignored, in the VM's `.local/phase2/`:
 ## Next step
 
 M10's second part: the user installs the app on the physical Mac and uses it read-only, following
-[prototype.md §5](../prototype.md#5-install-update-and-remove). Then phase 3. The outage result is
-evidence for moving phase 5 (own connection) earlier, which is the user's decision.
+[prototype.md §5](../prototype.md#5-install-update-and-remove). Then phase 3, which now starts with
+reconnection: after the outage result, the user agreed to move it earlier.
