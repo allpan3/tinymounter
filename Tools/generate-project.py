@@ -26,8 +26,9 @@ core_paths = ["Sources/TransferCore/ByteRange.swift", "Sources/TransferCore/Cata
               "Sources/TransferCore/CatalogCursor.swift", "Sources/TransferCore/Paths.swift",
               "Sources/TransferCore/ReadAhead.swift", "Sources/TransferCore/ReaderMessages.swift",
               "Sources/TransferCore/SourceFailure.swift", "Sources/TransferCore/SQLite.swift",
-              "Sources/TransferCore/Staging.swift", "Sources/TransferCore/Transfer.swift",
-              "Prototype/Shared/SharedContainer.swift", "Prototype/Shared/SourceReaderProtocol.swift"]
+              "Sources/TransferCore/RunState.swift", "Sources/TransferCore/Staging.swift",
+              "Sources/TransferCore/Transfer.swift", "Prototype/Shared/SharedContainer.swift",
+              "Prototype/Shared/SourceReaderProtocol.swift"]
 # Share access and catalog creation and writes are app only; the extension only reads catalogs.
 app_paths = ["Prototype/App/TinyMounterApp.swift", "Prototype/App/SourceReaderHost.swift",
              "Prototype/App/SettingsStore.swift", "Prototype/App/ShareAccess.swift",

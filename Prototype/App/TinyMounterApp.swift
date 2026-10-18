@@ -1,4 +1,5 @@
 import AppKit
+import OSLog
 import SwiftUI
 
 /// Plan §8: a Dock icon, the menu bar item and the Settings window.
@@ -59,6 +60,21 @@ private struct OpenSettingsButton: View {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = AppModel()
+    private static let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "app")
+
+    /// Phase 3 plan §2: the extension restarts the app only if this run ends in a crash.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        do {
+            let url = try SharedContainer.url().appending(path: RunState.fileName)
+            let previous = try RunStateRecorder.start(at: url)
+            Self.logger.info("previous_run=\(previous?.state.rawValue ?? "none", privacy: .public)")
+        } catch {
+            Self.logger.error("run_state failed \(logFields(error), privacy: .public)")
+        }
+    }
+
+    /// Quit, logout and shutdown, but not Force Quit.
+    func applicationWillTerminate(_ notification: Notification) { RunStateRecorder.stop() }
 
     /// The reader must stay up, so closing the window keeps the app running.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }

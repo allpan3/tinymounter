@@ -1,3 +1,4 @@
+import AppKit
 import FileProvider
 import Darwin
 import OSLog
@@ -20,7 +21,46 @@ final class SourceReaderService: NSObject, NSFileProviderServiceSource, NSXPCLis
     static let keepDeadline = Duration.seconds(10)
     private let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "source-reader")
 
-    init(domainID: String) { self.domainID = domainID }
+    init(domainID: String) {
+        self.domainID = domainID
+        super.init()
+        restartAppAfterCrash(reason: "extension_start")
+    }
+
+    /// Phase 3 plan §2: only a crash, not Quit or Force Quit, starts the app again.
+    private func restartAppAfterCrash(reason: String) {
+        guard let url = try? SharedContainer.url().appending(path: RunState.fileName),
+              let record = RunState.read(url), record.state == .crashed else { return }
+        guard RunState.shouldRestart(record, now: Date()) else {
+            logger.info("app_restart skipped=recent_launch reason=\(reason, privacy: .public)")
+            return
+        }
+        // The extension's sandbox can't read the app's bundle, but Launch Services can open it.
+        let app = Bundle.main.bundleURL.deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let appID = String(Bundle.main.bundleIdentifier?.dropLast(".provider".count) ?? "")
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        configuration.addsToRecentItems = false
+        DispatchQueue.global().async { [logger] in
+            // Asked while it still lists the crashed app, Launch Services says it "is not open anymore".
+            let started = ContinuousClock.now
+            while !NSRunningApplication.runningApplications(withBundleIdentifier: appID).isEmpty,
+                  started.duration(to: .now) < .seconds(5) {
+                Thread.sleep(forTimeInterval: 0.02)
+            }
+            let waited = started.duration(to: .now) / .milliseconds(1)
+            NSWorkspace.shared.openApplication(at: app, configuration: configuration) { _, error in
+                let ms = started.duration(to: .now) / .milliseconds(1)
+                let failure = error.map { $0 as NSError }
+                logger.info("""
+                    app_restart reason=\(reason, privacy: .public) ok=\(failure == nil ? 1 : 0) \
+                    error_domain=\(failure?.domain ?? "-", privacy: .public) code=\(failure?.code ?? 0) \
+                    waited_ms=\(waited, format: .fixed(precision: 1)) ms=\(ms, format: .fixed(precision: 1))
+                    """)
+            }
+        }
+    }
 
     /// Called on the connection's queue when the app pauses downloads.
     func onPauseDownloads(_ handler: @escaping () -> Void) { lock.withLock { pauseHandler = handler } }
@@ -53,8 +93,10 @@ final class SourceReaderService: NSObject, NSFileProviderServiceSource, NSXPCLis
         connection.invalidationHandler = { [weak self, weak connection] in
             guard let self, let connection else { return }
             self.lock.lock()
-            if self.connection === connection { self.connection = nil }
+            let lost = self.connection === connection
+            if lost { self.connection = nil }
             self.lock.unlock()
+            if lost { self.restartAppAfterCrash(reason: "reader_lost") }
         }
         connection.interruptionHandler = { [weak connection] in connection?.invalidate() }
         connection.activate()
