@@ -344,6 +344,36 @@ final class TransferCoreTests: XCTestCase {
         }
     }
 
+    func testReadAheadStartsAgainAfterDeliveredBytesAreEvicted() throws {
+        let mib: Int64 = 1 << 20, size: Int64 = 1024 << 20
+        let start = ContinuousClock.now, later = start + ReadAheadPlanner.deliveredLifetime
+        var planner = ReadAheadPlanner(fileSize: size, chunk: 16 * mib, window: 16 * mib, maxInFlight: 1)
+        let first = try ByteRange(offset: 0, length: 16 * mib, fileSize: size)
+        let second = try ByteRange(offset: 16 * mib, length: 16 * mib, fileSize: size)
+        _ = planner.classify(offset: 0, length: mib, now: start)
+        _ = planner.demandCompleted(first, sequential: false, now: start)
+        _ = planner.classify(offset: second.offset, length: mib, now: start)
+        let planned = planner.demandCompleted(second, sequential: true, now: start)
+        XCTAssertEqual(planner.classify(offset: planned[0].offset, length: planned[0].length, now: start),
+                       .speculative(current: true))
+        XCTAssertEqual(planner.speculativeFinished(planned[0], now: start), [])
+
+        // A miss just after a handoff is the system still applying it: the delivered bytes stay.
+        XCTAssertEqual(planner.classify(offset: 0, length: mib, now: start + .milliseconds(30)),
+                       .demand(sequential: false))
+        XCTAssertEqual(planner.deliveredStart(after: mib), mib)
+        // Bytes returned again are not new, so they don't keep the old record.
+        XCTAssertEqual(planner.demandCompleted(try ByteRange(offset: 0, length: mib, fileSize: size),
+                                               sequential: false, now: later - .seconds(1)), [])
+
+        // Later, a miss in them means they were evicted: the file is planned like a new one.
+        XCTAssertEqual(planner.classify(offset: 0, length: mib, now: later), .demand(sequential: false))
+        XCTAssertNil(planner.deliveredStart(after: 0))
+        XCTAssertEqual(planner.demandCompleted(first, sequential: false, now: later), [])
+        XCTAssertEqual(planner.classify(offset: second.offset, length: mib, now: later), .demand(sequential: true))
+        XCTAssertEqual(planner.demandCompleted(second, sequential: true, now: later), planned)
+    }
+
     func testFullHandoffOnlyRetiresMatchingItemVersion() throws {
         let mib: Int64 = 1 << 20, size: Int64 = 1024 << 20
         var registry = ReadAheadRegistry(chunk: 16 * mib, window: 128 * mib, maxInFlight: 1)
