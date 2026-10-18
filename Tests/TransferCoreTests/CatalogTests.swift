@@ -462,6 +462,25 @@ final class CatalogTests: XCTestCase {
         XCTAssertTrue(changed.keep)
     }
 
+    func testStorageSumsMaterializedFilesAndLeavesKeptFiles() throws {
+        let catalog = try makeCatalog()
+        try reconcile(catalog, [file("a", size: 100), file("b", size: 200), file("kept", size: 300), folder("Dir"),
+                                file("gone", size: 50), file("other", size: 1_000)])
+        let a = try child(catalog, "a"), b = try child(catalog, "b"), kept = try child(catalog, "kept")
+        let dir = try child(catalog, "Dir"), gone = try child(catalog, "gone")
+        try catalog.setKeep(ids: [kept.id], value: true)
+        try reconcile(catalog, [file("a", size: 100), file("b", size: 200), file("kept", size: 300), folder("Dir"),
+                                file("other", size: 1_000)])
+
+        let usage = try catalog.storage(materialized: [b.id, a.id, kept.id, dir.id, gone.id, root, "unknown", a.id])
+        XCTAssertEqual(usage.bytes, 650)
+        XCTAssertEqual(usage.files, 4)
+        XCTAssertEqual(usage.removable, [a.id, b.id])
+        XCTAssertEqual(usage.removableBytes, 300)
+        XCTAssertEqual(try catalog.storage(materialized: []), try catalog.storage(materialized: [dir.id]))
+        XCTAssertEqual(try catalog.storage(materialized: []).bytes, 0)
+    }
+
     func testSetKeepAndSetPausedTakeOneSequencePerChangedRow() throws {
         let catalog = try makeCatalog()
         try reconcile(catalog, [file("k1"), file("k2"), file("plain"), folder("Dir"), file("gone")])

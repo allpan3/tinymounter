@@ -563,6 +563,10 @@ final class LocationSource: @unchecked Sendable {
 
     func counts() throws -> CatalogCounts { try withCatalog { try $0.counts() } }
 
+    func storage(materialized ids: [String]) throws -> StorageUsage {
+        try withCatalog { try $0.storage(materialized: ids) }
+    }
+
     /// `meta.paused`, which every row read carries.
     func isPaused() throws -> Bool { try withCatalog { try $0.item(id: Catalog.rootItemID)?.paused ?? false } }
 

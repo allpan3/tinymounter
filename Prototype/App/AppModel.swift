@@ -11,7 +11,7 @@ final class AppModel {
     enum Pane: Hashable {
         /// A record or a draft, by its ID.
         case location(UUID)
-        case general, servers, about
+        case general, storage, servers, about
     }
 
     /// A location before Add. Finder does not show it.
@@ -108,6 +108,13 @@ final class AppModel {
     private(set) var keepRows: [UUID: [KeepRow]] = [:]
     private(set) var notOnServer: [UUID: Set<String>] = [:]
     private(set) var keepRevision: [UUID: Int] = [:]
+    /// Each location's downloaded files, by record; absent until read, or if they can't be read.
+    private(set) var storage: [UUID: StorageUsage] = [:]
+    /// The space that the home volume has for downloads.
+    private(set) var availableBytes: Int64?
+    @ObservationIgnored private var storageGeneration = 0
+    /// Counts changes of the system's downloaded files; Storage reads again at each.
+    private(set) var materializedRevision = 0
     /// Records and drafts with an action that runs.
     private(set) var busy: Set<UUID> = []
     private(set) var paused = false
@@ -128,6 +135,7 @@ final class AppModel {
         controller.onUserFetchFailed = { [weak self] grantID, failure in self?.downloadFailed(grantID, failure) }
         controller.onKeepsRestored = { [weak self] record, ids in self?.keepsRestored(record, ids) }
         controller.onLocationChange = { [weak self] domainID in self?.locationChanged(domainID) }
+        controller.onMaterializedChange = { [weak self] in self?.materializedRevision += 1 }
         refresh()
         if records.isEmpty {
             newLocation()
@@ -515,6 +523,31 @@ final class AppModel {
     private func locationChanged(_ domainID: String) {
         guard let record = records.first(where: { $0.domainID == domainID }) else { return }
         keepRevision[record.id, default: 0] += 1
+    }
+
+    // MARK: Storage
+
+    func storageText(_ record: LocationRecord) -> String {
+        storage[record.id].map { UIText.downloadedSize($0.bytes) } ?? UIText.notAvailable
+    }
+
+    var totalStorageText: String {
+        let total = UIText.downloadedSize(records.compactMap { storage[$0.id]?.bytes }.reduce(0, +))
+        return availableBytes.map { UIText.joined(total, UIText.availableSize($0)) } ?? total
+    }
+
+    /// Reads every location's materialized files; a later read replaces an earlier one.
+    func refreshStorage() async {
+        storageGeneration += 1
+        let generation = storageGeneration
+        var read: [UUID: StorageUsage] = [:]
+        for record in records where !record.removing {
+            read[record.id] = await controller.storage(record)
+        }
+        let values = try? URL.homeDirectory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        guard generation == storageGeneration else { return }
+        update(\.storage, read)
+        update(\.availableBytes, values?.volumeAvailableCapacityForImportantUsage)
     }
 
     // MARK: Servers

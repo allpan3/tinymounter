@@ -8,6 +8,7 @@ enum UIText {
     static let locations = "Locations"
     static let settings = "Settings"
     static let general = "General"
+    static let storage = "Storage"
     static let servers = "Servers"
     static let about = "About"
     static let search = "Search"
@@ -140,6 +141,26 @@ enum UIText {
         """
     static let notifications = "Notifications"
     static let notificationsDescription = "Show a notification when a share disconnects or a download cannot start."
+
+    // Storage
+    static let notAvailable = "Not available"
+    static let total = "Total"
+    static let storageDescription = """
+        This includes the kept files. When disk space is low, macOS removes the downloaded files that you do \
+        not keep.
+        """
+
+    static func size(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        formatter.allowsNonnumericFormatting = false
+        // A no-break space keeps "307.1 MB" on one line in an alert.
+        return formatter.string(fromByteCount: bytes).replacingOccurrences(of: " ", with: "\u{A0}")
+    }
+
+    static func downloadedSize(_ bytes: Int64) -> String { "\(size(bytes)) downloaded" }
+
+    static func availableSize(_ bytes: Int64) -> String { "\(size(bytes)) available" }
 
     // About
     static let version = "Version 0.1 (prototype)"
