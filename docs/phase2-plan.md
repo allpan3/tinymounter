@@ -538,6 +538,8 @@ which falls short of synchronization.md rule 2.
    A successful full handoff retires that item/version's pending speculation and cancels its
    running speculation. Late completions cannot extend that chain. A later demand after eviction
    can start a fresh run; the planner does not remember the whole file as permanently delivered.
+   A full handoff forgets the delivered ranges. After partial handoffs, a miss in delivered bytes
+   when no new bytes came for 10 s means macOS evicted them, so the planner starts again [V, M8].
 
 **Per-item read-ahead.** `ReadAheadRegistry` holds up to 8 `ReadAheadPlanner`s, keyed by item ID
 and content version, and drops the least recently used. A version change starts a new planner.

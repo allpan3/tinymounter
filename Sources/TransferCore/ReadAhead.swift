@@ -6,10 +6,13 @@ import Foundation
 /// by that miss, so speculative completions cannot extend themselves. The window grows with the
 /// bytes the run has already consumed, from one chunk up to `window`, so a short read cannot
 /// trigger a large download. A non-sequential miss starts a new generation; older requests become
-/// stale. Ranges already handed to the system are never requested or returned again.
+/// stale. Ranges already handed to the system are not requested or returned again, until a later
+/// miss in them shows that macOS removed them.
 public struct ReadAheadPlanner: Sendable {
     /// Merged delivered ranges kept per item; a strided reader leaves one per miss.
     static let deliveredCapacity = 64
+    /// A miss in bytes delivered this long ago, with no newer bytes, means macOS evicted them.
+    public static let deliveredLifetime: Duration = .seconds(10)
 
     public enum Kind: Equatable, Sendable {
         case demand(sequential: Bool)
@@ -29,6 +32,7 @@ public struct ReadAheadPlanner: Sendable {
     private var satisfied: [Int64: Int64] = [:]
     private var running: Set<Int64> = []
     private var delivered: [ByteRange] = [] // sorted, disjoint
+    private var newestBytes: ContinuousClock.Instant?
 
     public init(fileSize: Int64, chunk: Int64, window: Int64, maxInFlight: Int) {
         precondition(fileSize >= 0 && chunk > 0 && window >= 0 && maxInFlight >= 0)
@@ -39,7 +43,7 @@ public struct ReadAheadPlanner: Sendable {
     }
 
     /// A reader's own miss can start at a planned offset; only a fetch covering the plan is ours.
-    public mutating func classify(offset: Int64, length: Int64) -> Kind {
+    public mutating func classify(offset: Int64, length: Int64, now: ContinuousClock.Instant = .now) -> Kind {
         if let request = pending[offset], length >= request.length {
             pending.removeValue(forKey: offset)
             if request.generation == generation { running.insert(offset) }
@@ -48,6 +52,10 @@ public struct ReadAheadPlanner: Sendable {
         if let covered = satisfied[offset], length >= covered {
             satisfied.removeValue(forKey: offset)
             return .speculative(current: false)
+        }
+        if let newestBytes, now - newestBytes >= Self.deliveredLifetime,
+           delivered.contains(where: { $0.offset <= offset && offset < $0.end }) {
+            restart()
         }
         // Players such as IINA re-read up to a chunk before the previous end; that's still sequential.
         let sequential = demandEnd >= 0 && offset >= demandEnd - chunk && offset <= next
@@ -66,8 +74,9 @@ public struct ReadAheadPlanner: Sendable {
     }
 
     /// Returns the ranges to request after a demand range has been handed to the system.
-    public mutating func demandCompleted(_ range: ByteRange, sequential: Bool) -> [ByteRange] {
-        record(range)
+    public mutating func demandCompleted(_ range: ByteRange, sequential: Bool,
+                                         now: ContinuousClock.Instant = .now) -> [ByteRange] {
+        record(range, at: now)
         demandEnd = range.end
         if !sequential { runStart = range.offset }
         next = sequential ? max(next, range.end) : range.end
@@ -85,18 +94,21 @@ public struct ReadAheadPlanner: Sendable {
     }
 
     /// Returns further ranges, still bounded by the limit set at the last sequential demand miss.
-    public mutating func speculativeFinished(_ range: ByteRange) -> [ByteRange] {
+    public mutating func speculativeFinished(_ range: ByteRange, now: ContinuousClock.Instant = .now) -> [ByteRange] {
         guard running.remove(range.offset) != nil else { return [] }
-        record(range)
+        record(range, at: now)
         return plan()
     }
 
     // A full handoff ends speculation without suppressing reads after a later eviction.
-    public mutating func fullCompleted() {
+    public mutating func fullCompleted() { restart() }
+
+    private mutating func restart() {
         for (offset, request) in pending { satisfied[offset] = request.length }
         pending.removeAll()
         running.removeAll()
         delivered.removeAll()
+        newestBytes = nil
         generation += 1
         runStart = 0
         demandEnd = -1
@@ -134,9 +146,11 @@ public struct ReadAheadPlanner: Sendable {
         return ranges
     }
 
-    private mutating func record(_ range: ByteRange) {
+    private mutating func record(_ range: ByteRange, at now: ContinuousClock.Instant) {
         guard range.length > 0 else { return }
+        if !delivered.contains(where: { $0.offset <= range.offset && range.end <= $0.end }) { newestBytes = now }
         var merged = range
+        let fileSize = fileSize
         delivered.removeAll { other in
             guard other.offset <= merged.end, merged.offset <= other.end else { return false }
             let start = min(other.offset, merged.offset), end = max(other.end, merged.end)
