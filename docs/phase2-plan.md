@@ -686,8 +686,9 @@ shows retry storms, propose `deletionRejected` and `cannotSynchronize` to the us
   the stage files left. The header requires this cleanup [H]. Planners start empty. The first
   fetches can wait for the reader connection within the shared 5 s startup window described in §6.
 - **`fileproviderd` restart:** anchors and tombstones are durable, so the system resumes.
-- **macOS restart:** the share stays unmounted until the user connects it in Finder, and sessions
-  never mount it. That kept files stay readable across a full restart is not tested.
+- **macOS restart:** the share stays unmounted until the user connects it in Finder or, since M11,
+  the app launches and mounts it ([phase 3 §1](phase3-plan.md#1-reconnection)). Sessions never
+  mount it. That kept files stay readable across a full restart is not tested.
 - **Crash in a catalog write:** the transaction rolls back (WAL, `synchronous=FULL`).
 
 **Domain steps survive a crash.** Add: create the catalog, list the location root into it, save
@@ -702,8 +703,9 @@ at launch.
 removes the six fixture domains with `.removeAll` (D3). If one is missed, its extension finds no
 catalog and returns `serverUnreachable`, never `noSuchItem`.
 
-**Leaks and diagnostics.** The app never mounts. Outside a listing or a transfer it holds only
-`O_EVTONLY` descriptors on the share. The shell can't read the App Group [V], so the app logs
+**Leaks and diagnostics.** Since M11, the app mounts a share only when it has locations and isn't
+mounted ([phase 3 §1](phase3-plan.md#1-reconnection)). Outside a listing or a transfer it holds
+only `O_EVTONLY` descriptors on the share. The shell can't read the App Group [V], so the app logs
 counts at launch and on `SIGUSR1`: catalogs, items, tombstones, listed folders, stage files,
 descriptors and RSS. The extension logs its temporary stage-file count after its sweep, and its
 planner count with each fetch.
