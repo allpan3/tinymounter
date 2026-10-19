@@ -50,8 +50,15 @@ physical-Mac offline and restart checks remain open. See the [folder-keep result
 Finder download feedback, 2026-10-19: kept full-file transfers now publish progress for Finder's
 native circle, including indeterminate progress on kept ancestor folders. The signed VM comparison
 and checksums passed, as did all 170 tests and required checks. The fixture was removed and sharing
-settings restored. The signed Mac update is ready but not installed. See the
+settings restored. The signed update is installed on the physical Mac. See the
 [progress results](docs/results/2026-10-19-keep-download-progress.md).
+
+Keep Downloaded status refresh, 2026-10-19: an existing verified item now stays Available offline
+while a second request downloads. New or changed versions still require synchronization. The
+signed before/after VM comparison and four local hashes passed, along with all 175 tests and
+required checks. The signed update, including Finder's progress circle, is installed on the
+physical Mac with the existing location and three keep requests retained. The user confirmed
+that the status fix works; physical-Mac offline hashes and a restart remain open. See the [results](docs/results/2026-10-19-keep-status-refresh.md).
 
 ## Run the prototype
 

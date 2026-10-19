@@ -50,6 +50,8 @@ final class LocationController {
     private var shares: [UUID: ShareAccess] = [:]
     private var shareStates: [UUID: ShareHealth.State] = [:]
     private var sources: [String: LocationSource] = [:]
+    private var offlineVerification: [String: OfflineVerification] = [:]
+    private var offlineGeneration: [String: UUID] = [:]
     private var domains: [String: NSFileProviderDomain] = [:]
     private var progress: [String: (progress: Progress, observation: NSKeyValueObservation)] = [:]
     private var domainObserver: (any NSObjectProtocol)?
@@ -415,49 +417,84 @@ final class LocationController {
         }
     }
 
-    func offlineStates(_ record: LocationRecord) async -> [String: OfflineState] {
+    func offlineStates(_ record: LocationRecord, update: ([String: OfflineState]) -> Void) async {
         guard let source = sources[record.domainID], let manager = manager(for: record),
-              !record.removing, !turnedOff.contains(record.domainID) else { return [:] }
+              !record.removing, !turnedOff.contains(record.domainID) else {
+            offlineVerification[record.domainID] = nil
+            offlineGeneration[record.domainID] = nil
+            update([:])
+            return
+        }
+        let generation = UUID()
+        offlineGeneration[record.domainID] = generation
         do {
             let snapshot = try await Self.offMain { try source.keepSnapshot() }
-            guard !snapshot.requests.isEmpty else { return [:] }
-            try await manager.signalEnumerator(for: .workingSet)
-            try await manager.waitForStabilization()
-            guard !Task.isCancelled else { return [:] }
-            let materialized = try await MaterializedItems.read(manager)
-            let files = Set(materialized.files)
-            var result: [String: OfflineState] = [:]
-            for row in snapshot.items where row.kind == .file && files.contains(row.id) {
-                guard !Task.isCancelled else { return [:] }
-                do {
-                    let url = try await manager.getUserVisibleURL(for: NSFileProviderItemIdentifier(row.id))
-                    result[row.id] = try await Self.offMain {
-                        var url = url
-                        let scoped = url.startAccessingSecurityScopedResource()
-                        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                        url.removeAllCachedResourceValues()
-                        let values = try url.resourceValues(forKeys: [
-                            .ubiquitousItemDownloadingStatusKey, .ubiquitousItemIsDownloadingKey,
-                            .isUbiquitousItemKey, .fileSizeKey, .contentModificationDateKey
-                        ])
-                        return OfflineState(status: values.ubiquitousItemDownloadingStatus,
-                                            downloading: values.ubiquitousItemIsDownloading,
-                                            ubiquitous: values.isUbiquitousItem, size: values.fileSize,
-                                            modified: values.contentModificationDate, expectedSize: row.size,
-                                            expectedModified: row.modificationDate)
-                    }
-                } catch {
-                    result[row.id] = .requested
-                }
-            }
-            let current = try await Self.offMain { try source.keepSnapshot() }
             guard !Task.isCancelled, sources[record.domainID] === source,
-                  !turnedOff.contains(record.domainID), current == snapshot else { return [:] }
-            return snapshot.states(files: result, folders: Set(materialized.folders))
+                  offlineGeneration[record.domainID] == generation,
+                  !turnedOff.contains(record.domainID) else { return }
+            guard !snapshot.requests.isEmpty else {
+                offlineVerification[record.domainID] = nil
+                update([:])
+                return
+            }
+            for synchronized in [false, true] {
+                if synchronized {
+                    try await manager.signalEnumerator(for: .workingSet)
+                    try await manager.waitForStabilization()
+                }
+                let observed = try await localOfflineStates(snapshot, manager: manager)
+                let current = try await Self.offMain { try source.keepSnapshot() }
+                guard !Task.isCancelled, sources[record.domainID] === source,
+                      offlineGeneration[record.domainID] == generation,
+                      !turnedOff.contains(record.domainID) else { return }
+                guard current == snapshot else {
+                    update([:])
+                    return
+                }
+                var verification = offlineVerification[record.domainID] ?? OfflineVerification()
+                let states = verification.states(snapshot: snapshot, files: observed.files,
+                                                 folders: observed.folders, synchronized: synchronized)
+                offlineVerification[record.domainID] = verification
+                update(states)
+            }
         } catch {
+            guard !Task.isCancelled, sources[record.domainID] === source,
+                  offlineGeneration[record.domainID] == generation else { return }
+            offlineVerification[record.domainID] = nil
+            update([:])
             Self.catalogLog.error("offline_state domain=\(record.domainID, privacy: .public) \(logFields(error), privacy: .public)")
-            return [:]
         }
+    }
+
+    private func localOfflineStates(_ snapshot: FolderKeepSnapshot, manager: NSFileProviderManager) async throws
+        -> (files: [String: OfflineState], folders: Set<String>) {
+        let materialized = try await MaterializedItems.read(manager)
+        let files = Set(materialized.files)
+        var result: [String: OfflineState] = [:]
+        for row in snapshot.items where row.kind == .file && files.contains(row.id) {
+            try Task.checkCancellation()
+            do {
+                let url = try await manager.getUserVisibleURL(for: NSFileProviderItemIdentifier(row.id))
+                result[row.id] = try await Self.offMain {
+                    var url = url
+                    let scoped = url.startAccessingSecurityScopedResource()
+                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                    url.removeAllCachedResourceValues()
+                    let values = try url.resourceValues(forKeys: [
+                        .ubiquitousItemDownloadingStatusKey, .ubiquitousItemIsDownloadingKey,
+                        .isUbiquitousItemKey, .fileSizeKey, .contentModificationDateKey
+                    ])
+                    return OfflineState(status: values.ubiquitousItemDownloadingStatus,
+                                        downloading: values.ubiquitousItemIsDownloading,
+                                        ubiquitous: values.isUbiquitousItem, size: values.fileSize,
+                                        modified: values.contentModificationDate, expectedSize: row.size,
+                                        expectedModified: row.modificationDate)
+                }
+            } catch {
+                result[row.id] = .requested
+            }
+        }
+        return (result, Set(materialized.folders))
     }
 
     /// `−` cancels an explicit request; inherited retention can still apply.
@@ -780,6 +817,8 @@ final class LocationController {
 
     private func makeSource(_ record: LocationRecord, folder: RelativePath, grant: ServerGrant,
                             catalog: Catalog) -> LocationSource {
+        offlineVerification[record.domainID] = nil
+        offlineGeneration[record.domainID] = nil
         let domain = domain(for: record)
         domains[record.domainID] = domain
         let domainID = record.domainID
@@ -849,6 +888,10 @@ final class LocationController {
         reader.update(current)
         turnedOff = Set(current.filter { !$0.userEnabled }.map(\.identifier.rawValue))
         let ids = Set(current.map(\.identifier.rawValue))
+        for id in offlineVerification.keys where turnedOff.contains(id) || !ids.contains(id) {
+            offlineVerification[id] = nil
+            offlineGeneration[id] = nil
+        }
         for id in progress.keys where !ids.contains(id) {
             progress[id] = nil
             downloading[id] = nil

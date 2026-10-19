@@ -21,3 +21,26 @@ public enum OfflineState: String, Equatable, Sendable {
         self = .availableOffline
     }
 }
+
+public struct OfflineVerification: Sendable {
+    private var versions: [String: String] = [:]
+
+    public init() {}
+
+    public mutating func states(snapshot: FolderKeepSnapshot, files: [String: OfflineState],
+                                folders: Set<String>, synchronized: Bool) -> [String: OfflineState] {
+        var current: [String: String] = [:]
+        var checked = files
+        for row in snapshot.items where row.kind == .file {
+            guard files[row.id] == .availableOffline else { continue }
+            // Matching local metadata alone cannot prove that a new provider version was applied.
+            if synchronized || versions[row.id] == row.contentVersion {
+                current[row.id] = row.contentVersion
+            } else {
+                checked[row.id] = .requested
+            }
+        }
+        versions = current
+        return snapshot.states(files: checked, folders: folders)
+    }
+}

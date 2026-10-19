@@ -92,6 +92,100 @@ final class FolderKeepTests: XCTestCase {
         }
     }
 
+    func testNewKeepRequestDoesNotResetAnUnchangedVerifiedFile() throws {
+        let catalog = try makeCatalog()
+        try list(catalog, root, [file("first"), file("second")])
+        let first = try child(catalog, root, "first"), second = try child(catalog, root, "second")
+        try catalog.setKeep(ids: [first.id], value: true)
+        var verification = OfflineVerification()
+        let complete: [String: OfflineState] = [first.id: .availableOffline, second.id: .availableOffline]
+        _ = verification.states(snapshot: try catalog.keepSnapshot(), files: complete, folders: [], synchronized: true)
+        try catalog.setKeep(ids: [second.id], value: true)
+        let states = verification.states(snapshot: try catalog.keepSnapshot(), files: complete,
+                                         folders: [], synchronized: false)
+        XCTAssertEqual(states[first.id], .availableOffline)
+        XCTAssertEqual(states[second.id], .requested)
+        XCTAssertEqual(verification.states(snapshot: try catalog.keepSnapshot(), files: complete,
+                                           folders: [], synchronized: true)[second.id], .availableOffline)
+    }
+
+    func testChangedVersionNeedsSynchronizationEvenWhenLocalSizeAndDateMatch() throws {
+        let catalog = try makeCatalog()
+        try list(catalog, root, [file("changed"), file("unchanged")])
+        let changed = try child(catalog, root, "changed"), unchanged = try child(catalog, root, "unchanged")
+        try catalog.setKeep(ids: [changed.id, unchanged.id], value: true)
+        var verification = OfflineVerification()
+        let complete: [String: OfflineState] = [changed.id: .availableOffline, unchanged.id: .availableOffline]
+        _ = verification.states(snapshot: try catalog.keepSnapshot(), files: complete, folders: [], synchronized: true)
+        try catalog.updateFingerprint(item: changed.id, fingerprint: .init(size: 1, mtimeNs: 1, ctimeNs: 2), fileID: 1)
+        let states = verification.states(snapshot: try catalog.keepSnapshot(), files: complete,
+                                         folders: [], synchronized: false)
+        XCTAssertEqual(states[changed.id], .requested)
+        XCTAssertEqual(states[unchanged.id], .availableOffline)
+    }
+
+    func testMissingOrUpdatingLocalCopyLosesItsPreviousVerification() throws {
+        let catalog = try makeCatalog()
+        try list(catalog, root, [file("data")])
+        let data = try child(catalog, root, "data")
+        try catalog.setKeep(ids: [data.id], value: true)
+        let snapshot = try catalog.keepSnapshot()
+        let complete: [String: OfflineState] = [data.id: .availableOffline]
+        for observed: [String: OfflineState] in [[:], [data.id: .requested], [data.id: .updateInProgress]] {
+            var verification = OfflineVerification()
+            _ = verification.states(snapshot: snapshot, files: complete, folders: [], synchronized: true)
+            XCTAssertNotEqual(verification.states(snapshot: snapshot, files: observed,
+                                                  folders: [], synchronized: false)[data.id], .availableOffline)
+            XCTAssertEqual(verification.states(snapshot: snapshot, files: complete,
+                                               folders: [], synchronized: false)[data.id], .requested)
+        }
+    }
+
+    func testRemovedKeepRequestAndNewVerifierCannotReusePreviousVerification() throws {
+        let catalog = try makeCatalog()
+        try list(catalog, root, [file("data")])
+        let data = try child(catalog, root, "data")
+        try catalog.setKeep(ids: [data.id], value: true)
+        var verification = OfflineVerification()
+        let complete: [String: OfflineState] = [data.id: .availableOffline]
+        _ = verification.states(snapshot: try catalog.keepSnapshot(), files: complete, folders: [], synchronized: true)
+        try catalog.setKeep(ids: [data.id], value: false)
+        _ = verification.states(snapshot: try catalog.keepSnapshot(), files: complete, folders: [], synchronized: false)
+        try catalog.setKeep(ids: [data.id], value: true)
+        XCTAssertEqual(verification.states(snapshot: try catalog.keepSnapshot(), files: complete,
+                                           folders: [], synchronized: false)[data.id], .requested)
+        verification = OfflineVerification()
+        XCTAssertEqual(verification.states(snapshot: try catalog.keepSnapshot(), files: complete,
+                                           folders: [], synchronized: false)[data.id], .requested)
+    }
+
+    func testVerifiedFolderRechecksMembershipListingsAndMaterialization() throws {
+        let catalog = try makeCatalog()
+        try list(catalog, root, [folder("tree"), file("outside")])
+        let tree = try child(catalog, root, "tree"), outside = try child(catalog, root, "outside")
+        try list(catalog, tree.id, [file("data")])
+        let data = try child(catalog, tree.id, "data")
+        try catalog.setKeep(ids: [tree.id, outside.id], value: true)
+        var verification = OfflineVerification()
+        var complete: [String: OfflineState] = [data.id: .availableOffline, outside.id: .availableOffline]
+        _ = verification.states(snapshot: try catalog.keepSnapshot(), files: complete,
+                                folders: [tree.id], synchronized: true)
+        XCTAssertEqual(verification.states(snapshot: try catalog.keepSnapshot(), files: complete,
+                                           folders: [], synchronized: false)[tree.id], .requested)
+        try list(catalog, tree.id, [file("data"), file("new")])
+        let new = try child(catalog, tree.id, "new")
+        complete[new.id] = .availableOffline
+        let states = verification.states(snapshot: try catalog.keepSnapshot(), files: complete,
+                                         folders: [tree.id], synchronized: false)
+        XCTAssertEqual(states[tree.id], .requested)
+        XCTAssertEqual(states[outside.id], .availableOffline)
+        _ = verification.states(snapshot: try catalog.keepSnapshot(), files: complete,
+                                folders: [tree.id], synchronized: true)
+        try list(catalog, tree.id, [file("data"), file("new"), .otherKind])
+        XCTAssertEqual(verification.states(snapshot: try catalog.keepSnapshot(), files: complete,
+                                           folders: [tree.id], synchronized: false)[tree.id], .requested)
+    }
+
     func testEmptyFolderCanBeAvailableAndPausePreservesRequests() throws {
         let catalog = try makeCatalog()
         try list(catalog, root, [folder("empty")])

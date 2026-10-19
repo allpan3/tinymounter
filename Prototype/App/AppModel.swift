@@ -551,30 +551,35 @@ final class AppModel {
         let key = keepKey(record)
         let generation = (keepGeneration[recordID] ?? 0) + 1
         keepGeneration[recordID] = generation
-        keepRows[recordID] = keepRows[recordID]?.map { row in
-            var row = row
-            row.availability = .requested
-            return row
+        if key.unavailable {
+            keepRows[recordID] = keepRows[recordID]?.map { row in
+                var row = row
+                row.availability = .requested
+                return row
+            }
         }
         let kept = await controller.keptPaths(record)
         guard keepGeneration[recordID] == generation, !Task.isCancelled,
               let current = self.record(recordID), keepKey(current) == key else { return }
         let folder = RelativePath(record.folder) ?? .root
         let missing = notOnServer[recordID] ?? []
+        let previous = Dictionary(uniqueKeysWithValues: (keepRows[recordID] ?? []).map { ($0.id, $0.availability) })
         keepRows[recordID] = kept.map {
-            KeepRow(target: .item($0.id), path: $0.path.string, kind: $0.kind, notOnServer: false)
+            KeepRow(target: .item($0.id), path: $0.path.string, kind: $0.kind, notOnServer: false,
+                    availability: previous["item:" + $0.id] ?? .requested)
         }
             + record.pendingKeeps.map { path in
                 KeepRow(target: .saved(path), path: path.below(folder)?.string ?? path.path,
                         kind: path.kind, notOnServer: missing.contains(path))
             }
-        let states = await controller.offlineStates(record)
-        guard keepGeneration[recordID] == generation, !Task.isCancelled,
-              let current = self.record(recordID), keepKey(current) == key else { return }
-        keepRows[recordID] = keepRows[recordID]?.map { row in
-            var row = row
-            if case .item(let id) = row.target { row.availability = states[id] ?? .requested }
-            return row
+        await controller.offlineStates(record) { states in
+            guard self.keepGeneration[recordID] == generation, !Task.isCancelled,
+                  let current = self.record(recordID), self.keepKey(current) == key else { return }
+            self.keepRows[recordID] = self.keepRows[recordID]?.map { row in
+                var row = row
+                if case .item(let id) = row.target { row.availability = states[id] ?? .requested }
+                return row
+            }
         }
     }
 

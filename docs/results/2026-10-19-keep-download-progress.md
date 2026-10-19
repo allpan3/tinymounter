@@ -90,3 +90,10 @@ No VM restart or network change was made. Cairndex was untouched.
   The ready copy's build registrations were removed; the installed M14 app and extension still
   run from Applications. Local evidence is `results/keep-download-progress-20261019/host-ready-state.json`
   and `host-signed-build.log`. The ready build was not installed or opened.
+
+## Follow-up, 2026-10-19
+
+The user approved installing the progress indicator together with the Settings status-refresh
+fix. The signed update is installed and running from Applications; its extension matches the
+ready build. The existing location and three keep requests remain. Physical-Mac feedback on
+these fixes remains open. See the [status-refresh results](2026-10-19-keep-status-refresh.md).
