@@ -19,6 +19,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
     private let domain: NSFileProviderDomain
     private let sourceReader: SourceReaderService
     private let catalog: CatalogReader
+    private let finderDownloads = FinderDownloadProgress()
     private let queue: OperationQueue = {
         let q = OperationQueue(); q.maxConcurrentOperationCount = 2; q.qualityOfService = .userInitiated; return q
     }()
@@ -53,6 +54,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
     func invalidate() {
         lock.lock(); invalidated = true; let current = Array(active.values); lock.unlock()
         current.forEach { $0.cancel() }
+        finderDownloads.invalidate()
         sourceReader.invalidate()
         // Do not cancel queued Operations: every queued callback still needs its completion.
     }
@@ -182,6 +184,10 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 guard let manager = NSFileProviderManager(for: domain) else { throw CocoaError(.fileReadUnknown) }
                 let directory = try manager.temporaryDirectoryURL()
                 progress.totalUnitCount = range.length
+                let stopProgress = partial == nil && row.keep
+                    ? finderDownloads.track(item: row, progress: progress, catalog: catalog, manager: manager)
+                    : {}
+                defer { stopProgress() }
                 let isBackground = lock.withLock { background.contains(requestID) }
                 let result = try sourceReader.fetch(SourceReadRequest(id: requestID, item: row.id, version: row.contentVersion,
                                                                       range: range, background: isBackground),

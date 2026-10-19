@@ -41,6 +41,7 @@ app_paths = ["Prototype/App/TinyMounterApp.swift", "Prototype/App/SourceReaderHo
              "Sources/TransferCore/OfflineState.swift", "Sources/TransferCore/Remount.swift",
              "Sources/TransferCore/ShareHealth.swift", "Sources/TransferCore/ShareMount.swift"]
 provider_paths = ["Prototype/Provider/CatalogItem.swift", "Prototype/Provider/Enumerators.swift",
+                  "Prototype/Provider/FinderDownloadProgress.swift",
                   "Prototype/Provider/FileProviderExtension.swift", "Prototype/Provider/SourceReaderService.swift",
                   "Sources/TransferCore/FirstPage.swift", "Sources/TransferCore/ProviderCatalog.swift",
                   "Sources/TransferCore/StallDeadline.swift"]

@@ -141,3 +141,7 @@ Local evidence is `results/folder-keeps-20261019/host-install.json`, which recor
 app's backup path, plus `host-installed-provider.json` and `host-install-ui-status.json` in the
 same folder. No source changed during installation, so the completed 170-test VM result still
 applies. Nothing was pushed or merged.
+
+The user then confirmed that folder keeping works on the physical Mac and requested Finder's
+download-progress circle. The [follow-up](2026-10-19-keep-download-progress.md) records that change.
+This confirmation does not establish physical-Mac offline hashes or restart persistence.

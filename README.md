@@ -44,8 +44,14 @@ Folder keeps (M14), 2026-10-19: the signed VM app keeps folders recursively, inc
 files. Pause/resume, independent child requests, incomplete-folder status, relaunch and saved-list
 restoration passed. Kept bytes matched the source with downloading forbidden after OS eject.
 All 170 tests and required checks passed. The signed build is installed on the physical Mac;
-launch retained the existing location and keep request. Its Settings status could not be checked
-while the Mac was locked. See the [folder-keep results](docs/results/2026-10-19-folder-keeps.md).
+launch retained the existing location and keep request. The user reports that folder keeping works;
+physical-Mac offline and restart checks remain open. See the [folder-keep results](docs/results/2026-10-19-folder-keeps.md).
+
+Finder download feedback, 2026-10-19: kept full-file transfers now publish progress for Finder's
+native circle, including indeterminate progress on kept ancestor folders. The signed VM comparison
+and checksums passed, as did all 170 tests and required checks. The fixture was removed and sharing
+settings restored. The signed Mac update is ready but not installed. See the
+[progress results](docs/results/2026-10-19-keep-download-progress.md).
 
 ## Run the prototype
 
