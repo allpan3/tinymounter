@@ -175,8 +175,12 @@ is a problem. The menu shows:
   Download stay. An Allow Removal click reached the extension, which only logs in the M3 spike.
   Action effects and decorations remain unverified. See the
   [M3 results](results/2026-10-12-share-grant.md).
-- Double-clicking a file in Finder downloads the full file first if it is not downloaded (measured).
-  Large files show progress in Finder and in the menu bar item.
+- In the measured VM configurations, double-clicking an uncached file in Finder downloaded it
+  fully first. The [physical-Mac run](results/2026-10-19-physical-mac-use.md) includes partial
+  playback reads, but its exact opening routes were not recorded. Large full downloads show
+  progress in Finder and in the menu bar item.
+- A partly downloaded file can still show Download Now. Playback caches requested ranges and
+  limited read-ahead; this does not promise a complete copy after the player closes.
 
 ## 7. Locations folder: one place to navigate
 

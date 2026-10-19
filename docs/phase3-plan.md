@@ -7,6 +7,11 @@ starts again after a crash but not after the user quits it, and the user connect
 with only the locations in Finder. The design below is the agent's. The rest of phase 3 is not
 planned yet.
 
+Physical-Mac follow-up, 2026-10-19: the user reports the supplied checks passed except macOS
+restart, including sleep and wake and a network change. Logs show partial playback reads and
+later connection recovery. These are user-run checks; see the
+[physical-Mac results](results/2026-10-19-physical-mac-use.md).
+
 This is phase 3 of [architecture §10](architecture.md#10-implementation-sequence-and-exit-criteria).
 It starts with M11, because in M9 macOS dropped the Finder connection after a 70 s outage, and an
 app crash stopped every location until the user opened the app again
