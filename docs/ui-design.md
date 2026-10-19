@@ -177,7 +177,7 @@ is a problem. The menu shows:
   kept ancestor folders use an indeterminate circle while descendant transfers run. The circle
   clears at transfer completion or failure. This does not establish offline availability.
   The signed VM comparison passed on 2026-10-19 ([results](results/2026-10-19-keep-download-progress.md));
-  the Mac update is ready but not installed.
+  the update is installed on the physical Mac ([installation](results/2026-10-19-keep-status-refresh.md)).
 - The context menu adds **Keep Downloaded** and **Allow Removal** as File Provider custom actions.
   In the macOS 27.0.1 VM on 2026-10-12, Finder showed one as a separate item near the bottom of the
   context menu, after the fixture item was republished with `userInfo.keep`. The harness's keep

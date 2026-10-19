@@ -196,9 +196,13 @@ or a replaced location cannot retain an earlier positive result.
 
 Materialized-set and pending-set changes, domain download start/finish and catalog changes reload
 the list. No polling, content reads, source scan or persistent format change was added. A wait
-covers the whole location, so pending updates can leave other complete kept files at Requested
-until macOS catches up. Available offline refers to the latest source version the app has observed;
-continuous NAS change discovery remains later work.
+covers the whole location. Before that wait, the app rechecks local metadata and materialization
+for previously verified content versions, so unrelated downloads do not reset those rows. New or
+changed versions still require synchronization. Folder status uses current membership and listing
+completeness. Provider disablement or replacement clears the remembered verification. The signed
+comparison and 175 tests passed; the user-approved update is installed on the physical Mac
+([results](results/2026-10-19-keep-status-refresh.md)). Available offline refers to the latest source
+version the app has observed; continuous NAS change discovery remains later work.
 
 The tested materialized-item projection returned unusable download flags and omitted its opaque
 content version and userInfo. The public stabilization barrier supplies the consistency check
@@ -229,8 +233,8 @@ Decision status: implemented and verified in the signed VM app on 2026-10-19 und
 recursive-folder design and the user's instruction to continue; [results](results/2026-10-19-folder-keeps.md).
 The signed build is installed on the physical Mac; launch retained the existing location and
 keep request. The user reports folder keeping works. A requested follow-up adds Finder's native
-progress circle during kept transfers, verified in the VM with the Mac build ready but not installed
-([results](results/2026-10-19-keep-download-progress.md)). Other UI refinement and live NAS change
+progress circle during kept transfers, verified in the VM and installed on the physical Mac
+([results](results/2026-10-19-keep-status-refresh.md)). Other UI refinement and live NAS change
 discovery remain separate work.
 
 Keep Downloaded in Finder accepts files and folders. A folder request includes its descendants,
