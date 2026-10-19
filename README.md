@@ -28,6 +28,8 @@ Physical Mac connection check, 2026-10-18: the signed M12 build is installed and
 
 Connection management follow-up, 2026-10-18: servers and share grants are saved separately. Disconnect ejects the OS volume, and Remove ejects associated shares before forgetting the server; a failed eject keeps the entry. In the signed VM app, an existing location survived migration, existing Finder and hidden connections could be reused, and removal/re-add and a partial two-share removal failure passed. All 156 tests and required checks passed. The signed Mac build is installed and launches with no settings error; physical-Mac connection checks remain. See the [connection-management results](docs/results/2026-10-18-connection-management.md).
 
+File Provider approval, 2026-10-18: macOS had disabled the File Provider on the physical Mac. Enabling its switch restored Connected without restarting the app. The UI now gives enable instructions and an Open System Settings button. In the signed VM app, the button opened Login Items, the location recovered on the same domain, and a read matched the source. All 156 tests and required checks passed. The new UI is installed on the physical Mac, with File Provider off at the user's request to repeat recovery. See the [File Provider approval results](docs/results/2026-10-18-file-provider-approval.md).
+
 Competitor review, 2026-10-11: [PolyDrive](https://polydrive.net/) documents native SMB automounting, but excludes SMB from its File Provider path. Its cloud-drive offline features do not establish an offline SMB cache.
 
 ## Run the prototype

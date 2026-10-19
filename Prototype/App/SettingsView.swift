@@ -169,9 +169,16 @@ private struct LocationPane: View {
                     Text(model.sourceText(record)).foregroundStyle(.secondary)
                     Label(model.statusText(record), systemImage: model.symbol(record))
                         .foregroundStyle(model.state(record).isProblem ? .red : .secondary)
+                    if model.state(record) == .turnedOff {
+                        Text(UIText.enableFileProvider).font(.callout).foregroundStyle(.secondary)
+                    }
                 }
                 Spacer()
-                Button(UIText.showInFinder) { model.showInFinder(record.id) }.disabled(record.removing)
+                if model.state(record) == .turnedOff {
+                    Button(UIText.openSystemSettings) { model.openSystemSettings() }
+                } else {
+                    Button(UIText.showInFinder) { model.showInFinder(record.id) }.disabled(record.removing)
+                }
             }
         }
     }

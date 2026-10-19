@@ -130,6 +130,14 @@ checks, including migration of an existing location, busy ejects, removal and re
 reuse of a visible Finder mount. The update is installed and launches on the physical Mac;
 connection checks there remain.
 
+**File Provider approval.** If macOS disables the File Provider, the location shows
+"File Provider is off." and Open System Settings…. In Extensions, open TinyMounterPrototype
+and turn on File Provider. The location's status updates when the system reports the change;
+the user does not need to remove the location or restart the app. The
+[approval checks](results/2026-10-18-file-provider-approval.md) verified recovery on the physical
+Mac and the new action in the signed VM build. The UI update is now installed on the physical
+Mac, with File Provider off at the user's request to repeat the recovery.
+
 The app resolves the bookmark only while the mount table lists the share, once per mount session,
 with `.withoutMounting`. Per session it holds one `O_EVTONLY` share-root descriptor and one per
 location root, and it ends the session on unmount. It polls the mount table every 10 s and starts
