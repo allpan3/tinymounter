@@ -26,6 +26,8 @@ Connect in the app (M12), 2026-10-18: the user now types the share's address in 
 
 Physical Mac connection check, 2026-10-18: the signed M12 build is installed and connects a share. The reported first-use picker wait of about 10 s remains unexplained. The picker appeared in 1.33 s on a repeat and 1.97 s after the test share was unmounted and the app and picker process restarted. Cache states beyond that reset are unknown. Daily file use, sleep and wake, a network change and a macOS restart remain unverified. See the [picker investigation](docs/results/2026-10-18-share-picker-delay.md).
 
+Connection management follow-up, 2026-10-18: servers and share grants are saved separately. Disconnect ejects the OS volume, and Remove ejects associated shares before forgetting the server; a failed eject keeps the entry. In the signed VM app, an existing location survived migration, existing Finder and hidden connections could be reused, and removal/re-add and a partial two-share removal failure passed. All 156 tests and required checks passed. The signed Mac build is installed and launches with no settings error; physical-Mac connection checks remain. See the [connection-management results](docs/results/2026-10-18-connection-management.md).
+
 Competitor review, 2026-10-11: [PolyDrive](https://polydrive.net/) documents native SMB automounting, but excludes SMB from its File Provider path. Its cloud-drive offline features do not establish an offline SMB cache.
 
 ## Run the prototype

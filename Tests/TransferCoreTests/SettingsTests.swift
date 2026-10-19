@@ -138,11 +138,12 @@ final class SettingsTests: XCTestCase {
 
     func testSettingsRoundTripThroughAPrivateFile() throws {
         let address = try XCTUnwrap(ShareAddress("//account@nas.local/Media"))
-        let grant = ServerGrant(bookmark: Data([1, 2, 3]), mountFrom: "//account@nas.local/Media", address: address)
+        let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "account@nas.local")))
+        let grant = ServerGrant(serverID: server.id, bookmark: Data([1, 2, 3]), mountFrom: "//account@nas.local/Media", address: address)
         var record = LocationRecord(name: "Movies", serverID: grant.id, folder: try XCTUnwrap(RelativePath("Movies/2024")))
         record.retiredDomainID = UUID().uuidString
         record.pendingKeeps = ["Movies/2024/a.mkv"]
-        var settings = AppSettings(servers: [grant], locations: [record, LocationRecord(name: "Media", serverID: grant.id, folder: .root)],
+        var settings = AppSettings(servers: [server], shares: [grant], locations: [record, LocationRecord(name: "Media", serverID: grant.id, folder: .root)],
                                    savedKeeps: [SavedKeepList(host: address.host, share: address.share, paths: ["Movies/a.mkv"])])
         let url = directory.appending(path: "tinymounter/Settings.json")
 
@@ -169,8 +170,8 @@ final class SettingsTests: XCTestCase {
     func testOnlyAMissingFileLoadsAsEmptySettings() throws {
         let empty = try AppSettings.load(from: directory.appending(path: "Settings.json"))
         XCTAssertEqual(empty, AppSettings())
-        XCTAssertEqual(empty.version, 1)
-        XCTAssertTrue(empty.servers.isEmpty && empty.locations.isEmpty && empty.savedKeeps.isEmpty)
+        XCTAssertEqual(empty.version, 2)
+        XCTAssertTrue(empty.servers.isEmpty && empty.shares.isEmpty && empty.locations.isEmpty && empty.savedKeeps.isEmpty)
 
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "Settings.json")
@@ -193,8 +194,8 @@ final class SettingsTests: XCTestCase {
 
     func testAnUnknownVersionIsRejected() throws {
         var object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(AppSettings())) as! [String: Any]
-        XCTAssertEqual(object["version"] as? Int, 1)
-        for version in [0, 2] {
+        XCTAssertEqual(object["version"] as? Int, 2)
+        for version in [0, 3] {
             object["version"] = version
             let data = try JSONSerialization.data(withJSONObject: object)
             XCTAssertThrowsError(try JSONDecoder().decode(AppSettings.self, from: data)) {
@@ -203,6 +204,88 @@ final class SettingsTests: XCTestCase {
         }
         object["version"] = nil
         XCTAssertThrowsError(try JSONDecoder().decode(AppSettings.self, from: JSONSerialization.data(withJSONObject: object)))
+    }
+
+    func testVersionOneMigrationKeepsLocationsAndGrantsAndSavesVersionTwo() throws {
+        let previous = Data("""
+        {
+          "version": 1,
+          "servers": [
+            {"id":"11111111-1111-1111-1111-111111111111", "bookmark":"AQID",
+             "mountFrom":"//account@nas.local/Media", "host":"nas.local", "account":"account", "share":"Media"},
+            {"id":"22222222-2222-2222-2222-222222222222", "bookmark":"BAUG",
+             "mountFrom":"//account@NAS.local/Photos", "host":"NAS.local", "account":"account", "share":"Photos"},
+            {"id":"33333333-3333-3333-3333-333333333333", "bookmark":"BwgJ",
+             "mountFrom":"//other@nas.local/Media", "host":"nas.local", "account":"other", "share":"Media"}
+          ],
+          "locations": [
+            {"id":"44444444-4444-4444-4444-444444444444", "name":"Movies",
+             "serverID":"11111111-1111-1111-1111-111111111111", "folder":"Movies",
+             "domainID":"55555555-5555-5555-5555-555555555555", "removing":false,
+             "pendingKeeps":["Movies/a.mkv"]}
+          ],
+          "savedKeeps":[{"host":"nas.local", "share":"Media", "paths":["Music/b.flac"]}]
+        }
+        """.utf8)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appending(path: "Settings.json")
+        try previous.write(to: url)
+        let migrated = try AppSettings.load(from: url)
+        XCTAssertEqual(migrated.version, 2)
+        XCTAssertEqual(migrated.servers.count, 2)
+        XCTAssertEqual(migrated.shares.count, 3)
+        XCTAssertEqual(migrated.shares[0].id.uuidString, "11111111-1111-1111-1111-111111111111")
+        XCTAssertEqual(migrated.shares[0].bookmark, Data([1, 2, 3]))
+        XCTAssertEqual(migrated.shares[0].mountFrom, "//account@nas.local/Media")
+        XCTAssertEqual(migrated.shares[0].serverID, migrated.shares[1].serverID)
+        XCTAssertNotEqual(migrated.shares[0].serverID, migrated.shares[2].serverID)
+        XCTAssertEqual(migrated.locations[0].serverID, migrated.shares[0].id)
+        XCTAssertEqual(migrated.locations[0].domainID, "55555555-5555-5555-5555-555555555555")
+        XCTAssertEqual(migrated.locations[0].pendingKeeps, ["Movies/a.mkv"])
+        XCTAssertEqual(migrated.savedKeeps[0].paths, ["Music/b.flac"])
+        XCTAssertEqual(try AppSettings.load(from: url), migrated)
+        let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any]
+        XCTAssertEqual(saved["version"] as? Int, 2)
+        XCTAssertEqual(try mode(url), 0o600)
+    }
+
+    func testFailedMigrationDoesNotReplaceThePreviousSettings() throws {
+        let previous = Data(#"{"version":1,"servers":[],"locations":[],"savedKeeps":[]}"#.utf8)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appending(path: "Settings.json")
+        try previous.write(to: url)
+        try FileManager.default.createDirectory(at: url.appendingPathExtension("new"), withIntermediateDirectories: false)
+        XCTAssertThrowsError(try AppSettings.load(from: url))
+        XCTAssertEqual(try Data(contentsOf: url), previous)
+    }
+
+    func testRemovingAServerInUseDoesNotChangeSettings() throws {
+        let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "nas.local")))
+        let other = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "other.local")))
+        let address = try XCTUnwrap(ShareAddress("//account@nas.local/Media"))
+        let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//account@nas.local/Media", address: address)
+        let record = LocationRecord(name: "Media", serverID: grant.id, folder: .root)
+        var settings = AppSettings(servers: [server, other], shares: [grant], locations: [record])
+        let before = settings
+        XCTAssertTrue(settings.serverIsUsed(server.id))
+        XCTAssertThrowsError(try settings.removeServer(server.id)) {
+            XCTAssertEqual($0 as? SettingsError, .serverInUse)
+        }
+        XCTAssertEqual(settings, before)
+        settings.locations.removeAll()
+        try settings.removeServer(server.id)
+        XCTAssertEqual(settings.servers, [other])
+        XCTAssertTrue(settings.shares.isEmpty)
+    }
+
+    func testVersionTwoRejectsASeparateShareWithoutItsServer() throws {
+        let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "nas.local")))
+        let address = try XCTUnwrap(ShareAddress("//account@nas.local/Media"))
+        let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//account@nas.local/Media", address: address)
+        let invalid = AppSettings(shares: [grant])
+        XCTAssertThrowsError(try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(invalid))) {
+            XCTAssertEqual($0 as? SettingsError, .invalidServer)
+        }
     }
 
     private func mode(_ url: URL) throws -> mode_t {

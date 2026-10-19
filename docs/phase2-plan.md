@@ -50,7 +50,8 @@ The user's decisions:
    - Built: a Dock icon (a regular app, not menu-bar-only); download progress in the menu bar
      item, a transfer symbol and Pause Downloads; the Storage pane, with disk space used per
      location and Remove Downloads; notifications; folder-path completion, built last.
-   - Changed from the design: Add Share… instead of Add Server… (decision 2). Duplicate does not
+   - Phase 2 used Add Share… instead of Add Server… (decision 2). The M12 follow-up separates
+     saved servers from share grants again ([phase 3](phase3-plan.md#connection-management-follow-up)). Duplicate does not
      copy Keep Downloaded requests: it is only a starting point for a new location. The same
      folder, and nested folders, can be locations more than once. Phase 6 tests that this works.
    - Remove Location asks whether to save the Keep Downloaded list. A saved list comes back when
@@ -261,11 +262,14 @@ empty trash enumerator; logs only under `dev.tinymounter.prototype`.
 
 ```swift
 struct AppSettings: Codable {
-  var version = 1; var servers: [ServerGrant]; var locations: [LocationRecord]
-  var savedKeeps: [SavedKeepList]
+  var version = 2; var servers: [ServerRecord]; var shares: [ServerGrant]
+  var locations: [LocationRecord]; var savedKeeps: [SavedKeepList]
+}
+struct ServerRecord: Codable {
+  let id: UUID; let address: URL  // server only; no password
 }
 struct ServerGrant: Codable {
-  let id: UUID
+  let id: UUID; var serverID: UUID?  // assigned when migrating version 1
   var bookmark: Data    // app-scoped, .withSecurityScope + .securityScopeAllowOnlyReadAccess
   let mountFrom: String // f_mntfromname, "//account@host/share"
   let host: String, account: String, share: String  // from NSURLVolumeURLForRemountingKey
@@ -283,6 +287,10 @@ struct SavedKeepList: Codable {
   var paths: [String]              // RelativePaths from the share root
 }
 ```
+
+Settings version 1 migrates atomically to version 2 without changing the grant, location or
+domain IDs. `LocationRecord.serverID` remains the share grant ID; that persisted key does not
+change. The catalog format is unchanged. An older build refuses version 2.
 
 The bookmark, `mountFrom`, host, account and saved paths are private. They are never logged and
 never in the App Group: the bookmark holds the SMB account and the server address [V]. Drafts
@@ -742,8 +750,9 @@ Location…; the first two are disabled for drafts.
 
 | Action | Settings | File Provider | Catalog |
 | --- | --- | --- | --- |
-| Add Share… (Servers `+`, Server picker) | `NSOpenPanel` at `/Volumes`, folders only; must be an smbfs volume root with `MNT_LOCAL` clear; save the grant | — | — |
-| New Location (`+`, ⌘N) | draft with the first grant and an empty folder; the name follows the share | — | — |
+| Add Server… (Servers `+`, Server picker) | save the server address; no mount required | — | — |
+| Add Share… (Share picker or saved server) | choose an existing connection or let macOS connect another share; `NSOpenPanel` gives the grant | — | — |
+| New Location (`+`, ⌘N) | draft with the first server and its first grant if present, and an empty folder; the name follows the share | — | — |
 | Duplicate (menu, ⌘D) | draft below the original with the same grant and folder and no Keep Downloaded requests, "<name> copy" made unique, Folder focused with its text selected | — | — |
 | Add | the folder must list completely beneath the share root within 10 s; save the record; take the saved keep paths inside the folder | `add(domain(UUID, name))` | created and root listed first; saved paths resolved |
 | Cancel | drop the draft; select the original | — | — |

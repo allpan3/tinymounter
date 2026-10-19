@@ -105,20 +105,30 @@ menu bar item opens it again. Nothing migrates from phase 1: remove
 the fixture domains with the phase 1 build before the first run (D3). A domain without a catalog
 fails every request with `serverUnreachable` and never reports an item as deleted.
 
-**Share grant (M3).** Verified in the signed sandboxed app on 2026-10-12; see the
-[M3 results](results/2026-10-12-share-grant.md). **Add Share…**, in a location's Server menu or
-with `+` in Servers, asks for the share's address, such as `smb://server/share`. macOS mounts it,
-hidden from Finder, and asks for the password if the Keychain has none (M12). Then `NSOpenPanel`
-opens on the share, and the user clicks Open. The app accepts only a mounted smbfs
-volume root with `MNT_LOCAL` clear whose address has an account and no password. It saves a
-read-only, security-scoped **app-scoped** bookmark and the mount's `f_mntfromname` in
-`Application Support/tinymounter/Settings.json` in the app container (mode 0600, never in the App
-Group: the bookmark holds the account and server address). **Select Again…** in Servers replaces
-the bookmark and keeps the grant, so its locations stay. **Connect** mounts the saved address, and
-**Disconnect** unmounts the share until the user clicks Connect (M12). Only the app has
-`com.apple.security.files.bookmarks.app-scope` and `files.user-selected.read-only`; neither
-target has document-scope. Whether app-scope is necessary in addition to user-selected access was
-not isolated by the M3 test.
+**Servers and share grants.** Add Server… saves an SMB server address without mounting a share.
+Choose Add Share… in the location's Share menu or beside the saved server. The app offers SMB
+shares already connected on this Mac, including hidden shares. Selecting a connection at another
+address asks for confirmation before associating it with this server. Connect Another Share…
+uses macOS's login dialog and share selector. The app never sees the password.
+
+Then `NSOpenPanel` opens on the selected share, and the user clicks Open. The app accepts only a
+mounted smbfs volume root with `MNT_LOCAL` clear whose address has an account and no password.
+It saves a read-only, security-scoped app-scoped bookmark and the mount's `f_mntfromname` in
+`Application Support/tinymounter/Settings.json` in the app container, mode 0600. It never saves
+these in the App Group. Only the app has `com.apple.security.files.bookmarks.app-scope` and
+`files.user-selected.read-only`. Select Again… replaces the bookmark and keeps the grant ID.
+
+Connect mounts a share's saved address. Disconnect ejects that connection, including one selected
+from Finder. Remove ejects the server's associated connections before deleting its entry. A busy
+share keeps its entry and shows an error; no eject is forced. Other Connected Shares shows mounts
+without a saved grant, with Use Share and Disconnect, so a hidden mount remains manageable.
+
+The original grant and connection flow was verified in [M3](results/2026-10-12-share-grant.md) and
+[M12](results/2026-10-18-connect-in-app.md). The
+[connection-management follow-up](results/2026-10-18-connection-management.md) passed signed VM
+checks, including migration of an existing location, busy ejects, removal and re-add, and
+reuse of a visible Finder mount. The update is installed and launches on the physical Mac;
+connection checks there remain.
 
 The app resolves the bookmark only while the mount table lists the share, once per mount session,
 with `.withoutMounting`. Per session it holds one `O_EVTONLY` share-root descriptor and one per
@@ -202,7 +212,8 @@ xcodebuild -project TinyMounter.xcodeproj -scheme TinyMounterPrototype -configur
 ## 3. First runtime validation
 
 1. Remove the phase 1 fixture domains first (D3). Then build, sign and launch the app. Click
-   **Add Share…** in the Server menu, type the share's address, and click Open in the panel.
+   **Add Server…** in the Server menu and save the address. In Share, click **Add Share…**,
+   select an existing connection or connect another share, then click Open in the panel.
 2. Type a folder and a name, click **Add**, then **Show in Finder**. Browse the root and
    two levels down. The listing log gives each folder's entry count, skipped names and times.
 3. Read a range of a file at least two levels deep through its CloudStorage path, then the same
@@ -267,15 +278,18 @@ Build again with a new certificate before it expires: what an expired one does i
 **Update.** Quit tinymounter, build the new version, and open it. After Quit, the app stays
 stopped: only a crash makes the extension start it again. The locations, their downloads
 and their Keep Downloaded requests stay. Keep the same team and bundle identifier, because the
-settings and catalogs are in containers named after them. A build opens only the `Settings.json`
-and catalog formats it knows, so a format change needs a migration.
+settings and catalogs are in containers named after them. Settings version 2 separates server
+addresses from share grants. It migrates version 1 atomically, preserving bookmarks, grant and
+location IDs, domains and saved Keep Downloaded lists. The catalog format does not change. Older
+builds refuse version 2 instead of overwriting server records they do not understand.
 
 **Remove.** In this order:
 
 1. In Settings, click **Remove Location…** for each location. This removes it from Finder with its
    downloaded copies. The files on the share don't change.
-2. In Servers, select each server and click `−`. This disconnects a share that tinymounter
-   connected, which Finder doesn't show (M12).
+2. In Servers, select each server and click `−`. Remove ejects its associated shares before
+   forgetting the server. If an eject fails, close open files and try again. Disconnect any
+   remaining test mounts in Other Connected Shares.
 3. In General, turn off **Open at login**.
 4. Click **Quit tinymounter** in the menu bar item.
 5. Delete `TinyMounterPrototype.app`.
