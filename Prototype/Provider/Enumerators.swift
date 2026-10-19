@@ -93,7 +93,8 @@ final class CatalogEnumerator: NSObject, NSFileProviderEnumerator {
     private func firstPage(of folderID: String, size: Int, observer: NSFileProviderEnumerationObserver) throws {
         let folder = try catalog.liveRow(folderID)
         let action = FirstPage.action(listGen: folder.listGen, listedAt: folder.listedAt,
-                                      readerConnected: reader.isConnected, now: Date())
+                                      readerConnected: reader.isConnected, now: Date(),
+                                      requiresListing: folder.keep && !folder.listingComplete)
         switch action {
         case .serve(let relist):
             // Differences from this listing reach the system through the working set.

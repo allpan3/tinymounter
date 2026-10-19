@@ -248,7 +248,9 @@ private struct LocationPane: View {
             let rows = model.keepRows[record.id] ?? []
             ForEach(rows) { row in
                 HStack {
-                    Text(row.path).lineLimit(1).truncationMode(.middle)
+                    Label(row.path.isEmpty ? record.name : row.path,
+                          systemImage: row.kind == .folder ? "folder" : "doc")
+                        .lineLimit(1).truncationMode(.middle)
                     Spacer()
                     Text(model.keepStatus(row)).foregroundStyle(.secondary)
                     Button { model.removeKeep(row, in: record.id) } label: { Image(systemName: "minus.circle") }

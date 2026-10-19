@@ -2,7 +2,7 @@ import Foundation
 import SQLite3
 
 public enum CatalogError: Error, Equatable, Sendable {
-    /// Another schema, or a damaged meta or root row. Never migrated or re-created.
+    /// An unsupported schema, or damaged metadata or root row.
     case unsupportedSchema
     case otherDomain
     case notALiveFolder
@@ -11,9 +11,9 @@ public enum CatalogError: Error, Equatable, Sendable {
     case pageExpired
 }
 
-public struct CatalogRow: Sendable {
+public struct CatalogRow: Equatable, Sendable {
     /// The raw values are the `kind` column and `DirectoryListing.Entry.Kind`'s.
-    public enum Kind: Int, Sendable { case folder = 1, file = 2 }
+    public enum Kind: Int, Codable, Sendable { case folder = 1, file = 2 }
 
     /// Never reused; page tokens hold it.
     public let row: Int64
@@ -26,7 +26,10 @@ public struct CatalogRow: Sendable {
     public let size: Int64
     public let mtimeNs: Int64
     public let ctimeNs: Int64
+    /// An ancestor's request can retain an item without a request of its own.
     public let keep: Bool
+    public let keepRequested: Bool
+    public let listingComplete: Bool
     public let deleted: Bool
     /// Set only on folders, by their last complete listing; nil until one has run.
     public let listGen: Int64?
@@ -46,7 +49,7 @@ public struct CatalogRow: Sendable {
 
     static let columns = """
         row, id, parent_id, name, kind, size, mtime_ns, ctime_ns, keep, deleted, list_gen, listed_at, \
-        change_seq, (SELECT paused FROM meta)
+        change_seq, (SELECT paused FROM meta), keep_request, listing_complete
         """
 
     init(_ statement: Statement) throws {
@@ -67,6 +70,8 @@ public struct CatalogRow: Sendable {
         listedAt = statement.isNull(11) ? nil : Date(timeIntervalSince1970: statement.double(11))
         changeSeq = statement.int64(12)
         paused = statement.bool(13)
+        keepRequested = statement.bool(14)
+        listingComplete = statement.bool(15)
     }
 }
 
@@ -116,7 +121,7 @@ public final class Catalog {
     /// `NSFileProviderItemIdentifier.rootContainer.rawValue`; core doesn't import FileProvider.
     public static let rootItemID = "NSFileProviderRootContainerItemIdentifier"
     static let maxDepth = 256
-    static let schemaVersion: Int64 = 1
+    static let schemaVersion: Int64 = 2
     // No real number of writes reaches it, so a writer's `seq += 1` can't overflow.
     static let maxLastSeq = Int64.max / 2
     private static let busyTimeoutMilliseconds = 2000
@@ -144,10 +149,12 @@ public final class Catalog {
           list_gen INTEGER,
           listed_at REAL,
           deleted INTEGER NOT NULL DEFAULT 0,
-          change_seq INTEGER NOT NULL UNIQUE);
+          change_seq INTEGER NOT NULL UNIQUE,
+          keep_request INTEGER NOT NULL DEFAULT 0,
+          listing_complete INTEGER NOT NULL DEFAULT 0);
         CREATE UNIQUE INDEX items_live_name ON items(parent_id, name_key) WHERE deleted = 0;
         CREATE INDEX items_kept ON items(row) WHERE keep = 1 AND deleted = 0;
-        PRAGMA user_version = 1;
+        PRAGMA user_version = 2;
         """
 
     public let domainID: String
@@ -178,8 +185,9 @@ public final class Catalog {
     }
 
     /// Call it before `enableWAL`, so a file of another kind is never switched to WAL.
-    static func checkedEpoch(_ database: SQLiteDatabase, domainID: String) throws -> Data {
-        guard try database.prepare("PRAGMA user_version", { try $0.step() ? $0.int64(0) : 0 }) == schemaVersion else {
+    static func checkedEpoch(_ database: SQLiteDatabase, domainID: String,
+                             version: Int64 = schemaVersion) throws -> Data {
+        guard try database.prepare("PRAGMA user_version", { try $0.step() ? $0.int64(0) : 0 }) == version else {
             throw CatalogError.unsupportedSchema
         }
         // Damaged counters would crash the writer or expire every anchor, so they are unavailable.

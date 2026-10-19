@@ -9,7 +9,7 @@ public enum SettingsError: Error, Equatable, Sendable {
 
 /// Never in the App Group: grants and saved paths are private.
 public struct AppSettings: Codable, Equatable, Sendable {
-    public static let currentVersion = 2
+    public static let currentVersion = 3
 
     public private(set) var version = AppSettings.currentVersion
     public var servers: [ServerRecord]
@@ -28,7 +28,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let previousVersion = try container.decode(Int.self, forKey: .version)
-        guard [1, Self.currentVersion].contains(previousVersion) else {
+        guard [1, 2, Self.currentVersion].contains(previousVersion) else {
             throw SettingsError.unsupportedVersion(previousVersion)
         }
         locations = try container.decode([LocationRecord].self, forKey: .locations)
@@ -175,7 +175,7 @@ public struct LocationRecord: Codable, Equatable, Sendable {
     public var retiredDomainID: String?
     public var removing = false
     /// Saved Keep Downloaded paths, from the share root, that this location took but hasn't found yet.
-    public var pendingKeeps: [String] = []
+    public var pendingKeeps: [KeepPath] = []
 
     public init(id: UUID = UUID(), name: String, serverID: UUID, folder: RelativePath,
                 domainID: String = UUID().uuidString) {
@@ -224,9 +224,9 @@ public struct SavedKeepList: Codable, Equatable, Sendable {
     /// Not the grant ID, so that a new grant for the same share matches.
     public let host: String, share: String
     /// `RelativePath`s from the share root.
-    public var paths: [String]
+    public var paths: [KeepPath]
 
-    public init(host: String, share: String, paths: [String]) {
+    public init(host: String, share: String, paths: [KeepPath]) {
         self.host = host
         self.share = share
         self.paths = paths
@@ -237,33 +237,33 @@ public struct SavedKeepList: Codable, Equatable, Sendable {
 
 extension AppSettings {
     /// Plan §4: a new location takes the saved paths inside its folder out of the share's list.
-    public mutating func takeSavedKeeps(host: String, share: String, inside folder: RelativePath) -> [String] {
-        var taken: [String] = []
+    public mutating func takeSavedKeeps(host: String, share: String, inside folder: RelativePath) -> [KeepPath] {
+        var taken: [KeepPath] = []
         for index in savedKeeps.indices where savedKeeps[index].isFor(host: host, share: share) {
-            taken += savedKeeps[index].paths.filter { LocationRecord.path($0, inside: folder) != nil }
-            savedKeeps[index].paths.removeAll { LocationRecord.path($0, inside: folder) != nil }
+            taken += savedKeeps[index].paths.filter { $0.below(folder) != nil }
+            savedKeeps[index].paths.removeAll { $0.below(folder) != nil }
         }
         savedKeeps.removeAll(where: \.paths.isEmpty)
         return taken
     }
 
     /// Adds paths from the share root to the share's saved list, each once.
-    public mutating func saveKeeps(_ paths: [String], host: String, share: String) {
+    public mutating func saveKeeps(_ paths: [KeepPath], host: String, share: String) {
         guard !paths.isEmpty else { return }
         if let index = savedKeeps.firstIndex(where: { $0.isFor(host: host, share: share) }) {
             let saved = Set(savedKeeps[index].paths)
-            var added = Set<String>()
+            var added = Set<KeepPath>()
             savedKeeps[index].paths += paths.filter { !saved.contains($0) && added.insert($0).inserted }
         } else {
-            var added = Set<String>()
+            var added = Set<KeepPath>()
             savedKeeps.append(SavedKeepList(host: host, share: share, paths: paths.filter { added.insert($0).inserted }))
         }
     }
 
     /// The saved paths that a location on this share and folder would take.
-    public func savedKeeps(host: String, share: String, inside folder: RelativePath) -> [String] {
+    public func savedKeeps(host: String, share: String, inside folder: RelativePath) -> [KeepPath] {
         savedKeeps.filter { $0.isFor(host: host, share: share) }.flatMap(\.paths)
-            .filter { LocationRecord.path($0, inside: folder) != nil }
+            .filter { $0.below(folder) != nil }
     }
 }
 

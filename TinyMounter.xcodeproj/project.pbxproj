@@ -173,6 +173,12 @@
 			"path" = "Sources/TransferCore/LocationSettings.swift";
 			"sourceTree" = "<group>";
 		};
+		"29B0FF977977B6B760DD8BA1" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Sources/TransferCore/FolderKeep.swift";
+			"sourceTree" = "<group>";
+		};
 		"D98177416D643F5F1B5FBB76" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
@@ -329,6 +335,7 @@
 				"37F4055245A9D9DCABF7EE55",
 				"E707FBFC23CABCDAC89AC000",
 				"C6D7AABF75DC53DE92C5DAF0",
+				"29B0FF977977B6B760DD8BA1",
 				"D98177416D643F5F1B5FBB76",
 				"EA02E5F283DFD908C52BF3E9",
 				"AAFE730E993264952AED03A3",
@@ -612,6 +619,10 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "C6D7AABF75DC53DE92C5DAF0";
 		};
+		"5BEAEE7372FEF87A9D1ACC49" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "29B0FF977977B6B760DD8BA1";
+		};
 		"540F6CE01A76B01CAADD628F" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "D98177416D643F5F1B5FBB76";
@@ -660,6 +671,7 @@
 				"080BE3C0174F89EDEB29CFCB",
 				"F62CF1FB5877AA23F6737375",
 				"2806A417588AE73E9E184369",
+				"5BEAEE7372FEF87A9D1ACC49",
 				"540F6CE01A76B01CAADD628F",
 				"5DA237F2722DBE9D89A78F9D",
 				"93401A69A0B775415D3C796B",

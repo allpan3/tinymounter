@@ -40,7 +40,7 @@ final class LocationController {
     /// The system's set of downloaded files changed, in any domain.
     var onMaterializedChange: (() -> Void)?
     /// Saved Keep Downloaded paths that a complete listing showed are not on the server, by record.
-    private(set) var notOnServer: [UUID: Set<String>] = [:]
+    private(set) var notOnServer: [UUID: Set<KeepPath>] = [:]
     private var restoring: Set<UUID> = []
     /// Each domain's download progress while the system downloads; absent at rest.
     private(set) var downloading: [String: Double] = [:]
@@ -289,7 +289,7 @@ final class LocationController {
         let oldGrant = settings.shares.first { $0.id == record.serverID }
         let kept = await keptSharePaths(record) + record.pendingKeeps
         let sameShare = oldGrant?.isSameShare(host: grant.host, share: grant.share) ?? false
-        let moving = sameShare ? kept.filter { LocationRecord.path($0, inside: folder) != nil } : []
+        let moving = sameShare ? kept.filter { $0.below(folder) != nil } : []
         var updated = record
         updated.domainID = UUID().uuidString
         updated.retiredDomainID = record.domainID
@@ -302,7 +302,7 @@ final class LocationController {
                 if let oldGrant {
                     settings.saveKeeps(kept.filter { !moving.contains($0) }, host: oldGrant.host, share: oldGrant.share)
                 }
-                var added = Set<String>()
+                var added = Set<KeepPath>()
                 updated.pendingKeeps = (moving + settings.takeSavedKeeps(host: grant.host, share: grant.share, inside: folder))
                     .filter { added.insert($0).inserted }
                 settings.locations[index] = updated
@@ -406,8 +406,8 @@ final class LocationController {
         NSFileProviderManager(for: domains[record.domainID] ?? domain(for: record))
     }
 
-    /// The kept files of a location, with their paths below its folder, in the order kept.
-    func keptPaths(_ record: LocationRecord) async -> [(id: String, path: RelativePath)] {
+    /// Explicit requests, with their paths below the location folder.
+    func keptPaths(_ record: LocationRecord) async -> [(id: String, path: RelativePath, kind: CatalogRow.Kind)] {
         guard let source = sources[record.domainID] else { return [] }
         do { return try await Self.offMain { try source.keptPaths() } } catch {
             Self.catalogLog.error("kept_paths domain=\(record.domainID, privacy: .public) \(logFields(error), privacy: .public)")
@@ -419,14 +419,15 @@ final class LocationController {
         guard let source = sources[record.domainID], let manager = manager(for: record),
               !record.removing, !turnedOff.contains(record.domainID) else { return [:] }
         do {
-            let rows = try await Self.offMain { try source.keptFiles() }
-            guard !rows.isEmpty else { return [:] }
+            let snapshot = try await Self.offMain { try source.keepSnapshot() }
+            guard !snapshot.requests.isEmpty else { return [:] }
             try await manager.signalEnumerator(for: .workingSet)
             try await manager.waitForStabilization()
             guard !Task.isCancelled else { return [:] }
-            let materialized = Set(try await MaterializedItems.read(manager).files)
+            let materialized = try await MaterializedItems.read(manager)
+            let files = Set(materialized.files)
             var result: [String: OfflineState] = [:]
-            for row in rows where materialized.contains(row.id) {
+            for row in snapshot.items where row.kind == .file && files.contains(row.id) {
                 guard !Task.isCancelled else { return [:] }
                 do {
                     let url = try await manager.getUserVisibleURL(for: NSFileProviderItemIdentifier(row.id))
@@ -449,26 +450,24 @@ final class LocationController {
                     result[row.id] = .requested
                 }
             }
-            let current = try await Self.offMain { try source.keptFiles() }
+            let current = try await Self.offMain { try source.keepSnapshot() }
             guard !Task.isCancelled, sources[record.domainID] === source,
-                  !turnedOff.contains(record.domainID) else { return [:] }
-            let versions = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0.contentVersion) })
-            for row in rows where versions[row.id] != row.contentVersion { result[row.id] = .requested }
-            return result
+                  !turnedOff.contains(record.domainID), current == snapshot else { return [:] }
+            return snapshot.states(files: result, folders: Set(materialized.folders))
         } catch {
             Self.catalogLog.error("offline_state domain=\(record.domainID, privacy: .public) \(logFields(error), privacy: .public)")
             return [:]
         }
     }
 
-    /// `−` on a request: Allow Removal for the file.
+    /// `−` cancels an explicit request; inherited retention can still apply.
     func unkeep(_ itemID: String, in record: LocationRecord) async throws {
         guard let source = sources[record.domainID] else { throw LocationError.catalogClosed }
         _ = try await Self.offMain { try source.keep([itemID], value: false) }
     }
 
     /// `−` on a saved path that the location hasn't found.
-    func discardPendingKeep(_ path: String, in recordID: UUID) throws {
+    func discardPendingKeep(_ path: KeepPath, in recordID: UUID) throws {
         try store.update { settings in
             guard let index = settings.locations.firstIndex(where: { $0.id == recordID }) else { return }
             settings.locations[index].pendingKeeps.removeAll { $0 == path }
@@ -486,16 +485,16 @@ final class LocationController {
               let folder = RelativePath(record.folder), restoring.insert(recordID).inserted else { return }
         defer { restoring.remove(recordID) }
         var listed: Set<String> = []
-        var found: [(path: String, id: String)] = []
-        var missing: Set<String> = []
+        var found: [(path: KeepPath, id: String)] = []
+        var missing: Set<KeepPath> = []
         var waiting = 0
         for path in record.pendingKeeps {
-            guard let below = LocationRecord.path(path, inside: folder) else {
+            guard let below = path.below(folder) else {
                 missing.insert(path)
                 continue
             }
             do {
-                if let id = try await resolveFile(below, in: source, listed: &listed) {
+                if let id = try await resolveItem(below, kind: path.kind, in: source, listed: &listed) {
                     found.append((path, id))
                 } else {
                     missing.insert(path)
@@ -541,7 +540,15 @@ final class LocationController {
         do {
             let materialized = Set(try await MaterializedItems.read(manager).folders)
             return try await Self.offMain {
-                try ids.filter { id in try source.parentChain(of: id).contains { !materialized.contains($0) } }
+                let snapshot = try source.keepSnapshot()
+                let files = Set(snapshot.requests.filter { $0.kind == .file }.map(\.id))
+                let keptFolders = Set(snapshot.items.filter { $0.kind == .folder }.map(\.id))
+                return try ids.filter { id in
+                    guard files.contains(id) else { return false }
+                    let parents = try source.parentChain(of: id)
+                    return parents.allSatisfy { !keptFolders.contains($0) }
+                        && parents.contains { !materialized.contains($0) }
+                }
             }
         } catch {
             Self.listingLog.error("materialized domain=\(record.domainID, privacy: .public) \(logFields(error), privacy: .public)")
@@ -944,9 +951,10 @@ final class LocationController {
             """)
     }
 
-    /// A file below the location root: its live row's ID, or nil if a complete listing lacks it.
-    private func resolveFile(_ path: RelativePath, in source: LocationSource,
+    /// A saved request must resolve to the same kind before it can keep an item.
+    private func resolveItem(_ path: RelativePath, kind: CatalogRow.Kind, in source: LocationSource,
                              listed: inout Set<String>) async throws -> String? {
+        if path.isRoot { return kind == .folder ? Catalog.rootItemID : nil }
         var parent = Catalog.rootItemID
         let names = path.components
         for (index, name) in names.enumerated() {
@@ -957,16 +965,18 @@ final class LocationController {
             let folder = parent
             guard let row = try await Self.offMain({ try source.liveChild(of: folder, named: name) }) else { return nil }
             let last = index == names.count - 1
-            guard row.kind == (last ? .file : .folder) else { return nil }
+            guard row.kind == (last ? kind : .folder) else { return nil }
             if last { return row.id }
             parent = row.id
         }
         return nil
     }
 
-    private func keptSharePaths(_ record: LocationRecord) async -> [String] {
+    private func keptSharePaths(_ record: LocationRecord) async -> [KeepPath] {
         guard let folder = RelativePath(record.folder) else { return [] }
-        return await keptPaths(record).compactMap { folder.appending($0.path)?.string }
+        return await keptPaths(record).compactMap { item in
+            folder.appending(item.path).map { KeepPath(path: $0.string, kind: item.kind) }
+        }
     }
 
     /// Catalog calls can wait for a listing's commit, so they don't run on the main actor.

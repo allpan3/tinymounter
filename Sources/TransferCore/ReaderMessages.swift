@@ -106,7 +106,7 @@ public struct SourceReadStarted: Codable, Equatable, Sendable {
     public init(id: UUID) { self.id = id }
 }
 
-/// Keep Downloaded (`keep` true) or Allow Removal for some files. Only the app writes it (M6).
+/// Keep Downloaded (`keep` true) or Allow Removal. Only the app writes the requests.
 public struct KeepRequest: Codable, Equatable, Sendable {
     /// 100 UUIDs make a message of about 4,000 bytes, within `ReaderMessage.maxBytes`.
     public static let maxItems = 100
@@ -116,7 +116,7 @@ public struct KeepRequest: Codable, Equatable, Sendable {
     public let items: [String]
     public let keep: Bool
 
-    /// Only file IDs: the root is a folder, and its longer ID would break the size bound.
+    /// The root's longer ID would break the message size bound.
     public init(id: UUID = UUID(), items: [String], keep: Bool) throws {
         guard (1...Self.maxItems).contains(items.count),
               items.allSatisfy({ $0 != Catalog.rootItemID && ReaderMessage.isItemID($0) }) else {
@@ -143,7 +143,7 @@ public struct KeepRequest: Codable, Equatable, Sendable {
 }
 
 public struct KeepReceipt: Codable, Equatable, Sendable {
-    /// Rows whose request changed. IDs that aren't live files, or already had the value, don't count.
+    /// Catalog updates caused by this action, including inherited retention.
     public let changed: Int
 
     public init(changed: Int) throws {

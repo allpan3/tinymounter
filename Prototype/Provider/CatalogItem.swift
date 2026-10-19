@@ -26,8 +26,12 @@ final class CatalogItem: NSObject, NSFileProviderItem {
     var contentPolicy: NSFileProviderContentPolicy {
         row.keep && !row.paused ? .downloadEagerlyAndKeepDownloaded : .downloadLazily
     }
-    /// Only files publish `keep`, so a selection with a folder matches neither Finder action.
-    var userInfo: [AnyHashable: Any]? { isFolder ? nil : ["keep": row.keep ? 1 : 0] }
+    var namespacePolicy: NSFileProviderNamespacePolicy {
+        row.keep && !row.paused ? .materializeEagerly : .materializeLazily
+    }
+    var userInfo: [AnyHashable: Any]? {
+        row.parentID == nil ? nil : ["keep": row.keep ? 1 : 0, "keepRequested": row.keepRequested ? 1 : 0]
+    }
     var itemVersion: NSFileProviderItemVersion {
         NSFileProviderItemVersion(contentVersion: Data(row.contentVersion.utf8),
                                   metadataVersion: Data(row.metadataVersion.utf8))

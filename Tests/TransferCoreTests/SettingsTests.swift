@@ -127,15 +127,15 @@ final class SettingsTests: XCTestCase {
 
     func testANewLocationTakesOnlyTheSavedPathsInsideItsFolder() {
         var settings = AppSettings(savedKeeps: [
-            SavedKeepList(host: "NAS.local", share: "media", paths: ["Movies/a.mkv", "Movies/2024/b.mkv", "Music/c.flac"]),
-            SavedKeepList(host: "other.local", share: "Media", paths: ["Movies/d.mkv"]),
+            SavedKeepList(host: "NAS.local", share: "media", paths: fileKeeps(["Movies/a.mkv", "Movies/2024/b.mkv", "Music/c.flac"])),
+            SavedKeepList(host: "other.local", share: "Media", paths: fileKeeps(["Movies/d.mkv"])),
         ])
         XCTAssertEqual(settings.savedKeeps(host: "nas.local", share: "Media", inside: RelativePath("Movies")!),
-                       ["Movies/a.mkv", "Movies/2024/b.mkv"])
+                       fileKeeps(["Movies/a.mkv", "Movies/2024/b.mkv"]))
         XCTAssertEqual(settings.takeSavedKeeps(host: "nas.local", share: "Media", inside: RelativePath("Movies")!),
-                       ["Movies/a.mkv", "Movies/2024/b.mkv"])
-        XCTAssertEqual(settings.savedKeeps.map(\.paths), [["Music/c.flac"], ["Movies/d.mkv"]])
-        XCTAssertEqual(settings.takeSavedKeeps(host: "nas.local", share: "Media", inside: .root), ["Music/c.flac"])
+                       fileKeeps(["Movies/a.mkv", "Movies/2024/b.mkv"]))
+        XCTAssertEqual(settings.savedKeeps.map(\.paths), [fileKeeps(["Music/c.flac"]), fileKeeps(["Movies/d.mkv"])])
+        XCTAssertEqual(settings.takeSavedKeeps(host: "nas.local", share: "Media", inside: .root), fileKeeps(["Music/c.flac"]))
         XCTAssertEqual(settings.savedKeeps.map(\.host), ["other.local"], "an empty list is removed")
         XCTAssertEqual(settings.takeSavedKeeps(host: "nas.local", share: "Media", inside: .root), [])
     }
@@ -144,11 +144,11 @@ final class SettingsTests: XCTestCase {
         var settings = AppSettings()
         settings.saveKeeps([], host: "nas.local", share: "Media")
         XCTAssertTrue(settings.savedKeeps.isEmpty)
-        settings.saveKeeps(["a.mkv", "b.mkv", "a.mkv"], host: "nas.local", share: "Media")
-        settings.saveKeeps(["b.mkv", "c.mkv"], host: "NAS.local", share: "MEDIA")
-        settings.saveKeeps(["a.mkv"], host: "nas.local", share: "Other")
-        XCTAssertEqual(settings.savedKeeps, [SavedKeepList(host: "nas.local", share: "Media", paths: ["a.mkv", "b.mkv", "c.mkv"]),
-                                             SavedKeepList(host: "nas.local", share: "Other", paths: ["a.mkv"])])
+        settings.saveKeeps(fileKeeps(["a.mkv", "b.mkv", "a.mkv"]), host: "nas.local", share: "Media")
+        settings.saveKeeps(fileKeeps(["b.mkv", "c.mkv"]), host: "NAS.local", share: "MEDIA")
+        settings.saveKeeps(fileKeeps(["a.mkv"]), host: "nas.local", share: "Other")
+        XCTAssertEqual(settings.savedKeeps, [SavedKeepList(host: "nas.local", share: "Media", paths: fileKeeps(["a.mkv", "b.mkv", "c.mkv"])),
+                                             SavedKeepList(host: "nas.local", share: "Other", paths: fileKeeps(["a.mkv"]))])
     }
 
     func testSettingsRoundTripThroughAPrivateFile() throws {
@@ -157,9 +157,9 @@ final class SettingsTests: XCTestCase {
         let grant = ServerGrant(serverID: server.id, bookmark: Data([1, 2, 3]), mountFrom: "//account@nas.local/Media", address: address)
         var record = LocationRecord(name: "Movies", serverID: grant.id, folder: try XCTUnwrap(RelativePath("Movies/2024")))
         record.retiredDomainID = UUID().uuidString
-        record.pendingKeeps = ["Movies/2024/a.mkv"]
+        record.pendingKeeps = fileKeeps(["Movies/2024/a.mkv"])
         var settings = AppSettings(servers: [server], shares: [grant], locations: [record, LocationRecord(name: "Media", serverID: grant.id, folder: .root)],
-                                   savedKeeps: [SavedKeepList(host: address.host, share: address.share, paths: ["Movies/a.mkv"])])
+                                   savedKeeps: [SavedKeepList(host: address.host, share: address.share, paths: fileKeeps(["Movies/a.mkv"]))])
         let url = directory.appending(path: "tinymounter/Settings.json")
 
         try settings.save(to: url)
@@ -185,7 +185,7 @@ final class SettingsTests: XCTestCase {
     func testOnlyAMissingFileLoadsAsEmptySettings() throws {
         let empty = try AppSettings.load(from: directory.appending(path: "Settings.json"))
         XCTAssertEqual(empty, AppSettings())
-        XCTAssertEqual(empty.version, 2)
+        XCTAssertEqual(empty.version, 3)
         XCTAssertTrue(empty.servers.isEmpty && empty.shares.isEmpty && empty.locations.isEmpty && empty.savedKeeps.isEmpty)
 
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -209,8 +209,8 @@ final class SettingsTests: XCTestCase {
 
     func testAnUnknownVersionIsRejected() throws {
         var object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(AppSettings())) as! [String: Any]
-        XCTAssertEqual(object["version"] as? Int, 2)
-        for version in [0, 3] {
+        XCTAssertEqual(object["version"] as? Int, 3)
+        for version in [0, 4] {
             object["version"] = version
             let data = try JSONSerialization.data(withJSONObject: object)
             XCTAssertThrowsError(try JSONDecoder().decode(AppSettings.self, from: data)) {
@@ -221,7 +221,7 @@ final class SettingsTests: XCTestCase {
         XCTAssertThrowsError(try JSONDecoder().decode(AppSettings.self, from: JSONSerialization.data(withJSONObject: object)))
     }
 
-    func testVersionOneMigrationKeepsLocationsAndGrantsAndSavesVersionTwo() throws {
+    func testVersionOneMigrationKeepsLocationsAndGrantsAndSavesVersionThree() throws {
         let previous = Data("""
         {
           "version": 1,
@@ -246,7 +246,7 @@ final class SettingsTests: XCTestCase {
         let url = directory.appending(path: "Settings.json")
         try previous.write(to: url)
         let migrated = try AppSettings.load(from: url)
-        XCTAssertEqual(migrated.version, 2)
+        XCTAssertEqual(migrated.version, 3)
         XCTAssertEqual(migrated.servers.count, 2)
         XCTAssertEqual(migrated.shares.count, 3)
         XCTAssertEqual(migrated.shares[0].id.uuidString, "11111111-1111-1111-1111-111111111111")
@@ -256,11 +256,11 @@ final class SettingsTests: XCTestCase {
         XCTAssertNotEqual(migrated.shares[0].serverID, migrated.shares[2].serverID)
         XCTAssertEqual(migrated.locations[0].serverID, migrated.shares[0].id)
         XCTAssertEqual(migrated.locations[0].domainID, "55555555-5555-5555-5555-555555555555")
-        XCTAssertEqual(migrated.locations[0].pendingKeeps, ["Movies/a.mkv"])
-        XCTAssertEqual(migrated.savedKeeps[0].paths, ["Music/b.flac"])
+        XCTAssertEqual(migrated.locations[0].pendingKeeps, fileKeeps(["Movies/a.mkv"]))
+        XCTAssertEqual(migrated.savedKeeps[0].paths, fileKeeps(["Music/b.flac"]))
         XCTAssertEqual(try AppSettings.load(from: url), migrated)
         let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any]
-        XCTAssertEqual(saved["version"] as? Int, 2)
+        XCTAssertEqual(saved["version"] as? Int, 3)
         XCTAssertEqual(try mode(url), 0o600)
     }
 
@@ -307,5 +307,9 @@ final class SettingsTests: XCTestCase {
         var info = stat()
         guard stat(url.path(percentEncoded: false), &info) == 0 else { throw posixError("stat") }
         return info.st_mode & 0o777
+    }
+
+    private func fileKeeps(_ paths: [String]) -> [KeepPath] {
+        paths.map { KeepPath(path: $0, kind: .file) }
     }
 }
