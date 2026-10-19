@@ -75,7 +75,9 @@ enum UIText {
     static let selectShareAgain = "Select the share again in Servers."
     static let folderNotOnShare = "This folder is not on the share."
     static let catalogUnavailable = "tinymounter cannot read the data for this location. Remove the location. Then add it again."
-    static let turnedOff = "This location is turned off in System Settings."
+    static let turnedOff = "File Provider is off."
+    static let enableFileProvider = "In Extensions, open TinyMounterPrototype. Then turn on File Provider."
+    static let openSystemSettings = "Open System Settings…"
     static let problem = "Problem"
 
     static func cannotConnect(_ host: String) -> String {

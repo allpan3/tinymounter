@@ -913,6 +913,8 @@ final class AppModel {
 
     // MARK: General and menu bar
 
+    func openSystemSettings() { SMAppService.openSystemSettingsLoginItems() }
+
     func refreshLoginStatus() { loginStatus = SMAppService.mainApp.status }
 
     func setOpenAtLogin(_ on: Bool) {

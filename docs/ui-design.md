@@ -84,7 +84,8 @@ two groups:
 Selecting a location shows one grouped form with all of its settings:
 
 1. **Header.** Icon, name, and a status line such as "Connected · 18.4 GB downloaded · 3 items
-   available offline", and a Show in Finder button.
+   available offline", and a Show in Finder button. If macOS disables the File Provider, show
+   "File Provider is off.", instructions to enable it, and Open System Settings… instead.
 2. **Source.** Server, Share, Folder and Name. The user types a folder path, with completion, or
    clicks Select… to browse. An empty path means the full share.
 3. **Connection Mode.** File Provider, or Server volume. Server volume shows "Not available in this
