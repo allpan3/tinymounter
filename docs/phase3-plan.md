@@ -278,8 +278,9 @@ were removed, and the previous sharing settings were restored.
 Decision status: scope accepted under the user's 2026-10-19 instruction to continue in phase
 order. Implementation choices below are the agent's; signed isolated VM verification passed
 on 2026-10-19 ([results](results/2026-10-19-nas-change-discovery.md)).
-The user approved temporary isolated VM sharing for the checks. Physical-Mac installation and
-publication are not approved.
+The user approved temporary isolated VM sharing for the checks and later approved installing
+and opening M15 on the physical Mac. Installation retained the existing location. The user
+confirmed that live changes work in their physical-Mac check. Publication is not approved.
 
 Monitor directory vnodes through public Dispatch sources on the native SMB mount. Apple's SMB
 client connects directory monitoring to CHANGE_NOTIFY. These are hints, not deletion evidence;
@@ -306,4 +307,5 @@ deletion without app relaunch; a new descendant in a kept tree; matching kept-fi
 hydration forbidden; failed-listing preservation; and normal eject/reconnect. Matched Finder
 recordings show an external addition before and after M15. All 182 tests and required checks
 passed, with no Swift warnings. Cleanup and final diagnostics are recorded in the results log.
-The physical Mac, QSpace and broader NAS notification coverage remain unverified.
+The user later confirmed live changes on the physical Mac. Physical-Mac offline hashes and
+restart, QSpace and broader NAS notification coverage remain unverified.

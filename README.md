@@ -64,7 +64,9 @@ NAS change discovery (M15), 2026-10-19: the signed isolated VM app discovered ex
 content edits, renames and deletions without relaunch. New kept descendants downloaded, local
 hashes matched with hydration forbidden, and failed listings preserved known children. All 182
 tests and required checks passed. Directory watches and periodic listings cover materialized
-and kept folders. The signed Mac build is ready; installation and physical-Mac checks remain.
+and kept folders. The signed update is installed and running on the physical Mac; its existing
+location was retained. The user confirmed live changes work on this Mac. Offline hashes and
+macOS restart remain open.
 See the [results](docs/results/2026-10-19-nas-change-discovery.md).
 
 ## Run the prototype
