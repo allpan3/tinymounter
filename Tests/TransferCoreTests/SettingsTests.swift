@@ -77,6 +77,21 @@ final class SettingsTests: XCTestCase {
         }
     }
 
+    func testOSGuestAddressesLoseOnlyAnEmptyPasswordField() {
+        for address in ["//guest:@nas.local/Media", "smb://guest:@nas.local/Media"] {
+            let clean = ShareAddress.withoutEmptyPassword(address)
+            XCTAssertNotNil(clean.flatMap(ShareAddress.init))
+            XCTAssertFalse(clean?.contains(":@") ?? true)
+        }
+        let normal = "//DOMAIN;user%40x@nas.local/My%20Media"
+        XCTAssertEqual(ShareAddress.withoutEmptyPassword(normal), normal)
+        XCTAssertNil(ShareAddress.withoutEmptyPassword("//guest:secret@nas.local/Media"))
+        XCTAssertNil(ShareAddress.withoutEmptyPassword("//guest:%00@nas.local/Media"))
+        XCTAssertNil(ServerAddress(typed: "smb://guest:@nas.local/Media"))
+        XCTAssertEqual(MountIdentity(typeName: "smbfs", fsid: 1, mountFrom: "//guest:@nas.local/Media").mountFrom,
+                       "//guest@nas.local/Media")
+    }
+
     func testServerAddressMatchesTheMountedShare() throws {
         let mounted = try XCTUnwrap(ShareAddress("//account@NAS.local/Media"))
         XCTAssertEqual(ServerAddress(typed: "nas.local/media")?.matches(mounted), true)

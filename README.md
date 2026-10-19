@@ -34,6 +34,8 @@ First folder delay, 2026-10-18: the user's Finder run on the physical Mac hit th
 
 Physical-Mac daily use, 2026-10-19: the user reports fast Finder browsing, video startup and seeking, and that the supplied checks passed except macOS restart. Logs confirm partial-file reads and read-ahead, with one earlier item also receiving a later full download. A download button can remain while only part of a file is cached. No playback or browsing performance code changed in the diagnostic update; cache states were uncontrolled. The user will continue observing. See the [physical-Mac results](docs/results/2026-10-19-physical-mac-use.md).
 
+Guest SMB connections, 2026-10-19: the signed VM app can reuse and save a guest mount after removing macOS's empty password field from its address. Passwords remain rejected, and existing grants keep their format. See the [guest-connection results](docs/results/2026-10-19-guest-connections.md).
+
 Competitor review, 2026-10-11: [PolyDrive](https://polydrive.net/) documents native SMB automounting, but excludes SMB from its File Provider path. Its cloud-drive offline features do not establish an offline SMB cache.
 
 ## Run the prototype

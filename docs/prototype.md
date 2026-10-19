@@ -1,6 +1,6 @@
 # First performance prototype
 
-Status: 2026-10-18. The signed [phase 2](phase2-plan.md) M4/M5 build browses granted SMB
+Status: 2026-10-19. The signed [phase 2](phase2-plan.md) M4/M5 build browses granted SMB
 folders from one catalog per location and reads files by item ID. VM browsing, checksummed reads,
 restarts and outage checks are recorded in the [M4/M5 results](results/2026-10-14-catalog-browsing-reads.md).
 The [runtime follow-up](results/2026-10-15-runtime-followup.md) verifies the initial reader
@@ -197,6 +197,13 @@ Download Now and Remove Download remain. `performAction` sends the file IDs to t
 100 in each message and 1,000 in each action. The app records the request in the catalog and
 signals the working set, and a kept file then reports `.downloadEagerlyAndKeepDownloaded`. With
 the app quit, or with no reply in 10 s, the action fails with `serverUnreachable`.
+
+Guest SMB connections are accepted after removing macOS's empty password field from the mounted
+address. The verified SMB mount identity supplies the saved address; a separate remount URL is
+not required, because manual guest mounts do not supply one. Addresses containing a password
+remain rejected. Existing grants and the saved format do not change. The signed VM app saved a
+guest grant and read files that matched the source
+([results](results/2026-10-19-guest-connections.md)).
 
 Each new location makes macOS ask whether a test shell may access files it manages; allow it only
 for that location.

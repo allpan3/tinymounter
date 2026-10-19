@@ -273,6 +273,14 @@ public struct ShareAddress: Hashable, Sendable {
     public let account: String
     public let share: String
 
+    public static func withoutEmptyPassword(_ string: String) -> String? {
+        guard var components = URLComponents(string: string) else { return nil }
+        guard let password = components.password else { return string }
+        guard password.isEmpty else { return nil }
+        components.password = nil
+        return components.string
+    }
+
     /// Parses `f_mntfromname` ("//account@host/share") and a remount URL ("smb://account@host/share").
     public init?(_ string: String) {
         guard let components = URLComponents(string: string),
