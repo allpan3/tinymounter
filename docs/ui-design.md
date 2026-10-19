@@ -173,6 +173,11 @@ is a problem. The menu shows:
   Finder Settings calls "Cloud Storage".
 - Decorations show *Available offline* (kept, full and current) and *Update in progress*. Whether a
   file is downloaded is Finder's own cloud badge.
+- Keep Downloaded transfers publish file progress for Finder's native circle. Files report bytes;
+  kept ancestor folders use an indeterminate circle while descendant transfers run. The circle
+  clears at transfer completion or failure. This does not establish offline availability.
+  The signed VM comparison passed on 2026-10-19 ([results](results/2026-10-19-keep-download-progress.md));
+  the Mac update is ready but not installed.
 - The context menu adds **Keep Downloaded** and **Allow Removal** as File Provider custom actions.
   In the macOS 27.0.1 VM on 2026-10-12, Finder showed one as a separate item near the bottom of the
   context menu, after the fixture item was republished with `userInfo.keep`. The harness's keep

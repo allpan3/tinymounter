@@ -228,8 +228,10 @@ were not changed.
 Decision status: implemented and verified in the signed VM app on 2026-10-19 under the accepted
 recursive-folder design and the user's instruction to continue; [results](results/2026-10-19-folder-keeps.md).
 The signed build is installed on the physical Mac; launch retained the existing location and
-keep request. Its visible Settings status remains unverified while the Mac is locked. UI
-refinement and live NAS change discovery remain separate work.
+keep request. The user reports folder keeping works. A requested follow-up adds Finder's native
+progress circle during kept transfers, verified in the VM with the Mac build ready but not installed
+([results](results/2026-10-19-keep-download-progress.md)). Other UI refinement and live NAS change
+discovery remain separate work.
 
 Keep Downloaded in Finder accepts files and folders. A folder request includes its descendants,
 including items found by later listings. The app lists requests in Settings, rather than adding
