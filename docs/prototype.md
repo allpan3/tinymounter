@@ -254,7 +254,9 @@ not the raw `results/` folder, which can hold private paths.
 ## 5. Install, update and remove
 
 These steps keep the prototype for daily use. The VM checked them on 2026-10-18
-([M9 results](results/2026-10-18-exit-validation.md#daily-use-in-the-vm-m10)); the physical Mac hasn't yet.
+([M9 results](results/2026-10-18-exit-validation.md#daily-use-in-the-vm-m10)). Installation and
+Add Share also passed on the physical Mac on 2026-10-18
+([picker investigation](results/2026-10-18-share-picker-delay.md)); daily use remains unverified.
 
 **Install.** Build and sign with the Personal Team, as in section 2, and keep one copy of the app.
 The build embeds no provisioning profile, because its entitlements need none on macOS, so the
