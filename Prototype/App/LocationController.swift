@@ -53,7 +53,7 @@ final class LocationController {
     private var domains: [String: NSFileProviderDomain] = [:]
     private var progress: [String: (progress: Progress, observation: NSKeyValueObservation)] = [:]
     private var domainObserver: (any NSObjectProtocol)?
-    private var materializedObserver: (any NSObjectProtocol)?
+    private var localContentObservers: [any NSObjectProtocol] = []
     /// Grants with a relisting running; true if a recovery asked for another one.
     private var relisting: [UUID: Bool] = [:]
     private var diagnosticsSignal: (any DispatchSourceSignal)?
@@ -137,10 +137,12 @@ final class LocationController {
                                                                 queue: .main) { [weak self] _ in
             Task { @MainActor in await self?.refreshDomains() }
         }
-        // Downloads and evictions, also Finder's and the system's.
-        materializedObserver = NotificationCenter.default.addObserver(forName: .fileProviderMaterializedSetDidChange,
-                                                                      object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.onMaterializedChange?() }
+        // A materialized item can still be pending when it first appears.
+        localContentObservers = [Notification.Name.fileProviderMaterializedSetDidChange,
+                                 .fileProviderPendingSetDidChange].map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.onMaterializedChange?() }
+            }
         }
         for grant in store.settings?.shares ?? [] { share(for: grant).connect() }
         await logDiagnostics(reason: "launch")
@@ -410,6 +412,52 @@ final class LocationController {
         do { return try await Self.offMain { try source.keptPaths() } } catch {
             Self.catalogLog.error("kept_paths domain=\(record.domainID, privacy: .public) \(logFields(error), privacy: .public)")
             return []
+        }
+    }
+
+    func offlineStates(_ record: LocationRecord) async -> [String: OfflineState] {
+        guard let source = sources[record.domainID], let manager = manager(for: record),
+              !record.removing, !turnedOff.contains(record.domainID) else { return [:] }
+        do {
+            let rows = try await Self.offMain { try source.keptFiles() }
+            guard !rows.isEmpty else { return [:] }
+            try await manager.signalEnumerator(for: .workingSet)
+            try await manager.waitForStabilization()
+            guard !Task.isCancelled else { return [:] }
+            let materialized = Set(try await MaterializedItems.read(manager).files)
+            var result: [String: OfflineState] = [:]
+            for row in rows where materialized.contains(row.id) {
+                guard !Task.isCancelled else { return [:] }
+                do {
+                    let url = try await manager.getUserVisibleURL(for: NSFileProviderItemIdentifier(row.id))
+                    result[row.id] = try await Self.offMain {
+                        var url = url
+                        let scoped = url.startAccessingSecurityScopedResource()
+                        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                        url.removeAllCachedResourceValues()
+                        let values = try url.resourceValues(forKeys: [
+                            .ubiquitousItemDownloadingStatusKey, .ubiquitousItemIsDownloadingKey,
+                            .isUbiquitousItemKey, .fileSizeKey, .contentModificationDateKey
+                        ])
+                        return OfflineState(status: values.ubiquitousItemDownloadingStatus,
+                                            downloading: values.ubiquitousItemIsDownloading,
+                                            ubiquitous: values.isUbiquitousItem, size: values.fileSize,
+                                            modified: values.contentModificationDate, expectedSize: row.size,
+                                            expectedModified: row.modificationDate)
+                    }
+                } catch {
+                    result[row.id] = .requested
+                }
+            }
+            let current = try await Self.offMain { try source.keptFiles() }
+            guard !Task.isCancelled, sources[record.domainID] === source,
+                  !turnedOff.contains(record.domainID) else { return [:] }
+            let versions = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0.contentVersion) })
+            for row in rows where versions[row.id] != row.contentVersion { result[row.id] = .requested }
+            return result
+        } catch {
+            Self.catalogLog.error("offline_state domain=\(record.domainID, privacy: .public) \(logFields(error), privacy: .public)")
+            return [:]
         }
     }
 

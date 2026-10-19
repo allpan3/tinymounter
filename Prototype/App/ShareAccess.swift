@@ -746,6 +746,8 @@ final class LocationSource: @unchecked Sendable {
         try withCatalog { try $0.storage(materialized: ids) }
     }
 
+    func keptFiles() throws -> [CatalogRow] { try withCatalog { try $0.keptItems() } }
+
     /// `meta.paused`, which every row read carries.
     func isPaused() throws -> Bool { try withCatalog { try $0.item(id: Catalog.rootItemID)?.paused ?? false } }
 

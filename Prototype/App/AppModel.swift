@@ -44,6 +44,7 @@ final class AppModel {
         /// Below the location folder.
         let path: String
         let notOnServer: Bool
+        var availability: OfflineState = .requested
 
         var id: String {
             switch target {
@@ -55,9 +56,13 @@ final class AppModel {
 
     /// What reloads a location's Keep Downloaded rows.
     struct KeepKey: Hashable {
+        let domainID: String
+        let unavailable: Bool
         let pending: [String]
         let missing: Set<String>
         let revision: Int
+        let materialized: Int
+        let downloading: Bool
     }
 
     enum LocationState: Equatable {
@@ -115,6 +120,7 @@ final class AppModel {
     private(set) var keepRows: [UUID: [KeepRow]] = [:]
     private(set) var notOnServer: [UUID: Set<String>] = [:]
     private(set) var keepRevision: [UUID: Int] = [:]
+    @ObservationIgnored private var keepGeneration: [UUID: Int] = [:]
     /// Each location's downloaded files, by record; absent until read, or if they can't be read.
     private(set) var storage: [UUID: StorageUsage] = [:]
     /// The space that the home volume has for downloads.
@@ -526,12 +532,32 @@ final class AppModel {
     // MARK: Keep Downloaded
 
     func keepKey(_ record: LocationRecord) -> KeepKey {
-        KeepKey(pending: record.pendingKeeps, missing: notOnServer[record.id] ?? [], revision: keepRevision[record.id] ?? 0)
+        KeepKey(domainID: record.domainID,
+                unavailable: !isReady || record.removing || states[record.id] == .turnedOff
+                    || states[record.id] == .catalogUnavailable,
+                pending: record.pendingKeeps, missing: notOnServer[record.id] ?? [],
+                revision: keepRevision[record.id] ?? 0, materialized: materializedRevision,
+                downloading: downloadInProgress(record))
+    }
+
+    private func downloadInProgress(_ record: LocationRecord) -> Bool {
+        if case .connected(let progress) = states[record.id] { return progress != nil }
+        return false
     }
 
     func reloadKeeps(_ recordID: UUID) async {
         guard let record = record(recordID) else { return }
+        let key = keepKey(record)
+        let generation = (keepGeneration[recordID] ?? 0) + 1
+        keepGeneration[recordID] = generation
+        keepRows[recordID] = keepRows[recordID]?.map { row in
+            var row = row
+            row.availability = .requested
+            return row
+        }
         let kept = await controller.keptPaths(record)
+        guard keepGeneration[recordID] == generation, !Task.isCancelled,
+              let current = self.record(recordID), keepKey(current) == key else { return }
         let folder = RelativePath(record.folder) ?? .root
         let missing = notOnServer[recordID] ?? []
         keepRows[recordID] = kept.map { KeepRow(target: .item($0.id), path: $0.path.string, notOnServer: false) }
@@ -539,6 +565,23 @@ final class AppModel {
                 KeepRow(target: .saved(path), path: LocationRecord.path(path, inside: folder)?.string ?? path,
                         notOnServer: missing.contains(path))
             }
+        let states = await controller.offlineStates(record)
+        guard keepGeneration[recordID] == generation, !Task.isCancelled,
+              let current = self.record(recordID), keepKey(current) == key else { return }
+        keepRows[recordID] = keepRows[recordID]?.map { row in
+            var row = row
+            if case .item(let id) = row.target { row.availability = states[id] ?? .requested }
+            return row
+        }
+    }
+
+    func keepStatus(_ row: KeepRow) -> String {
+        guard !row.notOnServer else { return UIText.notOnServer }
+        switch row.availability {
+        case .requested: return UIText.requested
+        case .updateInProgress: return UIText.updateInProgress
+        case .availableOffline: return UIText.availableOffline
+        }
     }
 
     /// `−` on a request.

@@ -49,6 +49,8 @@ enum UIText {
         """
     static let keepDownloaded = "Keep Downloaded"
     static let requested = "Requested"
+    static let availableOffline = "Available offline"
+    static let updateInProgress = "Update in progress"
     static let notOnServer = "Not on the server"
     static let keepHint = "To keep a file downloaded, right-click it in Finder. Then click Keep Downloaded."
     static let draftKeepHint = """

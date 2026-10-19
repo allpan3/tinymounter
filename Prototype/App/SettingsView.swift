@@ -250,7 +250,7 @@ private struct LocationPane: View {
                 HStack {
                     Text(row.path).lineLimit(1).truncationMode(.middle)
                     Spacer()
-                    Text(row.notOnServer ? UIText.notOnServer : UIText.requested).foregroundStyle(.secondary)
+                    Text(model.keepStatus(row)).foregroundStyle(.secondary)
                     Button { model.removeKeep(row, in: record.id) } label: { Image(systemName: "minus.circle") }
                         .buttonStyle(.borderless)
                         .help(UIText.removeItem)
