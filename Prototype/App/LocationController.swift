@@ -1,3 +1,4 @@
+import AppKit
 import Darwin
 import FileProvider
 import Foundation
@@ -56,6 +57,11 @@ final class LocationController {
     private var progress: [String: (progress: Progress, observation: NSKeyValueObservation)] = [:]
     private var domainObserver: (any NSObjectProtocol)?
     private var localContentObservers: [any NSObjectProtocol] = []
+    private var discoveryTask: Task<Void, Never>?
+    private var discovery: [String: DirectoryRefresh] = [:]
+    private var discoveryMembershipDue: [String: Duration] = [:]
+    private var discoveryCursor: String?
+    private var wakeObserver: NotificationCenter.ObservationToken?
     /// Grants with a relisting running; true if a recovery asked for another one.
     private var relisting: [UUID: Bool] = [:]
     private var diagnosticsSignal: (any DispatchSourceSignal)?
@@ -80,6 +86,11 @@ final class LocationController {
             guard let self, let grantID = sources[domainID]?.access.grantID else { return }
             onUserFetchFailed?(grantID, failure)
         }
+    }
+
+    deinit {
+        discoveryTask?.cancel()
+        if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
     }
 
     /// The share's state; not connected until its first session starts.
@@ -143,13 +154,17 @@ final class LocationController {
         localContentObservers = [Notification.Name.fileProviderMaterializedSetDidChange,
                                  .fileProviderPendingSetDidChange].map { name in
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in self?.onMaterializedChange?() }
+                Task { @MainActor in
+                    self?.onMaterializedChange?()
+                    self?.discoveryMembershipDue.removeAll()
+                }
             }
         }
         for grant in store.settings?.shares ?? [] { share(for: grant).connect() }
         await logDiagnostics(reason: "launch")
         installDiagnosticsSignal()
         isReady = true
+        startDiscovery()
         onChange?()
     }
 
@@ -836,7 +851,83 @@ final class LocationController {
                 }
             }
         }
+        source.onDirectoryChange { [weak self, weak source] folders in
+            Task { @MainActor in
+                guard let self, let source, self.canDiscover(source) else { return }
+                let now = Self.discoveryNow
+                for folder in folders { self.discovery[domainID]?.changed(folder, now: now) }
+            }
+        }
         return source
+    }
+
+    private static var discoveryNow: Duration { .nanoseconds(DispatchTime.now().uptimeNanoseconds) }
+
+    private func canDiscover(_ source: LocationSource) -> Bool {
+        isReady && sources[source.domainID] === source && domains[source.domainID] != nil
+            && !turnedOff.contains(source.domainID) && source.access.state == .connected
+            && source.access.hasSession
+            && store.settings?.locations.contains { $0.domainID == source.domainID && !$0.removing } == true
+    }
+
+    private func startDiscovery() {
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(of: NSWorkspace.self,
+            for: .didWake) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.discoveryMembershipDue.removeAll()
+                    for id in self.discovery.keys { self.discovery[id]?.refreshAll(now: Self.discoveryNow) }
+                }
+            }
+        discoveryTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.discoverChanges()
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+            }
+        }
+    }
+
+    private func discoverChanges() async {
+        let active = sources.values.filter(canDiscover).sorted { $0.domainID < $1.domainID }
+        let ids = Set(active.map(\.domainID))
+        for id in discovery.keys where !ids.contains(id) {
+            discovery[id] = nil
+            discoveryMembershipDue[id] = nil
+            sources[id]?.setDiscoveryFolders([])
+        }
+        for source in active where Self.discoveryNow >= (discoveryMembershipDue[source.domainID] ?? .zero) {
+            let id = source.domainID
+            discoveryMembershipDue[id] = Self.discoveryNow + .seconds(30)
+            guard let domain = domains[id], let manager = NSFileProviderManager(for: domain) else { continue }
+            do {
+                let materialized = try await MaterializedItems.read(manager)
+                let folders = try await Self.offMain { try source.discoveryFolders(materialized: materialized.folders) }
+                guard canDiscover(source), !Task.isCancelled else { continue }
+                var schedule = discovery[id] ?? DirectoryRefresh()
+                schedule.replaceFolders(folders, now: Self.discoveryNow)
+                discovery[id] = schedule
+                source.setDiscoveryFolders(folders)
+            } catch {
+                Self.listingLog.error("discovery_membership domain=\(id, privacy: .public) \(logFields(error), privacy: .public)")
+            }
+        }
+        let ordered = active.filter { $0.domainID > (discoveryCursor ?? "") }
+            + active.filter { $0.domainID <= (discoveryCursor ?? "") }
+        for source in ordered where canDiscover(source) && !Task.isCancelled {
+            let id = source.domainID
+            guard let folder = discovery[id]?.next(now: Self.discoveryNow) else { continue }
+            discoveryCursor = id
+            var succeeded = false
+            do {
+                _ = try await source.list(folder, requestID: UUID())
+                succeeded = true
+            } catch {
+                Self.listingLog.error("discovery_list domain=\(id, privacy: .public) folder=\(folder, privacy: .public) \(logFields(error), privacy: .public)")
+            }
+            guard sources[id] === source else { return }
+            discovery[id]?.finished(folder, succeeded: succeeded, now: Self.discoveryNow)
+            return
+        }
     }
 
     private func domain(for record: LocationRecord) -> NSFileProviderDomain {

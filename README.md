@@ -36,7 +36,7 @@ Physical-Mac daily use, 2026-10-19: the user reports fast Finder browsing, video
 
 Guest SMB connections, 2026-10-19: the signed VM app can reuse and save a guest mount after removing macOS's empty password field from its address. Passwords remain rejected, and existing grants keep their format. See the [guest-connection results](docs/results/2026-10-19-guest-connections.md).
 
-Offline status (M13), 2026-10-19: the signed VM app shows Requested, Update in progress or Available offline after macOS applies the app's known changes. Controlled source edits, including edits that preserved size and modification time, passed. All three final kept files matched the source with downloading forbidden after an OS eject. Guest connections are also accepted without saving empty password fields. All 161 tests and required checks passed. The signed build is also installed on the physical Mac; launch retained the existing location and keep request. Its offline check and macOS restart remain open. Live NAS change discovery comes later. See the [version and offline-status results](docs/results/2026-10-19-offline-versions.md).
+Offline status (M13), 2026-10-19: the signed VM app shows Requested, Update in progress or Available offline after macOS applies the app's known changes. Controlled source edits, including edits that preserved size and modification time, passed. All three final kept files matched the source with downloading forbidden after an OS eject. Guest connections are also accepted without saving empty password fields. All 161 tests and required checks passed. The signed build is also installed on the physical Mac; launch retained the existing location and keep request. Its offline check and macOS restart remain open. M15 below adds live NAS change discovery. See the [version and offline-status results](docs/results/2026-10-19-offline-versions.md).
 
 Competitor review, 2026-10-11: [PolyDrive](https://polydrive.net/) documents native SMB automounting, but excludes SMB from its File Provider path. Its cloud-drive offline features do not establish an offline SMB cache.
 
@@ -59,6 +59,13 @@ signed before/after VM comparison and four local hashes passed, along with all 1
 required checks. The signed update, including Finder's progress circle, is installed on the
 physical Mac with the existing location and three keep requests retained. The user confirmed
 that the status fix works; physical-Mac offline hashes and a restart remain open. See the [results](docs/results/2026-10-19-keep-status-refresh.md).
+
+NAS change discovery (M15), 2026-10-19: the signed isolated VM app discovered external additions,
+content edits, renames and deletions without relaunch. New kept descendants downloaded, local
+hashes matched with hydration forbidden, and failed listings preserved known children. All 182
+tests and required checks passed. Directory watches and periodic listings cover materialized
+and kept folders. The signed Mac build is ready; installation and physical-Mac checks remain.
+See the [results](docs/results/2026-10-19-nas-change-discovery.md).
 
 ## Run the prototype
 

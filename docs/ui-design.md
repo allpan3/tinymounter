@@ -97,7 +97,8 @@ Selecting a location shows one grouped form with all of its settings:
    `−`. Keeping a folder keeps all items in it, recursively.
    Allow Removal cancels that request and preserves independently kept descendants. Inherited
    retention has no separate Allow Removal action. A folder stays Requested if a descendant
-   listing is incomplete or has unsupported contents. Live NAS change discovery comes later.
+   listing is incomplete or has unsupported contents. M15 refreshes listed materialized and kept
+   folders while the app runs, with directory watches and scheduled listings.
 5. **Remove Location.** A destructive button. Its confirmation says that the files on the server do
    not change and that the downloaded copies are removed from this Mac. It also asks whether to save
    the Keep Downloaded list. A saved list comes back when the user adds a location on the same share
