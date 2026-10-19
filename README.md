@@ -36,6 +36,8 @@ Physical-Mac daily use, 2026-10-19: the user reports fast Finder browsing, video
 
 Guest SMB connections, 2026-10-19: the signed VM app can reuse and save a guest mount after removing macOS's empty password field from its address. Passwords remain rejected, and existing grants keep their format. See the [guest-connection results](docs/results/2026-10-19-guest-connections.md).
 
+Offline status (M13), 2026-10-19: the signed VM app shows Requested, Update in progress or Available offline after macOS applies the app's known changes. Controlled source edits, including edits that preserved size and modification time, passed. All three final kept files matched the source with downloading forbidden after an OS eject. Guest connections are also accepted without saving empty password fields. All 161 tests and required checks passed. The signed build is also installed on the physical Mac; launch retained the existing location and keep request. Its offline check and macOS restart remain open. Live NAS change discovery comes later. See the [version and offline-status results](docs/results/2026-10-19-offline-versions.md).
+
 Competitor review, 2026-10-11: [PolyDrive](https://polydrive.net/) documents native SMB automounting, but excludes SMB from its File Provider path. Its cloud-drive offline features do not establish an offline SMB cache.
 
 ## Run the prototype

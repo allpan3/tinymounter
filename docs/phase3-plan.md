@@ -173,7 +173,51 @@ needs approval before a new build runs.
 | --- | --- | --- | --- |
 | M11 | The app comes back by itself | Does the share come back after macOS drops it, and the app after a crash, with no change after an eject or a Quit? | M9 |
 | M12 | Connect in the app | Can the user connect in tinymounter, with macOS's own dialogs, and see only the locations in Finder? | M11 |
+| M13 | Verified offline status for kept files | Can the app distinguish a keep request from a complete, current local copy? | M12 |
 
-The rest of phase 3, in [architecture §10](architecture.md#10-implementation-sequence-and-exit-criteria)
-order, is planned after M12: verified offline status for kept files, kept folders, NAS change
-discovery while the app runs, and cache pressure.
+M13 followed the user's instruction to continue on 2026-10-19 and passed its signed VM checks.
+UI refinement stays deferred; the physical-Mac restart check remains open. Later milestones cover
+kept folders, NAS change discovery while the app runs, and cache pressure.
+
+### M13: verified offline status for kept files
+
+Decision status: implemented and verified in the signed VM app on 2026-10-19;
+[results](results/2026-10-19-offline-versions.md). The user approved installation on the physical
+Mac the same day. Launch retained the existing location and keep request; its offline check
+and macOS restart remain open.
+
+The Keep Downloaded list distinguishes Requested, Update in progress and Available offline.
+The app signals the working set and waits for `waitForStabilization` to apply provider changes.
+It then queries only materialized kept files through security-scoped URLs, clears cached resource
+values and requires current, not downloading, and matching catalog size and modification date.
+It rechecks catalog versions after observation. Missing metadata, failed waits, a changed version
+or a replaced location cannot retain an earlier positive result.
+
+Materialized-set and pending-set changes, domain download start/finish and catalog changes reload
+the list. No polling, content reads, source scan or persistent format change was added. A wait
+covers the whole location, so pending updates can leave other complete kept files at Requested
+until macOS catches up. Available offline refers to the latest source version the app has observed;
+continuous NAS change discovery remains later work.
+
+The tested materialized-item projection returned unusable download flags and omitted its opaque
+content version and userInfo. The public stabilization barrier supplies the consistency check
+instead. Signed VM checks covered
+same-size/date edits, size/date changes, changes during downloads, empty files, final checksums,
+relaunch and OS eject. Earlier checks covered partial content, completion in the same pane, unkeep
+and disabled-provider invalidation. All 161 tests and required checks passed.
+
+#### Isolated source-change fixture
+
+Decision status: accepted by the user on 2026-10-19 and completed; the temporary setup is removed.
+
+A disposable local folder was exposed as the only active VM SMB share, read-only to the guest
+connection. Existing shares were disabled for the test. SMB guest access was enabled independently
+of guest login, which stayed disabled. Mutations touched only the fixture's local backend; the NAS
+remained read-only. Guest mount identities lose macOS's empty password field before matching or
+saving, and the verified mount supplies the saved address without a separate remount URL.
+Nonempty passwords and typed password fields remain rejected.
+
+The test location, requests, downloads, server entry, mount, share and source folder were removed.
+Existing share definitions were restored, SMB was left unloaded and SMB guest access disabled.
+The saved NAS connection remained connected. The VM was not restarted and its network settings
+were not changed.

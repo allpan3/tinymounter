@@ -40,8 +40,9 @@ The user's decisions:
    the address in tinymounter instead of connecting in Finder
    ([phase 3 §4](phase3-plan.md#4-connect-in-the-app-m12)).
 3. **Keep Downloaded is a request.** Finder gets Keep Downloaded and Allow Removal. The location
-   pane lists the requests as "Requested". A verified "Available offline" and keeping whole
-   folders are phase 3.
+   pane listed requests as "Requested" in phase 2. Since M13, it verifies local availability
+   ([phase 3](phase3-plan.md#m13-verified-offline-status-for-kept-files)). Keeping whole folders
+   remains later work.
 4. **UI.** Build the accepted [ui-design.md](ui-design.md) and [mockup](ui-mockup.html), with the
    phase 2 scope in decision 5: a Settings window with a sidebar (Locations; then General,
    Storage, Servers, About), one pane per location, adding by Duplicate into a "Not added" draft,
