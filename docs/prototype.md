@@ -51,7 +51,7 @@ engine, staging handoff and approved read-ahead settings. Current-build checks a
 
 **Full-download control, October 11:** the unchanged full callback achieved a five-run median of 232.3 MB/s versus 254.5 MB/s native, with complete original/provider hashes matching. A separate 35 GiB single control reached 190.8 versus 197.4 MB/s. These used unknown NAS cache states; they are not disk-cold claims. See [full-download results](results/2026-10-11-full-download.md). The preferred partial extent remains 16 MiB.
 
-**Players and read-ahead, October 11:** Finder double-click, Open With and Cmd-O make a coordinated whole-file read, so an uncached video always downloads fully before the player starts. VLC and IINA opened from their own File > Open stream with partial reads; QuickTime Player always downloads the whole file. Listing Finder in `NSFileProviderExtensionNonMaterializingProcessNames` made double-click do nothing, so Finder isn't listed; `ScopedBookmarkAgent` is (M5 follow-up). The extension now runs bounded sequential read-ahead, tuned for seeks at the user's request: seeks during streaming took 0.23–0.27 s, and long sequential partial reads measured 77–93 MB/s against about 253 MB/s native, fetching about 1.03× the bytes read. A throughput-first setting reached 59.7% of native; without read-ahead it was 9.6%. The partial-read gate still fails. See the [player and read-ahead results](results/2026-10-11-player-readahead.md). First-frame and seek-resume times couldn't be measured in this VM.
+**Players and read-ahead, October 11:** in the measured VM configurations, Finder double-click, Open With and Cmd-O made a coordinated whole-file read, so an uncached video downloaded fully before the player started. VLC and IINA opened from their own File > Open stream with partial reads; QuickTime Player always downloads the whole file. Listing Finder in `NSFileProviderExtensionNonMaterializingProcessNames` made double-click do nothing, so Finder isn't listed; `ScopedBookmarkAgent` is (M5 follow-up). The extension now runs bounded sequential read-ahead, tuned for seeks at the user's request: seeks during streaming took 0.23–0.27 s, and long sequential partial reads measured 77–93 MB/s against about 253 MB/s native, fetching about 1.03× the bytes read. A throughput-first setting reached 59.7% of native; without read-ahead it was 9.6%. The partial-read gate still fails. See the [player and read-ahead results](results/2026-10-11-player-readahead.md). First-frame and seek-resume times couldn't be measured in this VM.
 
 **Verified cache states, October 11:** five native/provider pairs per state measured full-download medians of **183.3 versus 192.7 MB/s (95.1%)** with NAS disk reads and **229.0 versus 247.2 MB/s (92.6%)** with the file fully in NAS RAM. Per-file residency and physical-disk counters verify every sample; representative full hashes match. Fully materialized reads with hydration disabled reached 3166.2 MB/s versus a 6322.8 MB/s local APFS control; that local gap remains unexplained. See [cache-state results](results/2026-10-11-cache-states.md).
 
@@ -255,6 +255,10 @@ before a new location is browsed. A new catalog alone does not establish cold SM
 
 ## 4. Physical-Mac check
 
+The [physical-Mac follow-up](results/2026-10-19-physical-mac-use.md) records the user's fast
+browsing and playback, partial reads and reported sleep/wake and network checks. macOS restart
+and the full performance series below remain unverified.
+
 The VM numbers are relative to the VM's own native SMB. On the physical Mac, run the same comparisons
 once, wired, with nothing else heavy running. About 30 minutes:
 
@@ -269,7 +273,7 @@ once, wired, with nothing else heavy running. About 30 minutes:
    Download Now first). Then time Finder's Download Now until the cloud badge disappears.
 5. **Players.** Evict again. Open the file from VLC's or IINA's own File > Open, and note the time to
    the first picture. Do 20 seeks to unplayed parts and note any wait over 1 second. Then try a
-   Finder double-click to see the full-download wait.
+   Finder double-click and record whether it requests partial reads or waits for a full download.
 6. **Offline.** Right-click the file, click Keep Downloaded, and wait until the cloud badge
    disappears. Disconnect the Mac from the network, play the file and seek in it, then connect again.
 7. **Logs.** Keep `log stream --level info --predicate 'subsystem == "dev.tinymounter.prototype"'`
@@ -283,7 +287,9 @@ not the raw `results/` folder, which can hold private paths.
 These steps keep the prototype for daily use. The VM checked them on 2026-10-18
 ([M9 results](results/2026-10-18-exit-validation.md#daily-use-in-the-vm-m10)). Installation and
 Add Share also passed on the physical Mac on 2026-10-18
-([picker investigation](results/2026-10-18-share-picker-delay.md)); daily use remains unverified.
+([picker investigation](results/2026-10-18-share-picker-delay.md)). The user reports successful
+daily-use checks except macOS restart on 2026-10-19; see the
+[physical-Mac results](results/2026-10-19-physical-mac-use.md) for the evidence and limits.
 
 **Install.** Build and sign with the Personal Team, as in section 2, and keep one copy of the app.
 The build embeds no provisioning profile, because its entitlements need none on macOS, so the
@@ -335,7 +341,8 @@ the removal.
 - A staging URL is never changed after completion; macOS owns the handoff. App staging leases are released on completion, cancellation or connection invalidation. At launch, before any reader connects, the app deletes leftover stage files in `ReaderStaging`. Each extension process deletes the stage files in its temporary directory that were created before it started, and logs `temp_removed` and the stage files left. Runtime cancellation races, adversarial IPC requests and long-duration staging growth remain unverified.
 - Create, modify and delete return `fileWriteNoPermission` and are counted in the log (`mutation=`). A reimport `createItem` (`.mayAlreadyExist`) completes with the live row of the same name and kind, and with `nil` only for a file without contents that no row matches; anything else keeps the error. A matched file with contents is downloaded again from the NAS unless its size equals the row's and its modification date is less than 1 µs from the row's, as measured between `Date`s. A NAS change that keeps the size and mtime and changes only the ctime is not found on reimport, so the old disk copy stays as the current version. Not verified at runtime: it needs a system reimport.
 - Per-request logs record full or partial mode, demand, sequential or speculative kind, Finder (`viewer`) and system flags, queue and transfer times. They don't instrument actual player first frame or system reader resumption.
-- Finder-launched opens of content that isn't downloaded wait for a full download.
+- The measured VM Finder-launched opens waited for a full download. The physical-Mac run includes
+  partial playback reads, but its exact opening routes were not recorded.
 - Blocking I/O containment, scheduler fairness, robust authentication/reconnect, and direct-SMB comparison remain later steps in the feasibility work.
 
-The mounted share, Personal Team signing and app-owned NAS access prerequisites are met in this VM. Full-download throughput exceeds 90% in both verified NAS cache states. Seek-first read-ahead keeps scripted seeks at 0.23–0.38 s but reaches only about 45% of native for 512 MiB sequential partial reads with the one-chunk window, below the 90% target. Finder always downloads uncached files fully before an app opens them. Local cached-read parity, disconnected retention and shipping lifecycle also remain open. VM results must be compared against the VM's native SMB baseline, then repeated on the physical Mac before judging the original 190/280 MB/s expectations.
+The mounted share, Personal Team signing and app-owned NAS access prerequisites are met in this VM. Full-download throughput exceeds 90% in both verified NAS cache states. Seek-first read-ahead keeps scripted seeks at 0.23–0.38 s but reaches only about 45% of native for 512 MiB sequential partial reads with the one-chunk window, below the 90% target. The measured VM Finder launch routes downloaded uncached files fully before an app opened them. Local cached-read parity, disconnected retention and shipping lifecycle also remain open. VM results must be compared against the VM's native SMB baseline, then repeated on the physical Mac before judging the original 190/280 MB/s expectations.

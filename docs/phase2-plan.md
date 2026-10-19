@@ -14,7 +14,9 @@ checks](results/2026-10-16-keep-pause.md) on 2026-10-16, which also verified the
 M7 and M8 passed theirs on 2026-10-16 and 2026-10-18 ([M7](results/2026-10-16-settings-window.md),
 [M8](results/2026-10-18-storage-pane.md)). On 2026-10-18, M9 [showed exit criteria 1 to
 6](results/2026-10-18-exit-validation.md) in the VM, and M10's VM part passed. M10's run on the
-physical Mac is left.
+physical Mac is in progress. On 2026-10-19 the user reported the supplied daily-use checks passed
+except macOS restart; [physical-Mac results](results/2026-10-19-physical-mac-use.md). The full
+physical-Mac acceptance series is not complete.
 
 This is phase 2 of [architecture §10](architecture.md#10-implementation-sequence-and-exit-criteria).
 It starts before phase 1's exit and keeps the current transport. The phase 1 sequential
