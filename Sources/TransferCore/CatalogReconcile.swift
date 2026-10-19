@@ -72,6 +72,41 @@ extension Catalog {
     /// Never creates a catalog, so a missing one stays an error.
     public static func openWriter(at url: URL, domainID: String) throws -> Catalog {
         let database = try connect(path(url), flags: SQLITE_OPEN_READWRITE)
+        let version = try database.prepare("PRAGMA user_version") { try $0.step() ? $0.int64(0) : 0 }
+        if version == 1 {
+            _ = try checkedEpoch(database, domainID: domainID, version: 1)
+            try configureWriter(database)
+            try database.write {
+                try database.execute("""
+                    ALTER TABLE items ADD COLUMN keep_request INTEGER NOT NULL DEFAULT 0;
+                    ALTER TABLE items ADD COLUMN listing_complete INTEGER NOT NULL DEFAULT 0;
+                    UPDATE items SET keep_request = keep;
+                    PRAGMA user_version = 2;
+                    """, operation: "migrate catalog")
+                let live = try database.prepare("SELECT id FROM items WHERE deleted = 0 ORDER BY row") { statement in
+                    var ids: [String] = []
+                    while try statement.step() { ids.append(statement.text(0)) }
+                    return ids
+                }
+                var seq = try database.prepare("SELECT last_seq FROM meta WHERE id = 1") { statement in
+                    _ = try statement.step()
+                    return statement.int64(0)
+                }
+                try database.prepare("UPDATE items SET change_seq = ? WHERE id = ?") { statement in
+                    for id in live {
+                        seq += 1
+                        try statement.bind(1, seq)
+                        try statement.bind(2, id)
+                        try statement.run()
+                        statement.reset()
+                    }
+                }
+                try database.prepare("UPDATE meta SET last_seq = ? WHERE id = 1") { statement in
+                    try statement.bind(1, seq)
+                    try statement.run()
+                }
+            }
+        }
         let epoch = try checkedEpoch(database, domainID: domainID)
         try configureWriter(database)
         return Catalog(database: database, domainID: domainID, epoch: epoch)
@@ -148,12 +183,14 @@ extension Catalog {
                 }
             }
             try database.prepare("""
-                UPDATE items SET name = ?, size = ?, mtime_ns = ?, ctime_ns = ?, file_id = ?, change_seq = ?
+                UPDATE items SET name = ?, size = ?, mtime_ns = ?, ctime_ns = ?, file_id = ?, change_seq = ?,
+                  listing_complete = CASE WHEN kind = 1 THEN 0 ELSE listing_complete END
                 WHERE row = ?
                 """) { update in
                 try database.prepare("""
-                    INSERT INTO items (id, parent_id, name, name_key, kind, size, mtime_ns, ctime_ns, file_id, change_seq)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO items (id, parent_id, name, name_key, kind, size, mtime_ns, ctime_ns, file_id,
+                                       change_seq, keep)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """) { insert in
                     for (entry, row) in changes {
                         seq += 1
@@ -178,6 +215,7 @@ extension Catalog {
                             try insert.bind(8, entry.ctimeNs)
                             try insert.bind(9, Int64(bitPattern: entry.fileID))
                             try insert.bind(10, seq)
+                            try insert.bind(11, folder.keep)
                             try insert.run()
                             insert.reset()
                         }
@@ -186,10 +224,13 @@ extension Catalog {
             }
             try database.execute("UPDATE meta SET listing_gen = listing_gen + 1 WHERE id = 1", operation: "listing_gen")
             try database.prepare("""
-                UPDATE items SET list_gen = (SELECT listing_gen FROM meta WHERE id = 1), listed_at = ? WHERE row = ?
+                UPDATE items SET list_gen = (SELECT listing_gen FROM meta WHERE id = 1), listed_at = ?,
+                  listing_complete = ? WHERE row = ?
                 """) { statement in
                 try statement.bind(1, Date().timeIntervalSince1970)
-                try statement.bind(2, folder.row)
+                try statement.bind(2, listing.unreadable.isEmpty && listing.skipped.otherKinds == 0
+                                   && listing.skipped.invalidNames == 0 && listing.skipped.collisions == 0)
+                try statement.bind(3, folder.row)
                 try statement.run()
             }
             return plan
@@ -234,27 +275,50 @@ extension Catalog {
         }
     }
 
-    /// Ignores IDs that aren't live files: folders and tombstones take no request.
+    /// Inherited retention is recomputed below each changed request, within the same transaction.
     @discardableResult
     public func setKeep(ids: [String], value: Bool) throws -> Int {
         try write { seq in
-            try database.prepare("""
-                UPDATE items SET keep = ?1, change_seq = ?2 WHERE id = ?3 AND kind = 2 AND deleted = 0 AND keep != ?1
-                """) { statement in
-                var changed = 0
-                for id in ids {
-                    try statement.bind(1, value)
-                    try statement.bind(2, seq + 1)
-                    try statement.bind(3, id)
-                    try statement.run()
-                    if database.changes > 0 {
+            var changed = 0
+            for id in ids {
+                guard let root = try item(id: id), !root.deleted, root.keepRequested != value else { continue }
+                let inherited = try root.parentID.flatMap { try item(id: $0)?.keep } ?? false
+                let subtree = try retainedSubtree(id: id, rootKeep: value || inherited)
+                try database.prepare("UPDATE items SET keep_request = ?, keep = ?, change_seq = ? WHERE id = ?") {
+                    statement in
+                    for (row, retained) in subtree {
+                        let requested = row.id == id ? value : row.keepRequested
+                        guard row.keep != retained || row.keepRequested != requested else { continue }
                         seq += 1
+                        try statement.bind(1, requested)
+                        try statement.bind(2, retained)
+                        try statement.bind(3, seq)
+                        try statement.bind(4, row.id)
+                        try statement.run()
+                        statement.reset()
                         changed += 1
                     }
-                    statement.reset()
                 }
-                return changed
             }
+            return changed
+        }
+    }
+
+    private func retainedSubtree(id: String, rootKeep: Bool) throws -> [(CatalogRow, Bool)] {
+        try database.prepare("""
+            WITH RECURSIVE tree(id, retained) AS (
+              SELECT id, ?2 FROM items WHERE id = ?1 AND deleted = 0
+              UNION ALL
+              SELECT child.id, child.keep_request OR tree.retained FROM items child
+              JOIN tree ON child.parent_id = tree.id WHERE child.deleted = 0)
+            SELECT \(CatalogRow.columns), (SELECT retained FROM tree WHERE tree.id = items.id)
+            FROM items WHERE id IN (SELECT id FROM tree) ORDER BY row
+            """) { statement in
+            try statement.bind(1, id)
+            try statement.bind(2, rootKeep)
+            var result: [(CatalogRow, Bool)] = []
+            while try statement.step() { result.append((try CatalogRow(statement), statement.bool(16))) }
+            return result
         }
     }
 

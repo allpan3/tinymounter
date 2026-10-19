@@ -40,6 +40,13 @@ Offline status (M13), 2026-10-19: the signed VM app shows Requested, Update in p
 
 Competitor review, 2026-10-11: [PolyDrive](https://polydrive.net/) documents native SMB automounting, but excludes SMB from its File Provider path. Its cloud-drive offline features do not establish an offline SMB cache.
 
+Folder keeps (M14), 2026-10-19: the signed VM app keeps folders recursively, including newly listed
+files. Pause/resume, independent child requests, incomplete-folder status, relaunch and saved-list
+restoration passed. Kept bytes matched the source with downloading forbidden after OS eject.
+All 170 tests and required checks passed. The signed build is installed on the physical Mac;
+launch retained the existing location and keep request. Its Settings status could not be checked
+while the Mac was locked. See the [folder-keep results](docs/results/2026-10-19-folder-keeps.md).
+
 ## Run the prototype
 
 See [prototype setup and validation](docs/prototype.md). Build the benchmark with `swift build -c release`; run `.build/release/transfer-bench --help`. Open `TinyMounter.xcodeproj` to configure signing for the Finder prototype.

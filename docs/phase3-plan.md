@@ -174,10 +174,11 @@ needs approval before a new build runs.
 | M11 | The app comes back by itself | Does the share come back after macOS drops it, and the app after a crash, with no change after an eject or a Quit? | M9 |
 | M12 | Connect in the app | Can the user connect in tinymounter, with macOS's own dialogs, and see only the locations in Finder? | M11 |
 | M13 | Verified offline status for kept files | Can the app distinguish a keep request from a complete, current local copy? | M12 |
+| M14 | Keep folders downloaded | Can the user keep a folder and its subfolders without opening each one? | M13 |
 
-M13 followed the user's instruction to continue on 2026-10-19 and passed its signed VM checks.
-UI refinement stays deferred; the physical-Mac restart check remains open. Later milestones cover
-kept folders, NAS change discovery while the app runs, and cache pressure.
+M13 and M14 passed their signed VM checks on 2026-10-19. UI refinement stays deferred; the
+physical-Mac restart check remains open. Later milestones cover NAS change discovery while the
+app runs and cache pressure.
 
 ### M13: verified offline status for kept files
 
@@ -221,3 +222,46 @@ The test location, requests, downloads, server entry, mount, share and source fo
 Existing share definitions were restored, SMB was left unloaded and SMB guest access disabled.
 The saved NAS connection remained connected. The VM was not restarted and its network settings
 were not changed.
+
+### M14: keep folders downloaded
+
+Decision status: implemented and verified in the signed VM app on 2026-10-19 under the accepted
+recursive-folder design and the user's instruction to continue; [results](results/2026-10-19-folder-keeps.md).
+The signed build is installed on the physical Mac; launch retained the existing location and
+keep request. Its visible Settings status remains unverified while the Mac is locked. UI
+refinement and live NAS change discovery remain separate work.
+
+Keep Downloaded in Finder accepts files and folders. A folder request includes its descendants,
+including items found by later listings. The app lists requests in Settings, rather than adding
+a row for every inherited file. Allow Removal cancels a request; independently kept descendants
+remain kept. An inherited item has no separate Allow Removal action until its enclosing request
+is removed. No per-file exclusions are added.
+
+The catalog separates each explicit request from effective retention. File Provider's public
+namespace policy asks macOS to enumerate kept folders eagerly, and its content policy retains
+their files. Pause Downloads makes both policies lazy. No separate recursive downloader is added.
+A folder is Available offline only when every descendant folder has an unskipped complete listing
+and is materialized, and every descendant file passes M13's local-copy check. Unvisited, unreadable
+or unsupported contents cannot produce a positive folder status. This describes observed source
+versions, not continuous source freshness.
+
+A parent listing that reports a changed child folder invalidates that child's previous complete
+listing. Its next connected enumeration schedules a background listing while serving cached
+pages. Cached browsing remains available with the reader stopped; folder status stays unconfirmed
+until a complete listing is observed.
+
+Catalog migration preserves existing IDs, change anchors, files and file requests while adding
+explicit-request and listing-completeness fields. Live items get new metadata sequences so
+Finder receives the new actions; existing anchors remain valid. The app and extension build
+number advances so macOS can distinguish the new extension. Saved requests record their path and kind;
+existing strings migrate to file requests. The settings version changes so an older build cannot
+rewrite folder requests as files. Location IDs, domains, bookmarks and downloads stay intact.
+
+Checks must cover both migrations, nested and overlapping requests, newly listed descendants,
+pause/resume, unkeep, incomplete listings and empty folders. The signed VM run must download a
+previously unopened tree, update the open Settings pane, survive relaunch and OS eject, and read
+all kept bytes with hydration forbidden. Use a small isolated fixture and remove it afterward;
+never request an uncontrolled NAS tree. Record matched before/after actions and run all checks
+in the VM before offering a signed physical-Mac build. These checks passed: 170 tests, required
+builds, matched recordings and the signed fixture run. The temporary VM sharing setup and downloads
+were removed, and the previous sharing settings were restored.

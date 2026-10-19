@@ -23,8 +23,10 @@ public enum FirstPage {
     }
 
     /// `listGen` and `listedAt` are the folder row's.
-    public static func action(listGen: Int64?, listedAt: Date?, readerConnected: Bool, now: Date) -> Action {
+    public static func action(listGen: Int64?, listedAt: Date?, readerConnected: Bool, now: Date,
+                              requiresListing: Bool = false) -> Action {
         guard listGen != nil else { return readerConnected ? .listFirst : .fail(.serverUnreachable) }
+        if requiresListing { return .serve(relist: readerConnected) }
         guard readerConnected, let listedAt else { return .serve(relist: readerConnected) }
         let age = now.timeIntervalSince(listedAt)
         // A clock set back makes an old listing look new, so a listing in the future is old too.

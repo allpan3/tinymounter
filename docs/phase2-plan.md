@@ -41,8 +41,8 @@ The user's decisions:
    ([phase 3 §4](phase3-plan.md#4-connect-in-the-app-m12)).
 3. **Keep Downloaded is a request.** Finder gets Keep Downloaded and Allow Removal. The location
    pane listed requests as "Requested" in phase 2. Since M13, it verifies local availability
-   ([phase 3](phase3-plan.md#m13-verified-offline-status-for-kept-files)). Keeping whole folders
-   remains later work.
+   ([phase 3](phase3-plan.md#m13-verified-offline-status-for-kept-files)). M14 adds recursive folder
+   requests ([results](results/2026-10-19-folder-keeps.md)).
 4. **UI.** Build the accepted [ui-design.md](ui-design.md) and [mockup](ui-mockup.html), with the
    phase 2 scope in decision 5: a Settings window with a sidebar (Locations; then General,
    Storage, Servers, About), one pane per location, adding by Duplicate into a "Not added" draft,
@@ -214,8 +214,9 @@ is `SQLITE_OPEN_READONLY`.
    XPC `fetch(item, version, range)` → the app opens the catalog path beneath the share root,
    compares the fingerprint and stages the bytes → the extension renames the staged file into
    `temporaryDirectoryURL()` and completes.
-3. **Keep.** Finder action → `performAction` → XPC `keep(ids, value)` → the app sets `keep` with a
-   new change sequence and signals `.workingSet` → the item reports
+3. **Keep.** Finder action → `performAction` → XPC `keep(ids, value)` → the app sets the explicit
+   request and inherited retention, with new metadata sequences, and signals `.workingSet`.
+   Kept folders report eager namespace policy; kept files report
    `.downloadEagerlyAndKeepDownloaded` → the system's full fetch takes flow 2.
 4. **Recovery.** When a share becomes healthy again (a session starts, the first in each app
    process included, or a probe succeeds), the app calls `signalErrorResolved` for
@@ -265,7 +266,7 @@ empty trash enumerator; logs only under `dev.tinymounter.prototype`.
 
 ```swift
 struct AppSettings: Codable {
-  var version = 2; var servers: [ServerRecord]; var shares: [ServerGrant]
+  var version = 3; var servers: [ServerRecord]; var shares: [ServerGrant]
   var locations: [LocationRecord]; var savedKeeps: [SavedKeepList]
 }
 struct ServerRecord: Codable {
@@ -283,17 +284,18 @@ struct LocationRecord: Codable {
   var domainID: String          // NSFileProviderDomainIdentifier, a UUID
   var retiredDomainID: String?  // Apply in progress: the old domain still to remove
   var removing = false
-  var pendingKeeps: [String] = []  // saved paths, from the share root, not found yet (M7)
+  var pendingKeeps: [KeepPath] = []  // saved path and kind, from the share root, not found yet
 }
 struct SavedKeepList: Codable {
   let host: String, share: String  // not the grant ID, so a new grant for the share matches
-  var paths: [String]              // RelativePaths from the share root
+  var paths: [KeepPath]            // RelativePath and file/folder kind from the share root
 }
 ```
 
-Settings version 1 migrates atomically to version 2 without changing the grant, location or
-domain IDs. `LocationRecord.serverID` remains the share grant ID; that persisted key does not
-change. The catalog format is unchanged. An older build refuses version 2.
+Settings versions 1 and 2 migrate atomically to version 3 without changing grant, location or
+domain IDs. Existing string paths become typed file requests. Folder requests retain their kind
+so a restored file request cannot expand to a replacement folder. `LocationRecord.serverID`
+remains the share grant ID. An older build refuses version 3 (M14).
 
 The bookmark, `mountFrom`, host, account and saved paths are private. They are never logged and
 never in the App Group: the bookmark holds the SMB account and the server address [V]. Drafts
@@ -304,14 +306,15 @@ are `UserDefaults` preferences, which SwiftUI's `@AppStorage` reads at launch (M
 selected, the app adds the location's kept paths, from the share root, to the list for the grant's
 host and share. When the user adds a location, it takes every saved path inside its folder out of
 the list. After the root listing, the app lists the parent folders of each taken path, as flow 1
-does, and sets `keep` on the rows it finds. A path that a complete listing of its parent lacks
+does, and records requests only for matching item kinds. A path that a complete listing of its parent lacks
 shows "Not on the server", and `−` discards it. A path that can't be checked yet waits for the next
 recovery.
 
 A kept file whose folders the system hasn't materialized doesn't download (M6). So when a location
 finds such files, the app asks "Download N kept files now?". Download Now calls
 `requestDownloadForItem(withIdentifier:)` on each folder above them, root first; Not Now leaves
-them to download when the user opens the folders (M7).
+them to download when the user opens the folders (M7). Files covered by a folder request need
+no prompt: the eager namespace policy materializes those folders automatically (M14).
 
 Apply keeps the location's Keep Downloaded requests where it can. On the same share, the kept and
 pending paths inside the new folder become pending paths of the new domain. The others go to the
@@ -331,7 +334,7 @@ default [V]. Writes use `BEGIN IMMEDIATE` and never hold share I/O inside.
 `import SQLite3` autolinks the system library in SwiftPM and in both Xcode targets [V].
 
 ```sql
-PRAGMA user_version = 1;               -- any other value: catalog unavailable; no migrations
+PRAGMA user_version = 2;               -- the app migrates version 1; other versions fail closed
 CREATE TABLE meta (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   domain_id TEXT NOT NULL,             -- must equal the domain that opens it
@@ -350,17 +353,22 @@ CREATE TABLE items (
   mtime_ns INTEGER NOT NULL DEFAULT 0,
   ctime_ns INTEGER NOT NULL DEFAULT 0,
   file_id INTEGER,                     -- ATTR_CMN_FILEID: evidence only, never a key
-  keep INTEGER NOT NULL DEFAULT 0,     -- Keep Downloaded requested (files only)
+  keep INTEGER NOT NULL DEFAULT 0,     -- effective retention: explicit or inherited
   list_gen INTEGER,                    -- folders: last complete listing; NULL = never listed
   listed_at REAL,
   deleted INTEGER NOT NULL DEFAULT 0,  -- tombstone; only reconcile sets it
-  change_seq INTEGER NOT NULL UNIQUE); -- last visible change
+  change_seq INTEGER NOT NULL UNIQUE,  -- last visible change
+  keep_request INTEGER NOT NULL DEFAULT 0, -- explicit file or folder request
+  listing_complete INTEGER NOT NULL DEFAULT 0); -- no skipped or unreadable entries
 CREATE UNIQUE INDEX items_live_name ON items(parent_id, name_key) WHERE deleted = 0;
 CREATE INDEX items_kept ON items(row) WHERE keep = 1 AND deleted = 0;
 ```
 
 At creation, `meta` holds the domain ID, a random epoch, `last_seq = 0`, `listing_gen = 0` and
-`paused = 0`. The root row has `change_seq = 0`.
+`paused = 0`. The root row has `change_seq = 0`. Version 1 migrates in one transaction, copying
+its file keep flags into `keep_request` and marking old listings unverified. IDs and epochs stay
+unchanged. Live rows take new metadata sequences to republish Finder actions; old anchors remain
+valid. The extension cannot migrate and rejects an old catalog until the app opens it.
 
 **Item IDs and identity:**
 
@@ -803,11 +811,12 @@ Settings… and Quit tinymounter.
 | Identifier | Name | Activation rule |
 | --- | --- | --- |
 | `dev.tinymounter.action.keep-downloaded` | Keep Downloaded | `SUBQUERY(fileproviderItems, $i, $i.userInfo.keep == 0).@count > 0 AND SUBQUERY(fileproviderItems, $i, $i.userInfo.keep == nil).@count == 0` |
-| `dev.tinymounter.action.allow-removal` | Allow Removal | the same, with `keep == 1` |
+| `dev.tinymounter.action.allow-removal` | Allow Removal | the same, with `keepRequested == 1` |
 
-Only files publish `userInfo["keep"]`, so a selection with a folder matches neither rule. Kept
-files report `.downloadEagerlyAndKeepDownloaded`, except while paused; other items keep
-`.downloadLazily`, as today. `performAction` sends at most 100 IDs per message, to stay within
+Files and folders publish effective `keep` and explicit `keepRequested` (M14). Inherited
+retention has no separate Allow Removal action. Kept files report
+`.downloadEagerlyAndKeepDownloaded` and kept folders report `.materializeEagerly` namespace
+policy, except while paused; other items use lazy policies. `performAction` sends at most 100 IDs per message, to stay within
 4096 bytes, and accepts at most 1,000 IDs per action. With the app quit, or with no reply in
 10 s, it fails with `serverUnreachable`. Finder's own Download Now and Remove Download stay.
 
@@ -818,7 +827,7 @@ Apply texts, "Remove this location from this Mac. The files on the server do not
 available in this version.", "Quit tinymounter" with its warning, and "Version 0.1 (prototype)".
 New strings, to check with the STE checker and by hand: "Add Share…", "Select Again…", "Select
 the share that you connected in Finder.", the new status texts in section 7, "Requested", "To
-keep a file downloaded, right-click it in Finder. Then click Keep Downloaded.", "Save the Keep
+keep a file or folder downloaded, right-click it in Finder. Then click Keep Downloaded.", "Save the Keep
 Downloaded list", "Pause Downloads", "Resume Downloads", the Storage and notification texts, and
 the reworded usage descriptions. Status text names the grant's host, never a fixed name.
 

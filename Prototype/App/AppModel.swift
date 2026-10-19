@@ -37,19 +37,20 @@ final class AppModel {
         enum Target: Equatable {
             case item(String)
             /// A saved path from the share root that the location hasn't found.
-            case saved(String)
+            case saved(KeepPath)
         }
 
         let target: Target
         /// Below the location folder.
         let path: String
+        let kind: CatalogRow.Kind
         let notOnServer: Bool
         var availability: OfflineState = .requested
 
         var id: String {
             switch target {
             case .item(let id): "item:" + id
-            case .saved(let path): "saved:" + path
+            case .saved(let path): "saved:\(path.kind.rawValue):" + path.path
             }
         }
     }
@@ -58,8 +59,8 @@ final class AppModel {
     struct KeepKey: Hashable {
         let domainID: String
         let unavailable: Bool
-        let pending: [String]
-        let missing: Set<String>
+        let pending: [KeepPath]
+        let missing: Set<KeepPath>
         let revision: Int
         let materialized: Int
         let downloading: Bool
@@ -118,7 +119,7 @@ final class AppModel {
     private(set) var states: [UUID: LocationState] = [:]
     private(set) var shareStates: [UUID: ShareHealth.State] = [:]
     private(set) var keepRows: [UUID: [KeepRow]] = [:]
-    private(set) var notOnServer: [UUID: Set<String>] = [:]
+    private(set) var notOnServer: [UUID: Set<KeepPath>] = [:]
     private(set) var keepRevision: [UUID: Int] = [:]
     @ObservationIgnored private var keepGeneration: [UUID: Int] = [:]
     /// Each location's downloaded files, by record; absent until read, or if they can't be read.
@@ -364,7 +365,7 @@ final class AppModel {
         guard let grant = grant(draft.grantID), let folder = LocationRecord.normalizedFolder(draft.folder),
               let settings = store.settings else { return [] }
         return settings.savedKeeps(host: grant.host, share: grant.share, inside: folder)
-            .map { LocationRecord.path($0, inside: folder)?.string ?? $0 }
+            .map { ($0.below(folder)?.string ?? $0.path) + ($0.kind == .folder ? "/" : "") }
     }
 
     // MARK: Sidebar actions
@@ -560,10 +561,12 @@ final class AppModel {
               let current = self.record(recordID), keepKey(current) == key else { return }
         let folder = RelativePath(record.folder) ?? .root
         let missing = notOnServer[recordID] ?? []
-        keepRows[recordID] = kept.map { KeepRow(target: .item($0.id), path: $0.path.string, notOnServer: false) }
+        keepRows[recordID] = kept.map {
+            KeepRow(target: .item($0.id), path: $0.path.string, kind: $0.kind, notOnServer: false)
+        }
             + record.pendingKeeps.map { path in
-                KeepRow(target: .saved(path), path: LocationRecord.path(path, inside: folder)?.string ?? path,
-                        notOnServer: missing.contains(path))
+                KeepRow(target: .saved(path), path: path.below(folder)?.string ?? path.path,
+                        kind: path.kind, notOnServer: missing.contains(path))
             }
         let states = await controller.offlineStates(record)
         guard keepGeneration[recordID] == generation, !Task.isCancelled,

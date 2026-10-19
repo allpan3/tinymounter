@@ -711,10 +711,12 @@ final class LocationSource: @unchecked Sendable {
     /// Called when `isRootMissing` or the kept files change, on the queue that changed them.
     func onChange(_ handler: @escaping @Sendable () -> Void) { lock.withLock { changeHandler = handler } }
 
-    /// The kept files, by item ID, with their paths below the location folder.
-    func keptPaths() throws -> [(id: String, path: RelativePath)] {
+    /// Explicit requests, by item ID, with their paths below the location folder.
+    func keptPaths() throws -> [(id: String, path: RelativePath, kind: CatalogRow.Kind)] {
         try withCatalog { catalog in
-            try catalog.keptItems().compactMap { row in try catalog.relativePath(of: row.id).map { (row.id, $0) } }
+            try catalog.keepRequests().compactMap { row in
+                try catalog.relativePath(of: row.id).map { (row.id, $0, row.kind) }
+            }
         }
     }
 
@@ -746,7 +748,7 @@ final class LocationSource: @unchecked Sendable {
         try withCatalog { try $0.storage(materialized: ids) }
     }
 
-    func keptFiles() throws -> [CatalogRow] { try withCatalog { try $0.keptItems() } }
+    func keepSnapshot() throws -> FolderKeepSnapshot { try withCatalog { try $0.keepSnapshot() } }
 
     /// `meta.paused`, which every row read carries.
     func isPaused() throws -> Bool { try withCatalog { try $0.item(id: Catalog.rootItemID)?.paused ?? false } }
@@ -904,6 +906,7 @@ final class LocationSource: @unchecked Sendable {
                 }
                 if confirm { scheduleConfirmation(folderID) }
                 if changed > 0 { scheduleSignal() }
+                if applied { lock.withLock { changeHandler }?() }
                 if folderID == Catalog.rootItemID { setRootMissing(false) }
                 let done = ContinuousClock.now
                 Self.listingLog.info("""

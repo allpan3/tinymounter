@@ -20,7 +20,7 @@ final class CatalogTests: XCTestCase {
 
     func testCreateWritesSchemaPragmasMetaAndRoot() throws {
         let catalog = try makeCatalog()
-        XCTAssertEqual(try scalar(catalog, "PRAGMA user_version"), "1")
+        XCTAssertEqual(try scalar(catalog, "PRAGMA user_version"), "2")
         XCTAssertEqual(try scalar(catalog, "PRAGMA journal_mode"), "wal")
         XCTAssertEqual(try scalar(catalog, "PRAGMA synchronous"), "2") // FULL
         XCTAssertEqual(try scalar(catalog, "PRAGMA fullfsync"), "1")
@@ -32,7 +32,7 @@ final class CatalogTests: XCTestCase {
                        ["id", "domain_id", "epoch", "last_seq", "listing_gen", "paused"])
         XCTAssertEqual(try rows(catalog, "SELECT name FROM pragma_table_info('items')"),
                        ["row", "id", "parent_id", "name", "name_key", "kind", "size", "mtime_ns", "ctime_ns", "file_id",
-                        "keep", "list_gen", "listed_at", "deleted", "change_seq"])
+                        "keep", "list_gen", "listed_at", "deleted", "change_seq", "keep_request", "listing_complete"])
         let indexes = "SELECT sql FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL ORDER BY name"
         XCTAssertEqual(try rows(catalog, indexes),
                        ["CREATE INDEX items_kept ON items(row) WHERE keep = 1 AND deleted = 0",
@@ -87,7 +87,7 @@ final class CatalogTests: XCTestCase {
         XCTAssertEqual(try fileNames(), ["catalog.sqlite", "catalog.sqlite-shm", "catalog.sqlite-wal", "empty.sqlite"])
         XCTAssertEqual(try Data(contentsOf: url("empty")).count, 0)
 
-        try catalog.database.execute("PRAGMA user_version = 2", operation: "test")
+        try catalog.database.execute("PRAGMA user_version = 3", operation: "test")
         for open in openers {
             XCTAssertThrowsError(try open(url(), "domain-A")) {
                 XCTAssertEqual($0 as? CatalogError, .unsupportedSchema)
@@ -430,9 +430,9 @@ final class CatalogTests: XCTestCase {
             XCTAssertThrowsError(try catalog.updateFingerprint(item: id, fingerprint: ContentFingerprint(
                 size: 1, mtimeNs: 1, ctimeNs: 1), fileID: 1)) { XCTAssertEqual($0 as? CatalogError, .notALiveFile) }
         }
-        XCTAssertEqual(try catalog.setKeep(ids: [live.id, dead.id, dir.id, "unknown"], value: true), 1)
-        XCTAssertEqual(try catalog.setPaused(true), 1)
-        XCTAssertEqual(try catalog.setPaused(false), 1)
+        XCTAssertEqual(try catalog.setKeep(ids: [live.id, dead.id, dir.id, "unknown"], value: true), 2)
+        XCTAssertEqual(try catalog.setPaused(true), 2)
+        XCTAssertEqual(try catalog.setPaused(false), 2)
         XCTAssertTrue(try catalog.setRootName("TV"))
         XCTAssertEqual(try catalog.setKeep(ids: [live.id, dead.id], value: false), 1)
 
@@ -490,32 +490,33 @@ final class CatalogTests: XCTestCase {
         try reconcile(catalog, [file("k1"), file("k2"), file("plain"), folder("Dir")])
         var last = try catalog.counts().lastSeq
 
-        XCTAssertEqual(try catalog.setKeep(ids: [k1.id, k2.id, dir.id, gone.id, "unknown", k1.id], value: true), 2)
+        XCTAssertEqual(try catalog.setKeep(ids: [k1.id, k2.id, dir.id, gone.id, "unknown", k1.id], value: true), 3)
         XCTAssertEqual(try [k1, k2].map { try XCTUnwrap(catalog.item(id: $0.id)).changeSeq }, [last + 1, last + 2])
-        XCTAssertEqual(try catalog.item(id: dir.id)?.keep, false)
-        last += 2
+        XCTAssertEqual(try catalog.item(id: dir.id)?.keep, true)
+        last += 3
         XCTAssertEqual(try catalog.counts().lastSeq, last)
         XCTAssertEqual(try catalog.setKeep(ids: [k1.id], value: true), 0)
         XCTAssertEqual(try catalog.counts().lastSeq, last)
-        XCTAssertEqual(try catalog.keptItems().map(\.id), [k1.id, k2.id])
+        XCTAssertEqual(try catalog.keptItems().map(\.id), [dir.id, k1.id, k2.id])
 
         let plainSeq = try XCTUnwrap(catalog.item(id: plain.id)).changeSeq
         let goneSeq = try XCTUnwrap(catalog.item(id: gone.id)).changeSeq
-        XCTAssertEqual(try catalog.setPaused(true), 2)
-        XCTAssertEqual(try [k1, k2].map { try XCTUnwrap(catalog.item(id: $0.id)).changeSeq }, [last + 1, last + 2])
+        XCTAssertEqual(try catalog.setPaused(true), 3)
+        XCTAssertEqual(try [dir, k1, k2].map { try XCTUnwrap(catalog.item(id: $0.id)).changeSeq },
+                       [last + 1, last + 2, last + 3])
         XCTAssertEqual(try catalog.item(id: plain.id)?.changeSeq, plainSeq)
         XCTAssertEqual(try catalog.item(id: gone.id)?.changeSeq, goneSeq)
         XCTAssertTrue(try catalog.children(of: root, limit: 10).allSatisfy(\.paused))
-        last += 2
+        last += 3
         XCTAssertEqual(try catalog.setPaused(true), 0)
         XCTAssertEqual(try catalog.counts().lastSeq, last)
 
-        XCTAssertEqual(try catalog.setPaused(false), 2)
+        XCTAssertEqual(try catalog.setPaused(false), 3)
         XCTAssertFalse(try XCTUnwrap(catalog.item(id: k1.id)).paused)
-        XCTAssertEqual(try catalog.counts().lastSeq, last + 2)
+        XCTAssertEqual(try catalog.counts().lastSeq, last + 3)
         XCTAssertEqual(try catalog.setKeep(ids: [k1.id], value: false), 1)
-        XCTAssertEqual(try catalog.keptItems().map(\.id), [k2.id])
-        XCTAssertEqual(try catalog.counts().kept, 1)
+        XCTAssertEqual(try catalog.keptItems().map(\.id), [dir.id, k2.id])
+        XCTAssertEqual(try catalog.counts().kept, 2)
     }
 
     func testSetRootNameTakesASequence() throws {

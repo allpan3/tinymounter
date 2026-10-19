@@ -9,6 +9,8 @@ bar item and notifications, and M8 the Storage pane and folder completion, with 
 [phase 2 §8](phase2-plan.md#8-ui) records. On 2026-10-18 the user approved connecting in the app
 (M12, [phase 3 §4](phase3-plan.md#4-connect-in-the-app-m12)), with the Servers change in
 section 4.3.
+M14 adds recursive folder requests and aggregate offline status, verified in the signed VM app
+on 2026-10-19 ([results](results/2026-10-19-folder-keeps.md)).
 Interactive mockup: [ui-mockup.html](ui-mockup.html).
 
 ## 1. Principles
@@ -93,6 +95,9 @@ Selecting a location shows one grouped form with all of its settings:
 4. **Keep Downloaded** (File Provider only). Each kept file or folder, with its state: Available
    offline, 42% downloaded, Update in progress, or Not sufficient space. Add with `+`, remove with
    `−`. Keeping a folder keeps all items in it, recursively.
+   Allow Removal cancels that request and preserves independently kept descendants. Inherited
+   retention has no separate Allow Removal action. A folder stays Requested if a descendant
+   listing is incomplete or has unsupported contents. Live NAS change discovery comes later.
 5. **Remove Location.** A destructive button. Its confirmation says that the files on the server do
    not change and that the downloaded copies are removed from this Mac. It also asks whether to save
    the Keep Downloaded list. A saved list comes back when the user adds a location on the same share

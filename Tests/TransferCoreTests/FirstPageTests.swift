@@ -50,6 +50,15 @@ final class FirstPageTests: XCTestCase {
         XCTAssertEqual(FirstPage.listingWait, .seconds(5))
     }
 
+    func testARequiredListingPreservesCachedBrowsingWhenTheReaderIsStopped() {
+        XCTAssertEqual(FirstPage.action(listGen: 1, listedAt: now, readerConnected: true, now: now,
+                                        requiresListing: true), .serve(relist: true))
+        XCTAssertEqual(FirstPage.action(listGen: 1, listedAt: now, readerConnected: false, now: now,
+                                        requiresListing: true), .serve(relist: false))
+        XCTAssertEqual(FirstPage.action(listGen: nil, listedAt: nil, readerConnected: false, now: now,
+                                        requiresListing: true), .fail(.serverUnreachable))
+    }
+
     private func effect(_ listing: Listing, connected: Bool, outcome: Outcome) -> Effect {
         let listGen: Int64? = listing == .never ? nil : 3
         let listedAt: Date? = switch listing {

@@ -52,7 +52,7 @@ enum UIText {
     static let availableOffline = "Available offline"
     static let updateInProgress = "Update in progress"
     static let notOnServer = "Not on the server"
-    static let keepHint = "To keep a file downloaded, right-click it in Finder. Then click Keep Downloaded."
+    static let keepHint = "To keep a file or folder downloaded, right-click it in Finder. Then click Keep Downloaded."
     static let draftKeepHint = """
         tinymounter downloads these items after you click Add. If an item is not in the folder, tinymounter \
         shows “Not on the server”.
