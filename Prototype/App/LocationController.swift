@@ -175,11 +175,15 @@ final class LocationController {
             throw CocoaError(.fileWriteNoPermission)
         }
         try store.update { $0.servers.removeAll { $0.id == id } }
+        shares[id]?.unmountHidden()
         // The session closes its root and stops access when the last reference goes.
         shares[id] = nil
         shareStates[id] = nil
         onChange?()
     }
+
+    /// Connect mounted the share: its session starts now.
+    func shareMounted(_ grantID: UUID) { shares[grantID]?.checkNow() }
 
     /// The share's mount path, for Select…; nil if it isn't mounted.
     func mountPath(_ grantID: UUID) -> String? {

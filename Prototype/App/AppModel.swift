@@ -184,7 +184,7 @@ final class AppModel {
         case .catalogUnavailable: UIText.catalogUnavailable
         case .turnedOff: UIText.turnedOff
         case .needsGrant: UIText.selectShareAgain
-        case .notConnected: UIText.connectInFinder
+        case .notConnected: UIText.connectInServers
         case .unresponsive: UIText.cannotConnect(host)
         case .folderMissing: UIText.folderNotOnShare
         case .connected(let fraction?): UIText.joined(UIText.connected, UIText.downloaded(fraction))
@@ -598,11 +598,47 @@ final class AppModel {
 
     // MARK: Servers
 
-    /// Add Share… or Select Again…. Returns the saved grant's ID.
+    /// M12, Add Share…: macOS mounts the typed address, then the open panel gives access.
     @discardableResult
-    func selectShare(again existing: ServerGrant? = nil) async -> UUID? {
+    func addShare() async -> UUID? {
+        guard let text = await askAddress() else { return nil }
+        guard let address = ServerAddress(typed: text) else {
+            show(UIText.wrongAddress)
+            return nil
+        }
+        let (status, paths) = await ShareAccess.mount(address.url)
+        guard status == 0 || status == EEXIST else {
+            if let message = Self.mountMessage(status, host: address.host) { show(message) }
+            return nil
+        }
+        guard let path = paths.first ?? ShareAccess.mountPath(of: address) else {
+            show(UIText.cannotDo("status=\(status)"))
+            return nil
+        }
+        let grantID = await selectShare(at: path)
+        if grantID == nil && status == 0 { ShareAccess.unmount(path, reason: "not_selected") }
+        return grantID
+    }
+
+    /// Servers › Connect: the saved address, with macOS's dialog if the Keychain has no password.
+    func connect(_ grant: ServerGrant) {
+        guard let url = URL(string: "smb:" + grant.mountFrom) else { return show(UIText.addressRejected) }
+        Task {
+            let (status, _) = await ShareAccess.mount(url)
+            if status != 0 && status != EEXIST, let message = Self.mountMessage(status, host: grant.host) {
+                show(message)
+            }
+            controller.shareMounted(grant.id)
+        }
+    }
+
+    /// Select Again… or the end of Add Share…. Returns the saved grant's ID.
+    @discardableResult
+    func selectShare(again existing: ServerGrant? = nil, at path: String? = nil) async -> UUID? {
         let panel = NSOpenPanel()
-        panel.directoryURL = URL(filePath: "/Volumes", directoryHint: .isDirectory)
+        // Finder hides the app's mounts, so the panel opens on the share itself.
+        let directory = path ?? existing.flatMap { controller.mountPath($0.id) } ?? "/Volumes"
+        panel.directoryURL = URL(filePath: directory, directoryHint: .isDirectory)
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         // The share is read-only to tinymounter, and the panel could make a folder on it.
@@ -627,7 +663,7 @@ final class AppModel {
     /// From the Server picker of a location.
     func addShare(for id: UUID) {
         Task {
-            guard let grantID = await selectShare() else { return }
+            guard let grantID = await addShare() else { return }
             setGrant(id, grantID)
         }
     }
@@ -781,6 +817,30 @@ final class AppModel {
         return alert.runModal()
     }
 
+    private func askAddress() async -> String? {
+        let alert = NSAlert()
+        alert.messageText = UIText.addShareTitle
+        alert.informativeText = UIText.addShareDescription
+        alert.addButton(withTitle: UIText.connect)
+        alert.addButton(withTitle: UIText.cancel)
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        field.placeholderString = UIText.addressPlaceholder
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        guard await present(alert) == .alertFirstButtonReturn else { return nil }
+        return field.stringValue
+    }
+
+    /// Nil when the user clicked Cancel in macOS's dialog.
+    private static func mountMessage(_ status: Int32, host: String) -> String? {
+        switch status {
+        case Int32(userCanceledErr): nil
+        case EAUTH, EACCES, EPERM: UIText.passwordNotAccepted(host)
+        case _ where RemountPolicy.isNetworkFailure(status): UIText.cannotConnect(host)
+        default: UIText.cannotDo("status=\(status)")
+        }
+    }
+
     private func run(_ panel: NSOpenPanel) async -> Bool {
         if let window, window.isVisible { return await panel.beginSheetModal(for: window) == .OK }
         NSApp.activate()
@@ -796,7 +856,7 @@ final class AppModel {
             }
         }
         return switch error as? SourceFailure {
-        case .notConnected?: UIText.connectInFinder
+        case .notConnected?: UIText.connectInServers
         case .notAuthenticated?: UIText.selectShareAgain
         case .serverUnreachable?: host.map(UIText.cannotConnect) ?? UIText.cannotDo(logFields(error))
         case .missing?: UIText.folderNotOnShare

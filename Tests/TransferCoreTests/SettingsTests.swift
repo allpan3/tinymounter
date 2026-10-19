@@ -49,6 +49,44 @@ final class SettingsTests: XCTestCase {
         }
     }
 
+    func testServerAddressAcceptsWhatConnectToServerAccepts() throws {
+        let full = try XCTUnwrap(ServerAddress(typed: " smb://nas.local/Media/ "))
+        XCTAssertEqual(full.url.absoluteString, "smb://nas.local/Media")
+        XCTAssertEqual(full.host, "nas.local")
+        XCTAssertNil(full.account)
+        XCTAssertEqual(full.share, "Media")
+        XCTAssertEqual(ServerAddress(typed: "nas.local/Media"), full)
+        XCTAssertEqual(ServerAddress(typed: "//nas.local/Media"), full)
+        XCTAssertEqual(ServerAddress(typed: "SMB://nas.local/Media"), full)
+
+        let spaced = try XCTUnwrap(ServerAddress(typed: "smb://account@nas.local/My Media"))
+        XCTAssertEqual(spaced.url.absoluteString, "smb://account@nas.local/My%20Media")
+        XCTAssertEqual(spaced.account, "account")
+        XCTAssertEqual(spaced.share, "My Media")
+
+        let server = try XCTUnwrap(ServerAddress(typed: "nas.local"))
+        XCTAssertEqual(server.url.absoluteString, "smb://nas.local")
+        XCTAssertNil(server.share)
+        XCTAssertEqual(ServerAddress(typed: "smb://nas.local/"), server)
+
+        for invalid in ["", "smb://", "afp://nas.local/Media", "smb://account:secret@nas.local/Media",
+                        "smb://:secret@nas.local/Media", "smb://@nas.local/Media", "smb://nas.local:445/Media",
+                        "smb://nas.local/Media/Movies", "smb://nas.local/%2E%2E", "smb://nas.local/a%2Fb",
+                        "smb://nas.local/Media?x=1", "smb://nas.local/Media#x", "smb://nas.local//Media"] {
+            XCTAssertNil(ServerAddress(typed: invalid), invalid)
+        }
+    }
+
+    func testServerAddressMatchesTheMountedShare() throws {
+        let mounted = try XCTUnwrap(ShareAddress("//account@NAS.local/Media"))
+        XCTAssertEqual(ServerAddress(typed: "nas.local/media")?.matches(mounted), true)
+        XCTAssertEqual(ServerAddress(typed: "account@nas.local/Media")?.matches(mounted), true)
+        XCTAssertEqual(ServerAddress(typed: "nas.local")?.matches(mounted), true)
+        XCTAssertEqual(ServerAddress(typed: "other@nas.local/Media")?.matches(mounted), false)
+        XCTAssertEqual(ServerAddress(typed: "nas.local/Photos")?.matches(mounted), false)
+        XCTAssertEqual(ServerAddress(typed: "other.local/Media")?.matches(mounted), false)
+    }
+
     func testUniqueNameAddsANumber() {
         XCTAssertEqual(LocationRecord.uniqueName("X copy", among: ["X"]), "X copy")
         XCTAssertEqual(LocationRecord.uniqueName("X copy", among: ["X", "X copy"]), "X copy 2")

@@ -28,6 +28,13 @@ enum UIText {
     static let fullShare = "Full share"
     static let select = "Select…"
     static let addShare = "Add Share…"
+    static let addShareTitle = "Type the address of the share."
+    static let addShareDescription = """
+        For example, smb://server/share. macOS asks for the password if it is necessary. Select “Remember this \
+        password in my keychain”, so that tinymounter can connect again.
+        """
+    static let addressPlaceholder = "smb://server/share"
+    static let connect = "Connect"
     static let noShare = "No share"
     static let connectionMode = "Connection Mode"
     static let fileProvider = "File Provider"
@@ -64,7 +71,7 @@ enum UIText {
     static let connected = "Connected"
     static let notConnected = "Not connected"
     static let removalNotComplete = "The removal is not complete."
-    static let connectInFinder = "Connect to the share with Connect to Server in Finder."
+    static let connectInServers = "Open Servers in tinymounter Settings. Then click Connect."
     static let selectShareAgain = "Select the share again in Servers."
     static let folderNotOnShare = "This folder is not on the share."
     static let catalogUnavailable = "tinymounter cannot read the data for this location. Remove the location. Then add it again."
@@ -111,18 +118,22 @@ enum UIText {
     static let domainsUnreadable = "tinymounter cannot read its locations from macOS. Quit tinymounter. Then open it again."
     static let wrongFolderPath = "This folder path is not correct. Type a path in the share."
     static let wrongName = "This name is not correct. Type a different name."
-    static let notVolumeRoot = "This folder is not a share. Select the share that you connected in Finder."
-    static let notSMBShare = "This volume is not an SMB share. Select the share that you connected in Finder."
+    static let notVolumeRoot = "This folder is not a share. Select the share, not a folder in it."
+    static let notSMBShare = "This volume is not an SMB share. To add a share, click Add Share…."
     static let addressRejected = "tinymounter cannot use the address of this share."
     static let otherShare = "This is a different share. To add it, click Add Share…."
-    static let shareNotMounted = "Connect to the share with Connect to Server in Finder. Then click Select… again."
+    static let shareNotMounted = "The share is not connected. In Servers, click Connect. Then click Select… again."
+    static let wrongAddress = "This address is not correct. Type an address such as smb://server/share."
+    static func passwordNotAccepted(_ host: String) -> String {
+        "\(host) did not accept the password. Type the password again."
+    }
     static let tooManyItems = "This folder has more than 100,000 items. tinymounter cannot show it."
     static let cannotShow = "Finder cannot show this location."
     static let serverInUse = "A location uses this share. Remove the location first."
     static func cannotDo(_ code: String) -> String { "tinymounter cannot do this (\(code))." }
 
     // Panels
-    static let selectShareMessage = "Select the share that you connected in Finder."
+    static let selectShareMessage = "Click Open to give tinymounter access to this share."
     static let selectFolderMessage = "Select a folder in the share."
 
     // Servers
@@ -130,7 +141,7 @@ enum UIText {
     static let notResponding = "Cannot connect"
     static let selectShareAgainShort = "Select the share again."
     static func accountAndShare(_ account: String, _ share: String) -> String { "\(account) · \(share)" }
-    static let noServers = "Add the share that you connected in Finder. Click Add Share…."
+    static let noServers = "To add a share, click Add Share…."
 
     // General
     static let openAtLogin = "Open at login"

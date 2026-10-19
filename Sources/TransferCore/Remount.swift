@@ -55,8 +55,7 @@ public struct RemountPolicy: Sendable {
             delay = .zero
             notBefore = .zero
             return .mounted
-        case ETIMEDOUT, EHOSTUNREACH, ENETUNREACH, EHOSTDOWN, ENETDOWN, ECONNREFUSED, ECONNRESET,
-             ECONNABORTED, ENOTCONN, EADDRNOTAVAIL, EAGAIN, EINTR:
+        case _ where Self.isNetworkFailure(status):
             delay = delay == .zero ? Self.firstDelay : min(delay * 2, Self.longestDelay)
             notBefore = now + delay
             return .retry(after: delay)
@@ -64,5 +63,11 @@ public struct RemountPolicy: Sendable {
             stopped = true
             return .stopped
         }
+    }
+
+    /// A mount status that can change when the server or the network does.
+    public static func isNetworkFailure(_ status: Int32) -> Bool {
+        [ETIMEDOUT, EHOSTUNREACH, ENETUNREACH, EHOSTDOWN, ENETDOWN, ECONNREFUSED, ECONNRESET,
+         ECONNABORTED, ENOTCONN, EADDRNOTAVAIL, EAGAIN, EINTR].contains(status)
     }
 }

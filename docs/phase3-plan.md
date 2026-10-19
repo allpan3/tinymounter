@@ -1,9 +1,11 @@
 # Phase 3: offline and NAS changes you can trust
 
-Date: 2026-10-18. Decision status: M11 done in the VM on 2026-10-18
-([M11 results](results/2026-10-18-reconnect-restart.md)). The user approved its behaviour on
-2026-10-18: the app connects the share again by itself, and it starts again after a crash but not
-after the user quits it. The design below is the agent's. The rest of phase 3 is not planned yet.
+Date: 2026-10-18. Decision status: M11 and M12 done in the VM on 2026-10-18
+([M11 results](results/2026-10-18-reconnect-restart.md), [M12 results](results/2026-10-18-connect-in-app.md)).
+The user approved their behaviour on 2026-10-18: the app connects the share again by itself, it
+starts again after a crash but not after the user quits it, and the user connects in the app,
+with only the locations in Finder. The design below is the agent's. The rest of phase 3 is not
+planned yet.
 
 This is phase 3 of [architecture §10](architecture.md#10-implementation-sequence-and-exit-criteria).
 It starts with M11, because in M9 macOS dropped the Finder connection after a 70 s outage, and an
@@ -81,12 +83,56 @@ Not testable in the VM: sleep and wake, a network change, and a Keychain without
 All 7 checks passed on 2026-10-18, also with SIGILL; the run found and fixed the two restart
 defects in §2.
 
-## 4. Milestones
+## 4. Connect in the app (M12)
+
+The user asked to connect in tinymounter instead of Finder, and to see only the locations in
+Finder. M12 keeps the macOS mount; phase 5's own connection would remove it.
+
+- **Add Share…** asks for the address, as Connect to Server does: `smb://server/share`, the same
+  without `smb://`, or only the server. The app asks macOS to mount it with `NetFSMountURLAsync`
+  and lets macOS show its own dialogs: the login dialog, with "Remember this password in my
+  keychain", when the Keychain has no password, and the share list for an address with no share.
+  The app never sees the password [V: M12]. An address with a password, a port or a folder below
+  the share is refused.
+- **The open panel stays.** The sandboxed app can't read a mount that it made (EPERM) until the
+  user selects it [V: M12]. So the panel opens on the new mount, and the user clicks Open. If the
+  user cancels it, the app unmounts the share that it mounted.
+- **Hidden from Finder.** The app mounts with `MNT_DONTBROWSE` (`nobrowse`), also when it mounts a
+  share again (§1). Finder's sidebar then shows only the locations, and the mount stays in
+  `/Volumes` [V: M12]. A share that the user connects in Finder stays visible, and the app uses it.
+- **Connect.** Servers shows Connect for a share that isn't connected, such as after an eject or
+  when the Keychain has no password. It mounts the saved address, with macOS's dialog if
+  necessary. The messages that said to use Connect to Server in Finder now say to click Connect.
+- **Removing a server** unmounts its hidden mount. A mount that Finder shows stays.
+
+Not built: Disconnect. The user can't eject a hidden share in Finder; `diskutil unmount` still
+works, and Connect brings the share back. If the user selects several shares in macOS's list, the
+panel opens on the first, and the others stay mounted, hidden.
+
+Checks, in the signed app in the VM:
+
+1. Add Share… with `smb://server/share` and the password in the Keychain: no dialog, the panel
+   opens on the share, and a location on it reads a file that matches the share. Finder's sidebar
+   doesn't show the share.
+2. An account that the Keychain doesn't have: macOS's login dialog shows. Cancel shows no message
+   and leaves no mount and no server.
+3. Only the server: macOS's share list shows. Cancel in the panel then unmounts the share.
+4. A share that is already mounted: the panel opens on it, and the server keeps its row.
+5. A forced unmount: the app mounts the share again, hidden.
+6. An eject, then Connect: the share is mounted, and a session starts.
+7. Removing the server unmounts its hidden mount. A wrong address shows a message.
+8. No mount and no stage file leaks, and no names in the log.
+
+Not testable in the VM: typing a password in macOS's dialog, which only the user does. All 8 checks
+passed on 2026-10-18.
+
+## 5. Milestones
 
 | # | Milestone | Question it answers | Needs |
 | --- | --- | --- | --- |
 | M11 | The app comes back by itself | Does the share come back after macOS drops it, and the app after a crash, with no change after an eject or a Quit? | M9 |
+| M12 | Connect in the app | Can the user connect in tinymounter, with macOS's own dialogs, and see only the locations in Finder? | M11 |
 
 The rest of phase 3, in [architecture §10](architecture.md#10-implementation-sequence-and-exit-criteria)
-order, is planned after M11: verified offline status for kept files, kept folders, NAS change
+order, is planned after M12: verified offline status for kept files, kept folders, NAS change
 discovery while the app runs, and cache pressure.
