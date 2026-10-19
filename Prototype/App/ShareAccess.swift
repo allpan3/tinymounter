@@ -864,8 +864,11 @@ final class LocationSource: @unchecked Sendable {
             let confirmed = lock.withLock {
                 heldSince[folderID].map { $0 + Catalog.confirmationDelay <= started } ?? false
             }
+            let located = ContinuousClock.now
             return try access.withSession { session, progressed in
+                let connected = ContinuousClock.now
                 let root = try session.locationRoot(folder)
+                let rootOpened = ContinuousClock.now
                 let listing = try shareCall(requestID, parent: parentID, context: .listing) {
                     try DirectoryListing.list(locationRoot: root, relativePath: path, expected: session.identity,
                                               progress: progressed)
@@ -909,6 +912,12 @@ final class LocationSource: @unchecked Sendable {
                     inserted=\(plan?.inserted ?? 0) updated=\(plan?.updated ?? 0) \
                     tombstoned=\(plan?.tombstoned ?? 0) skipped=\(skipped) checked=\(missing.count) \
                     held=\(applied ? 0 : 1) confirmed=\(confirmed ? 1 : 0) \
+                    lookup_ms=\(started.duration(to: located) / .milliseconds(1), format: .fixed(precision: 1)) \
+                    session_ms=\(located.duration(to: connected) / .milliseconds(1), format: .fixed(precision: 1)) \
+                    root_ms=\(connected.duration(to: rootOpened) / .milliseconds(1), format: .fixed(precision: 1)) \
+                    open_ms=\(listing.openDuration / .milliseconds(1), format: .fixed(precision: 1)) \
+                    bulk_ms=\(listing.bulkDuration / .milliseconds(1), format: .fixed(precision: 1)) \
+                    bulk_calls=\(listing.bulkCalls) \
                     list_ms=\(started.duration(to: listed) / .milliseconds(1), format: .fixed(precision: 1)) \
                     check_ms=\(listed.duration(to: checked) / .milliseconds(1), format: .fixed(precision: 1)) \
                     total_ms=\(started.duration(to: done) / .milliseconds(1), format: .fixed(precision: 1))

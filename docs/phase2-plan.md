@@ -977,8 +977,10 @@ On 2026-10-18 in the signed app in the VM ([M9 results](results/2026-10-18-exit-
 ### Defaults (D9)
 
 M3's slowest first listing, 4134.7 ms for 23 entries with the NAS cache state unknown, was close
-to the 5 s first-listing wait. M4's 24 first listings waited at most 259.5 ms. The deadline path
-itself was not reached; the default is unchanged.
+to the 5 s first-listing wait. M4's 24 first listings waited at most 259.5 ms. On 2026-10-18, a
+physical-Mac listing took 9.47 s for 5 entries and crossed that deadline; its retry joined the
+same listing. The cause remains under investigation in the
+[folder-navigation results](results/2026-10-18-first-folder-delay.md). The default is unchanged.
 
 | Default | Value |
 | --- | --- |
