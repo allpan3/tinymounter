@@ -139,8 +139,9 @@ periods:
 
 ## 10. What phase 2 implements
 
-The [phase 2 plan](phase2-plan.md) builds a read-only subset of this model in M4 and M5. It
-compiles and passes unit tests; none of it is verified at runtime yet.
+The [phase 2 plan](phase2-plan.md) builds a read-only subset of this model in M4 and M5. Its
+signed VM browsing and reads passed [runtime checks](results/2026-10-14-catalog-browsing-reads.md).
+Phase 3 extends that subset with verified offline status, folder keeps and change discovery.
 
 - **Tracked per item:** section 3's fields, in one SQLite catalog per File Provider location. The
   content version is size, mtime and ctime (D1); each transfer still checks device and inode on
@@ -157,14 +158,22 @@ compiles and passes unit tests; none of it is verified at runtime yet.
   share recovery. A folder is listed when the system enumerates it: before the first page if it
   was never listed, in the background if its last listing is over 60 s old. Launch and recovery
   list the materialized folders only, one at a time (D6). Each fetch checks the fingerprint.
-- **Not built:** FSEvents and `CHANGE_NOTIFY` watches, periodic reconciliation, rename matching (a
-  rename is a delete plus a create), Keep Downloaded with "Update in progress", and writes.
+- **Phase 3 additions:** M13 verifies local availability after provider synchronization; M14
+  adds recursive folder requests and aggregate status. M15 adds native SMB directory watches
+  through public Dispatch sources, periodic reconciliation and wake refresh. It covers listed
+  materialized and kept folders and parents of kept files. Watches are bounded to 64 per session;
+  scheduled listings run one at a time, due 60 s after success, with failure backoff. These are
+  scheduling policies, not the latency targets proposed in section 4. See the
+  [M15 plan](phase3-plan.md#m15-discover-nas-changes-while-the-app-runs) and
+  [signed VM results](results/2026-10-19-nas-change-discovery.md).
+- **Not built:** local FSEvents integration, rename matching and writes. A rename is still a
+  delete plus a create; its keep request does not follow.
 
-**The gap between relistings.** The system does not enumerate a materialized folder again by
-itself, so a NAS change in a folder that Finder already shows appears only at the next app launch
-or share recovery, or when a fetch finds the file changed. Until then, Finder shows the old
-listing, and a downloaded copy stays as it was: the system opens it without asking the extension.
-This falls short of rule 2 for downloaded copies and of the latency targets in section 4.
+**The gap between relistings.** A downloaded copy can stay stale until the next successful
+refresh, because the system opens it without asking the extension. Directory events can be
+missed, and large sets or failures delay scheduled work. Unvisited unkept trees are not scanned.
+Available offline covers the source version last observed by the app, not a continuous guarantee
+of NAS freshness. The broader latency targets in section 4 remain proposed.
 
 ## 11. Open decisions
 

@@ -97,6 +97,11 @@ No reviewed page establishes ≥90% native throughput for an offline-caching SMB
 
 ## Source register
 
+### Native SMB directory monitoring
+
+- **C1:** [DispatchSourceFileSystemObject](https://developer.apple.com/documentation/dispatch/dispatchsourcefilesystemobject) and [Apple's kernel-queue guide](https://developer.apple.com/library/archive/documentation/Darwin/Conceptual/FSEvents_ProgGuide/KernelQueues/KernelQueues.html), read on 2026-10-19. Public vnode sources observe a descriptor, with O_EVTONLY suitable for notification-only access.
+- **C2:** Apple's published [smbfs_vnop_monitor](https://github.com/apple-oss-distributions/smb/blob/main/kernel/smbfs/smbfs_vnops.c) calls the native change-notify setup for directories. The published [notify filters](https://github.com/apple-oss-distributions/smb/blob/main/kernel/smbfs/smbfs_notify_change.c) omit ordinary size and last-write changes. These sources establish a route and a coverage limit, not the installed kernel's exact implementation. A standalone read-only loopback SMB probe in the VM delivered two directory events for an orchestrated add/edit/delete sequence; periodic reconciliation remains necessary.
+
 ### Apple File Provider
 
 - **A1:** [NSFileProviderPartialContentFetching](https://developer.apple.com/documentation/fileprovider/nsfileproviderpartialcontentfetching) — availability, POSIX limitation, video example. Read the official DocC payload at `https://developer.apple.com/tutorials/data/documentation/fileprovider/nsfileproviderpartialcontentfetching.json`.

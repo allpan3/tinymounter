@@ -27,6 +27,8 @@ final class ShareSession: @unchecked Sendable {
     private let url: URL
     private let lock = NSLock()
     private var locationRoots: [RelativePath: Int32] = [:]
+    private var watches: [String: [String: DirectoryWatch]] = [:]
+    private static let maximumWatches = 64
 
     fileprivate init(root: Int32, mount: MountEntry, url: URL) {
         self.root = root
@@ -36,6 +38,7 @@ final class ShareSession: @unchecked Sendable {
     }
 
     deinit {
+        watches.removeAll()
         for fd in locationRoots.values { close(fd) }
         close(root)
         url.stopAccessingSecurityScopedResource()
@@ -67,6 +70,34 @@ final class ShareSession: @unchecked Sendable {
             }
             locationRoots[folder] = fd
             return fd
+        }
+    }
+
+    func keepWatches(domainID: String, folders: Set<String>) {
+        lock.withLock {
+            watches[domainID] = watches[domainID]?.filter { folders.contains($0.key) }
+            if watches[domainID]?.isEmpty == true { watches[domainID] = nil }
+        }
+    }
+
+    func watch(domainID: String, folderID: String, path: RelativePath,
+               changed: @escaping @Sendable () -> Void) throws {
+        let needed = lock.withLock {
+            watches[domainID]?[folderID] == nil && watches.values.reduce(0) { $0 + $1.count } < Self.maximumWatches
+        }
+        guard needed else { return }
+        let descriptor = try openFolder(path)
+        let watch = DirectoryWatch(descriptor: descriptor) { [weak self] events in
+            if !events.intersection([.delete, .rename, .revoke]).isEmpty {
+                self?.lock.withLock { self?.watches[domainID]?[folderID] = nil }
+            }
+            changed()
+        }
+        lock.withLock {
+            if watches[domainID]?[folderID] == nil,
+               watches.values.reduce(0, { $0 + $1.count }) < Self.maximumWatches {
+                watches[domainID, default: [:]][folderID] = watch
+            }
         }
     }
 
@@ -166,6 +197,10 @@ final class ShareAccess: @unchecked Sendable {
     }
 
     var hasSession: Bool { lock.withLock { session != nil } }
+
+    func keepWatches(domainID: String, folders: Set<String>) {
+        lock.withLock { session }?.keepWatches(domainID: domainID, folders: folders)
+    }
 
     var state: ShareHealth.State { lock.withLock { health.state } }
 
@@ -691,6 +726,8 @@ final class LocationSource: @unchecked Sendable {
     /// The last root listing found no location folder (plan §7, "This folder is not on the share").
     private var rootMissing = false
     private var changeHandler: (@Sendable () -> Void)?
+    private var directoryHandler: (@Sendable ([String]) -> Void)?
+    private var watchedFolders: Set<String> = []
     private static let listingLog = Logger(subsystem: "dev.tinymounter.prototype", category: "listing")
     private static let fetchLog = Logger(subsystem: "dev.tinymounter.prototype", category: "fetch")
 
@@ -704,12 +741,36 @@ final class LocationSource: @unchecked Sendable {
     }
 
     /// Closes the writer connection; later calls fail with `catalogClosed`.
-    func close() { catalogLock.withLock { catalog = nil } }
+    func close() {
+        catalogLock.withLock { catalog = nil }
+        setDiscoveryFolders([])
+    }
 
     var isRootMissing: Bool { lock.withLock { rootMissing } }
 
     /// Called when `isRootMissing` or the kept files change, on the queue that changed them.
     func onChange(_ handler: @escaping @Sendable () -> Void) { lock.withLock { changeHandler = handler } }
+
+    func onDirectoryChange(_ handler: @escaping @Sendable ([String]) -> Void) {
+        lock.withLock { directoryHandler = handler }
+    }
+
+    func setDiscoveryFolders(_ folders: Set<String>) {
+        lock.withLock { watchedFolders = folders }
+        access.keepWatches(domainID: domainID, folders: folders)
+    }
+
+    func discoveryFolders(materialized: [String]) throws -> Set<String> {
+        try withCatalog { catalog in
+            let kept = try catalog.keptItems()
+            let ids = Set(materialized + [Catalog.rootItemID] + kept.filter { $0.kind == .folder }.map(\.id)
+                          + kept.compactMap(\.parentID))
+            return try Set(ids.filter { id in
+                guard let row = try catalog.item(id: id) else { return false }
+                return !row.deleted && row.kind == .folder && row.listGen != nil
+            })
+        }
+    }
 
     /// Explicit requests, by item ID, with their paths below the location folder.
     func keptPaths() throws -> [(id: String, path: RelativePath, kind: CatalogRow.Kind)] {
@@ -905,6 +966,19 @@ final class LocationSource: @unchecked Sendable {
                     return confirmations.insert(folderID).inserted
                 }
                 if confirm { scheduleConfirmation(folderID) }
+                if applied, lock.withLock({ watchedFolders.contains(folderID) }),
+                   let fullPath = folder.appending(path) {
+                    do {
+                        try session.watch(domainID: domainID, folderID: folderID, path: fullPath) { [weak self] in
+                            guard let self else { return }
+                            Self.listingLog.info("directory_hint domain=\(self.domainID, privacy: .public) folder=\(folderID, privacy: .public)")
+                            self.lock.withLock { self.directoryHandler }?([folderID] + (parentID.map { [$0] } ?? []))
+                        }
+                        session.keepWatches(domainID: domainID, folders: lock.withLock { watchedFolders })
+                    } catch {
+                        Self.listingLog.error("directory_watch folder=\(folderID, privacy: .public) \(logFields(error), privacy: .public)")
+                    }
+                }
                 if changed > 0 { scheduleSignal() }
                 if applied { lock.withLock { changeHandler }?() }
                 if folderID == Catalog.rootItemID { setRootMissing(false) }

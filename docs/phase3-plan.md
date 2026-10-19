@@ -4,8 +4,9 @@ Date: 2026-10-18. Decision status: M11 and M12 done in the VM on 2026-10-18
 ([M11 results](results/2026-10-18-reconnect-restart.md), [M12 results](results/2026-10-18-connect-in-app.md)).
 The user approved their behaviour on 2026-10-18: the app connects the share again by itself, it
 starts again after a crash but not after the user quits it, and the user connects in the app,
-with only the locations in Finder. The design below is the agent's. The rest of phase 3 is not
-planned yet.
+with only the locations in Finder. The design below is the agent's. M13 to M15 add verified
+offline status, folder keeps and live change discovery below. Cache pressure handling and the
+remaining domain lifecycle work are not planned yet.
 
 Physical-Mac follow-up, 2026-10-19: the user reports the supplied checks passed except macOS
 restart, including sleep and wake and a network change. Logs show partial playback reads and
@@ -202,7 +203,7 @@ changed versions still require synchronization. Folder status uses current membe
 completeness. Provider disablement or replacement clears the remembered verification. The signed
 comparison and 175 tests passed; the user-approved update is installed on the physical Mac
 ([results](results/2026-10-19-keep-status-refresh.md)). Available offline refers to the latest source
-version the app has observed; continuous NAS change discovery remains later work.
+version the app has observed; M15 below adds live discovery with bounded refresh intervals.
 
 The tested materialized-item projection returned unusable download flags and omitted its opaque
 content version and userInfo. The public stabilization barrier supplies the consistency check
@@ -271,3 +272,38 @@ never request an uncontrolled NAS tree. Record matched before/after actions and 
 in the VM before offering a signed physical-Mac build. These checks passed: 170 tests, required
 builds, matched recordings and the signed fixture run. The temporary VM sharing setup and downloads
 were removed, and the previous sharing settings were restored.
+
+### M15: discover NAS changes while the app runs
+
+Decision status: scope accepted under the user's 2026-10-19 instruction to continue in phase
+order. Implementation choices below are the agent's; signed isolated VM verification passed
+on 2026-10-19 ([results](results/2026-10-19-nas-change-discovery.md)).
+The user approved temporary isolated VM sharing for the checks. Physical-Mac installation and
+publication are not approved.
+
+Monitor directory vnodes through public Dispatch sources on the native SMB mount. Apple's SMB
+client connects directory monitoring to CHANGE_NOTIFY. These are hints, not deletion evidence;
+the existing complete-listing, absence checks and delayed confirmation remain unchanged. There
+are at most 64 watches per mount session. They use O_EVTONLY descriptors and end with their
+session or when their location/folder is removed from monitoring.
+
+Monitor the root, materialized folders and already listed folders in kept trees. Never walk an
+unvisited unkept tree. Periodic listings cover missed or unsupported notifications, including file
+content edits. A successful listing is due again after 60 seconds. One automatic listing runs
+at a time, with a one-second gap between completions; due folders rotate fairly across domains.
+Large sets therefore take longer than one interval. Events coalesce and have a two-second minimum
+per-folder interval. Failed folders back off through 30, 60, 120 and 240 seconds. Disconnected,
+unresponsive, disabled and removing locations do no scheduled source I/O. Launch/recovery keep
+the existing reconciliation; wake also requests a refresh.
+
+Changes use the catalog's current identity rules. Rename is still delete plus create; a keep
+request does not follow a rename. No format, remote write, new dependency or UI change is added.
+Available offline remains a check of the source version last observed, rather than a guarantee
+that the NAS cannot change between refreshes.
+
+The signed fixture run passed external addition, same-size/mtime content edits, rename and
+deletion without app relaunch; a new descendant in a kept tree; matching kept-file hashes with
+hydration forbidden; failed-listing preservation; and normal eject/reconnect. Matched Finder
+recordings show an external addition before and after M15. All 182 tests and required checks
+passed, with no Swift warnings. Cleanup and final diagnostics are recorded in the results log.
+The physical Mac, QSpace and broader NAS notification coverage remain unverified.
