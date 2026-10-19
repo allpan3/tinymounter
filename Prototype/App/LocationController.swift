@@ -185,6 +185,8 @@ final class LocationController {
     /// Connect mounted the share: its session starts now.
     func shareMounted(_ grantID: UUID) { shares[grantID]?.checkNow() }
 
+    func disconnectFailed(_ grantID: UUID) { shares[grantID]?.unmountFailed() }
+
     /// The share's mount path, for Select…; nil if it isn't mounted.
     func mountPath(_ grantID: UUID) -> String? {
         guard let grant = store.settings?.servers.first(where: { $0.id == grantID }) else { return nil }

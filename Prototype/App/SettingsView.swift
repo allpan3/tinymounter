@@ -427,8 +427,10 @@ private struct ServersPane: View {
                         }
                         Spacer()
                         Text(model.shareStatus(grant)).foregroundStyle(.secondary)
-                        if model.shareStates[grant.id] ?? .notConnected == .notConnected {
-                            Button(UIText.connect) { model.connect(grant) }
+                        switch model.shareStates[grant.id] ?? .notConnected {
+                        case .notConnected: Button(UIText.connect) { model.connect(grant) }
+                        case .connected, .unresponsive: Button(UIText.disconnect) { model.disconnect(grant) }
+                        case .needsGrant: EmptyView()
                         }
                         Button(UIText.selectAgain) { Task { await model.selectShare(again: grant) } }
                     }

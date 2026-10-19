@@ -137,7 +137,8 @@ the first location on a server.
 - **Servers:** one row per server: address, account, Keychain password, connection state, SMB
   dialect and signing. Edit… changes the account or password for all locations on that server.
   M12 builds less: Add Share… asks only for the address, and macOS asks for the password and
-  keeps it in the Keychain. A share that is not connected shows Connect.
+  keeps it in the Keychain. A share that is not connected shows Connect, and a connected share
+  shows Disconnect, because Finder can't eject a hidden share.
   Later, for server volumes: connect again after sleep and network changes, and which networks to
   use.
 - **About:** version, acknowledgements, and Export Diagnostics. The export does not include file
