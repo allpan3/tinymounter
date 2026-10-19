@@ -427,6 +427,9 @@ private struct ServersPane: View {
                         }
                         Spacer()
                         Text(model.shareStatus(grant)).foregroundStyle(.secondary)
+                        if model.shareStates[grant.id] ?? .notConnected == .notConnected {
+                            Button(UIText.connect) { model.connect(grant) }
+                        }
                         Button(UIText.selectAgain) { Task { await model.selectShare(again: grant) } }
                     }
                     .padding(.vertical, 2)
@@ -438,7 +441,7 @@ private struct ServersPane: View {
                 if model.servers.isEmpty { Text(UIText.noServers).foregroundStyle(.secondary) }
             }
             HStack(spacing: 0) {
-                Button { Task { await model.selectShare() } } label: {
+                Button { Task { await model.addShare() } } label: {
                     Image(systemName: "plus").frame(width: 24, height: 20)
                 }
                 .help(UIText.addShare)

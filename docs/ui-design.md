@@ -6,7 +6,9 @@ lists the decisions that are still open. On 2026-10-12 the user decided Duplicat
 locations, saved Keep Downloaded lists and Pause Downloads (sections 4 and 5). Phase 2 builds the
 subset in [phase2-plan.md](phase2-plan.md#1-decisions); M7 built the Settings window, the menu
 bar item and notifications, and M8 the Storage pane and folder completion, with the changes that
-[phase 2 §8](phase2-plan.md#8-ui) records.
+[phase 2 §8](phase2-plan.md#8-ui) records. On 2026-10-18 the user approved connecting in the app
+(M12, [phase 3 §4](phase3-plan.md#4-connect-in-the-app-m12)), with the Servers change in
+section 4.3.
 Interactive mockup: [ui-mockup.html](ui-mockup.html).
 
 ## 1. Principles
@@ -134,6 +136,8 @@ the first location on a server.
   free" for kept downloads, and Remove Downloads for downloads that the user does not keep.
 - **Servers:** one row per server: address, account, Keychain password, connection state, SMB
   dialect and signing. Edit… changes the account or password for all locations on that server.
+  M12 builds less: Add Share… asks only for the address, and macOS asks for the password and
+  keeps it in the Keychain. A share that is not connected shows Connect.
   Later, for server volumes: connect again after sleep and network changes, and which networks to
   use.
 - **About:** version, acknowledgements, and Export Diagnostics. The export does not include file

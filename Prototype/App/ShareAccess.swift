@@ -457,18 +457,67 @@ final class ShareAccess: @unchecked Sendable {
             return
         }
         Self.logger.info("share=\(self.grantID.uuidString, privacy: .public) remount_started")
-        let options = NSMutableDictionary()
-        options["UIOption"] = "NoUI"
-        var request: AsyncRequestID?
-        let status = NetFSMountURLAsync(url as CFURL, nil, nil, nil, options, nil, &request, monitor) {
-            [weak self] status, _, _ in self?.mountFinished(status: status, started: started)
+        let request = Self.mount(url, showsUI: false, queue: monitor) { [weak self] status, _ in
+            self?.mountFinished(status: status, started: started)
         }
-        if status == 0 {
-            lock.withLock { mountRequest = request }
-        } else {
-            mountFinished(status: status, started: started)
+        if let request { lock.withLock { mountRequest = request } }
+    }
+
+    /// M12: the mount is hidden from Finder, which then shows only the locations. With `showsUI`,
+    /// macOS asks for a missing password or share itself, so the app never sees either.
+    @discardableResult
+    private static func mount(_ url: URL, showsUI: Bool, queue: DispatchQueue,
+                              done: @escaping @Sendable (Int32, [String]) -> Void) -> AsyncRequestID? {
+        let openOptions = NSMutableDictionary()
+        if !showsUI { openOptions["UIOption"] = "NoUI" }
+        let mountOptions = NSMutableDictionary()
+        mountOptions[kNetFSMountFlagsKey] = MNT_DONTBROWSE
+        var request: AsyncRequestID?
+        let status = NetFSMountURLAsync(url as CFURL, nil, nil, nil, openOptions, mountOptions, &request, queue) {
+            status, _, points in done(status, (points as? [String]) ?? [])
+        }
+        guard status == 0 else {
+            queue.async { done(status, []) }
+            return nil
+        }
+        return request
+    }
+
+    /// Add Share… and Connect: the status, and the mount points if macOS mounted the share.
+    static func mount(_ url: URL) async -> (status: Int32, paths: [String]) {
+        let started = ContinuousClock.now
+        let (status, paths) = await withCheckedContinuation { continuation in
+            mount(url, showsUI: true, queue: .global(qos: .userInitiated)) { continuation.resume(returning: ($0, $1)) }
+        }
+        let ms = started.duration(to: .now) / .milliseconds(1)
+        logger.info("share_mount status=\(status) mountpoints=\(paths.count) ms=\(ms, format: .fixed(precision: 1))")
+        return (status, paths)
+    }
+
+    /// Where a share that is already mounted is (EEXIST gives no mount point); nil if it isn't.
+    static func mountPath(of address: ServerAddress) -> String? {
+        (try? MountEntry.current())?.first { mount in
+            mount.isRemoteSMB && ShareAddress(mount.identity.mountFrom).map(address.matches) == true
+        }?.mountOn
+    }
+
+    /// M12: a removed server's hidden mount goes too. A mount that Finder shows stays.
+    func unmountHidden() {
+        guard let mount = (try? MountEntry.current()).flatMap({ candidates(in: $0).first(where: \.isHidden) }) else {
+            return
+        }
+        Self.unmount(mount.mountOn, reason: "server_removed")
+    }
+
+    /// Also when the user doesn't select a share that Add Share… mounted.
+    static func unmount(_ path: String, reason: String) {
+        FileManager.default.unmountVolume(at: URL(filePath: path, directoryHint: .isDirectory), options: [.withoutUI]) {
+            error in logger.info("share_unmount reason=\(reason, privacy: .public) ok=\(error == nil ? 1 : 0)")
         }
     }
+
+    /// After Connect: the mount table now, rather than at the next poll.
+    func checkNow() { monitor.async { [self] in checkMountTable() } }
 
     private func mountFinished(status: Int32, started: ContinuousClock.Instant) {
         let outcome = lock.withLock {
@@ -949,6 +998,7 @@ private struct MountEntry {
     let identity: MountIdentity
     let mountOn: String
     let isLocal: Bool
+    let isHidden: Bool
 
     init(_ info: statfs) {
         identity = MountIdentity(info)
@@ -956,6 +1006,7 @@ private struct MountEntry {
             String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self)
         }
         isLocal = info.f_flags & UInt32(MNT_LOCAL) != 0
+        isHidden = info.f_flags & UInt32(MNT_DONTBROWSE) != 0
     }
 
     init(descriptor: Int32) throws {

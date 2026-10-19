@@ -39,7 +39,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         case _ where !hasLocations:
             break
         case (.connected, .notConnected):
-            post(grant, title: UIText.shareDisconnected(grant.share), body: UIText.connectInFinder)
+            post(grant, title: UIText.shareDisconnected(grant.share), body: UIText.connectInServers)
         case (.connected, .unresponsive):
             post(grant, title: UIText.cannotConnectTitle(grant.host), body: UIText.onSameNetwork(grant.host))
         default:
@@ -50,7 +50,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     /// A download that the user started failed because the share is not connected or does not respond.
     func downloadFailed(_ grant: ServerGrant, _ failure: SourceFailure) {
         post(grant, title: UIText.downloadFailedTitle,
-             body: failure == .notConnected ? UIText.connectInFinder : UIText.onSameNetwork(grant.host))
+             body: failure == .notConnected ? UIText.connectInServers : UIText.onSameNetwork(grant.host))
     }
 
     private func post(_ grant: ServerGrant, title: String, body: String) {

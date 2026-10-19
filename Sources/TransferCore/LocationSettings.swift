@@ -220,3 +220,47 @@ public struct ShareAddress: Hashable, Sendable {
         self.share = share
     }
 }
+
+/// What the user types in Add Share, as in Connect to Server: "smb://server/share", without the
+/// scheme, or only the server. The account is optional; a password is never accepted.
+public struct ServerAddress: Equatable, Sendable {
+    public let url: URL
+    public let host: String
+    public let account: String?
+    /// Nil for only the server: macOS then asks which share to mount.
+    public let share: String?
+
+    public init?(typed text: String) {
+        var text = text.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: " ", with: "%20")
+        if !text.contains("://") { text = (text.hasPrefix("//") ? "smb:" : "smb://") + text }
+        guard var components = URLComponents(string: text), components.scheme?.lowercased() == "smb",
+              components.password == nil, components.port == nil, components.query == nil, components.fragment == nil,
+              let host = components.host, !host.isEmpty, components.user.map({ !$0.isEmpty }) ?? true else {
+            return nil
+        }
+        // Split before decoding, so an encoded "/" can't add a component.
+        var parts = components.percentEncodedPath.split(separator: "/", omittingEmptySubsequences: false)
+        if parts.count > 1, parts.last?.isEmpty == true { parts.removeLast() }
+        guard parts.first?.isEmpty ?? true, parts.count <= 2 else { return nil }
+        if parts.count == 2 {
+            guard let share = parts[1].removingPercentEncoding, RelativePath.isValidComponent(share) else { return nil }
+            self.share = share
+        } else {
+            share = nil
+        }
+        components.scheme = "smb"
+        components.percentEncodedPath = parts.count == 2 ? "/" + parts[1] : ""
+        guard let url = components.url else { return nil }
+        self.url = url
+        self.host = host
+        account = components.user
+    }
+
+    /// For a share that is already mounted: the same server and share, and the account if typed.
+    public func matches(_ mounted: ShareAddress) -> Bool {
+        func same(_ typed: String?, _ other: String) -> Bool {
+            typed.map { $0.caseInsensitiveCompare(other) == .orderedSame } ?? true
+        }
+        return same(host, mounted.host) && same(share, mounted.share) && same(account, mounted.account)
+    }
+}

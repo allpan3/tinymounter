@@ -34,7 +34,9 @@ The user's decisions:
    the mounted share root once in tinymounter's Servers pane (`NSOpenPanel`). A location is a
    saved server grant, a share and a folder path in it. tinymounter stores no passwords; macOS
    keeps them. This stands in for "Keychain" in the phase 2 definition. After the transport
-   decision, tinymounter's own Keychain-based connection replaces it.
+   decision, tinymounter's own Keychain-based connection replaces it. Since M12, the user types
+   the address in tinymounter instead of connecting in Finder
+   ([phase 3 §4](phase3-plan.md#4-connect-in-the-app-m12)).
 3. **Keep Downloaded is a request.** Finder gets Keep Downloaded and Allow Removal. The location
    pane lists the requests as "Requested". A verified "Available offline" and keeping whole
    folders are phase 3.

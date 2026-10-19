@@ -107,7 +107,9 @@ fails every request with `serverUnreachable` and never reports an item as delete
 
 **Share grant (M3).** Verified in the signed sandboxed app on 2026-10-12; see the
 [M3 results](results/2026-10-12-share-grant.md). **Add Share…**, in a location's Server menu or
-with `+` in Servers, opens `NSOpenPanel` at `/Volumes`. The app accepts only a mounted smbfs
+with `+` in Servers, asks for the share's address, such as `smb://server/share`. macOS mounts it,
+hidden from Finder, and asks for the password if the Keychain has none (M12). Then `NSOpenPanel`
+opens on the share, and the user clicks Open. The app accepts only a mounted smbfs
 volume root with `MNT_LOCAL` clear whose address has an account and no password. It saves a
 read-only, security-scoped **app-scoped** bookmark and the mount's `f_mntfromname` in
 `Application Support/tinymounter/Settings.json` in the app container (mode 0600, never in the App
@@ -198,8 +200,8 @@ xcodebuild -project TinyMounter.xcodeproj -scheme TinyMounterPrototype -configur
 
 ## 3. First runtime validation
 
-1. Remove the phase 1 fixture domains first (D3). Then build, sign and launch the app. With the
-   share connected in Finder, click **Add Share…** in the Server menu and select the share root.
+1. Remove the phase 1 fixture domains first (D3). Then build, sign and launch the app. Click
+   **Add Share…** in the Server menu, type the share's address, and click Open in the panel.
 2. Type a folder and a name, click **Add**, then **Show in Finder**. Browse the root and
    two levels down. The listing log gives each folder's entry count, skipped names and times.
 3. Read a range of a file at least two levels deep through its CloudStorage path, then the same
@@ -269,10 +271,12 @@ and catalog formats it knows, so a format change needs a migration.
 
 1. In Settings, click **Remove Location…** for each location. This removes it from Finder with its
    downloaded copies. The files on the share don't change.
-2. In General, turn off **Open at login**.
-3. Click **Quit tinymounter** in the menu bar item.
-4. Delete `TinyMounterPrototype.app`.
-5. Optionally, delete its data: `~/Library/Containers/<bundle ID>` and
+2. In Servers, select each server and click `−`. This disconnects a share that tinymounter
+   connected, which Finder doesn't show (M12).
+3. In General, turn off **Open at login**.
+4. Click **Quit tinymounter** in the menu bar item.
+5. Delete `TinyMounterPrototype.app`.
+6. Optionally, delete its data: `~/Library/Containers/<bundle ID>` and
    `~/Library/Containers/<bundle ID>.provider`, and
    `~/Library/Group Containers/<team>.<bundle ID>`. They hold the share grant, the settings and the
    catalogs, which hold the names of the files on the share.
@@ -285,7 +289,7 @@ the removal.
 
 ## Deliberate limitations
 
-- Read-only, on the user's own Finder connection: one grant per share, and locations that are folders on it. When macOS drops a share that has locations, the app asks macOS to mount it again with the password that the user saved in the Keychain; after an eject, it waits until the share is mounted again (M11). The app never writes, renames or deletes on the share.
+- Read-only, on a macOS mount: one grant per share, and locations that are folders on it. The app asks macOS to mount the address that the user types, with macOS's own dialogs, and hides the mount from Finder's sidebar, so that Finder shows only the locations (M12). When macOS drops a share that has locations, the app asks macOS to mount it again with the password that the user saved in the Keychain; after an eject, it waits until the share is mounted again, or until the user clicks Connect in Servers (M11, M12). The user can't eject a hidden share in Finder. The app never writes, renames or deletes on the share.
 - Keep Downloaded is a request for each file, not proof of a download (phase 2 decision 3). The system downloads a kept file only when its parent folder is materialized: a kept file in a folder that the system never enumerated waits until the folder is enumerated. Evicting a kept file fails; evicting its folder evicts it, and the system downloads it again at once. The location pane lists the requests as "Requested", not their download state. Remove Location can save them, and a later location on the same share takes the ones inside its folder; for files in folders that the system hasn't listed, the app asks whether to download them now (M7).
 - Pause Downloads sets `paused` in every catalog. Kept files then report `.downloadLazily` and read-ahead stops. The extension cancels its running system and speculative fetches and refuses those that start while paused. A background fetch that is still waiting for the first reader connection is cancelled when the reader connects. Files that apps open, and Finder's Download Now, still download. Resume and each app launch clear Pause. Changes run one at a time, in order. A failed change shows a message, and while a catalog may still be paused, the menu bar item offers Resume Downloads. While paused, the user can also remove a kept file's download; Resume downloads it again. Whether kept files stay on disk while paused when the system needs the space is untested.
 - NAS changes show only after a listing: when the system enumerates a never-listed or evicted folder; in the background when it enumerates a folder listed over 60 s ago; for each materialized folder at app launch and after the share recovers; and as a fingerprint check at each fetch. There is no `CHANGE_NOTIFY` and no polling, so a change between these events doesn't show, and a downloaded copy stays stale until then. A NAS rename is a delete plus a create.
