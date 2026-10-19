@@ -632,6 +632,20 @@ final class AppModel {
         }
     }
 
+    /// Servers › Disconnect: the share stays unmounted until Connect, with no notification.
+    func disconnect(_ grant: ServerGrant) {
+        guard let path = controller.mountPath(grant.id) else { return controller.shareMounted(grant.id) }
+        notifier.userDisconnected(grant.id)
+        ShareAccess.unmount(path, reason: "disconnect") { [self] ok in
+            guard !ok else { return }
+            Task { @MainActor in
+                notifier.disconnectFailed(grant.id)
+                controller.disconnectFailed(grant.id)
+                show(UIText.cannotDisconnect(grant.share))
+            }
+        }
+    }
+
     /// Select Again… or the end of Add Share…. Returns the saved grant's ID.
     @discardableResult
     func selectShare(again existing: ServerGrant? = nil, at path: String? = nil) async -> UUID? {

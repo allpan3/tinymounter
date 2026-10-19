@@ -47,6 +47,12 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
+    /// The user disconnects the share, so its outage gets no notification.
+    func userDisconnected(_ grantID: UUID) { notified.insert(grantID) }
+
+    /// The share is still mounted.
+    func disconnectFailed(_ grantID: UUID) { notified.remove(grantID) }
+
     /// A download that the user started failed because the share is not connected or does not respond.
     func downloadFailed(_ grant: ServerGrant, _ failure: SourceFailure) {
         post(grant, title: UIText.downloadFailedTitle,

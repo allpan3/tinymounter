@@ -4,8 +4,8 @@
 
 In the signed app in the VM, the user connects a share in tinymounter instead of Finder, and
 Finder's sidebar shows only the tinymounter location. macOS shows its own login dialog and share
-list, so the app never sees a password. All 8 checks of the
-[phase 3 plan](../phase3-plan.md#4-connect-in-the-app-m12) passed.
+list, so the app never sees a password. Disconnect in Servers replaces Finder's Eject. All 9
+checks of the [phase 3 plan](../phase3-plan.md#4-connect-in-the-app-m12) passed.
 
 | Question | Answer |
 | --- | --- |
@@ -15,6 +15,7 @@ list, so the app never sees a password. All 8 checks of the
 | Does Finder show the share? | **No.** With `MNT_DONTBROWSE`, Finder's sidebar showed only the location. A full read of a 307 MB file through the location matched the share by SHA-256. |
 | Does a mount by the app stay hidden? | **Yes.** After a forced unmount, the app mounted the share again in 3.1 s, with `nobrowse`. |
 | Does Connect work? | **Yes.** After an eject, Connect mounted the saved address in 1.27–1.49 s, and a session started. |
+| Does Disconnect work? | **Yes.** It unmounted the share 0.25 s after the click. The app held the share as after an eject, with no notification, until Connect. With a folder on the share open in another process, the unmount failed, the app showed its message, and a session started again 5 ms later. |
 | Leaks | **None.** Removing the server unmounted its hidden mount, and Cancel in the open panel unmounted the share that Add Share had mounted. 0 stage files. No log line held a share, host, account or file name. |
 
 Not established: typing a password in macOS's dialog and its Keychain checkbox, which only the
@@ -26,7 +27,7 @@ user does; Finder's Desktop; several shares selected at once in macOS's list; th
   the `connect-in-app` branch; `codesign --verify --deep --strict` passed. The VM's
   `Tools/run-checks.sh` passed: 152 tests, 0 failures, and the required builds.
 - One SMB share on the NAS, with its password saved in the VM's Keychain. The location was on the
-  M11 test folder. Runs from 17:58 to 18:26 US/Pacific.
+  M11 test folder, and Disconnect's on the full share. Runs from 17:58 to 18:50 US/Pacific.
 - First a spike build with signal triggers answered the unknowns: macOS's dialogs, where the mount
   goes, whether the app can read its own mount, `MNT_DONTBROWSE`, the open panel on a hidden mount,
   and `FileManager.unmountVolume` from the sandbox. Then the M12 build ran the checks in the
@@ -66,6 +67,19 @@ user does; Finder's Desktop; several shares selected at once in macOS's list; th
 | — | Select Again… | The panel opened on the hidden mount. |
 | 18:26:05 | Remove Location | Removed; no CloudStorage folder left. |
 
+### Disconnect
+
+A later build added Disconnect. The VM's `Tools/run-checks.sh` passed again: 152 tests, 0
+failures.
+
+| Time | Step | Result |
+| --- | --- | --- |
+| 18:48:05 | Disconnect, with a location on the share | `remount_held` and `session_ended reason=will_unmount`, then `share_unmount reason=disconnect ok=1` 0.25 s after the click. No smbfs mount 30 s later, and no notification. Servers showed "Not connected" and Connect. |
+| 18:48:57 | Connect | Status 0 in 1480 ms, `nobrowse`; session, Connected. |
+| 18:49:13 | Disconnect, while a shell process held the share's root folder open | `share_unmount ok=0 error=769` (`NSFileManagerUnmountBusyError`) 22 ms after `willUnmount`. The message "tinymounter cannot disconnect “<share>”. Close the files that are open on it. Then try again."; a session 5 ms after the failure, Connected. |
+| 18:49:53 | `diskutil unmount`, the control | `remount_held`, and the app posted its notification. Connect: mounted in 1490 ms. |
+| 18:50:20 | Remove Location | Removed; no CloudStorage folder left. |
+
 ## Correctness and limits
 
 - The read through the location matched the share by SHA-256. The test file was evicted after
@@ -74,7 +88,8 @@ user does; Finder's Desktop; several shares selected at once in macOS's list; th
   `temp_stage_files=0` in the extension.
 - Of the 107 log lines of the M12 build, 20 matched a word from the name check: a common word
   that is both a folder name on the share and part of the app's own log category. No line held a
-  share, host, account or file name.
+  share, host, account or file name. Of the 45 log lines of the Disconnect build, 1 matched the
+  same word.
 - The first read through the new location waited for a macOS prompt, "VMPal Tools wants to access
   files managed by TinyMounterPrototype". It is for the VM's tools, not for users; after Allow, the
   read ran.
@@ -83,8 +98,8 @@ user does; Finder's Desktop; several shares selected at once in macOS's list; th
   pinned alert, and Notification Center showed it again at each display wake until the agent
   closed it. The log of the last 4 days holds no other notice from Background Task Management, and
   `sfltool dumpbtm` lists no login item for the app.
-- A hidden share can't be ejected in Finder. There is no Disconnect; Connect brings the share back
-  after `diskutil unmount`.
+- A hidden share can't be ejected in Finder; Disconnect replaces Eject. macOS posts `willUnmount`
+  before an unmount can fail, so a failed Disconnect ends the session for a moment.
 - Times are from one VM and one NAS. They are not performance measurements.
 
 ## Evidence
@@ -92,9 +107,11 @@ user does; Finder's Desktop; several shares selected at once in macOS's list; th
 Private, gitignored, in the VM's `.local/phase2/`:
 
 - `m12-checks.log` and `m12-signed-build.log`: the checks and the signed build. `m12-log.txt`:
-  the log lines that the name check read.
+  the log lines that the name check read. `m12d-checks.log`, `m12d-signed-build.log` and
+  `m12d-log.txt`: the same for Disconnect.
 - Helpers: `m12-read.py` (a read and its SHA-256 against the share), `m12-namelines.py` (the
-  matched lines with the names masked), `m12-log.sh`, `spike-log.sh`, `m9-lognames.py`, `evict`.
+  matched lines with the names masked), `m12-log.sh`, `spike-log.sh`, `m9-lognames.py`, `evict`,
+  `holdmount.py` (holds the share open) and `logcap.py` (streams the background task logs).
   `m12-native.txt` and `m12-cloud.txt` hold the location's paths.
 - The spike's code is on the local branch `spike-connect`, which is not pushed.
 

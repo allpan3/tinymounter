@@ -103,11 +103,15 @@ Finder. M12 keeps the macOS mount; phase 5's own connection would remove it.
 - **Connect.** Servers shows Connect for a share that isn't connected, such as after an eject or
   when the Keychain has no password. It mounts the saved address, with macOS's dialog if
   necessary. The messages that said to use Connect to Server in Finder now say to click Connect.
+- **Disconnect.** The user can't eject a hidden share in Finder, so Servers shows Disconnect for a
+  connected share. The app unmounts it with `FileManager.unmountVolume`, which posts `willUnmount`,
+  so the share stays unmounted until Connect, as after an eject, and no notification shows. macOS
+  posts `willUnmount` before the unmount can fail: when a file is open on the share, the app shows
+  a message and starts its session again [V: M12].
 - **Removing a server** unmounts its hidden mount. A mount that Finder shows stays.
 
-Not built: Disconnect. The user can't eject a hidden share in Finder; `diskutil unmount` still
-works, and Connect brings the share back. If the user selects several shares in macOS's list, the
-panel opens on the first, and the others stay mounted, hidden.
+If the user selects several shares in macOS's list, the panel opens on the first, and the others
+stay mounted, hidden.
 
 Checks, in the signed app in the VM:
 
@@ -120,10 +124,12 @@ Checks, in the signed app in the VM:
 4. A share that is already mounted: the panel opens on it, and the server keeps its row.
 5. A forced unmount: the app mounts the share again, hidden.
 6. An eject, then Connect: the share is mounted, and a session starts.
-7. Removing the server unmounts its hidden mount. A wrong address shows a message.
-8. No mount and no stage file leaks, and no names in the log.
+7. Disconnect: the share stays unmounted, with no notification, until Connect. With a file open on
+   the share, a message shows, and the share stays connected.
+8. Removing the server unmounts its hidden mount. A wrong address shows a message.
+9. No mount and no stage file leaks, and no names in the log.
 
-Not testable in the VM: typing a password in macOS's dialog, which only the user does. All 8 checks
+Not testable in the VM: typing a password in macOS's dialog, which only the user does. All 9 checks
 passed on 2026-10-18.
 
 ## 5. Milestones

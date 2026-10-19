@@ -35,6 +35,7 @@ enum UIText {
         """
     static let addressPlaceholder = "smb://server/share"
     static let connect = "Connect"
+    static let disconnect = "Disconnect"
     static let noShare = "No share"
     static let connectionMode = "Connection Mode"
     static let fileProvider = "File Provider"
@@ -80,6 +81,10 @@ enum UIText {
 
     static func cannotConnect(_ host: String) -> String {
         "tinymounter cannot connect to \(host). Make sure that \(host) is on. Make sure that this Mac is on the same network."
+    }
+
+    static func cannotDisconnect(_ share: String) -> String {
+        "tinymounter cannot disconnect “\(share)”. Close the files that are open on it. Then try again."
     }
 
     static func downloaded(_ fraction: Double) -> String {

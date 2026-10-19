@@ -509,15 +509,27 @@ final class ShareAccess: @unchecked Sendable {
         Self.unmount(mount.mountOn, reason: "server_removed")
     }
 
-    /// Also when the user doesn't select a share that Add Share… mounted.
-    static func unmount(_ path: String, reason: String) {
-        FileManager.default.unmountVolume(at: URL(filePath: path, directoryHint: .isDirectory), options: [.withoutUI]) {
-            error in logger.info("share_unmount reason=\(reason, privacy: .public) ok=\(error == nil ? 1 : 0)")
+    /// Also for Disconnect, and when the user doesn't select a share that Add Share… mounted.
+    /// macOS posts willUnmount, so the share stays unmounted, as after an eject.
+    static func unmount(_ path: String, reason: String, done: (@Sendable (Bool) -> Void)? = nil) {
+        let url = URL(filePath: path, directoryHint: .isDirectory)
+        FileManager.default.unmountVolume(at: url, options: [.withoutUI]) { error in
+            let code = (error as NSError?)?.code ?? 0
+            logger.info("share_unmount reason=\(reason, privacy: .public) ok=\(error == nil ? 1 : 0) error=\(code)")
+            done?(error == nil)
         }
     }
 
     /// After Connect: the mount table now, rather than at the next poll.
     func checkNow() { monitor.async { [self] in checkMountTable() } }
+
+    /// Disconnect failed, so the share is still mounted: a session can start on it again.
+    func unmountFailed() {
+        monitor.async { [self] in
+            lock.withLock { unmounting = unmounting.filter { $0.key.mountFrom != mountFrom } }
+            checkMountTable()
+        }
+    }
 
     private func mountFinished(status: Int32, started: ContinuousClock.Instant) {
         let outcome = lock.withLock {
