@@ -646,11 +646,9 @@ final class ShareAccess: @unchecked Sendable {
         guard mount.isRemoteSMB else { throw ShareGrantError.notSMBShare }
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        let values = try url.resourceValues(forKeys: [.isVolumeKey, .volumeURLForRemountingKey])
+        let values = try url.resourceValues(forKeys: [.isVolumeKey])
         guard values.isVolume == true else { throw ShareGrantError.notVolumeRoot }
-        // Both strings are saved, so neither may hold a password, such as a guest's empty one.
-        guard let remount = values.volumeURLForRemounting, let address = ShareAddress(remount.absoluteString),
-              ShareAddress(mount.identity.mountFrom) != nil else { throw ShareGrantError.addressRejected }
+        guard let address = ShareAddress(mount.identity.mountFrom) else { throw ShareGrantError.addressRejected }
         let bookmark = try url.bookmarkData(options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess],
                                             includingResourceValuesForKeys: nil, relativeTo: nil)
         return ServerGrant(serverID: serverID, bookmark: bookmark, mountFrom: mount.identity.mountFrom, address: address)

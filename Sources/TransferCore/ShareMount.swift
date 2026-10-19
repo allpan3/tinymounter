@@ -10,13 +10,13 @@ public struct MountIdentity: Hashable, Sendable {
     public init(typeName: String, fsid: UInt64, mountFrom: String) {
         self.typeName = typeName
         self.fsid = fsid
-        self.mountFrom = mountFrom
+        self.mountFrom = typeName == "smbfs" ? ShareAddress.withoutEmptyPassword(mountFrom) ?? mountFrom : mountFrom
     }
 
     public init(_ info: statfs) {
-        typeName = Self.string(info.f_fstypename)
-        fsid = UInt64(UInt32(bitPattern: info.f_fsid.val.0)) | UInt64(UInt32(bitPattern: info.f_fsid.val.1)) << 32
-        mountFrom = Self.string(info.f_mntfromname)
+        self.init(typeName: Self.string(info.f_fstypename),
+                  fsid: UInt64(UInt32(bitPattern: info.f_fsid.val.0)) | UInt64(UInt32(bitPattern: info.f_fsid.val.1)) << 32,
+                  mountFrom: Self.string(info.f_mntfromname))
     }
 
     public init(descriptor: Int32) throws {
