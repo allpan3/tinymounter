@@ -37,7 +37,16 @@ File Provider, cache ownership, and metadata architecture are selected. The ship
 
 ## 3. Components and ownership
 
-**TinyMounter.app** owns connection setup, credentials entry, domain registration, pin controls, connection status, diagnostics, and later the native-mount policy UI. One File Provider domain represents a particular share/subfolder and authenticated account. Domain identity is stable across app restarts and reconnections.
+**TinyMounter.app** owns connection setup through macOS's login dialog, domain registration, pin controls, connection status, diagnostics, and later the native-mount policy UI. One File Provider domain represents a particular share/subfolder and authenticated account. Domain identity is stable across app restarts and reconnections.
+
+**Saved connections, accepted and implemented on 2026-10-18.** Server addresses and share grants
+are separate records. The app owns read-only grants; macOS owns passwords and SMB mounts. An
+existing connection can be associated with a saved server by explicit selection, with confirmation
+for another address. Disconnect ejects that OS volume. Remove ejects all associated connections
+before deleting the server; failure retains the records. Settings version 2 migrates version 1
+atomically, preserving location and domain identity, bookmarks and Keep Downloaded lists. The
+[connection-management results](results/2026-10-18-connection-management.md) record VM checks and
+physical-Mac limits.
 
 **TinyMounterFileProvider.appex** owns the File Provider callbacks: item lookup, paginated enumeration, working-set changes, full and partial fetches, cancellation, progress, and error translation. It must work when the settings window is closed. Cached reads must not depend on the app being alive. Do not remove/re-add domains to implement reconnect.
 

@@ -148,11 +148,11 @@ final class ShareAccess: @unchecked Sendable {
     }
 
     /// Checks that `url`, from `NSOpenPanel`, is an SMB volume root, and makes its app-scoped grant.
-    static func makeGrant(for url: URL) async throws -> ServerGrant {
+    static func makeGrant(for url: URL, serverID: UUID) async throws -> ServerGrant {
         try await withCheckedThrowingContinuation { continuation in
             // Reading the volume's values can wait for the server, so never on the main thread.
             DispatchQueue.global(qos: .userInitiated).async {
-                let result = Result { try grant(for: url) }
+                let result = Result { try grant(for: url, serverID: serverID) }
                 switch result {
                 case .success(let grant):
                     logger.info("share=\(grant.id.uuidString, privacy: .public) grant_created")
@@ -359,8 +359,8 @@ final class ShareAccess: @unchecked Sendable {
         Task { @MainActor [store, grantID] in
             do {
                 try store.update { settings in
-                    guard let index = settings.servers.firstIndex(where: { $0.id == grantID }) else { return }
-                    settings.servers[index].bookmark = fresh
+                    guard let index = settings.shares.firstIndex(where: { $0.id == grantID }) else { return }
+                    settings.shares[index].bookmark = fresh
                 }
                 Self.logger.info("share=\(grantID.uuidString, privacy: .public) bookmark_saved=1")
             } catch {
@@ -501,22 +501,36 @@ final class ShareAccess: @unchecked Sendable {
         }?.mountOn
     }
 
-    /// M12: a removed server's hidden mount goes too. A mount that Finder shows stays.
-    func unmountHidden() {
-        guard let mount = (try? MountEntry.current()).flatMap({ candidates(in: $0).first(where: \.isHidden) }) else {
-            return
-        }
-        Self.unmount(mount.mountOn, reason: "server_removed")
+    struct ConnectedShare: Identifiable, Equatable, Sendable {
+        let identity: MountIdentity
+        let path: String
+        let address: ShareAddress
+        let isHidden: Bool
+
+        var id: MountIdentity { identity }
     }
 
-    /// Also for Disconnect, and when the user doesn't select a share that Add Share… mounted.
-    /// macOS posts willUnmount, so the share stays unmounted, as after an eject.
-    static func unmount(_ path: String, reason: String, done: (@Sendable (Bool) -> Void)? = nil) {
-        let url = URL(filePath: path, directoryHint: .isDirectory)
-        FileManager.default.unmountVolume(at: url, options: [.withoutUI]) { error in
-            let code = (error as NSError?)?.code ?? 0
-            logger.info("share_unmount reason=\(reason, privacy: .public) ok=\(error == nil ? 1 : 0) error=\(code)")
-            done?(error == nil)
+    static func connectedShares() throws -> [ConnectedShare] {
+        try MountEntry.current().compactMap { mount in
+            guard mount.isRemoteSMB, let address = ShareAddress(mount.identity.mountFrom) else { return nil }
+            return ConnectedShare(identity: mount.identity, path: mount.mountOn, address: address,
+                                  isHidden: mount.isHidden)
+        }
+    }
+
+    static func unmount(_ mount: ConnectedShare, reason: String) async throws {
+        let current = try MountEntry.current()
+        guard current.contains(where: { $0.identity == mount.identity && $0.mountOn == mount.path }) else {
+            guard !current.contains(where: { $0.mountOn == mount.path }) else { throw SourceFailure.pathRejected }
+            return
+        }
+        let url = URL(filePath: mount.path, directoryHint: .isDirectory)
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            FileManager.default.unmountVolume(at: url, options: [.withoutUI]) { error in
+                let code = (error as NSError?)?.code ?? 0
+                logger.info("share_unmount reason=\(reason, privacy: .public) ok=\(error == nil ? 1 : 0) error=\(code)")
+                if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+            }
         }
     }
 
@@ -624,7 +638,7 @@ final class ShareAccess: @unchecked Sendable {
             """)
     }
 
-    private static func grant(for url: URL) throws -> ServerGrant {
+    private static func grant(for url: URL, serverID: UUID) throws -> ServerGrant {
         let path = filePath(url)
         guard let mount = try MountEntry.current().first(where: { $0.mountOn == path }) else {
             throw ShareGrantError.notVolumeRoot
@@ -639,7 +653,7 @@ final class ShareAccess: @unchecked Sendable {
               ShareAddress(mount.identity.mountFrom) != nil else { throw ShareGrantError.addressRejected }
         let bookmark = try url.bookmarkData(options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess],
                                             includingResourceValuesForKeys: nil, relativeTo: nil)
-        return ServerGrant(bookmark: bookmark, mountFrom: mount.identity.mountFrom, address: address)
+        return ServerGrant(serverID: serverID, bookmark: bookmark, mountFrom: mount.identity.mountFrom, address: address)
     }
 
     /// Without a trailing slash, as in `f_mntonname`.

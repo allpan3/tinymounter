@@ -17,6 +17,7 @@ final class AppModel {
     /// A location before Add. Finder does not show it.
     struct Draft: Identifiable, Equatable {
         let id = UUID()
+        var serverID: UUID?
         var grantID: UUID?
         var folder: String
         var name: String
@@ -104,7 +105,11 @@ final class AppModel {
     /// Folder completion for the entry whose Folder field has focus.
     private(set) var folderSuggestions: [String] = []
     private(set) var records: [LocationRecord] = []
-    private(set) var servers: [ServerGrant] = []
+    private(set) var servers: [ServerRecord] = []
+    private(set) var shares: [ServerGrant] = []
+    private(set) var connectedShares: [ShareAccess.ConnectedShare] = []
+    private(set) var connectionBusy = false
+    @ObservationIgnored private var mountObservers: [NotificationCenter.ObservationToken] = []
     private(set) var states: [UUID: LocationState] = [:]
     private(set) var shareStates: [UUID: ShareHealth.State] = [:]
     private(set) var keepRows: [UUID: [KeepRow]] = [:]
@@ -144,6 +149,16 @@ final class AppModel {
         } else {
             selection = .location(records[0].id)
         }
+        refreshMounts()
+        let center = NSWorkspace.shared.notificationCenter
+        mountObservers = [
+            center.addObserver(of: NSWorkspace.self, for: .didMountVolume) { [weak self] _ in
+                Task { @MainActor in self?.refreshMounts() }
+            },
+            center.addObserver(of: NSWorkspace.self, for: .didUnmountVolume) { [weak self] _ in
+                Task { @MainActor in self?.refreshMounts() }
+            },
+        ]
         Task { await controller.launch() }
     }
 
@@ -165,7 +180,7 @@ final class AppModel {
 
     func draft(_ id: UUID) -> Draft? { drafts.first { $0.id == id } }
 
-    func grant(_ id: UUID?) -> ServerGrant? { servers.first { $0.id == id } }
+    func grant(_ id: UUID?) -> ServerGrant? { shares.first { $0.id == id } }
 
     var selectedRecord: LocationRecord? {
         guard case .location(let id) = selection else { return nil }
@@ -254,8 +269,31 @@ final class AppModel {
         return names[id] ?? record(id)?.name ?? ""
     }
 
+    func serverID(_ id: UUID) -> UUID? {
+        draft(id)?.serverID ?? grant(grantID(id))?.serverID
+    }
+
+    func setServer(_ id: UUID, _ serverID: UUID) {
+        let available = shares.first { $0.serverID == serverID }
+        if let index = drafts.firstIndex(where: { $0.id == id }) {
+            drafts[index].serverID = serverID
+            drafts[index].grantID = available?.id
+            followFolder(index)
+        } else if let available {
+            setGrant(id, available.id)
+        } else {
+            guard !connectionBusy else { return }
+            connectionBusy = true
+            Task {
+                defer { connectionBusy = false; refreshMounts() }
+                if let grantID = await acquireShare(serverID) { setGrant(id, grantID) }
+            }
+        }
+    }
+
     func setGrant(_ id: UUID, _ grantID: UUID) {
         if let index = drafts.firstIndex(where: { $0.id == id }) {
+            drafts[index].serverID = grant(grantID)?.serverID
             guard drafts[index].grantID != grantID else { return }
             drafts[index].grantID = grantID
             followFolder(index)
@@ -326,8 +364,9 @@ final class AppModel {
     // MARK: Sidebar actions
 
     func newLocation() {
-        let grant = servers.first
-        let draft = Draft(grantID: grant?.id, folder: "", name: grant?.share ?? "", original: nil)
+        let server = servers.first
+        let grant = shares.first { $0.serverID == server?.id }
+        let draft = Draft(serverID: server?.id, grantID: grant?.id, folder: "", name: grant?.share ?? "", original: nil)
         drafts.append(draft)
         select(draft.id)
     }
@@ -336,14 +375,14 @@ final class AppModel {
     func duplicate(_ recordID: UUID) {
         guard let record = record(recordID) else { return }
         let taken = records.map(\.name) + drafts.map(\.name)
-        let draft = Draft(grantID: record.serverID, folder: record.folder,
+        let draft = Draft(serverID: grant(record.serverID)?.serverID, grantID: record.serverID, folder: record.folder,
                           name: LocationRecord.copyName(record.name, among: taken), original: record.id)
         drafts.insert(draft, at: 0)
         select(draft.id)
     }
 
     func cancel(_ draftID: UUID) {
-        guard let draft = draft(draftID), !busy.contains(draftID) else { return }
+        guard !connectionBusy, let draft = draft(draftID), !busy.contains(draftID) else { return }
         drafts.removeAll { $0.id == draftID }
         guard selection == .location(draftID) else { return }
         if let original = draft.original, record(original) != nil {
@@ -367,7 +406,7 @@ final class AppModel {
     // MARK: Location actions
 
     func add(_ draftID: UUID) {
-        guard let draft = draft(draftID), !busy.contains(draftID) else { return }
+        guard !connectionBusy, let draft = draft(draftID), !busy.contains(draftID) else { return }
         guard let grantID = draft.grantID else { return }
         guard let folder = LocationRecord.normalizedFolder(draft.folder) else { return show(UIText.wrongFolderPath) }
         let typed = draft.name.trimmingCharacters(in: .whitespaces)
@@ -598,32 +637,106 @@ final class AppModel {
 
     // MARK: Servers
 
-    /// M12, Add Share…: macOS mounts the typed address, then the open panel gives access.
-    @discardableResult
-    func addShare() async -> UUID? {
-        guard let text = await askAddress() else { return nil }
-        guard let address = ServerAddress(typed: text) else {
-            show(UIText.wrongAddress)
-            return nil
+    func addServer(for locationID: UUID? = nil) {
+        guard !connectionBusy else { return }
+        connectionBusy = true
+        Task {
+            defer { connectionBusy = false; refreshMounts() }
+            guard let text = await askAddress() else { return }
+            guard let address = ServerAddress(typed: text) else { return show(UIText.wrongAddress) }
+            do {
+                let serverID = try controller.saveServer(address)
+                if let locationID { setServer(locationID, serverID) }
+                if address.share != nil || locationID.flatMap(record) != nil,
+                   let grantID = await acquireShare(serverID, address: address), let locationID {
+                    setGrant(locationID, grantID)
+                }
+            } catch { show(error, grantID: nil) }
         }
-        let (status, paths) = await ShareAccess.mount(address.url)
-        guard status == 0 || status == EEXIST else {
-            if let message = Self.mountMessage(status, host: address.host) { show(message) }
-            return nil
-        }
-        guard let path = paths.first ?? ShareAccess.mountPath(of: address) else {
-            show(UIText.cannotDo("status=\(status)"))
-            return nil
-        }
-        let grantID = await selectShare(at: path)
-        if grantID == nil && status == 0 { ShareAccess.unmount(path, reason: "not_selected") }
-        return grantID
     }
 
-    /// Servers › Connect: the saved address, with macOS's dialog if the Keychain has no password.
-    func connect(_ grant: ServerGrant) {
-        guard let url = URL(string: "smb:" + grant.mountFrom) else { return show(UIText.addressRejected) }
+    func addShare(on serverID: UUID) {
+        guard !connectionBusy else { return }
+        connectionBusy = true
         Task {
+            defer { connectionBusy = false; refreshMounts() }
+            _ = await acquireShare(serverID)
+        }
+    }
+
+    func addShare(for locationID: UUID) {
+        guard !connectionBusy, let serverID = serverID(locationID) else { return }
+        connectionBusy = true
+        Task {
+            defer { connectionBusy = false; refreshMounts() }
+            if let grantID = await acquireShare(serverID) { setGrant(locationID, grantID) }
+        }
+    }
+
+    func useConnectedShare(_ mount: ShareAccess.ConnectedShare) {
+        guard !connectionBusy else { return }
+        connectionBusy = true
+        Task {
+            defer { connectionBusy = false; refreshMounts() }
+            do {
+                guard let address = ServerAddress(typed: "smb:" + mount.identity.mountFrom) else {
+                    return show(UIText.addressRejected)
+                }
+                let serverID = try controller.saveServer(address)
+                _ = await selectShare(serverID: serverID, at: mount.path)
+            } catch { show(error, grantID: nil) }
+        }
+    }
+
+    private func acquireShare(_ serverID: UUID, address: ServerAddress? = nil) async -> UUID? {
+        guard let server = servers.first(where: { $0.id == serverID }) else { return nil }
+        do {
+            let before = try ShareAccess.connectedShares()
+            let compatible = before.filter { mount in
+                server.account.map { $0.caseInsensitiveCompare(mount.address.account) == .orderedSame } ?? true
+            }
+            if !compatible.isEmpty {
+                switch await chooseConnectedShare(compatible, server: server) {
+                case .existing(let mount): return await selectShare(serverID: serverID, at: mount.path)
+                case .cancel: return nil
+                case .connect: break
+                }
+            }
+            let (status, paths) = await ShareAccess.mount(address?.url ?? server.address)
+            guard status == 0 || status == EEXIST else {
+                if let message = Self.mountMessage(status, host: server.host) { show(message) }
+                return nil
+            }
+            let mounted = try ShareAccess.connectedShares()
+            let path = paths.first ?? address.flatMap { ShareAccess.mountPath(of: $0) }
+            let grantID: UUID?
+            if let path {
+                grantID = await selectShare(serverID: serverID, at: path)
+            } else {
+                show(UIText.cannotDo("status=\(status)"))
+                grantID = nil
+            }
+            let kept = grant(grantID)?.mountFrom
+            let previous = Set(before.map(\.identity))
+            let requestedPaths = Set(paths)
+            for mount in mounted where requestedPaths.contains(mount.path)
+                && !previous.contains(mount.identity) && mount.identity.mountFrom != kept {
+                do { try await ShareAccess.unmount(mount, reason: "not_selected") }
+                catch { show(UIText.cannotDisconnect(mount.address.share)) }
+            }
+            return grantID
+        } catch {
+            show(error, grantID: nil)
+            return nil
+        }
+    }
+
+    func connect(_ grant: ServerGrant) {
+        guard !connectionBusy else { return }
+        guard let url = URL(string: "smb:" + grant.mountFrom) else { return show(UIText.addressRejected) }
+        connectionBusy = true
+        Task {
+            defer { connectionBusy = false; refreshMounts() }
             let (status, _) = await ShareAccess.mount(url)
             if status != 0 && status != EEXIST, let message = Self.mountMessage(status, host: grant.host) {
                 show(message)
@@ -632,37 +745,52 @@ final class AppModel {
         }
     }
 
-    /// Servers › Disconnect: the share stays unmounted until Connect, with no notification.
     func disconnect(_ grant: ServerGrant) {
-        guard let path = controller.mountPath(grant.id) else { return controller.shareMounted(grant.id) }
+        guard !connectionBusy else { return }
+        connectionBusy = true
         notifier.userDisconnected(grant.id)
-        ShareAccess.unmount(path, reason: "disconnect") { [self] ok in
-            guard !ok else { return }
-            Task { @MainActor in
+        Task {
+            defer { connectionBusy = false; refreshMounts() }
+            do { try await controller.disconnect(grant.id) }
+            catch {
                 notifier.disconnectFailed(grant.id)
-                controller.disconnectFailed(grant.id)
                 show(UIText.cannotDisconnect(grant.share))
             }
         }
     }
 
-    /// Select Again… or the end of Add Share…. Returns the saved grant's ID.
-    @discardableResult
-    func selectShare(again existing: ServerGrant? = nil, at path: String? = nil) async -> UUID? {
+    func disconnect(_ mount: ShareAccess.ConnectedShare) {
+        guard !connectionBusy else { return }
+        connectionBusy = true
+        Task {
+            defer { connectionBusy = false; refreshMounts() }
+            do { try await ShareAccess.unmount(mount, reason: "disconnect") }
+            catch { show(UIText.cannotDisconnect(mount.address.share)) }
+        }
+    }
+
+    func selectAgain(_ grant: ServerGrant) {
+        guard !connectionBusy, let serverID = grant.serverID else { return }
+        connectionBusy = true
+        Task {
+            defer { connectionBusy = false; refreshMounts() }
+            _ = await selectShare(serverID: serverID, again: grant)
+        }
+    }
+
+    private func selectShare(serverID: UUID, again existing: ServerGrant? = nil, at path: String? = nil) async -> UUID? {
         let panel = NSOpenPanel()
-        // Finder hides the app's mounts, so the panel opens on the share itself.
         let directory = path ?? existing.flatMap { controller.mountPath($0.id) } ?? "/Volumes"
         panel.directoryURL = URL(filePath: directory, directoryHint: .isDirectory)
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
-        // The share is read-only to tinymounter, and the panel could make a folder on it.
         panel.canCreateDirectories = false
         panel.allowsMultipleSelection = false
         panel.resolvesAliases = false
         panel.message = UIText.selectShareMessage
         guard await run(panel), let url = panel.url else { return nil }
         do {
-            let grant = try await ShareAccess.makeGrant(for: url)
+            let grant = try await ShareAccess.makeGrant(for: url, serverID: serverID)
             if let existing, existing.mountFrom != grant.mountFrom {
                 show(UIText.otherShare)
                 return nil
@@ -674,21 +802,86 @@ final class AppModel {
         }
     }
 
-    /// From the Server picker of a location.
-    func addShare(for id: UUID) {
+    func removeServer(_ id: UUID) {
+        guard !connectionBusy else { return }
+        guard !isServerUsed(id) else { return show(UIText.serverInUse) }
+        connectionBusy = true
         Task {
-            guard let grantID = await addShare() else { return }
-            setGrant(id, grantID)
+            defer { connectionBusy = false; refreshMounts() }
+            let grantIDs = Set(shares.filter { $0.serverID == id }.map(\.id))
+            if !grantIDs.isEmpty {
+                let alert = NSAlert()
+                alert.messageText = UIText.removeServerTitle
+                alert.informativeText = UIText.removeServerMessage
+                alert.addButton(withTitle: UIText.removeItem)
+                alert.addButton(withTitle: UIText.cancel)
+                guard await present(alert) == .alertFirstButtonReturn else { return }
+            }
+            do {
+                try await controller.removeServer(id)
+                for index in drafts.indices where drafts[index].serverID == id {
+                    drafts[index].serverID = nil
+                    drafts[index].grantID = nil
+                }
+                edits = edits.filter { !grantIDs.contains($0.value.grantID) }
+            } catch SettingsError.serverInUse {
+                show(UIText.serverInUse)
+            } catch {
+                show(UIText.cannotRemoveServer)
+            }
         }
     }
 
-    func removeGrant(_ id: UUID) {
-        do { try controller.removeGrant(id) } catch { return show(UIText.serverInUse) }
-        for index in drafts.indices where drafts[index].grantID == id { drafts[index].grantID = nil }
-        edits = edits.filter { $0.value.grantID != id }
+    func isServerUsed(_ id: UUID) -> Bool {
+        let grants = Set(shares.filter { $0.serverID == id }.map(\.id))
+        return records.contains { grants.contains($0.serverID) }
     }
 
-    func isGrantUsed(_ id: UUID) -> Bool { records.contains { $0.serverID == id } }
+    private func isGrantUsed(_ id: UUID) -> Bool { records.contains { $0.serverID == id } }
+
+    var otherConnectedShares: [ShareAccess.ConnectedShare] {
+        let saved = Set(shares.map(\.mountFrom))
+        return connectedShares.filter { !saved.contains($0.identity.mountFrom) }
+    }
+
+    private func refreshMounts() {
+        if let mounted = try? ShareAccess.connectedShares() { update(\.connectedShares, mounted) }
+    }
+
+    private enum ShareChoice {
+        case existing(ShareAccess.ConnectedShare), connect, cancel
+    }
+
+    private func chooseConnectedShare(_ mounts: [ShareAccess.ConnectedShare], server: ServerRecord) async -> ShareChoice {
+        let alert = NSAlert()
+        alert.messageText = UIText.chooseShareTitle(server.host)
+        alert.informativeText = UIText.chooseShareDescription
+        alert.addButton(withTitle: UIText.useShare)
+        alert.addButton(withTitle: UIText.connectAnotherShare)
+        alert.addButton(withTitle: UIText.cancel)
+        let choices = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 420, height: 26))
+        for mount in mounts { choices.addItem(withTitle: UIText.mountedShare(mount.address)) }
+        if let index = mounts.firstIndex(where: { $0.address.host.caseInsensitiveCompare(server.host) == .orderedSame }) {
+            choices.selectItem(at: index)
+        }
+        alert.accessoryView = choices
+        switch await present(alert) {
+        case .alertFirstButtonReturn:
+            let mount = mounts[choices.indexOfSelectedItem]
+            let known = Set(shares.filter { $0.serverID == server.id }.map { $0.host.lowercased() } + [server.host.lowercased()])
+            if !known.contains(mount.address.host.lowercased()) {
+                let confirmation = NSAlert()
+                confirmation.messageText = UIText.useOtherAddressTitle
+                confirmation.informativeText = UIText.useOtherAddress(mount.address, server: server.host)
+                confirmation.addButton(withTitle: UIText.useShare)
+                confirmation.addButton(withTitle: UIText.cancel)
+                guard await present(confirmation) == .alertFirstButtonReturn else { return .cancel }
+            }
+            return .existing(mount)
+        case .alertSecondButtonReturn: return .connect
+        default: return .cancel
+        }
+    }
 
     /// Select… for Folder: a folder in the mounted share.
     func selectFolder(_ id: UUID) {
@@ -764,6 +957,7 @@ final class AppModel {
         let settings = store.settings
         update(\.records, settings?.locations ?? [])
         update(\.servers, settings?.servers ?? [])
+        update(\.shares, settings?.shares ?? [])
         update(\.paused, controller.paused)
         update(\.isReady, controller.isReady)
         let problem: String? = switch controller.problem {
@@ -773,7 +967,7 @@ final class AppModel {
         }
         update(\.problem, problem)
         update(\.notOnServer, controller.notOnServer)
-        update(\.shareStates, Dictionary(uniqueKeysWithValues: servers.map { ($0.id, controller.shareState($0.id)) }))
+        update(\.shareStates, Dictionary(uniqueKeysWithValues: shares.map { ($0.id, controller.shareState($0.id)) }))
         update(\.states, Dictionary(uniqueKeysWithValues: records.map { ($0.id, computeState($0)) }))
         let ids = Set(records.map(\.id))
         if edits.keys.contains(where: { !ids.contains($0) }) { edits = edits.filter { ids.contains($0.key) } }
@@ -833,9 +1027,9 @@ final class AppModel {
 
     private func askAddress() async -> String? {
         let alert = NSAlert()
-        alert.messageText = UIText.addShareTitle
-        alert.informativeText = UIText.addShareDescription
-        alert.addButton(withTitle: UIText.connect)
+        alert.messageText = UIText.addServerTitle
+        alert.informativeText = UIText.addServerDescription
+        alert.addButton(withTitle: UIText.add)
         alert.addButton(withTitle: UIText.cancel)
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
         field.placeholderString = UIText.addressPlaceholder

@@ -88,12 +88,11 @@ defects in §2.
 The user asked to connect in tinymounter instead of Finder, and to see only the locations in
 Finder. M12 keeps the macOS mount; phase 5's own connection would remove it.
 
-- **Add Share…** asks for the address, as Connect to Server does: `smb://server/share`, the same
-  without `smb://`, or only the server. The app asks macOS to mount it with `NetFSMountURLAsync`
-  and lets macOS show its own dialogs: the login dialog, with "Remember this password in my
-  keychain", when the Keychain has no password, and the share list for an address with no share.
-  The app never sees the password [V: M12]. An address with a password, a port or a folder below
-  the share is refused.
+- **Add Server…** saves an SMB address independently of its share grants. A server-only address
+  requires no mount. Add Share… offers existing connections first, including Finder and hidden
+  mounts. Connect Another Share… asks macOS to mount the server URL with `NetFSMountURLAsync`,
+  showing its own login dialog and share list. The app never sees the password. A full share URL
+  remains accepted in Add Server… and starts share selection after saving the server.
 - **The open panel stays.** The sandboxed app can't read a mount that it made (EPERM) until the
   user selects it [V: M12]. So the panel opens on the new mount, and the user clicks Open. If the
   user cancels it, the app unmounts the share that it mounted.
@@ -108,12 +107,15 @@ Finder. M12 keeps the macOS mount; phase 5's own connection would remove it.
   so the share stays unmounted until Connect, as after an eject, and no notification shows. macOS
   posts `willUnmount` before the unmount can fail: when a file is open on the share, the app shows
   a message and starts its session again [V: M12].
-- **Removing a server** unmounts its hidden mount. A mount that Finder shows stays.
+- **Removing a server** ejects its associated connections before deleting its record, including
+  connections adopted from Finder. A failure keeps the entry. Other Connected Shares exposes
+  mounts without saved grants and offers Use Share or Disconnect.
 
-If the user selects several shares in macOS's list, the panel opens on the first, and the others
-stay mounted, hidden.
+If several shares are selected in macOS's list, the panel opens on the first. Newly mounted
+shares that are not selected in the panel are unmounted; an unsuccessful cleanup remains visible
+under Other Connected Shares.
 
-Checks, in the signed app in the VM:
+Original M12 checks, completed before the connection-management follow-up:
 
 1. Add Share… with `smb://server/share` and the password in the Keychain: no dialog, the panel
    opens on the share, and a location on it reads a file that matches the share. Finder's sidebar
@@ -131,6 +133,34 @@ Checks, in the signed app in the VM:
 
 Not testable in the VM: typing a password in macOS's dialog, which only the user does. All 9 checks
 passed on 2026-10-18.
+
+### Connection management follow-up
+
+Decision status: behaviour accepted and verified in the signed VM app on 2026-10-18;
+[results](results/2026-10-18-connection-management.md). The physical Mac
+run exposed a share left connected through Finder under a different address. Removing the app's
+entry then made the native share selector an unusable route back to that share.
+
+- Save a server address independently of its share grants. Add Server needs no mount; choose a
+  share when setting up a location. The app still never asks for or stores a password.
+- Offer connected SMB shares in the app, including hidden mounts and mounts made outside the app.
+  Explicit selection associates a connection with a saved server. Do not merge addresses by DNS
+  or assume that matching share names identify the same NAS or account.
+- Disconnect is a normal OS unmount. Remove ejects every share associated with the saved server
+  before deleting its record. A failed eject keeps the record and its controls, with an error.
+  Never force an eject. A server used by a location cannot be removed.
+- Show mounted shares without a saved grant, so a cancelled setup or an earlier build cannot
+  leave a hidden mount without controls. Re-adding can select that connection directly.
+- Settings version 2 separates server addresses from share grants. Migrate version 1 atomically,
+  preserving grants, location IDs, domain IDs, bookmarks and saved Keep Downloaded lists. The
+  existing version field makes an older build refuse a format it cannot preserve.
+
+Verified in the signed VM app: migration with an existing location; an address without a share;
+selection of an existing visible or hidden connection; failed and successful removal; adding the
+same connection again; several shares associated with one server; and cancellation during setup.
+The original cancellation checks change deliberately: cancelling share selection keeps the saved
+server, while leaving no new grant. Reads, reconnect and log privacy passed. The physical Mac
+needs approval before a new build runs.
 
 ## 5. Milestones
 

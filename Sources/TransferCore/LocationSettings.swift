@@ -3,38 +3,65 @@ import Foundation
 
 public enum SettingsError: Error, Equatable, Sendable {
     case unsupportedVersion(Int)
+    case invalidServer
+    case serverInUse
 }
 
 /// Never in the App Group: grants and saved paths are private.
 public struct AppSettings: Codable, Equatable, Sendable {
-    public static let currentVersion = 1
+    public static let currentVersion = 2
 
     public private(set) var version = AppSettings.currentVersion
-    public var servers: [ServerGrant]
+    public var servers: [ServerRecord]
+    public var shares: [ServerGrant]
     public var locations: [LocationRecord]
     public var savedKeeps: [SavedKeepList]
 
-    public init(servers: [ServerGrant] = [], locations: [LocationRecord] = [], savedKeeps: [SavedKeepList] = []) {
+    public init(servers: [ServerRecord] = [], shares: [ServerGrant] = [], locations: [LocationRecord] = [],
+                savedKeeps: [SavedKeepList] = []) {
         self.servers = servers
+        self.shares = shares
         self.locations = locations
         self.savedKeeps = savedKeeps
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        version = try container.decode(Int.self, forKey: .version)
-        // No migrations: a file from another version is a problem to show, not settings to guess.
-        guard version == Self.currentVersion else { throw SettingsError.unsupportedVersion(version) }
-        servers = try container.decode([ServerGrant].self, forKey: .servers)
+        let previousVersion = try container.decode(Int.self, forKey: .version)
+        guard [1, Self.currentVersion].contains(previousVersion) else {
+            throw SettingsError.unsupportedVersion(previousVersion)
+        }
         locations = try container.decode([LocationRecord].self, forKey: .locations)
         savedKeeps = try container.decode([SavedKeepList].self, forKey: .savedKeeps)
+        if previousVersion == 1 {
+            servers = []
+            shares = try container.decode([ServerGrant].self, forKey: .servers)
+            for index in shares.indices {
+                guard let address = ServerAddress(typed: "smb:" + shares[index].mountFrom) else {
+                    throw SettingsError.invalidServer
+                }
+                let existing = servers.first { $0.matches(address) }
+                let server = existing ?? ServerRecord(address: address)
+                if existing == nil { servers.append(server) }
+                shares[index].serverID = server.id
+            }
+        } else {
+            servers = try container.decode([ServerRecord].self, forKey: .servers)
+            shares = try container.decode([ServerGrant].self, forKey: .shares)
+        }
+        guard shares.allSatisfy({ share in servers.contains { $0.id == share.serverID } }) else {
+            throw SettingsError.invalidServer
+        }
     }
 
     /// A missing file is a first launch. Every other failure throws and is never empty settings.
     public static func load(from url: URL) throws -> AppSettings {
         let data: Data
         do { data = try Data(contentsOf: url) } catch CocoaError.fileReadNoSuchFile { return AppSettings() }
-        return try JSONDecoder().decode(AppSettings.self, from: data)
+        let settings = try JSONDecoder().decode(AppSettings.self, from: data)
+        let previous = try JSONDecoder().decode(FileVersion.self, from: data)
+        if previous.version != Self.currentVersion { try settings.save(to: url) }
+        return settings
     }
 
     /// Replaces the file with one rename. The new file is 0600 from its creation.
@@ -60,11 +87,53 @@ public struct AppSettings: Codable, Equatable, Sendable {
             throw error
         }
     }
+
+    public func serverIsUsed(_ id: UUID) -> Bool {
+        let grants = Set(shares.filter { $0.serverID == id }.map(\.id))
+        return locations.contains { grants.contains($0.serverID) }
+    }
+
+    public mutating func removeServer(_ id: UUID) throws {
+        guard !serverIsUsed(id) else { throw SettingsError.serverInUse }
+        shares.removeAll { $0.serverID == id }
+        servers.removeAll { $0.id == id }
+    }
+
+    private struct FileVersion: Decodable { let version: Int }
+}
+
+public struct ServerRecord: Codable, Equatable, Identifiable, Sendable {
+    public let id: UUID
+    public let address: URL
+
+    public var host: String { URLComponents(url: address, resolvingAgainstBaseURL: false)?.host ?? "" }
+    public var account: String? { URLComponents(url: address, resolvingAgainstBaseURL: false)?.user }
+
+    public init(id: UUID = UUID(), address: ServerAddress) {
+        self.id = id
+        self.address = address.serverURL
+    }
+
+    public func matches(_ other: ServerAddress) -> Bool {
+        host.caseInsensitiveCompare(other.host) == .orderedSame && account?.lowercased() == other.account?.lowercased()
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        let url = try container.decode(URL.self, forKey: .address)
+        guard let parsed = ServerAddress(typed: url.absoluteString), parsed.share == nil else {
+            throw SettingsError.invalidServer
+        }
+        address = parsed.serverURL
+    }
 }
 
 /// The bookmark, `mountFrom`, host and account are private: never log them.
 public struct ServerGrant: Codable, Equatable, Sendable {
     public let id: UUID
+    // Version 1 has no server ID until settings migration assigns one.
+    public var serverID: UUID?
     /// App-scoped, with `.withSecurityScope` and `.securityScopeAllowOnlyReadAccess`.
     public var bookmark: Data
     /// `f_mntfromname`, "//account@host/share".
@@ -72,8 +141,9 @@ public struct ServerGrant: Codable, Equatable, Sendable {
     /// From `NSURLVolumeURLForRemountingKey`.
     public let host: String, account: String, share: String
 
-    public init(id: UUID = UUID(), bookmark: Data, mountFrom: String, address: ShareAddress) {
+    public init(id: UUID = UUID(), serverID: UUID, bookmark: Data, mountFrom: String, address: ShareAddress) {
         self.id = id
+        self.serverID = serverID
         self.bookmark = bookmark
         self.mountFrom = mountFrom
         host = address.host
@@ -95,6 +165,7 @@ public struct ServerGrant: Codable, Equatable, Sendable {
 public struct LocationRecord: Codable, Equatable, Sendable {
     public let id: UUID
     public var name: String
+    // The share grant ID; keep the persisted key so existing locations stay intact.
     public var serverID: UUID
     /// A `RelativePath` from the share root; "" is the full share.
     public var folder: String
@@ -229,6 +300,7 @@ public struct ServerAddress: Equatable, Sendable {
     public let account: String?
     /// Nil for only the server: macOS then asks which share to mount.
     public let share: String?
+    public let serverURL: URL
 
     public init?(typed text: String) {
         var text = text.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: " ", with: "%20")
@@ -252,6 +324,9 @@ public struct ServerAddress: Equatable, Sendable {
         components.percentEncodedPath = parts.count == 2 ? "/" + parts[1] : ""
         guard let url = components.url else { return nil }
         self.url = url
+        components.percentEncodedPath = ""
+        guard let serverURL = components.url else { return nil }
+        self.serverURL = serverURL
         self.host = host
         account = components.user
     }

@@ -103,9 +103,11 @@ confirmation says that this removes the downloaded copies of the location from t
 the files on the server do not change. To try a different source and keep this location, use
 Duplicate instead.
 
-**Server** lists saved servers and Bonjour servers. Each server keeps its account and Keychain
-password once, in the Servers pane. "Add Server…" opens a small sheet: address, account and
-password.
+**Server** lists saved servers. Add Server… saves the address without requiring a share.
+**Share** lists the server's saved share grants and Add Share…. The app offers existing SMB
+connections before asking macOS to connect another share. A connection at a different address
+needs explicit confirmation. macOS owns login and Keychain dialogs; the app never sees a password.
+Bonjour discovery remains unimplemented.
 
 ### 4.2 Adding a location: Duplicate
 
@@ -136,9 +138,13 @@ the first location on a server.
   free" for kept downloads, and Remove Downloads for downloads that the user does not keep.
 - **Servers:** one row per server: address, account, Keychain password, connection state, SMB
   dialect and signing. Edit… changes the account or password for all locations on that server.
-  M12 builds less: Add Share… asks only for the address, and macOS asks for the password and
-  keeps it in the Keychain. A share that is not connected shows Connect, and a connected share
-  shows Disconnect, because Finder can't eject a hidden share.
+  The M12 follow-up saves server addresses independently of share grants. Add Server… asks for
+  the address, and Add Share… selects an existing connection or lets macOS connect another share.
+  macOS asks for the password and keeps it in the Keychain. Each share has Connect or Disconnect,
+  and Select Again…. Disconnect ejects the connection from this Mac. Remove ejects all associated
+  shares before forgetting the server, and keeps the entry if an eject fails. Other Connected
+  Shares lists mounts without a saved grant, including hidden mounts, with Use Share and
+  Disconnect. A server used by a location cannot be removed.
   Later, for server volumes: connect again after sleep and network changes, and which networks to
   use.
 - **About:** version, acknowledgements, and Export Diagnostics. The export does not include file

@@ -142,7 +142,7 @@ final class LocationController {
                                                                       object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.onMaterializedChange?() }
         }
-        for grant in store.settings?.servers ?? [] { share(for: grant).connect() }
+        for grant in store.settings?.shares ?? [] { share(for: grant).connect() }
         await logDiagnostics(reason: "launch")
         installDiagnosticsSignal()
         isReady = true
@@ -153,43 +153,64 @@ final class LocationController {
     func saveGrant(_ grant: ServerGrant) throws -> UUID {
         var saved = grant.id
         try store.update { settings in
-            if let index = settings.servers.firstIndex(where: { $0.mountFrom == grant.mountFrom }) {
-                settings.servers[index].bookmark = grant.bookmark
-                saved = settings.servers[index].id
+            if let index = settings.shares.firstIndex(where: { $0.mountFrom == grant.mountFrom }) {
+                settings.shares[index].bookmark = grant.bookmark
+                settings.shares[index].serverID = grant.serverID
+                saved = settings.shares[index].id
             } else {
-                settings.servers.append(grant)
+                settings.shares.append(grant)
             }
         }
         if let share = shares[saved] {
             share.replaceBookmark(grant.bookmark)
-        } else if let saved = store.settings?.servers.first(where: { $0.id == saved }) {
+        } else if let saved = store.settings?.shares.first(where: { $0.id == saved }) {
             share(for: saved).connect()
         }
         onChange?()
         return saved
     }
 
-    /// Servers `−`: only for a grant that no location uses.
-    func removeGrant(_ id: UUID) throws {
-        guard store.settings?.locations.contains(where: { $0.serverID == id }) == false else {
-            throw CocoaError(.fileWriteNoPermission)
-        }
-        try store.update { $0.servers.removeAll { $0.id == id } }
-        shares[id]?.unmountHidden()
-        // The session closes its root and stops access when the last reference goes.
-        shares[id] = nil
-        shareStates[id] = nil
+    func saveServer(_ address: ServerAddress) throws -> UUID {
+        if let existing = store.settings?.servers.first(where: { $0.matches(address) }) { return existing.id }
+        let server = ServerRecord(address: address)
+        try store.update { $0.servers.append(server) }
         onChange?()
+        return server.id
+    }
+
+    func removeServer(_ id: UUID) async throws {
+        guard let settings = store.settings else { throw SettingsError.invalidServer }
+        guard !settings.serverIsUsed(id) else { throw SettingsError.serverInUse }
+        let grants = settings.shares.filter { $0.serverID == id }
+        for grant in grants { try await disconnect(grant.id, reason: "server_removed") }
+        try store.update { try $0.removeServer(id) }
+        for grant in grants {
+            shares[grant.id] = nil
+            shareStates[grant.id] = nil
+        }
+        onChange?()
+    }
+
+    func disconnect(_ id: UUID, reason: String = "disconnect") async throws {
+        guard let grant = store.settings?.shares.first(where: { $0.id == id }) else { return }
+        let access = share(for: grant)
+        do {
+            for mount in try ShareAccess.connectedShares() where mount.identity.mountFrom == grant.mountFrom {
+                try await ShareAccess.unmount(mount, reason: reason)
+            }
+        } catch {
+            access.unmountFailed()
+            throw error
+        }
+        access.checkNow()
     }
 
     /// Connect mounted the share: its session starts now.
     func shareMounted(_ grantID: UUID) { shares[grantID]?.checkNow() }
 
-    func disconnectFailed(_ grantID: UUID) { shares[grantID]?.unmountFailed() }
-
     /// The share's mount path, for Select…; nil if it isn't mounted.
     func mountPath(_ grantID: UUID) -> String? {
-        guard let grant = store.settings?.servers.first(where: { $0.id == grantID }) else { return nil }
+        guard let grant = store.settings?.shares.first(where: { $0.id == grantID }) else { return nil }
         return share(for: grant).mountPath()
     }
 
@@ -198,7 +219,7 @@ final class LocationController {
     /// below its original (design §4.2).
     func add(id: UUID, name: String, folder: RelativePath, grantID: UUID,
              after original: UUID? = nil) async throws -> LocationRecord {
-        guard isReady, let settings = store.settings, let grant = settings.servers.first(where: { $0.id == grantID }) else {
+        guard isReady, let settings = store.settings, let grant = settings.shares.first(where: { $0.id == grantID }) else {
             throw CocoaError(.fileReadUnknown)
         }
         var record = LocationRecord(id: id, name: LocationRecord.uniqueName(name, among: settings.locations.map(\.name)),
@@ -260,10 +281,10 @@ final class LocationController {
     func apply(_ recordID: UUID, grantID: UUID, folder: RelativePath) async throws -> LocationRecord {
         guard isReady, let settings = store.settings,
               let record = settings.locations.first(where: { $0.id == recordID }), !record.removing,
-              let grant = settings.servers.first(where: { $0.id == grantID }) else {
+              let grant = settings.shares.first(where: { $0.id == grantID }) else {
             throw CocoaError(.fileReadUnknown)
         }
-        let oldGrant = settings.servers.first { $0.id == record.serverID }
+        let oldGrant = settings.shares.first { $0.id == record.serverID }
         let kept = await keptSharePaths(record) + record.pendingKeeps
         let sameShare = oldGrant?.isSameShare(host: grant.host, share: grant.share) ?? false
         let moving = sameShare ? kept.filter { LocationRecord.path($0, inside: folder) != nil } : []
@@ -318,7 +339,7 @@ final class LocationController {
         guard isReady, let settings = store.settings, let record = settings.locations.first(where: { $0.id == recordID }) else {
             throw CocoaError(.fileReadUnknown)
         }
-        let grant = settings.servers.first { $0.id == record.serverID }
+        let grant = settings.shares.first { $0.id == record.serverID }
         // A location whose catalog can't be read saves only its pending paths; it must stay removable.
         let paths = saveKeeps && !record.removing ? await keptSharePaths(record) + record.pendingKeeps : []
         try store.update { settings in
@@ -523,7 +544,7 @@ final class LocationController {
     /// It never lists more than one folder at a time, and a cancelled request lists nothing.
     func folderSuggestions(grantID: UUID, typed: String) async -> [String] {
         guard let query = FolderCompletion(typed: typed),
-              let grant = store.settings?.servers.first(where: { $0.id == grantID }) else { return [] }
+              let grant = store.settings?.shares.first(where: { $0.id == grantID }) else { return [] }
         while completion?.grantID != grantID || completion?.parent != query.parent {
             if let running = completionListing {
                 await running.value
@@ -686,7 +707,7 @@ final class LocationController {
         guard let settings = store.settings else { return }
         for record in settings.locations where !record.removing && sources[record.domainID] == nil {
             do {
-                guard let grant = settings.servers.first(where: { $0.id == record.serverID }),
+                guard let grant = settings.shares.first(where: { $0.id == record.serverID }),
                       let folder = RelativePath(record.folder) else { throw CocoaError(.fileReadCorruptFile) }
                 let catalog = try Catalog.openWriter(at: SharedContainer.catalogURL(domainID: record.domainID),
                                                      domainID: record.domainID)

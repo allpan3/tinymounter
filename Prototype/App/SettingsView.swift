@@ -153,7 +153,7 @@ private struct LocationPane: View {
             }
         }
         .formStyle(.grouped)
-        .disabled(model.busy.contains(id) || !model.isReady)
+        .disabled(model.busy.contains(id) || !model.isReady || model.connectionBusy)
         .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar(record: record) }
     }
 
@@ -179,16 +179,20 @@ private struct LocationPane: View {
     private var sourceSection: some View {
         Section(UIText.source) {
             Picker(UIText.server, selection: serverBinding) {
+                if model.serverID(id) == nil { Text(UIText.noServer).tag(String?.none) }
+                ForEach(model.servers) { Text(UIText.serverAddress($0)).tag(Optional($0.id.uuidString)) }
+                Divider()
+                Text(UIText.addServer).tag(Optional(Self.addServerTag))
+            }
+            Picker(UIText.share, selection: shareBinding) {
                 if model.grantID(id) == nil { Text(UIText.noShare).tag(String?.none) }
-                ForEach(serverKeys, id: \.self) { Text($0).tag(Optional($0)) }
+                ForEach(sharesOnServer, id: \.id) {
+                    Text(UIText.accountAndShare($0.account, $0.share)).tag(Optional($0.id.uuidString))
+                }
                 Divider()
                 Text(UIText.addShare).tag(Optional(Self.addShareTag))
             }
-            Picker(UIText.share, selection: shareBinding) {
-                if model.grantID(id) == nil { Text(UIText.noShare).tag(UUID?.none) }
-                ForEach(sharesOnServer, id: \.id) { Text($0.share).tag(Optional($0.id)) }
-            }
-            .disabled(model.grantID(id) == nil)
+            .disabled(model.serverID(id) == nil)
             LabeledContent(UIText.folder) {
                 HStack {
                     TextField(UIText.folder, text: binding(model.folderText, model.setFolder),
@@ -301,36 +305,32 @@ private struct LocationPane: View {
         if model.record(id) != nil { model.commitName(id) } else { model.add(id) }
     }
 
+    private static let addServerTag = "\u{0}add-server"
     private static let addShareTag = "\u{0}add-share"
     private static let completionDelay = Duration.milliseconds(150)
 
-    /// "account@host", one for each server with a saved share.
-    private var serverKeys: [String] {
-        var seen: Set<String> = []
-        return model.servers.map(Self.serverKey).filter { seen.insert($0).inserted }
-    }
-
     private var sharesOnServer: [ServerGrant] {
-        guard let grant = model.grant(model.grantID(id)) else { return [] }
-        return model.servers.filter { Self.serverKey($0) == Self.serverKey(grant) }
+        model.shares.filter { $0.serverID == model.serverID(id) }
     }
-
-    private static func serverKey(_ grant: ServerGrant) -> String { "\(grant.account)@\(grant.host)" }
 
     private var serverBinding: Binding<String?> {
-        Binding {
-            model.grant(model.grantID(id)).map(Self.serverKey)
-        } set: { key in
-            if key == Self.addShareTag {
-                model.addShare(for: id)
-            } else if key != model.grant(model.grantID(id)).map(Self.serverKey), let grant = model.servers.first(where: { Self.serverKey($0) == key }) {
-                model.setGrant(id, grant.id)
+        Binding { model.serverID(id)?.uuidString } set: { key in
+            if key == Self.addServerTag {
+                model.addServer(for: id)
+            } else if let key, let serverID = UUID(uuidString: key), serverID != model.serverID(id) {
+                model.setServer(id, serverID)
             }
         }
     }
 
-    private var shareBinding: Binding<UUID?> {
-        Binding { model.grantID(id) } set: { if let grantID = $0 { model.setGrant(id, grantID) } }
+    private var shareBinding: Binding<String?> {
+        Binding { model.grantID(id)?.uuidString } set: { key in
+            if key == Self.addShareTag {
+                model.addShare(for: id)
+            } else if let key, let grantID = UUID(uuidString: key) {
+                model.setGrant(id, grantID)
+            }
+        }
     }
 
     private func binding(_ get: @escaping (UUID) -> String, _ set: @escaping (UUID, String) -> Void) -> Binding<String> {
@@ -417,49 +417,72 @@ private struct ServersPane: View {
     @State private var selected: UUID?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 12) {
             List(selection: $selected) {
-                ForEach(model.servers, id: \.id) { grant in
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(grant.host)
-                            Text(UIText.accountAndShare(grant.account, grant.share)).foregroundStyle(.secondary)
+                ForEach(model.servers) { server in
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text(UIText.serverAddress(server)).font(.headline)
+                            Spacer()
+                            Button(UIText.addShare) { model.addShare(on: server.id) }
                         }
-                        Spacer()
-                        Text(model.shareStatus(grant)).foregroundStyle(.secondary)
-                        switch model.shareStates[grant.id] ?? .notConnected {
-                        case .notConnected: Button(UIText.connect) { model.connect(grant) }
-                        case .connected, .unresponsive: Button(UIText.disconnect) { model.disconnect(grant) }
-                        case .needsGrant: EmptyView()
-                        }
-                        Button(UIText.selectAgain) { Task { await model.selectShare(again: grant) } }
+                        let grants = model.shares.filter { $0.serverID == server.id }
+                        if grants.isEmpty { Text(UIText.noSelectedShares).foregroundStyle(.secondary) }
+                        ForEach(grants, id: \.id) { grant in shareRow(grant) }
                     }
-                    .padding(.vertical, 2)
-                    .tag(grant.id)
+                    .padding(.vertical, 6)
+                    .tag(server.id)
+                }
+                if !model.otherConnectedShares.isEmpty {
+                    Section(UIText.otherConnectedShares) {
+                        ForEach(model.otherConnectedShares) { mount in
+                            HStack {
+                                Text(UIText.mountedShare(mount.address))
+                                Spacer()
+                                Button(UIText.useShare) { model.useConnectedShare(mount) }
+                                Button(UIText.disconnect) { model.disconnect(mount) }
+                            }
+                        }
+                    }
                 }
             }
             .listStyle(.bordered(alternatesRowBackgrounds: true))
-            .overlay {
-                if model.servers.isEmpty { Text(UIText.noServers).foregroundStyle(.secondary) }
-            }
+            .disabled(model.connectionBusy || !model.isReady)
             HStack(spacing: 0) {
-                Button { Task { await model.addShare() } } label: {
+                Button { model.addServer() } label: {
                     Image(systemName: "plus").frame(width: 24, height: 20)
                 }
-                .help(UIText.addShare)
-                .accessibilityLabel(UIText.addShare)
-                Button { if let selected { model.removeGrant(selected) } } label: {
+                .help(UIText.addServer)
+                .accessibilityLabel(UIText.addServer)
+                Button { if let selected { model.removeServer(selected) } } label: {
                     Image(systemName: "minus").frame(width: 24, height: 20)
                 }
                 .help(UIText.removeItem)
                 .accessibilityLabel(UIText.removeItem)
-                .disabled(selected.map(model.isGrantUsed) ?? true)
+                .disabled(selected.map(model.isServerUsed) ?? true)
                 Spacer()
+                if model.connectionBusy { ProgressView().controlSize(.small) }
             }
             .buttonStyle(.borderless)
-            .padding(.vertical, 6)
+            .disabled(model.connectionBusy || !model.isReady)
+            Text(UIText.serverSetupHint).font(.callout).foregroundStyle(.secondary)
+            Text(UIText.disconnectHint).font(.callout).foregroundStyle(.secondary)
         }
         .padding(20)
+    }
+
+    private func shareRow(_ grant: ServerGrant) -> some View {
+        HStack {
+            Text(UIText.accountAndShare(grant.account, grant.share))
+            Spacer()
+            Text(model.shareStatus(grant)).foregroundStyle(.secondary)
+            switch model.shareStates[grant.id] ?? .notConnected {
+            case .notConnected: Button(UIText.connect) { model.connect(grant) }
+            case .connected, .unresponsive: Button(UIText.disconnect) { model.disconnect(grant) }
+            case .needsGrant: EmptyView()
+            }
+            Button(UIText.selectAgain) { model.selectAgain(grant) }
+        }
     }
 }
 
