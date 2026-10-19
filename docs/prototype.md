@@ -136,7 +136,7 @@ and turn on File Provider. The location's status updates when the system reports
 the user does not need to remove the location or restart the app. The
 [approval checks](results/2026-10-18-file-provider-approval.md) verified recovery on the physical
 Mac and the new action in the signed VM build. The UI update is now installed on the physical
-Mac, with File Provider off at the user's request to repeat the recovery.
+Mac. After the requested reset, the user resumed Finder browsing.
 
 The app resolves the bookmark only while the mount table lists the share, once per mount session,
 with `.withoutMounting`. Per session it holds one `O_EVTONLY` share-root descriptor and one per
@@ -244,6 +244,14 @@ xcodebuild -project TinyMounter.xcodeproj -scheme TinyMounterPrototype -configur
 
 5. Use Finder's **Remove Download** when resetting clean test content. A partially downloaded copy offers only **Download Now**: download it fully, then remove it. Check eviction by allocated size (`du`), not the `dataless` flag, which stays set on partial copies. Right after a download, Remove Download can briefly report “Resource busy”; retry after a few seconds. Do not remove/re-add the domain as ordinary reconnect logic. Do not evict a file in use by a player during timed runs.
 6. Use **Remove Location…** to remove the domain. It also deletes the location's downloaded copies and its CloudStorage folder (D3). The files on the share never change.
+
+Folder-listing log lines separate catalog lookup, session acquisition, the location root,
+`openat`, and time in `getattrlistbulk`, with a bulk-call count. `list_ms` still covers the whole
+listing stage. These fields diagnose the physical Mac's
+[first-folder delay](results/2026-10-18-first-folder-delay.md); they do not change the first-page
+deadline or listing behavior. The diagnostic build is installed on the physical Mac. App and
+mount resets did not reproduce the pause, but existing locations refresh and warm the share
+before a new location is browsed. A new catalog alone does not establish cold SMB access.
 
 ## 4. Physical-Mac check
 

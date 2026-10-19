@@ -2,8 +2,7 @@ import CryptoKit
 import Darwin
 import Foundation
 
-func posixError(_ operation: String) -> NSError {
-    let code = errno
+func posixError(_ operation: String, code: Int32 = errno) -> NSError {
     return NSError(domain: NSPOSIXErrorDomain, code: Int(code), userInfo: [
         NSLocalizedDescriptionKey: "\(operation): \(String(cString: strerror(code)))"
     ])

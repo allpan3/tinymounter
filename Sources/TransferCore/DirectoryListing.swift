@@ -76,12 +76,18 @@ public struct DirectoryListing: Sendable {
     /// Names whose key an earlier name has; kept, because a live row may hold one of them.
     public let collisionLosers: [Candidate]
     public let skipped: Skipped
+    public let openDuration: Duration
+    public let bulkDuration: Duration
+    public let bulkCalls: Int
 
     enum Parsed {
         case entry(Entry), unreadable(Unreadable), otherKind, invalidName
     }
 
-    init(_ parsed: [Parsed]) {
+    init(_ parsed: [Parsed], openDuration: Duration = .zero, bulkDuration: Duration = .zero, bulkCalls: Int = 0) {
+        self.openDuration = openDuration
+        self.bulkDuration = bulkDuration
+        self.bulkCalls = bulkCalls
         var skipped = Skipped()
         var candidates: [Candidate] = []
         for item in parsed {
@@ -121,12 +127,15 @@ public struct DirectoryListing: Sendable {
                             progress: () -> Void = {}) throws -> DirectoryListing {
         precondition(bufferSize > 0)
         return try expected.guarding(root: locationRoot) {
+            let started = ContinuousClock.now
             let fd = try openFolder(locationRoot, relativePath)
+            let opened = ContinuousClock.now
             defer { close(fd) }
             try expected.requireSameMount(fd, root: locationRoot)
-            let parsed = try readEntries(fd, limit: limit, bufferSize: bufferSize, progress: progress)
+            let result = try readEntries(fd, limit: limit, bufferSize: bufferSize, progress: progress)
             try expected.requireSameMount(fd, root: locationRoot)
-            return DirectoryListing(parsed)
+            return DirectoryListing(result.entries, openDuration: started.duration(to: opened),
+                                    bulkDuration: result.duration, bulkCalls: result.calls)
         }
     }
 
@@ -175,20 +184,27 @@ public struct DirectoryListing: Sendable {
         ATTR_CMN_NAME | ATTR_CMN_ERROR | ATTR_CMN_OBJTYPE | ATTR_CMN_MODTIME | ATTR_CMN_CHGTIME | ATTR_CMN_FILEID)
     private static let needed = attrgroup_t(ATTR_CMN_OBJTYPE | ATTR_CMN_MODTIME | ATTR_CMN_CHGTIME | ATTR_CMN_FILEID)
 
-    private static func readEntries(_ fd: Int32, limit: Int, bufferSize: Int, progress: () -> Void) throws -> [Parsed] {
+    private static func readEntries(_ fd: Int32, limit: Int, bufferSize: Int,
+                                    progress: () -> Void) throws -> (entries: [Parsed], duration: Duration, calls: Int) {
         var request = attrlist(bitmapcount: u_short(ATTR_BIT_MAP_COUNT), reserved: 0, commonattr: requested,
                                volattr: 0, dirattr: 0, fileattr: attrgroup_t(ATTR_FILE_DATALENGTH), forkattr: 0)
         let buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: bufferSize, alignment: 8)
         defer { buffer.deallocate() }
         var parsed: [Parsed] = []
+        var duration = Duration.zero
+        var calls = 0
         while true {
+            let started = ContinuousClock.now
             let count = getattrlistbulk(fd, &request, buffer.baseAddress!, buffer.count, UInt64(FSOPT_PACK_INVAL_ATTRS))
+            let code = errno
+            duration += started.duration(to: .now)
+            calls += 1
             if count < 0 {
                 // A call that returns no entries leaves the directory offset where it was.
-                if errno == EINTR { continue }
-                throw posixError("getattrlistbulk")
+                if code == EINTR { continue }
+                throw posixError("getattrlistbulk", code: code)
             }
-            if count == 0 { return parsed }
+            if count == 0 { return (parsed, duration, calls) }
             guard parsed.count + Int(count) <= limit else { throw SourceFailure.tooManyEntries }
             try parse(UnsafeRawBufferPointer(buffer), count: Int(count), into: &parsed)
             // Per batch, so the 15 s stall limit never marks a share unresponsive for a large folder.
