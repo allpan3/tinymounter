@@ -8,8 +8,10 @@ all kept files matched the disposable source with hydration forbidden. Failed li
 known children. Normal eject stayed ejected, and discovery resumed on manual reconnect.
 All 182 tests and required checks passed, with no Swift compiler warnings.
 
-The signed physical-Mac build is ready but has not been installed or opened. Physical-Mac and
-QSpace behavior, broader NAS notification coverage and restart persistence remain unverified.
+The signed physical-Mac build was ready when the VM checks ended; its later approved
+installation and successful user-run live-change check are recorded below. QSpace behavior,
+broader NAS notification coverage, physical-Mac offline hashes and restart persistence remain
+unverified.
 Nothing was pushed or merged for M15.
 
 ## Setup and method
@@ -106,5 +108,34 @@ retained subsystem messages. No VM restart or network cut was made.
   `results/nas-change-discovery-20261019/host-signed-build.log` is redacted; `host-ready-state.json`
   records verification and removal of build-created registration. The installed app was untouched.
 
-Next, obtain installation approval and check live changes during physical-Mac use. Broader NAS
-coverage and the existing physical-Mac offline-hash and restart checks remain open.
+Next, check live changes during physical-Mac use after the installation recorded below.
+Broader NAS coverage and the existing physical-Mac offline-hash and restart checks remain open.
+
+## Physical-Mac installation, 2026-10-19
+
+The user approved installation with "yes". At 16:15 US/Pacific, the running app quit normally,
+the previous bundle was backed up, and the signed M15 build replaced it in Applications and
+opened. Signing team, bundle ID and entitlements matched before replacement. Strict/deep
+signature verification passed, both installed binaries matched the ready build, and one app
+and one provider process ran from Applications.
+
+Launch retained one location, catalog and domain, with no unknown domains or failed sequences.
+Before and after diagnostics showed 540 items, 14 listed folders, one connected share/session,
+zero keep requests and zero stage files. No user setting, download or mount was reset.
+The new app's directory monitoring opened additional notification-only descriptors as expected.
+
+The existing 182-test VM result still applies because installation changed no source. Local
+installation evidence is `results/nas-change-discovery-20261019/host-install.json`, including the
+backup path, and `host-installed-provider.json`. Live NAS changes, offline hashes and macOS
+restart on the physical Mac remain unverified. Nothing was pushed or merged for M15.
+
+## Physical-Mac user check, 2026-10-19
+
+After receiving the Finder live-change test sequence, the user confirmed that it worked and
+reported updates within three seconds. This is a user-reported observation on the installed
+M15 build and their existing NAS connection. Cache state and operation-by-operation timestamps
+were not recorded, so it is not a controlled latency measurement or guarantee.
+
+The live-change check is confirmed by the user. Physical-Mac offline hashes and macOS restart,
+QSpace and broader NAS coverage remain open. No source, installed app or user state changed in
+response to this report.
