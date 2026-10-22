@@ -1,7 +1,7 @@
 import Foundation
 
 public enum OfflineState: String, Equatable, Sendable {
-    case requested, updateInProgress, availableOffline
+    case requested, updateInProgress, availableOffline, notSufficientSpace
 
     public init(status: URLUbiquitousItemDownloadingStatus?, downloading: Bool?, ubiquitous: Bool?,
                 size: Int?, modified: Date?, expectedSize: Int64, expectedModified: Date) {
@@ -28,7 +28,8 @@ public struct OfflineVerification: Sendable {
     public init() {}
 
     public mutating func states(snapshot: FolderKeepSnapshot, files: [String: OfflineState],
-                                folders: Set<String>, synchronized: Bool) -> [String: OfflineState] {
+                                folders: Set<String>, synchronized: Bool,
+                                spaceBlocked: Set<String> = []) -> [String: OfflineState] {
         var current: [String: String] = [:]
         var checked = files
         for row in snapshot.items where row.kind == .file {
@@ -41,6 +42,7 @@ public struct OfflineVerification: Sendable {
             }
         }
         versions = current
+        for id in spaceBlocked where checked[id] != .availableOffline { checked[id] = .notSufficientSpace }
         return snapshot.states(files: checked, folders: folders)
     }
 }

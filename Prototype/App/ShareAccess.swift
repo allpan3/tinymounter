@@ -811,6 +811,10 @@ final class LocationSource: @unchecked Sendable {
 
     func keepSnapshot() throws -> FolderKeepSnapshot { try withCatalog { try $0.keepSnapshot() } }
 
+    func spaceRecoveryItem(_ id: String) throws -> CatalogRow? {
+        try withCatalog { try $0.item(id: id) }
+    }
+
     /// `meta.paused`, which every row read carries.
     func isPaused() throws -> Bool { try withCatalog { try $0.item(id: Catalog.rootItemID)?.paused ?? false } }
 
@@ -873,7 +877,8 @@ final class LocationSource: @unchecked Sendable {
     }
 
     /// Plan §6 step 4: the version, the share state, the catalog path, the file, its fingerprint.
-    func transfer(_ request: SourceReadRequest, progress: Progress, stagingDirectory: URL) throws -> TransferOutput {
+    func transfer(_ request: SourceReadRequest, progress: Progress, stagingDirectory: URL,
+                  checkSpace: ((Int64) throws -> Void)? = nil) throws -> TransferOutput {
         let (row, path) = try withCatalog { catalog -> (CatalogRow, RelativePath) in
             guard let row = try catalog.item(id: request.item) else { throw CocoaError(.fileReadUnknown) }
             guard !row.deleted else { throw SourceFailure.missing }
@@ -905,7 +910,7 @@ final class LocationSource: @unchecked Sendable {
                 return try shareCall(request.id, parent: row.parentID, context: .fetch) {
                     try session.identity.guarding(root: root) {
                         try Transfer.run(source: file, range: range, stagingDirectory: stagingDirectory,
-                                         progress: progress)
+                                         progress: progress, checkSpace: checkSpace)
                     }
                 }
             } catch SourceFailure.versionChanged {

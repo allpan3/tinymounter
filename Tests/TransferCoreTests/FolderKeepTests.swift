@@ -278,6 +278,30 @@ final class FolderKeepTests: XCTestCase {
         try Catalog.create(at: directory.appending(path: "catalog.sqlite"), domainID: "test", rootName: "test")
     }
 
+    func testLowSpaceReachesKeptParentAndDoesNotResetVerifiedIndependentFile() throws {
+        let catalog = try makeCatalog()
+        try list(catalog, root, [folder("tree"), file("independent")])
+        let tree = try child(catalog, root, "tree"), independent = try child(catalog, root, "independent")
+        try list(catalog, tree.id, [file("waiting"), file("blocked")])
+        let blocked = try child(catalog, tree.id, "blocked")
+        try catalog.setKeep(ids: [tree.id, independent.id], value: true)
+        let snapshot = try catalog.keepSnapshot()
+        var verification = OfflineVerification()
+        let states = verification.states(snapshot: snapshot, files: [independent.id: .availableOffline],
+                                         folders: [tree.id], synchronized: true, spaceBlocked: [blocked.id])
+        XCTAssertEqual(states[tree.id], .notSufficientSpace)
+        XCTAssertEqual(states[independent.id], .availableOffline)
+        let repeated = verification.states(snapshot: snapshot, files: [independent.id: .availableOffline],
+                                           folders: [tree.id], synchronized: false, spaceBlocked: [blocked.id])
+        XCTAssertEqual(repeated[independent.id], .availableOffline)
+        XCTAssertEqual(repeated[tree.id], .notSufficientSpace)
+        let completed = Dictionary(uniqueKeysWithValues: snapshot.items.filter { $0.kind == .file }
+            .map { ($0.id, OfflineState.availableOffline) })
+        let recovered = verification.states(snapshot: snapshot, files: completed, folders: [tree.id],
+                                            synchronized: true, spaceBlocked: [blocked.id])
+        XCTAssertEqual(recovered[tree.id], .availableOffline)
+    }
+
     private func downgrade(_ catalog: Catalog) throws {
         try catalog.database.execute("""
             ALTER TABLE items DROP COLUMN keep_request;

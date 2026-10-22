@@ -61,6 +61,8 @@ final class LocationController {
     private var discovery: [String: DirectoryRefresh] = [:]
     private var discoveryMembershipDue: [String: Duration] = [:]
     private var discoveryCursor: String?
+    private var spaceTask: Task<Void, Never>?
+    private var spaceBlocked: [String: [String: SourceReadRequest]] = [:]
     private var wakeObserver: NotificationCenter.ObservationToken?
     /// Grants with a relisting running; true if a recovery asked for another one.
     private var relisting: [UUID: Bool] = [:]
@@ -86,10 +88,28 @@ final class LocationController {
             guard let self, let grantID = sources[domainID]?.access.grantID else { return }
             onUserFetchFailed?(grantID, failure)
         }
+        reader.onSpaceChange = { [weak self] domainID, request, blocked in
+            guard let self, self.sources[domainID] != nil else { return }
+            let before = self.spaceBlocked[domainID]?[request.item]
+            if blocked {
+                let previous = self.spaceBlocked[domainID]?[request.item]
+                if previous?.version != request.version || (previous?.range.length ?? -1) < request.range.length {
+                    self.spaceBlocked[domainID, default: [:]][request.item] = request
+                }
+            } else if let previous = self.spaceBlocked[domainID]?[request.item],
+                      previous.version == request.version, previous.range.length <= request.range.length {
+                self.spaceBlocked[domainID]?[request.item] = nil
+            }
+            if self.spaceBlocked[domainID]?[request.item] != before {
+                self.saveSpaceBlockedDownloads()
+                self.onLocationChange?(domainID)
+            }
+        }
     }
 
     deinit {
         discoveryTask?.cancel()
+        spaceTask?.cancel()
         if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
     }
 
@@ -101,6 +121,8 @@ final class LocationController {
 
     /// Plan §7 app launch: the staging sweep before any reader connects, then the domain steps.
     func launch() async {
+        do { spaceBlocked = try DownloadRecovery.load(from: SharedContainer.url().appending(path: DownloadRecovery.fileName)) }
+        catch { Self.readerLog.error("space_state_load \(logFields(error), privacy: .public)") }
         sweepStaging()
         guard case .ready(let settings) = store.state else {
             problem = .settingsUnreadable
@@ -165,6 +187,12 @@ final class LocationController {
         installDiagnosticsSignal()
         isReady = true
         startDiscovery()
+        spaceTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+                await self?.retrySpaceBlockedDownloads()
+            }
+        }
         onChange?()
     }
 
@@ -454,8 +482,14 @@ final class LocationController {
             }
             for synchronized in [false, true] {
                 if synchronized {
-                    try await manager.signalEnumerator(for: .workingSet)
-                    try await manager.waitForStabilization()
+                    do {
+                        try await manager.signalEnumerator(for: .workingSet)
+                        try await manager.waitForStabilization()
+                    } catch {
+                        // A blocked download cannot invalidate other versions already checked locally.
+                        if DownloadSpace.isFull(error), spaceBlocked[record.domainID]?.isEmpty == false { return }
+                        throw error
+                    }
                 }
                 let observed = try await localOfflineStates(snapshot, manager: manager)
                 let current = try await Self.offMain { try source.keepSnapshot() }
@@ -467,8 +501,12 @@ final class LocationController {
                     return
                 }
                 var verification = offlineVerification[record.domainID] ?? OfflineVerification()
+                let blocked = Set(snapshot.items.filter {
+                    spaceBlocked[record.domainID]?[$0.id]?.version == $0.contentVersion
+                }.map(\.id))
                 let states = verification.states(snapshot: snapshot, files: observed.files,
-                                                 folders: observed.folders, synchronized: synchronized)
+                                                 folders: observed.folders, synchronized: synchronized,
+                                                 spaceBlocked: blocked)
                 offlineVerification[record.domainID] = verification
                 update(states)
             }
@@ -862,6 +900,44 @@ final class LocationController {
     }
 
     private static var discoveryNow: Duration { .nanoseconds(DispatchTime.now().uptimeNanoseconds) }
+
+    private func retrySpaceBlockedDownloads() async {
+        guard isReady, !paused else { return }
+        let before = spaceBlocked
+        for id in spaceBlocked.keys where sources[id] == nil { spaceBlocked[id] = nil }
+        if before != spaceBlocked { saveSpaceBlockedDownloads() }
+        for (domainID, requests) in spaceBlocked {
+            guard let source = sources[domainID], canDiscover(source),
+                  let domain = domains[domainID], let manager = NSFileProviderManager(for: domain) else { continue }
+            for (item, request) in requests where !Task.isCancelled && !paused {
+                do {
+                    guard let row = try await Self.offMain({ try source.spaceRecoveryItem(item) }),
+                          !row.deleted, row.keep, row.contentVersion == request.version else {
+                        spaceBlocked[domainID]?[item] = nil
+                        saveSpaceBlockedDownloads()
+                        onLocationChange?(domainID)
+                        continue
+                    }
+                    let space = reader.downloadSpace
+                    guard try await Self.offMain({ try space.canRetry(bytes: row.size) }),
+                          !paused, canDiscover(source),
+                          spaceBlocked[domainID]?[item]?.id == request.id else { continue }
+                    try await manager.requestDownloadForItem(withIdentifier: NSFileProviderItemIdentifier(item))
+                    Self.readerLog.info("space_retry domain=\(domainID, privacy: .public) item=\(item, privacy: .public)")
+                } catch {
+                    Self.readerLog.error("space_retry domain=\(domainID, privacy: .public) \(logFields(error), privacy: .public)")
+                }
+            }
+        }
+    }
+
+    private func saveSpaceBlockedDownloads() {
+        do {
+            try DownloadRecovery.save(spaceBlocked, to: SharedContainer.url().appending(path: DownloadRecovery.fileName))
+        } catch {
+            Self.readerLog.error("space_state_save \(logFields(error), privacy: .public)")
+        }
+    }
 
     private func canDiscover(_ source: LocationSource) -> Bool {
         isReady && sources[source.domainID] === source && domains[source.domainID] != nil

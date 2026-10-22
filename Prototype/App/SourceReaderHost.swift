@@ -19,6 +19,10 @@ final class SourceReaderHost {
     var onConnected: ((String) -> Void)?
     /// A fetch that a user waits for failed because the share is down: the domain and the failure.
     var onUserFetchFailed: ((String, SourceFailure) -> Void)?
+    let downloadSpace = DownloadSpace {
+        try DownloadSpace.available(at: SharedContainer.stagingDirectory())
+    }
+    var onSpaceChange: ((String, SourceReadRequest, Bool) -> Void)?
 
     func update(_ current: [NSFileProviderDomain]) {
         domains = Dictionary(uniqueKeysWithValues: current.map { ($0.identifier.rawValue, $0) })
@@ -39,7 +43,10 @@ final class SourceReaderHost {
                 }
                 let connection = try await service.fileProviderConnection()
                 guard domains[id] != nil else { connection.invalidate(); connecting.remove(id); return }
-                let session = SourceReaderSession(domainID: id, source: source(id), queue: queue) { [weak self] failure in
+                let session = SourceReaderSession(domainID: id, source: source(id), queue: queue,
+                                                  space: downloadSpace, spaceChanged: { [weak self] request, blocked in
+                    Task { @MainActor in self?.onSpaceChange?(id, request, blocked) }
+                }) { [weak self] failure in
                     Task { @MainActor in self?.onUserFetchFailed?(id, failure) }
                 }
                 session.connection = connection
@@ -110,6 +117,8 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
     private let source: LocationSource?
     private let queue: OperationQueue
     private let userFetchFailed: @Sendable (SourceFailure) -> Void
+    private let space: DownloadSpace
+    private let spaceChanged: @Sendable (SourceReadRequest, Bool) -> Void
     private let progressQueue = DispatchQueue(label: "dev.tinymounter.prototype.reader-progress", qos: .utility)
     /// Set before the connection activates; progress messages go through it.
     weak var connection: NSXPCConnection?
@@ -119,12 +128,15 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
     static let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "source-reader")
     private var logger: Logger { Self.logger }
 
-    init(domainID: String, source: LocationSource?, queue: OperationQueue,
+    init(domainID: String, source: LocationSource?, queue: OperationQueue, space: DownloadSpace,
+         spaceChanged: @escaping @Sendable (SourceReadRequest, Bool) -> Void,
          userFetchFailed: @escaping @Sendable (SourceFailure) -> Void) {
         self.domainID = domainID
         self.source = source
         self.queue = queue
         self.userFetchFailed = userFetchFailed
+        self.space = space
+        self.spaceChanged = spaceChanged
     }
 
     func list(_ data: Data, reply: @escaping (Data?, NSError?) -> Void) {
@@ -189,6 +201,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
         guard let id = UUID(uuidString: requestID) else { return }
         let job = lock.withLock { jobs.removeValue(forKey: id) }
         job?.progress.cancel()
+        space.end(id)
         if let url = job?.staging { try? FileManager.default.removeItem(at: url) }
     }
 
@@ -208,8 +221,13 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
         do {
             // D2: the extension's deadline starts here, so time queued for a shared worker is no stall.
             try registration()?.started(ReaderMessage.encode(SourceReadStarted(id: request.id)))
+            guard !job.progress.isCancelled else { throw TransferError.cancelled }
+            try space.begin(request.id, bytes: request.range.length)
+            spaceChanged(request, false)
             let output = try source.transfer(request, progress: job.progress,
-                                             stagingDirectory: SharedContainer.stagingDirectory())
+                                             stagingDirectory: SharedContainer.stagingDirectory()) { [space] completed in
+                try space.check(request.id, completedBytes: completed)
+            }
             staged = output.stagingURL
             guard let staged else { throw CocoaError(.fileReadUnknown) }
             let receipt = try ReaderMessage.encode(SourceReadReceipt(stagingName: staged.lastPathComponent,
@@ -229,6 +247,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
         } catch {
             if let staged { try? FileManager.default.removeItem(at: staged) }
             release(request.id.uuidString)
+            if DownloadSpace.isFull(error) { spaceChanged(request, true) }
             let failure = Self.replyError(error)
             logger.error("""
                 request=\(request.id.uuidString, privacy: .public) domain=\(self.domainID, privacy: .public) \

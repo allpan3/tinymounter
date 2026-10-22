@@ -51,6 +51,8 @@ enum UIText {
     static let requested = "Requested"
     static let availableOffline = "Available offline"
     static let updateInProgress = "Update in progress"
+    static let notSufficientSpace = "Not sufficient space"
+    static let lowSpaceHint = "Free space on this Mac. Kept downloads resume automatically."
     static let notOnServer = "Not on the server"
     static let keepHint = "To keep a file or folder downloaded, right-click it in Finder. Then click Keep Downloaded."
     static let draftKeepHint = """
@@ -194,7 +196,8 @@ enum UIText {
     static let total = "Total"
     static let storageDescription = """
         This includes the kept files. When disk space is low, macOS removes the downloaded files that you do \
-        not keep. Remove Downloads removes them immediately.
+        not keep. Remove Downloads removes them immediately. tinymounter leaves 2 GiB free for macOS. \
+        A download can need extra temporary space.
         """
     static let removeDownloadsMenu = "Remove Downloads…"
     static let removeDownloads = "Remove Downloads"

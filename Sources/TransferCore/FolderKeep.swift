@@ -40,21 +40,23 @@ public struct FolderKeepSnapshot: Equatable, Sendable {
             var pending = [root]
             var seen: Set<String> = []
             var state = OfflineState.availableOffline
+            var incomplete = false
             while let row = pending.popLast() {
-                guard seen.insert(row.id).inserted else { return (root.id, .requested) }
+                guard seen.insert(row.id).inserted else { incomplete = true; continue }
                 if row.kind == .folder {
-                    guard row.listingComplete, row.listGen != nil,
-                          row.id == Catalog.rootItemID || folders.contains(row.id) else { return (root.id, .requested) }
+                    if !row.listingComplete || row.listGen == nil
+                        || row.id != Catalog.rootItemID && !folders.contains(row.id) { incomplete = true }
                     pending += children[row.id] ?? []
                 } else {
                     switch files[row.id] ?? .requested {
-                    case .requested: return (root.id, .requested)
+                    case .notSufficientSpace: return (root.id, .notSufficientSpace)
+                    case .requested: incomplete = true
                     case .updateInProgress: state = .updateInProgress
                     case .availableOffline: break
                     }
                 }
             }
-            return (root.id, state)
+            return (root.id, incomplete ? .requested : state)
         })
     }
 }

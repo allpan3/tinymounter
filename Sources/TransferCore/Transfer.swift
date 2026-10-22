@@ -179,11 +179,13 @@ public enum Transfer {
 
     public static func run(source: ReadOnlyFile, range: ByteRange, blockSize: Int = 1024 * 1024,
                            stagingDirectory: URL? = nil, syncStaging: Bool = false,
-                           progress: Progress = Progress()) throws -> TransferOutput {
+                           progress: Progress = Progress(),
+                           checkSpace: ((Int64) throws -> Void)? = nil) throws -> TransferOutput {
         _ = try ByteRange(offset: range.offset, length: range.length, fileSize: source.snapshot.size)
         guard (4096...16 * 1024 * 1024).contains(blockSize) else { throw TransferError.invalidBlockSize }
         guard !progress.isCancelled else { throw TransferError.cancelled }
         try source.validateUnchanged()
+        try checkSpace?(0)
         let begin = DispatchTime.now().uptimeNanoseconds
         var before = rusage(), after = rusage()
         getrusage(RUSAGE_SELF, &before)
@@ -220,6 +222,7 @@ public enum Transfer {
         var firstChunkBytes: Int64 = 0
         while offset < range.end {
             guard !progress.isCancelled else { throw TransferError.cancelled }
+            try checkSpace?(offset - range.offset)
             let n = pread(source.descriptor, buffer, min(blockSize, Int(range.end - offset)), offset)
             if n < 0 { if errno == EINTR { continue }; throw posixError("pread") }
             guard n > 0 else { throw TransferError.sourceChanged }

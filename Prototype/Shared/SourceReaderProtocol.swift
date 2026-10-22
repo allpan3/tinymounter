@@ -49,7 +49,8 @@ enum SourceReaderBridge {
 
     /// Only domain and code cross XPC. Classify share I/O in its own context first (plan §7).
     static func error(_ error: Error) -> NSError {
-        providerError(SourceFailure.classify(error, context: .fetch))
+        if DownloadSpace.isFull(error) { return CocoaError(.fileWriteOutOfSpace) as NSError }
+        return providerError(SourceFailure.classify(error, context: .fetch))
     }
 
     /// Plan §7. `unknown` keeps its domain and code; the extension maps it further.

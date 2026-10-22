@@ -17,6 +17,11 @@ part checked an update, a deleted app and a crash during Remove Location; see th
 [M9 results](results/2026-10-18-exit-validation.md) and [section 5](#5-install-update-and-remove).
 The phase 1 one-file fixture build is gone (D3).
 
+M16 disk-space protection passed the signed isolated VM checks on 2026-10-22, including retry
+after relaunch and manual Pause. All 192 tests and required checks passed. Its signed build is
+ready; the physical-Mac installation and low-space checks remain. The installed Mac app is M15.
+See the [disk-space results](results/2026-10-21-disk-space-protection.md).
+
 ## Implemented and checked
 
 - A dependency-free Swift package with `transfer-bench` and a reusable transfer engine.
@@ -342,6 +347,13 @@ stops during Remove Location, it says "The removal is not complete", and its nex
 the removal.
 
 ## Deliberate limitations
+
+- The reader reserves 2 GiB on its staging volume, plus temporary space for concurrent downloads.
+  A blocked keep shows Not sufficient space. Blocked kept files retry every 30 s when space
+  returns, including after relaunch; manual Pause, disconnected and disabled locations stop
+  retries. Ordinary on-demand reads fail clearly. No kept copy is evicted to make room. This
+  cannot prevent other processes from filling the disk, and OS eviction under pressure remains
+  unverified. If the retry file cannot be saved, an unsaved request is lost on app relaunch.
 
 - Read-only, on a macOS mount: one grant per share, and locations that are folders on it. The app asks macOS to mount the address that the user types, with macOS's own dialogs, and hides the mount from Finder's sidebar, so that Finder shows only the locations (M12). When macOS drops a share that has locations, the app asks macOS to mount it again with the password that the user saved in the Keychain; after an eject, it waits until the share is mounted again, or until the user clicks Connect in Servers (M11, M12). The user can't eject a hidden share in Finder, so Servers has Disconnect. The app never writes, renames or deletes on the share.
 - Keep Downloaded is a request for a file or folder, not proof of a download (phase 2 decision 3). M14 adds recursive folder requests, verified in the signed VM app ([results](results/2026-10-19-folder-keeps.md)). The system eagerly enumerates kept folders, and newly listed descendants inherit retention. Allow Removal cancels a request while preserving independent child requests. A folder is Available offline only if every descendant folder has an unskipped complete listing and is materialized, and every file passes the local-copy check. The system downloads an independently kept file only when its parent folder is materialized: a kept file in a folder that the system never enumerated waits until the folder is enumerated. Evicting a kept file fails; evicting its folder evicts it, and the system downloads it again at once. The location pane shows Requested, Update in progress or Available offline. It signals the working set and waits for macOS to apply provider changes, then reads fresh local metadata and rechecks catalog versions. Available offline requires current content with matching catalog size and modification date; this covers the source version last observed by the app, not live NAS freshness. The wait covers the location. Before waiting, the app rechecks previously synchronized content versions against fresh local metadata and materialization, so unrelated downloads do not reset their status. New or changed versions still need the wait; folder status uses current membership and listing completeness. Provider disablement or replacement clears remembered verification ([status-refresh results](results/2026-10-19-keep-status-refresh.md)). Signed VM checks passed, including source edits that preserved size/date ([results](results/2026-10-19-offline-versions.md)). Remove Location can save them, and a later location on the same share takes the ones inside its folder; for independently kept files outside a folder request, the app asks whether to download them now if their parent folders are not materialized (M7).

@@ -262,7 +262,8 @@ private struct LocationPane: View {
         } header: {
             Text(UIText.keepDownloaded)
         } footer: {
-            Text(UIText.keepHint).foregroundStyle(.secondary)
+            Text((model.keepRows[record.id] ?? []).contains { $0.availability == .notSufficientSpace }
+                 ? UIText.lowSpaceHint : UIText.keepHint).foregroundStyle(.secondary)
         }
     }
 

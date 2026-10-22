@@ -589,6 +589,7 @@ final class AppModel {
         case .requested: return UIText.requested
         case .updateInProgress: return UIText.updateInProgress
         case .availableOffline: return UIText.availableOffline
+        case .notSufficientSpace: return UIText.notSufficientSpace
         }
     }
 

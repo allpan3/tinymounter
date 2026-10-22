@@ -11,6 +11,8 @@ bar item and notifications, and M8 the Storage pane and folder completion, with 
 section 4.3.
 M14 adds recursive folder requests and aggregate offline status, verified in the signed VM app
 on 2026-10-19 ([results](results/2026-10-19-folder-keeps.md)).
+M16 adds Not sufficient space, a free-space instruction and automatic kept-download recovery,
+verified in the signed VM on 2026-10-22 ([results](results/2026-10-21-disk-space-protection.md)).
 Interactive mockup: [ui-mockup.html](ui-mockup.html).
 
 ## 1. Principles
@@ -143,6 +145,8 @@ the first location on a server.
 - **General:** Open at login, Show in menu bar, Notifications, and the Locations folder (section 7).
 - **Storage:** disk space used per location, the total available offline, "Keep this much disk space
   free" for kept downloads, and Remove Downloads for downloads that the user does not keep.
+  M16 uses a fixed 2 GiB reserve and explains temporary download space; the reserve control
+  remains planned.
 - **Servers:** one row per server: address, account, Keychain password, connection state, SMB
   dialect and signing. Edit… changes the account or password for all locations on that server.
   The M12 follow-up saves server addresses independently of share grants. Add Server… asks for
