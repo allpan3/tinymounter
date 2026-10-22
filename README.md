@@ -69,6 +69,13 @@ location was retained. The user confirmed live changes work on this Mac. Offline
 macOS restart remain open.
 See the [results](docs/results/2026-10-19-nas-change-discovery.md).
 
+Disk-space protection (M16), 2026-10-22: the signed VM checks passed blocking, clear Finder
+errors, recovery after relaunch, manual Pause and preservation of completed copies. A disposable
+volume also passed real disk-full cleanup and recovery. All 192 tests and required checks passed.
+The app reserves 2 GiB and shows Not sufficient space for blocked keeps. VM fixtures are removed
+and sharing is restored. The signed build is ready; physical-Mac installation and low-space
+checks remain. See the [results](docs/results/2026-10-21-disk-space-protection.md).
+
 ## Run the prototype
 
 See [prototype setup and validation](docs/prototype.md). Build the benchmark with `swift build -c release`; run `.build/release/transfer-bench --help`. Open `TinyMounter.xcodeproj` to configure signing for the Finder prototype.

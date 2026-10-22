@@ -5,8 +5,8 @@ Date: 2026-10-18. Decision status: M11 and M12 done in the VM on 2026-10-18
 The user approved their behaviour on 2026-10-18: the app connects the share again by itself, it
 starts again after a crash but not after the user quits it, and the user connects in the app,
 with only the locations in Finder. The design below is the agent's. M13 to M15 add verified
-offline status, folder keeps and live change discovery below. Cache pressure handling and the
-remaining domain lifecycle work are not planned yet.
+offline status, folder keeps and live change discovery below. M16 adds local disk-space
+protection. The remaining domain lifecycle work is not planned yet.
 
 Physical-Mac follow-up, 2026-10-19: the user reports the supplied checks passed except macOS
 restart, including sleep and wake and a network change. Logs show partial playback reads and
@@ -309,3 +309,55 @@ recordings show an external addition before and after M15. All 182 tests and req
 passed, with no Swift warnings. Cleanup and final diagnostics are recorded in the results log.
 The user later confirmed live changes on the physical Mac. Physical-Mac offline hashes and
 restart, QSpace and broader NAS notification coverage remain unverified.
+
+
+### M16: protect local disk space during downloads
+
+Decision status: behavior accepted by the user on 2026-10-21 with "sounds good do it".
+Implementation and signed VM verification passed on 2026-10-22. The user also approved
+temporary isolated VM File Sharing and a disposable size-limited volume, with full removal and
+settings restoration.
+Physical-Mac installation and publication require separate approval.
+
+The prototype leaves a fixed 2 GiB reserve on the local staging volume. This is an implementation
+policy, not a measured macOS requirement. One app-owned budget covers concurrent requests across
+locations. Admission requires room for twice the requested payload plus 64 KiB of metadata,
+allowing for staging and provider handoff. It counts range payload bytes, not the sparse file's
+logical end offset. Reservations remain until release; written staging bytes reduce outstanding
+reservations. Capacity is checked again every 16 MiB during transfer. Unexpected ENOSPC or EDQUOT
+still fails safely and removes the unfinished stage file. Other processes can consume space
+between checks, so the reserve is not an OS-enforced quota.
+
+Read fresh ordinary volume available capacity, without assuming macOS will purge other data.
+No kept copy is evicted to make room. The native provider retention and manual Pause policies
+remain unchanged. Missing local capacity fails the download rather than granting speculative
+space. Disk-full failures cross XPC as Cocoa's local fileWriteOutOfSpace error, never a remote
+quota or connection failure.
+
+Settings shows Not sufficient space for an affected keep request or kept ancestor folder, with
+instructions to free local space. Verified independent copies keep Available offline. All
+completeness, version and materialization checks remain necessary for a positive offline state.
+
+While the app runs, check blocked kept files every 30 seconds. Once their complete payload fits
+with another 64 MiB of recovery headroom, request their download through File Provider's public
+API. This avoids misusing signalErrorResolved, whose documented supported errors do not include
+local disk-full errors. A manually paused, disconnected, disabled or removing location is not
+retried. Unkept on-demand reads fail clearly and remain under the requesting app/system's control.
+Save blocked reader requests atomically in the App Group as `BlockedDownloads.json`. It contains
+only opaque IDs, versions and byte ranges; settings and catalogs remain unchanged. The queue
+survives relaunch, then each retry checks current keep intent and source version. Public pending
+item and URL error projections did not expose the failed request in the VM. If saving fails,
+in-memory recovery remains active for that process; a relaunch cannot recover an unsaved request.
+No settings/catalog migration or new dependency is needed.
+
+Verification must cover shared reservations, external capacity loss, partial-stage cleanup,
+large sparse offsets, overflow-safe accounting, local error mapping, folder aggregation,
+independent offline status and recovery without overriding Pause. Use a small disposable volume
+for a real ENOSPC path and signed app checks for admission, Finder/app status and retry. Record
+matched before/after actions, restore sharing and remove all test downloads afterward.
+
+All 192 tests and required checks passed. Signed checks covered blocked admission, native Finder
+errors, independent offline status, persisted retry after relaunch, Pause and recovery. Real
+ENOSPC cleanup and recovery passed on a disposable volume. Sharing is restored and all fixtures
+are removed. The signed build is ready; physical-Mac installation and low-space checks remain.
+See the [results](results/2026-10-21-disk-space-protection.md).

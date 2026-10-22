@@ -414,6 +414,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
 
 /// Every error leaves in the Cocoa or File Provider domain, and none of them describes a path.
 func providerError(_ error: Error) -> Error {
+    if DownloadSpace.isFull(error) { return CocoaError(.fileWriteOutOfSpace) }
     switch error {
     case let failure as SourceFailure:
         let mapped = SourceReaderBridge.providerError(failure)

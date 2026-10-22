@@ -97,6 +97,11 @@ No reviewed page establishes ≥90% native throughput for an offline-caching SMB
 
 ## Source register
 
+### Local storage and File Provider retries
+
+- **S1:** Installed Xcode 27 `NSFileProviderManager.h`, read 2026-10-21. `signalErrorResolved` lists authentication, server quota, reachability, synchronization and exclusion errors; it does not list local disk-full errors. `requestDownloadForItem` is the supported route used to request blocked kept files again.
+- **S2:** Installed SDK `NSURL.h` distinguishes ordinary free capacity from important/opportunistic capacity estimates that can include purgeable space. M16 reads fresh `volumeAvailableCapacity` values and handles write failures even after admission. `NSFileProviderErrorInsufficientQuota` describes server-account upload quota, so it is not used for local storage pressure.
+
 ### Native SMB directory monitoring
 
 - **C1:** [DispatchSourceFileSystemObject](https://developer.apple.com/documentation/dispatch/dispatchsourcefilesystemobject) and [Apple's kernel-queue guide](https://developer.apple.com/library/archive/documentation/Darwin/Conceptual/FSEvents_ProgGuide/KernelQueues/KernelQueues.html), read on 2026-10-19. Public vnode sources observe a descriptor, with O_EVTONLY suitable for notification-only access.
