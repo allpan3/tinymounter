@@ -18,8 +18,9 @@ part checked an update, a deleted app and a crash during Remove Location; see th
 The phase 1 one-file fixture build is gone (D3).
 
 M16 disk-space protection passed the signed isolated VM checks on 2026-10-22, including retry
-after relaunch and manual Pause. All 192 tests and required checks passed. Its signed build is
-ready; the physical-Mac installation and low-space checks remain. The installed Mac app is M15.
+after relaunch and manual Pause. All 192 tests and required checks passed. The signed update is
+installed on the physical Mac with its existing location retained. Physical-Mac low-space checks
+remain.
 See the [disk-space results](results/2026-10-21-disk-space-protection.md).
 
 ## Implemented and checked

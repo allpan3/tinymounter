@@ -5,8 +5,8 @@ Decision status: accepted behavior; implementation and VM checks completed on 20
 M16 passed the signed isolated VM checks and all 192 tests and required builds, with no Swift
 warnings. Blocked keeps recover after app relaunch and space recovery, without overriding manual
 Pause. Completed copies remain intact. All fixtures are removed and sharing is restored.
-The signed build is ready. Physical-Mac installation and low-space checks remain; the installed
-M15 app is unchanged. Publication is not approved.
+The user approved installation on 2026-10-22. The signed update is installed on the physical Mac;
+its low-space checks remain. Publication is not approved.
 
 ## Setup and policy
 
@@ -75,3 +75,19 @@ same bundle and unchanged sandbox entitlements, and passes strict/deep signature
 Physical-Mac low-space behavior, QSpace, OS eviction of unkept copies under pressure, multiple
 signed locations competing for space and a macOS restart remain unverified. Shared reservation
 accounting is unit-tested. No dependency or sandbox change was made.
+
+## Physical-Mac installation, 2026-10-22
+
+The user said "Install, then go onto the next step". Quit the old app normally, saved a backup,
+replaced the app in Applications and opened it. Strict/deep signature verification passed, with
+the same team, bundle and unchanged sandbox entitlements. The app and provider both run from
+Applications and their binaries match the verified ready build.
+
+Before and after diagnostics show one location/catalog/domain, 579 live items, 16 listed folders,
+one share/session, zero kept requests and zero stage files. Launch reported no unknown domains
+or failed sequences. No settings, download or mount reset was made. This verifies installation
+and retained state, not physical-Mac low-space behavior.
+
+Local evidence is host-install.json and host-installed-provider.json in the evidence directory.
+The prior app is under .build/app-backups/20261022-220852/. No source changed and no further
+VM test run was needed for this installation record.

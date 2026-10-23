@@ -317,7 +317,8 @@ Decision status: behavior accepted by the user on 2026-10-21 with "sounds good d
 Implementation and signed VM verification passed on 2026-10-22. The user also approved
 temporary isolated VM File Sharing and a disposable size-limited volume, with full removal and
 settings restoration.
-Physical-Mac installation and publication require separate approval.
+The user approved physical-Mac installation on 2026-10-22; it is installed. Publication still
+requires approval.
 
 The prototype leaves a fixed 2 GiB reserve on the local staging volume. This is an implementation
 policy, not a measured macOS requirement. One app-owned budget covers concurrent requests across
@@ -359,5 +360,5 @@ matched before/after actions, restore sharing and remove all test downloads afte
 All 192 tests and required checks passed. Signed checks covered blocked admission, native Finder
 errors, independent offline status, persisted retry after relaunch, Pause and recovery. Real
 ENOSPC cleanup and recovery passed on a disposable volume. Sharing is restored and all fixtures
-are removed. The signed build is ready; physical-Mac installation and low-space checks remain.
+are removed. The signed update is installed on the physical Mac; its low-space checks remain.
 See the [results](results/2026-10-21-disk-space-protection.md).
