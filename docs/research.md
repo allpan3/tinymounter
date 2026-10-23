@@ -161,6 +161,19 @@ No reviewed page establishes ≥90% native throughput for an offline-caching SMB
   reviewed 2026-10-23. `ReplaceIfExists` false requires a failure when the destination exists.
   This establishes a protocol operation to investigate, not a verified direct-client upload path.
 
+- **W3:** Apple's published [XNU rename dispatch](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/vfs/kpi_vfs.c),
+  [SMB vnode operations](https://github.com/apple-oss-distributions/SMBClient/blob/main/kernel/smbfs/smbfs_vnops.c)
+  and [SMB2 rename](https://github.com/apple-oss-distributions/SMBClient/blob/main/kernel/smbfs/smbfs_smb_2.c),
+  reviewed 2026-10-23. Exclusive rename uses a vnode operation absent from the SMB table. Ordinary
+  rename can remove an existing destination before sending a protocol rename with replacement
+  disabled. These source paths explain the observed behavior; they are not a verified identity
+  match to the installed kernel build.
+- **W4:** Installed Xcode 27 `Foundation/NSData.h` explicitly disallows combining atomic writes
+  and without-overwriting. The published [FileManager move implementation](https://github.com/swiftlang/swift-foundation/blob/main/Sources/FoundationEssentials/FileManager/FileOperations.swift)
+  performs a preflight check followed by ordinary rename. An isolated probe of the installed
+  Foundation confirmed that a competing create between these steps can be overwritten on SMB
+  and APFS. See the [follow-up results](results/2026-10-23-upload-publication.md#native-api-follow-up).
+
 ## Research limitations
 
 Live web documentation and current SDK headers establish API contracts, not actual throughput. Search was unreliable, and several sites initially failed the VM's DNS resolution; direct HTTPS retrieval with explicitly resolved public addresses succeeded. No VM DNS settings were changed. Subsequent work measured native SMB and short NAS-backed provider reads and ran signed correctness checks; dated results logs record those separately. Competitor installations, the player matrix, large-file throughput acceptance, and controlled failure experiments remain incomplete, as described in the benchmark plan.

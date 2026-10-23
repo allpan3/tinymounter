@@ -6,8 +6,10 @@ and folders, then adds editing and conflict handling in later milestones. The re
 checks are still open; starting this design does not mark them passed.
 
 Native publication gate, 2026-10-23: the writable VM SMB check returned ENOTSUP for
-exclusive rename and hard links. M18 implementation is blocked until a supported safe publication
-route is established. See the [gate results](results/2026-10-23-upload-publication.md).
+exclusive rename and hard links. Follow-up verified native exclusive creation without overwrites,
+but other devices can see the file before upload completes. Accepting that visibility change is
+pending; the complete-file publication requirement below remains in force. See the
+[gate results](results/2026-10-23-upload-publication.md).
 
 ## First milestone: create files and folders
 

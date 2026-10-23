@@ -1,8 +1,9 @@
 # New-file publication gate, 2026-10-23
 
-Decision status: M18 and its disposable writable VM fixture are accepted. Implementation is
-blocked at the required publication check. The app remains read-only; no production code,
-entitlement, settings format or catalog changed.
+Decision status: M18 and its disposable writable VM fixture are accepted. The staged-rename
+route failed its required publication check. Native exclusive creation works, with a remote
+visibility tradeoff that needs a decision before implementation. The app remains read-only;
+no production code, entitlement, settings format or catalog changed.
 
 The native SMB probes returned ENOTSUP, errno 45, for both exclusive rename and
 hard-link publication. The volume also reports that neither capability is supported. These
@@ -62,6 +63,63 @@ host directory results/upload-publication-20261023. The VM holds the correspondi
 and root-readable only; it is not copied into the repository. No UI recording is needed because
 no app or File Provider behavior changed.
 
+## Native API follow-up
+
+The user's follow-up asked why this failed and challenged treating it as a fundamental obstacle.
+The original conclusion was too broad: native SMB writes work. The failure concerns the extra
+atomic publication guarantee in the accepted plan, not permission to write through SMB.
+
+Apple's published [XNU rename dispatch](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/vfs/kpi_vfs.c)
+uses `VNOP_RENAMEX` for `RENAME_EXCL`. The published [SMB vnode operation table](https://github.com/apple-oss-distributions/SMBClient/blob/main/kernel/smbfs/smbfs_vnops.c)
+implements ordinary rename but has no exclusive-rename entry. Its hard-link handler also rejects
+that operation. This explains the observed ENOTSUP result and capability values; it is not a
+server write-permission failure. The [SMB2 rename implementation](https://github.com/apple-oss-distributions/SMBClient/blob/main/kernel/smbfs/smbfs_smb_2.c)
+sets `replace_if_exists` to zero internally. Ordinary POSIX rename can still replace a target
+because the vnode handler first removes a known existing destination. Published source is
+supporting evidence, not a claim that the installed kernel is byte-identical to that revision.
+
+A disposable command-line helper called the installed Foundation FileManager. An interposed
+ordinary-rename wrapper inserted a synthetic competing file immediately before the actual
+rename. Only this diagnostic process loaded the wrapper; no app or system process was modified.
+
+| Installed FileManager check | Result |
+| --- | --- |
+| Move to an absent destination on SMB | Succeeded; complete bytes and file identity preserved |
+| Move with an existing SMB destination | Cocoa error 516; original and pending bytes preserved |
+| Create destination after preflight, before ordinary rename on SMB | Move succeeded and replaced the competing file |
+| Same injected race on APFS | Also replaced the competing file |
+
+The installed FileManager called ordinary `rename`, so its usual existence check does not supply
+atomic protection against a competing create. The public [Foundation implementation](https://github.com/swiftlang/swift-foundation/blob/main/Sources/FoundationEssentials/FileManager/FileOperations.swift)
+likewise checks the destination before ordinary rename. No private API, system tracing or
+sandbox bypass was used.
+
+The installed NSData header explicitly disallows combining atomic writes with the
+without-overwriting option. It therefore does not supply an alternate supported combination
+for this requirement.
+
+Native `open` with `O_CREAT | O_EXCL` is a viable alternative for new-file uploads. In 20 races
+between the writable SMB mount and its local backing directory, exactly one creator won, the
+other received EEXIST, and the final bytes matched the winner. Existing files were not changed.
+A separate interrupted-write check wrote and flushed 16 KiB of an intended 64 KiB file. The
+backing path could read that partial file, which confirms the visibility tradeoff.
+
+This route preserves the no-overwrite requirement and can keep a durable local pending copy.
+The app must report an upload incomplete until it finishes. Other devices can see a partial new
+file during upload, including after interruption. That differs from the accepted requirement
+that only a complete file appears under its final name. The user has been asked to decide this
+specific change; it has not been silently accepted or implemented.
+
+The follow-up fixture, mount, test files and share are removed. Original sharing records and
+launch override match their snapshot, the SMB service is unloaded as before, and guest settings
+are off. One original SMB mount and the existing app/Cairndex processes remain present. The
+follow-up evidence is m18-fm-*.json, m18-fm-*.trace, m18-exclusive-create.json,
+m18-native-cleanup.json and m18-native-final-state.json under the same VM evidence directory.
+Only synthetic names occur in the diagnostic trace, and its output records API names and flags.
+Tools/run-checks.sh passed again after the follow-up: all 192 tests, project generation, release
+CLI verification and the unsigned app build, with no Swift warnings. The log is
+.local/phase2/m18-native-checks.log.
+
 ## Consequence for M18
 
 Do not enable writes using a separate existence check or expose a partial final file. The approved
@@ -75,7 +133,8 @@ The result above is about the tested native mounted path, not an SMB protocol li
 claim about every server. Apple's [exclusive-renaming volume property](https://developer.apple.com/documentation/foundation/urlresourcevalues/volumesupportsexclusiverenaming)
 corresponds to `RENAME_EXCL` support.
 
-Next recommendation, decision status: proposed. Evaluate a direct SMB route for safe publication,
-including authentication, sandbox access and library licensing before choosing a dependency.
-No dependency, transport switch, real-NAS write, publication or physical-Mac installation is
-approved by this result.
+Next recommendation, decision status: proposed. Keep native SMB and use exclusive creation if
+the user accepts partial new-file visibility during upload. Keep the durable pending copy and
+no-overwrite requirement. A transport change is not justified by this check alone. Direct SMB
+remains an alternative if complete-file atomic publication stays mandatory. No dependency,
+transport switch, real-NAS write, publication or physical-Mac installation is approved here.
