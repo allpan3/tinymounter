@@ -690,7 +690,7 @@ final class ShareAccess: @unchecked Sendable {
     }
 
     /// Without a trailing slash, as in `f_mntonname`.
-    private static func filePath(_ url: URL) -> String {
+    static func filePath(_ url: URL) -> String {
         let path = url.standardizedFileURL.path(percentEncoded: false)
         return path.count > 1 && path.hasSuffix("/") ? String(path.dropLast()) : path
     }
@@ -710,12 +710,15 @@ final class LocationSource: @unchecked Sendable {
 
     let domainID: String
     let access: ShareAccess
-    private let folder: RelativePath
+    let folder: RelativePath
     /// Signals the domain's working set; `scheduleSignal` debounces it.
     private let signal: @Sendable () -> Void
     // The system SQLite can't share a connection between threads, so every use takes this lock.
     private let catalogLock = NSLock()
     private var catalog: Catalog?
+    let uploadLock = NSLock()
+    var writeBookmark: Data?
+    var mutationsSuspended = false
     private let lock = NSLock()
     /// Folders with a listing queued or running, and the replies that wait for it.
     private var waiting: [String: [Reply]] = [:]
@@ -921,7 +924,7 @@ final class LocationSource: @unchecked Sendable {
         }
     }
 
-    private func listOnLane(_ folderID: String, requestID: UUID) throws -> ListReceipt {
+    func listOnLane(_ folderID: String, requestID: UUID) throws -> ListReceipt {
         let started = ContinuousClock.now
         do {
             let (parentID, path) = try withCatalog { catalog -> (String?, RelativePath) in
@@ -1041,7 +1044,7 @@ final class LocationSource: @unchecked Sendable {
         }
     }
 
-    private func scheduleSignal() {
+    func scheduleSignal() {
         let first = lock.withLock {
             defer { signalScheduled = true }
             return !signalScheduled
@@ -1091,7 +1094,7 @@ final class LocationSource: @unchecked Sendable {
         }
     }
 
-    private func withCatalog<T>(_ body: (Catalog) throws -> T) throws -> T {
+    func withCatalog<T>(_ body: (Catalog) throws -> T) throws -> T {
         try catalogLock.withLock {
             guard let catalog else { throw LocationError.catalogClosed }
             return try body(catalog)

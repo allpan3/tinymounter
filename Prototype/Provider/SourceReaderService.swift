@@ -195,6 +195,25 @@ final class SourceReaderService: NSObject, NSFileProviderServiceSource, NSXPCLis
         return try ReaderMessage.decode(KeepReceipt.self, from: response.value())
     }
 
+    func create(_ request: CreateRequest, progress: Progress) throws -> CreateReceipt {
+        let response = Response(progress: progress)
+        let id = request.id.uuidString
+        let proxy = try proxy(startupProgress: progress) { response.finish(.failure($0)) }
+        lock.withLock { waiting[id] = response }
+        defer {
+            lock.withLock { waiting[id] = nil }
+            proxy.release(id)
+        }
+        proxy.create(try ReaderMessage.encode(request)) { data, error in
+            response.finish(Result { try Self.payload(data, error) })
+        }
+        while response.ready.wait(timeout: .now() + 0.1) == .timedOut {
+            guard !progress.isCancelled else { throw TransferError.cancelled }
+            guard !response.hasStalled else { throw NSFileProviderError(.serverUnreachable) }
+        }
+        return try ReaderMessage.decode(CreateReceipt.self, from: response.value())
+    }
+
     private func proxy(startupProgress: Progress? = nil,
                        _ failed: @escaping (Error) -> Void) throws -> SourceReaderProtocol {
         let connection = try lock.withLock {

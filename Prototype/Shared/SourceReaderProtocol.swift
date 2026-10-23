@@ -8,6 +8,7 @@ import FileProvider
     func list(_ request: Data, reply: @escaping (Data?, NSError?) -> Void)
     /// A `KeepRequest`; the reply is a `KeepReceipt` after the catalog write commits.
     func keep(_ request: Data, reply: @escaping (Data?, NSError?) -> Void)
+    func create(_ request: Data, reply: @escaping (Data?, NSError?) -> Void)
     func release(_ requestID: String)
 }
 

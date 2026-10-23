@@ -300,6 +300,36 @@ final class LocationController {
         return record
     }
 
+    func setWriteAccess(_ recordID: UUID, bookmark: Data?) async throws {
+        guard let record = store.settings?.locations.first(where: { $0.id == recordID }),
+              !record.removing, let source = sources[record.domainID] else { throw UploadError.readOnly }
+        let previous = record.writeBookmark
+        let save: (Data?) throws -> Void = { bookmark in
+            try self.store.update { settings in
+                guard let index = settings.locations.firstIndex(where: { $0.id == recordID }) else { throw UploadError.readOnly }
+                settings.locations[index].writeBookmark = bookmark
+            }
+        }
+        if bookmark != nil {
+            try save(bookmark)
+            do { try await Self.offMain { try source.configureWrites(bookmark) } }
+            catch { try save(previous); throw error }
+        } else {
+            try await Self.offMain { try source.configureWrites(nil) }
+            do { try save(nil) }
+            catch {
+                try? await Self.offMain { try source.configureWrites(previous) }
+                throw error
+            }
+        }
+        onChange?()
+    }
+
+    func pendingUploads(_ record: LocationRecord) async throws -> Int {
+        guard let source = sources[record.domainID] else { throw LocationError.catalogClosed }
+        return try await Self.offMain { try source.pendingUploads() }
+    }
+
     /// Plan §8 Name: a unique name in the record and the root row, then `add` again with the same ID.
     func rename(_ recordID: UUID, to name: String) async throws -> String {
         guard isReady, let settings = store.settings,
@@ -331,6 +361,10 @@ final class LocationController {
               let grant = settings.shares.first(where: { $0.id == grantID }) else {
             throw CocoaError(.fileReadUnknown)
         }
+        let previousSource = sources[record.domainID]
+        if let previousSource { try await Self.offMain { try previousSource.suspendMutations() } }
+        else if try LocationSource.outbox(domainID: record.domainID).pendingCount > 0 { throw UploadError.pendingWrites }
+        defer { previousSource?.resumeMutations() }
         let oldGrant = settings.shares.first { $0.id == record.serverID }
         let kept = await keptSharePaths(record) + record.pendingKeeps
         let sameShare = oldGrant?.isSameShare(host: grant.host, share: grant.share) ?? false
@@ -340,6 +374,7 @@ final class LocationController {
         updated.retiredDomainID = record.domainID
         updated.serverID = grantID
         updated.folder = folder.string
+        updated.writeBookmark = nil
         let source = try await makeListedSource(updated, folder: folder, grant: grant)
         do {
             try store.update { settings in
@@ -365,6 +400,7 @@ final class LocationController {
         // Remove before add, so two domains never share a display name or a disk location [H].
         try await run(.removeDomain(record.domainID), registered: registeredDomains())
         try Catalog.delete(at: SharedContainer.catalogURL(domainID: record.domainID))
+        try LocationSource.outbox(domainID: record.domainID).removeIfCompleted()
         try store.update { settings in
             guard let index = settings.locations.firstIndex(where: { $0.id == recordID }) else { return }
             settings.locations[index].retiredDomainID = nil
@@ -386,6 +422,10 @@ final class LocationController {
         guard isReady, let settings = store.settings, let record = settings.locations.first(where: { $0.id == recordID }) else {
             throw CocoaError(.fileReadUnknown)
         }
+        let previousSource = sources[record.domainID]
+        if let previousSource { try await Self.offMain { try previousSource.suspendMutations() } }
+        else if try LocationSource.outbox(domainID: record.domainID).pendingCount > 0 { throw UploadError.pendingWrites }
+        defer { previousSource?.resumeMutations() }
         let grant = settings.shares.first { $0.id == record.serverID }
         // A location whose catalog can't be read saves only its pending paths; it must stay removable.
         let paths = saveKeeps && !record.removing ? await keptSharePaths(record) + record.pendingKeeps : []
@@ -401,6 +441,7 @@ final class LocationController {
         sources.removeValue(forKey: record.domainID)?.close()
         domains[record.domainID] = nil
         try Catalog.delete(at: SharedContainer.catalogURL(domainID: record.domainID))
+        try LocationSource.outbox(domainID: record.domainID).removeIfCompleted()
         try store.update { $0.locations.removeAll { $0.id == recordID } }
         Self.catalogLog.info("""
             location_removed domain=\(record.domainID, privacy: .public) saved_keeps=\(paths.count)
@@ -823,6 +864,7 @@ final class LocationController {
             _ = try await NSFileProviderManager.remove(domain, mode: .removeAll)
         case .deleteCatalog(let id):
             try Catalog.delete(at: SharedContainer.catalogURL(domainID: id))
+            try LocationSource.outbox(domainID: id).removeIfCompleted()
         case .deleteRecord(let id):
             try store.update { $0.locations.removeAll { $0.id == id } }
         case .clearRetiredDomain(let id):
@@ -881,6 +923,7 @@ final class LocationController {
                 Self.listingLog.error("signal domain=\(domainID, privacy: .public) \(logFields(error), privacy: .public)")
             }
         }
+        try? source.configureWrites(record.writeBookmark)
         source.onChange { [weak self] in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {

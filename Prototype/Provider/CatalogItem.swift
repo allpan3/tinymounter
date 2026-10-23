@@ -2,7 +2,7 @@ import FileProvider
 import OSLog
 import UniformTypeIdentifiers
 
-/// A catalog row as File Provider sees it. The domain is read-only, so nothing allows writing.
+/// File Provider permits creation only in a location with explicit write access.
 final class CatalogItem: NSObject, NSFileProviderItem {
     private let row: CatalogRow
     init(_ row: CatalogRow) { self.row = row }
@@ -20,8 +20,14 @@ final class CatalogItem: NSObject, NSFileProviderItem {
     }
     var documentSize: NSNumber? { isFolder ? nil : NSNumber(value: row.size) }
     var contentModificationDate: Date? { row.parentID == nil ? nil : row.modificationDate }
-    var capabilities: NSFileProviderItemCapabilities { isFolder ? .allowsContentEnumerating : .allowsReading }
-    var fileSystemFlags: NSFileProviderFileSystemFlags { isFolder ? [.userReadable, .userExecutable] : .userReadable }
+    var capabilities: NSFileProviderItemCapabilities {
+        if isFolder { return row.allowsCreation ? [.allowsContentEnumerating, .allowsAddingSubItems] : .allowsContentEnumerating }
+        return .allowsReading
+    }
+    var fileSystemFlags: NSFileProviderFileSystemFlags {
+        if isFolder { return row.allowsCreation ? [.userReadable, .userWritable, .userExecutable] : [.userReadable, .userExecutable] }
+        return .userReadable
+    }
     /// While paused, kept files are lazy, so the system starts no eager downloads (plan §6).
     var contentPolicy: NSFileProviderContentPolicy {
         row.keep && !row.paused ? .downloadEagerlyAndKeepDownloaded : .downloadLazily

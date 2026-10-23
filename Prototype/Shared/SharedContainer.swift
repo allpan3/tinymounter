@@ -1,6 +1,6 @@
 import Foundation
 
-/// The App Group container: catalogs and reader staging. Settings and grants never go here.
+/// The App Group container: catalogs and transfer staging. Settings and grants never go here.
 enum SharedContainer {
     static func url() throws -> URL {
         guard let group = Bundle.main.object(forInfoDictionaryKey: "TinyMounterAppGroup") as? String, !group.isEmpty,
@@ -42,6 +42,12 @@ enum SharedContainer {
         let url = try url().appending(path: "ReaderStaging", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    static func uploadInbox(_ id: UUID) throws -> URL {
+        let directory = try url().appending(path: "UploadInbox", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appending(path: id.uuidString + ".data")
     }
 
     private static func isDomainID(_ id: String) -> Bool { UUID(uuidString: id)?.uuidString == id }

@@ -514,6 +514,40 @@ final class AppModel {
         }
     }
 
+    func setWriteAccess(_ recordID: UUID, enabled: Bool) {
+        guard let record = record(recordID), !busy.contains(recordID),
+              let grant = grant(record.serverID) else { return }
+        Task {
+            busy.insert(recordID)
+            defer { busy.remove(recordID) }
+            do {
+                var bookmark: Data?
+                if enabled {
+                    let panel = NSOpenPanel()
+                    panel.canChooseDirectories = true
+                    panel.canChooseFiles = false
+                    panel.allowsMultipleSelection = false
+                    panel.message = UIText.writeGrantMessage
+                    panel.prompt = UIText.enableChanges
+                    if let path = controller.mountPath(record.serverID) { panel.directoryURL = URL(filePath: path) }
+                    guard await run(panel), let url = panel.url else { return }
+                    let scoped = url.startAccessingSecurityScopedResource()
+                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                    guard let mount = try ShareAccess.connectedShares().first(where: {
+                        $0.path == ShareAccess.filePath(url)
+                    }), mount.identity.mountFrom == grant.mountFrom else {
+                        throw UploadError.readOnly
+                    }
+                    bookmark = try url.bookmarkData(options: [.withSecurityScope],
+                                                    includingResourceValuesForKeys: nil, relativeTo: nil)
+                }
+                try await controller.setWriteAccess(recordID, bookmark: bookmark)
+            } catch { show(error, grantID: record.serverID) }
+        }
+    }
+
+    func pendingUploads(_ record: LocationRecord) async -> Int? { try? await controller.pendingUploads(record) }
+
     func showInFinder(_ recordID: UUID) {
         guard let record = record(recordID), let manager = controller.manager(for: record) else {
             return show(UIText.cannotShow)
@@ -1110,6 +1144,9 @@ final class AppModel {
     }
 
     private static func message(for error: Error, host: String?) -> String {
+        if let error = error as? UploadError {
+            return error == .pendingWrites ? UIText.pendingUploadHint : UIText.uploadAccessError
+        }
         if let refusal = error as? ShareGrantError {
             return switch refusal {
             case .notVolumeRoot: UIText.notVolumeRoot

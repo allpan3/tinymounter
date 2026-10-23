@@ -9,8 +9,8 @@
     <key>CFBundleShortVersionString</key><string>0.1.0</string>
     <key>CFBundleVersion</key><string>2</string>
     <key>LSMinimumSystemVersion</key><string>$(MACOSX_DEPLOYMENT_TARGET)</string>
-    <key>NSLocalNetworkUsageDescription</key><string>tinymounter reads files for Finder from the server of the share that you select. The files on the server do not change.</string>
-    <key>NSNetworkVolumesUsageDescription</key><string>tinymounter reads files for Finder from the share that you select. The files on the server do not change.</string>
+    <key>NSLocalNetworkUsageDescription</key><string>tinymounter shows your selected shares in Finder. Enable changes in the app to create new files and folders.</string>
+    <key>NSNetworkVolumesUsageDescription</key><string>tinymounter shows your selected shares in Finder. Enable changes in the app to create new files and folders.</string>
     <key>TinyMounterAppGroup</key><string>$(TINYMOUNTER_APP_GROUP)</string>
     <key>NSExtension</key><dict>
         <key>NSExtensionPointIdentifier</key><string>com.apple.fileprovider-nonui</string>
@@ -18,6 +18,8 @@
         <key>NSExtensionFileProviderDocumentGroup</key><string>$(TINYMOUNTER_APP_GROUP)</string>
         <key>NSExtensionFileProviderSupportsEnumeration</key><true/>
         <key>NSExtensionFileProviderDownloadPipelineDepth</key><integer>2</integer>
+        <key>NSExtensionFileProviderUploadPipelineDepth</key><integer>1</integer>
+        <key>NSExtensionFileProviderMetadataOnlyUploadPipelineDepth</key><integer>1</integer>
         <key>NSExtensionFileProviderActions</key><array>
             <dict>
                 <key>NSExtensionFileProviderActionIdentifier</key><string>dev.tinymounter.action.keep-downloaded</string>

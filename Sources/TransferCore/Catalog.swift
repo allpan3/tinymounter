@@ -37,6 +37,7 @@ public struct CatalogRow: Equatable, Sendable {
     public let changeSeq: Int64
     /// `meta.paused` in the same read, so a kept item's download policy matches its `changeSeq`.
     public let paused: Bool
+    public let allowsCreation: Bool
 
     public var contentVersion: String {
         kind == .file ? ContentFingerprint(size: size, mtimeNs: mtimeNs, ctimeNs: ctimeNs).contentVersion : "d1"
@@ -49,7 +50,7 @@ public struct CatalogRow: Equatable, Sendable {
 
     static let columns = """
         row, id, parent_id, name, kind, size, mtime_ns, ctime_ns, keep, deleted, list_gen, listed_at, \
-        change_seq, (SELECT paused FROM meta), keep_request, listing_complete
+        change_seq, (SELECT paused FROM meta), keep_request, listing_complete, (SELECT allows_creation FROM meta)
         """
 
     init(_ statement: Statement) throws {
@@ -72,6 +73,7 @@ public struct CatalogRow: Equatable, Sendable {
         paused = statement.bool(13)
         keepRequested = statement.bool(14)
         listingComplete = statement.bool(15)
+        allowsCreation = statement.bool(16)
     }
 }
 
@@ -121,7 +123,7 @@ public final class Catalog {
     /// `NSFileProviderItemIdentifier.rootContainer.rawValue`; core doesn't import FileProvider.
     public static let rootItemID = "NSFileProviderRootContainerItemIdentifier"
     static let maxDepth = 256
-    static let schemaVersion: Int64 = 2
+    static let schemaVersion: Int64 = 3
     // No real number of writes reaches it, so a writer's `seq += 1` can't overflow.
     static let maxLastSeq = Int64.max / 2
     private static let busyTimeoutMilliseconds = 2000
@@ -133,7 +135,8 @@ public final class Catalog {
           epoch BLOB NOT NULL,
           last_seq INTEGER NOT NULL,
           listing_gen INTEGER NOT NULL,
-          paused INTEGER NOT NULL DEFAULT 0);
+          paused INTEGER NOT NULL DEFAULT 0,
+          allows_creation INTEGER NOT NULL DEFAULT 0);
         CREATE TABLE items (
           row INTEGER PRIMARY KEY,
           id TEXT NOT NULL UNIQUE,
@@ -154,7 +157,7 @@ public final class Catalog {
           listing_complete INTEGER NOT NULL DEFAULT 0);
         CREATE UNIQUE INDEX items_live_name ON items(parent_id, name_key) WHERE deleted = 0;
         CREATE INDEX items_kept ON items(row) WHERE keep = 1 AND deleted = 0;
-        PRAGMA user_version = 2;
+        PRAGMA user_version = 3;
         """
 
     public let domainID: String

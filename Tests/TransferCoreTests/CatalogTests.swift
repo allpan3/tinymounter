@@ -18,9 +18,30 @@ final class CatalogTests: XCTestCase {
         try FileManager.default.removeItem(at: directory)
     }
 
+    func testCreationPermissionMigrationPreservesRowsKeepsAndAnchor() throws {
+        var catalog: Catalog? = try makeCatalog()
+        try catalog!.reconcile(folder: root, listing: DirectoryListing([.entry(.init(name: "data", kind: .file,
+                                                                                  size: 7, mtimeNs: 1, ctimeNs: 2, fileID: 3))])) { _ in true }
+        let item = try XCTUnwrap(catalog!.liveChild(parent: root, nameKey: NameKey("data")))
+        try catalog!.setKeep(ids: [item.id], value: true)
+        let anchor = try catalog!.currentAnchor(), epoch = catalog!.epoch
+        try catalog!.database.execute("ALTER TABLE meta DROP COLUMN allows_creation; PRAGMA user_version = 2;", operation: "test")
+        catalog = nil
+        let migrated = try Catalog.openWriter(at: directory.appending(path: "catalog.sqlite"), domainID: "domain-A")
+        XCTAssertEqual(migrated.epoch, epoch)
+        XCTAssertEqual(try migrated.currentAnchor(), anchor)
+        XCTAssertEqual(try migrated.keepRequests().map(\.id), [item.id])
+        XCTAssertFalse(try XCTUnwrap(migrated.item(id: item.id)).allowsCreation)
+        try migrated.setAllowsCreation(true)
+        XCTAssertTrue(try XCTUnwrap(migrated.item(id: item.id)).allowsCreation)
+        XCTAssertTrue(try migrated.changes(after: anchor, limit: 100).updated.contains { $0.id == root })
+        try migrated.setAllowsCreation(false)
+        XCTAssertFalse(try XCTUnwrap(migrated.item(id: root)).allowsCreation)
+    }
+
     func testCreateWritesSchemaPragmasMetaAndRoot() throws {
         let catalog = try makeCatalog()
-        XCTAssertEqual(try scalar(catalog, "PRAGMA user_version"), "2")
+        XCTAssertEqual(try scalar(catalog, "PRAGMA user_version"), "3")
         XCTAssertEqual(try scalar(catalog, "PRAGMA journal_mode"), "wal")
         XCTAssertEqual(try scalar(catalog, "PRAGMA synchronous"), "2") // FULL
         XCTAssertEqual(try scalar(catalog, "PRAGMA fullfsync"), "1")
@@ -29,7 +50,7 @@ final class CatalogTests: XCTestCase {
             + " || '|' || paused FROM meta"
         XCTAssertEqual(try rows(catalog, meta), ["1|domain-A|16|0|0|0"])
         XCTAssertEqual(try rows(catalog, "SELECT name FROM pragma_table_info('meta')"),
-                       ["id", "domain_id", "epoch", "last_seq", "listing_gen", "paused"])
+                       ["id", "domain_id", "epoch", "last_seq", "listing_gen", "paused", "allows_creation"])
         XCTAssertEqual(try rows(catalog, "SELECT name FROM pragma_table_info('items')"),
                        ["row", "id", "parent_id", "name", "name_key", "kind", "size", "mtime_ns", "ctime_ns", "file_id",
                         "keep", "list_gen", "listed_at", "deleted", "change_seq", "keep_request", "listing_complete"])
@@ -87,7 +108,7 @@ final class CatalogTests: XCTestCase {
         XCTAssertEqual(try fileNames(), ["catalog.sqlite", "catalog.sqlite-shm", "catalog.sqlite-wal", "empty.sqlite"])
         XCTAssertEqual(try Data(contentsOf: url("empty")).count, 0)
 
-        try catalog.database.execute("PRAGMA user_version = 3", operation: "test")
+        try catalog.database.execute("PRAGMA user_version = 4", operation: "test")
         for open in openers {
             XCTAssertThrowsError(try open(url(), "domain-A")) {
                 XCTAssertEqual($0 as? CatalogError, .unsupportedSchema)

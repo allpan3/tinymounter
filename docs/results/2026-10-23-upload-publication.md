@@ -107,8 +107,8 @@ backing path could read that partial file, which confirms the visibility tradeof
 This route preserves the no-overwrite requirement and can keep a durable local pending copy.
 The app must report an upload incomplete until it finishes. Other devices can see a partial new
 file during upload, including after interruption. That differs from the accepted requirement
-that only a complete file appears under its final name. The user has been asked to decide this
-specific change; it has not been silently accepted or implemented.
+that only a complete file appears under its final name. The user accepted this specific change on 2026-10-23. Implementation and signed runtime
+verification are tracked in the phase 4 plan.
 
 The follow-up fixture, mount, test files and share are removed. Original sharing records and
 launch override match their snapshot, the SMB service is unloaded as before, and guest settings
@@ -138,3 +138,10 @@ the user accepts partial new-file visibility during upload. Keep the durable pen
 no-overwrite requirement. A transport change is not justified by this check alone. Direct SMB
 remains an alternative if complete-file atomic publication stays mandatory. No dependency,
 transport switch, real-NAS write, publication or physical-Mac installation is approved here.
+
+## Follow-up, 2026-10-23
+
+The user accepted native exclusive creation and partial new-file visibility during upload.
+The create/recovery implementation and its remaining Finder scheduling gate are recorded in
+[the M18 results](2026-10-23-create-items.md). The earlier publication checks above still describe
+the measured native API limits; complete-file exclusive rename is not used.

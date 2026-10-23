@@ -266,7 +266,7 @@ empty trash enumerator; logs only under `dev.tinymounter.prototype`.
 
 ```swift
 struct AppSettings: Codable {
-  var version = 3; var servers: [ServerRecord]; var shares: [ServerGrant]
+  var version = 4; var servers: [ServerRecord]; var shares: [ServerGrant]
   var locations: [LocationRecord]; var savedKeeps: [SavedKeepList]
 }
 struct ServerRecord: Codable {
@@ -285,6 +285,7 @@ struct LocationRecord: Codable {
   var retiredDomainID: String?  // Apply in progress: the old domain still to remove
   var removing = false
   var pendingKeeps: [KeepPath] = []  // saved path and kind, from the share root, not found yet
+  var writeBookmark: Data?      // explicit per-location write grant; absent on old locations
 }
 struct SavedKeepList: Codable {
   let host: String, share: String  // not the grant ID, so a new grant for the share matches
@@ -292,10 +293,11 @@ struct SavedKeepList: Codable {
 }
 ```
 
-Settings versions 1 and 2 migrate atomically to version 3 without changing grant, location or
+Settings versions 1, 2 and 3 migrate atomically to version 4 without changing grant, location or
 domain IDs. Existing string paths become typed file requests. Folder requests retain their kind
 so a restored file request cannot expand to a replacement folder. `LocationRecord.serverID`
-remains the share grant ID. An older build refuses version 3 (M14).
+remains the share grant ID. New per-location write grants are optional and absent on old locations.
+Older builds refuse version 4, so they cannot remove locations with pending uploads (M18).
 
 The bookmark, `mountFrom`, host, account and saved paths are private. They are never logged and
 never in the App Group: the bookmark holds the SMB account and the server address [V]. Drafts
@@ -334,13 +336,14 @@ default [V]. Writes use `BEGIN IMMEDIATE` and never hold share I/O inside.
 `import SQLite3` autolinks the system library in SwiftPM and in both Xcode targets [V].
 
 ```sql
-PRAGMA user_version = 2;               -- the app migrates version 1; other versions fail closed
+PRAGMA user_version = 3;               -- the app migrates versions 1 and 2; others fail closed
 CREATE TABLE meta (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   domain_id TEXT NOT NULL,             -- must equal the domain that opens it
   epoch BLOB NOT NULL,                 -- 16 random bytes, fixed for the catalog's life
   last_seq INTEGER NOT NULL,           -- highest change_seq handed out
   listing_gen INTEGER NOT NULL,        -- number of complete listings applied
+  allows_creation INTEGER NOT NULL DEFAULT 0, -- opt-in; existing catalogs start read-only
   paused INTEGER NOT NULL DEFAULT 0);  -- Pause Downloads; the app clears it at launch
 CREATE TABLE items (
   row INTEGER PRIMARY KEY,             -- never reused, because rows are never deleted

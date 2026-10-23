@@ -255,3 +255,13 @@ forms. Check Reduce Transparency and Increase Contrast.
 - Whether Settings opens at first launch, or only the menu bar item.
 - Limits for kept folders: a size limit per item, or only the free-space setting.
 - Whether Storage shows each file, or only totals per location.
+
+
+## M18 creation access, accepted 2026-10-23
+
+A location has a Changes section with Read only or New files and folders access. Enable Changes
+asks the user to select the same share root again for write access. Disable Changes is refused
+while uploads are pending. The section explains remote visibility during upload and shows a
+pending count. Existing locations start read-only. Finder exposes adding items only for enabled
+folders; editing, replacing, moving and deleting existing items remain unavailable. A pending
+upload keeps its full local copy and prevents location removal or source changes.
