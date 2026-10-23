@@ -95,10 +95,12 @@ Writes through a File Provider location are a later phase
 them:
 
 - Every local change goes into a durable outbox with its **base fingerprint**.
-- Before committing, the uploader compares the NAS's current fingerprint with that base. If they
-  match, it uploads to a temporary sibling and then renames over the original. A `stat` then
-  `rename` is not atomic compare-and-swap, so the residual race window is documented and kept small.
-- If they differ, the edit becomes a conflict copy beside the original, for example
+- Before committing an edit, the uploader must validate the base and use a safe conditional
+  publication operation. A `stat` followed by ordinary `rename` is not atomic compare-and-swap
+  and is insufficient. The accepted [M18 plan](phase4-plan.md) starts with new files and folders,
+  without replacing existing items. Its [native publication gate](results/2026-10-23-upload-publication.md)
+  failed on the VM SMB fixture; writes remain unimplemented.
+- If the NAS fingerprint differs from the base, the edit becomes a conflict copy, for example
   `Report (conflict, Mac, 2026-10-12 14.03).docx`. Both versions survive.
 - Delete-versus-edit: if the NAS deleted a file this Mac edited, the edit is uploaded as a new file.
 - Writes through a server volume need nothing: they're already on the NAS. To a File Provider
