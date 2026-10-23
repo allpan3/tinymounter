@@ -5,11 +5,11 @@ Date: 2026-10-23. Decision status: accepted. M18 starts phase 4 of
 and folders, then adds editing and conflict handling in later milestones. The remaining phase 3
 checks are still open; starting this design does not mark them passed.
 
-Native publication gate, 2026-10-23: the writable VM SMB check returned ENOTSUP for
-exclusive rename and hard links. Follow-up verified native exclusive creation without overwrites,
-but other devices can see the file before upload completes. Accepting that visibility change is
-pending; the complete-file publication requirement below remains in force. See the
-[gate results](results/2026-10-23-upload-publication.md).
+Native upload decision, 2026-10-23: the user accepted exclusive creation through native SMB.
+Other devices can see a new file while it uploads, including a partial file after interruption.
+Keep the complete local pending copy until remote completion is verified. Existing destinations
+must remain untouched. The [API checks](results/2026-10-23-upload-publication.md) explain why
+exclusive creation replaces the earlier temporary-sibling publication design.
 
 ## First milestone: create files and folders
 
@@ -48,11 +48,12 @@ rules. Persist only the operation state needed for restart and commit recovery. 
 or catalog change needs migration from the installed format and tests that preserve user state.
 No new format version field or dependency is justified merely to track this work.
 
-For a file, upload to a unique temporary sibling and publish the complete file with an operation
-that atomically refuses an existing destination. First prove that the supported macOS SMB path
-provides that behavior. A separate existence check followed by ordinary rename is insufficient.
-If the server cannot provide it, fail safely; do not expose a partial file under its final name.
-Use exclusive creation for folders and handle parent creation before dependent child operations.
+For a file, create its final name exclusively with `O_CREAT | O_EXCL`. Never open an existing
+remote file for writing. Other devices may see incomplete new content until upload completes.
+An interruption preserves the complete local pending copy. After an ambiguous attempt, prove
+remote ownership and complete content before acknowledging success; otherwise retain the copy
+and report the unresolved operation. Do not retry under another name. Use exclusive folder
+creation and handle parent creation before dependent child operations.
 
 A timeout after publication can leave the result uncertain. Reconcile using tested remote
 identity evidence and complete content checks before marking the operation uploaded. If the
@@ -68,10 +69,17 @@ read-only. Do not restart the VM, cut its network or stop shared system services
 Verify a new file and folder in the signed sandboxed app, then compare the complete local and
 remote file contents. Test same-name collisions, read-only locations and denied grants. Interrupt
 the test app during staging, before publication and after remote commit but before acknowledgement.
-The resumed operation must finish once or remain clearly pending, with no data loss, partial
-final file or overwrite. Test removal/source-change refusal with pending writes and migration
+The resumed operation must finish once or remain clearly pending, with no data loss, overwrite or loss of the complete local pending copy. Test removal/source-change refusal with pending writes and migration
 from the installed settings/catalog formats. Record matched before/after Finder actions.
 
 Run Tools/run-checks.sh in the VM, update affected reference docs, and finish with a dated result
 and README status. A physical-Mac install, publication and real-NAS write tests need separate
 approval. This approval does not authorize them.
+
+## Implementation status, 2026-10-23
+
+Creation, explicit write grants, migrations and durable pending copies are implemented. All 208
+VM tests and required checks passed. Signed extension callbacks through authenticated IPC passed
+file/folder creation, and signed app stops checked recovery and pending-write lifecycle guards.
+Automatic Finder uploads remain unverified, so M18 has not met its exit checks. The physical-Mac
+app remains M16. See the [results](results/2026-10-23-create-items.md).

@@ -170,6 +170,52 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
         }
     }
 
+    func create(_ data: Data, reply: @escaping (Data?, NSError?) -> Void) {
+        do {
+            let request = try ReaderMessage.decode(CreateRequest.self, from: data)
+            guard let source else { throw LocationError.catalogClosed }
+            let job = Job()
+            let accepted = lock.withLock {
+                guard !closed, jobs.count < Self.maxJobs, jobs[request.id] == nil else { return false }
+                jobs[request.id] = job
+                return true
+            }
+            guard accepted else { throw CocoaError(.fileReadUnknown) }
+            let contents: URL?
+            do {
+                contents = try request.staging.map { try SharedContainer.uploadInbox($0) }
+                let size = try contents.map { try ReadOnlyFile(url: $0).snapshot.size } ?? 0
+                try space.begin(request.id, bytes: size)
+            } catch {
+                release(request.id.uuidString)
+                throw error
+            }
+            let timer = progressTimer(request.id, job)
+            source.create(request, contents: contents, progress: job.progress, started: { [weak self] in
+                try? self?.registration()?.started(ReaderMessage.encode(SourceReadStarted(id: request.id)))
+            }, checkSpace: { [space] completed in
+                try space.check(request.id, completedBytes: completed)
+            }) { [self] result in
+                timer.cancel()
+                space.end(request.id)
+                lock.withLock { jobs[request.id] = nil }
+                do { reply(try ReaderMessage.encode(result.get()), nil) }
+                catch {
+                    let failure: NSError
+                    switch error as? UploadError {
+                    case .collision: failure = NSFileProviderError(.filenameCollision) as NSError
+                    case .readOnly: failure = CocoaError(.fileWriteNoPermission) as NSError
+                    default:
+                        if DownloadSpace.isFull(error) { failure = CocoaError(.fileWriteOutOfSpace) as NSError }
+                        else if error as? TransferError == .cancelled { failure = CocoaError(.userCancelled) as NSError }
+                        else { failure = NSFileProviderError(.cannotSynchronize) as NSError }
+                    }
+                    reply(nil, failure)
+                }
+            }
+        } catch { reply(nil, Self.replyError(error)) }
+    }
+
     func keep(_ data: Data, reply: @escaping (Data?, NSError?) -> Void) {
         do {
             let request = try ReaderMessage.decode(KeepRequest.self, from: data)

@@ -56,8 +56,10 @@ it. Raw `results/` and the `.local/` helpers stay in the VM. CI has its own clon
 Never break these without an explicit task to do so.
 
 - **The network disk is the source of truth and is read-only.** No code path writes, renames or
-  deletes remote content. Run disruptive tests only against an isolated fixture or share, within an
-  agreed scope.
+  deletes remote content by default. M18 explicitly permits creating new files/folders only after
+  per-location write opt-in, with no overwrite. Runtime writes in development use only the approved
+  disposable VM fixture; the original NAS stays read-only. Run disruptive tests only within an
+  agreed isolated scope.
 - **Never present incomplete data as complete.** An uncached range fails clearly and is never filled
   with zeroes. A requested pin is not "available offline" until the download is verified.
 - **No secrets in the repo, logs or chat.** Credentials go through Keychain or the user's own Finder

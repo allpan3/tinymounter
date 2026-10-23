@@ -141,6 +141,7 @@ private struct LocationPane: View {
             sourceSection
             connectionSection
             if let record {
+                writeSection(record)
                 keepSection(record)
                 Section {
                     Button(UIText.removeLocationMenu, role: .destructive) { model.confirmRemove(record.id) }
@@ -155,6 +156,20 @@ private struct LocationPane: View {
         .formStyle(.grouped)
         .disabled(model.busy.contains(id) || !model.isReady || model.connectionBusy)
         .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar(record: record) }
+    }
+
+    private func writeSection(_ record: LocationRecord) -> some View {
+        Section {
+            LabeledContent(UIText.access, value: record.writeBookmark == nil ? UIText.readOnly : UIText.newFilesAndFolders)
+            Button(record.writeBookmark == nil ? UIText.enableChangesMenu : UIText.disableChanges) {
+                model.setWriteAccess(record.id, enabled: record.writeBookmark == nil)
+            }
+            UploadStatus(record: record, model: model)
+        } header: {
+            Text(UIText.changes)
+        } footer: {
+            Text(UIText.writeAccessHint).foregroundStyle(.secondary)
+        }
     }
 
     private func header(_ record: LocationRecord) -> some View {
@@ -552,6 +567,28 @@ private struct WindowReader: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             found(window)
+        }
+    }
+}
+
+
+private struct UploadStatus: View {
+    let record: LocationRecord
+    @Bindable var model: AppModel
+    @State private var count: Int?
+
+    var body: some View {
+        Group {
+            if let count, count > 0 {
+                Label(UIText.pendingUploads(count), systemImage: "arrow.up.circle")
+                Text(UIText.pendingUploadHint).font(.callout).foregroundStyle(.secondary)
+            }
+        }
+        .task(id: record.domainID) {
+            while !Task.isCancelled {
+                count = await model.pendingUploads(record)
+                try? await Task.sleep(for: .seconds(2))
+            }
         }
     }
 }

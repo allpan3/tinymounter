@@ -107,6 +107,16 @@ extension Catalog {
                 }
             }
         }
+        if version == 2 {
+            _ = try checkedEpoch(database, domainID: domainID, version: 2)
+            try configureWriter(database)
+        }
+        if version == 1 || version == 2 {
+            try database.write {
+                try database.execute("ALTER TABLE meta ADD COLUMN allows_creation INTEGER NOT NULL DEFAULT 0; PRAGMA user_version = 3;",
+                                     operation: "migrate creation permission")
+            }
+        }
         let epoch = try checkedEpoch(database, domainID: domainID)
         try configureWriter(database)
         return Catalog(database: database, domainID: domainID, epoch: epoch)
@@ -317,7 +327,7 @@ extension Catalog {
             try statement.bind(1, id)
             try statement.bind(2, rootKeep)
             var result: [(CatalogRow, Bool)] = []
-            while try statement.step() { result.append((try CatalogRow(statement), statement.bool(16))) }
+            while try statement.step() { result.append((try CatalogRow(statement), statement.bool(17))) }
             return result
         }
     }
@@ -447,5 +457,35 @@ private struct StoredChild {
         // Byte comparison: String == would hide a rename that only changes normalization.
         name.utf8.elementsEqual(entry.name.utf8) && size == entry.size && mtimeNs == entry.mtimeNs
             && ctimeNs == entry.ctimeNs && fileID == Int64(bitPattern: entry.fileID)
+    }
+}
+
+
+extension Catalog {
+    public func remoteIdentity(_ id: String) throws -> UInt64? {
+        try database.prepare("SELECT file_id FROM items WHERE id = ? AND deleted = 0") { statement in
+            try statement.bind(1, id)
+            guard try statement.step(), !statement.isNull(0) else { return nil }
+            return UInt64(bitPattern: statement.int64(0))
+        }
+    }
+
+    public func setAllowsCreation(_ enabled: Bool) throws {
+        try write { seq in
+            guard try item(id: Self.rootItemID)?.allowsCreation != enabled else { return }
+            let ids = try items("SELECT \(CatalogRow.columns) FROM items WHERE deleted = 0").map(\.id)
+            try database.prepare("UPDATE meta SET allows_creation = ?") { statement in
+                try statement.bind(1, enabled)
+                try statement.run()
+            }
+            for id in ids {
+                seq += 1
+                try database.prepare("UPDATE items SET change_seq = ? WHERE id = ?") { statement in
+                    try statement.bind(1, seq)
+                    try statement.bind(2, id)
+                    try statement.run()
+                }
+            }
+        }
     }
 }

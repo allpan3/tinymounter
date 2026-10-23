@@ -347,10 +347,53 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         return progress
     }
 
-    /// A reimport is matched to the catalog (plan §7); any other creation is refused.
+    /// Reimport keeps read-only matching; new ordinary items require explicit write access.
     func createItem(basedOn itemTemplate: NSFileProviderItem, fields: NSFileProviderItemFields, contents url: URL?,
                     options: NSFileProviderCreateItemOptions, request: NSFileProviderRequest,
                     completionHandler: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void) -> Progress {
+        if !options.contains(.mayAlreadyExist), !options.contains(.deletionConflicted) {
+            countMutation("create", "new=1 phase=received")
+            let progress = Progress(totalUnitCount: 1)
+            let once = Once()
+            let finish = { (item: NSFileProviderItem?, error: Error?) in
+                if once.claim() { completionHandler(item, [], false, error) }
+            }
+            progress.cancellationHandler = { finish(nil, CocoaError(.userCancelled)) }
+            DispatchQueue.global(qos: .userInitiated).async { [self] in
+                var staged: URL?
+                defer { if let staged { try? FileManager.default.removeItem(at: staged) } }
+                do {
+                    guard try catalog.liveRow(itemTemplate.parentItemIdentifier.rawValue).allowsCreation,
+                          let type = itemTemplate.contentType, !type.conforms(to: .symbolicLink),
+                          !type.conforms(to: .package),
+                          let kind = Self.kind(of: itemTemplate),
+                          kind != .file || url != nil else { throw CocoaError(.fileWriteNoPermission) }
+                    let stagingID = url.map { _ in UUID() }
+                    if let url, let stagingID {
+                        let target = try SharedContainer.uploadInbox(stagingID)
+                        let size = try ReadOnlyFile(url: url, allowMaterialization: true).snapshot.size
+                        guard Int128(try DownloadSpace.available(at: target.deletingLastPathComponent()))
+                            >= Int128(DownloadSpace.reserveBytes) + Int128(size) * 2 else {
+                            throw CocoaError(.fileWriteOutOfSpace)
+                        }
+                        try FileManager.default.copyItem(at: url, to: target)
+                        staged = target
+                    }
+                    let message = try CreateRequest(template: itemTemplate.itemIdentifier.rawValue,
+                                                    parent: itemTemplate.parentItemIdentifier.rawValue,
+                                                    name: itemTemplate.filename, kind: kind, staging: stagingID)
+                    let receipt = try sourceReader.create(message, progress: progress)
+                    let row = try catalog.liveRow(receipt.item)
+                    progress.completedUnitCount = progress.totalUnitCount
+                    finish(CatalogItem(row), nil)
+                } catch {
+                    let failure = providerError(error) as NSError
+                    countMutation("create", "new=1 phase=failed domain=\(failure.domain) code=\(failure.code)")
+                    finish(nil, failure)
+                }
+            }
+            return progress
+        }
         let decision: ReimportDecision
         if options.contains(.mayAlreadyExist) {
             decision = (try? catalog.read { catalog in
@@ -392,7 +435,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         completionHandler(CocoaError(.fileWriteNoPermission)); return Progress()
     }
 
-    /// M4 counts mutations to judge retry storms (plan §7); the NAS is never written.
+    /// Rejected mutations are counted without recording names.
     private func countMutation(_ mutation: String, _ fields: String) {
         let count = lock.withLock { () -> Int in
             mutations[mutation, default: 0] += 1

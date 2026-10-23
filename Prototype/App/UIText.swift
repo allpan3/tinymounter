@@ -20,6 +20,18 @@ enum UIText {
     static let settingsMenu = "Settings…"
 
     // Location pane
+    static let changes = "Changes"
+    static let access = "Access"
+    static let readOnly = "Read only"
+    static let newFilesAndFolders = "New files and folders"
+    static let enableChangesMenu = "Enable Changes…"
+    static let enableChanges = "Enable Changes"
+    static let disableChanges = "Disable Changes"
+    static let writeGrantMessage = "Select the root of this share to allow new files and folders."
+    static let writeAccessHint = "New files can be visible on other devices before upload completes. Editing, replacing, moving and deleting existing items are not available."
+    static let pendingUploadHint = "The complete local copies stay on this Mac. Keep this location and its source until the uploads finish. An interrupted upload may need recovery."
+    static let uploadAccessError = "Select this share again. Changes cannot be disabled while uploads are pending."
+    static func pendingUploads(_ count: Int) -> String { "Pending uploads: \(count)" }
     static let source = "Source"
     static let server = "Server"
     static let share = "Share"

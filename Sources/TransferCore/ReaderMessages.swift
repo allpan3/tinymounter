@@ -1,6 +1,6 @@
 import Foundation
 
-/// JSON between the extension and the app's reader. Messages hold IDs and counts, never names.
+/// Bounded JSON between the extension and the app; source values are never logged.
 public enum ReaderMessage {
     public static let maxBytes = 4096
 
@@ -164,4 +164,49 @@ public struct SourceReadReceipt: Codable, Sendable {
         self.stagingName = stagingName
         self.metrics = metrics
     }
+}
+
+public struct CreateRequest: Codable, Equatable, Sendable {
+    public let id: UUID
+    public let template: String
+    public let parent: String
+    public let name: String
+    public let kind: CatalogRow.Kind
+    public let staging: UUID?
+
+    public init(id: UUID = UUID(), template: String, parent: String, name: String,
+                kind: CatalogRow.Kind, staging: UUID?) throws {
+        guard !template.isEmpty, template.utf8.count <= 1024,
+              ReaderMessage.isItemID(parent), RelativePath.isValidComponent(name),
+              !name.hasPrefix(".tinymounter-"), kind == .file || staging == nil else {
+            throw UploadError.invalidRequest
+        }
+        self.id = id
+        self.template = template
+        self.parent = parent
+        self.name = name
+        self.kind = kind
+        self.staging = staging
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(id: c.decode(UUID.self, forKey: .id), template: c.decode(String.self, forKey: .template),
+                      parent: c.decode(String.self, forKey: .parent), name: c.decode(String.self, forKey: .name),
+                      kind: c.decode(CatalogRow.Kind.self, forKey: .kind), staging: c.decodeIfPresent(UUID.self, forKey: .staging))
+    }
+}
+
+public struct CreateReceipt: Codable, Sendable {
+    public let item: String
+    public init(item: String) { self.item = item }
+}
+
+
+public enum UploadError: Error, Equatable, Sendable {
+    case invalidRequest
+    case collision
+    case unresolved
+    case pendingWrites
+    case readOnly
 }

@@ -9,7 +9,7 @@ public enum SettingsError: Error, Equatable, Sendable {
 
 /// Never in the App Group: grants and saved paths are private.
 public struct AppSettings: Codable, Equatable, Sendable {
-    public static let currentVersion = 3
+    public static let currentVersion = 4
 
     public private(set) var version = AppSettings.currentVersion
     public var servers: [ServerRecord]
@@ -28,7 +28,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let previousVersion = try container.decode(Int.self, forKey: .version)
-        guard [1, 2, Self.currentVersion].contains(previousVersion) else {
+        guard [1, 2, 3, Self.currentVersion].contains(previousVersion) else {
             throw SettingsError.unsupportedVersion(previousVersion)
         }
         locations = try container.decode([LocationRecord].self, forKey: .locations)
@@ -176,6 +176,7 @@ public struct LocationRecord: Codable, Equatable, Sendable {
     public var removing = false
     /// Saved Keep Downloaded paths, from the share root, that this location took but hasn't found yet.
     public var pendingKeeps: [KeepPath] = []
+    public var writeBookmark: Data?
 
     public init(id: UUID = UUID(), name: String, serverID: UUID, folder: RelativePath,
                 domainID: String = UUID().uuidString) {
