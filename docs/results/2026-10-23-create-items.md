@@ -126,3 +126,10 @@ follow-up documentation commit, with 208 tests, zero failures, one optional SMB-
 after cleanup, all required builds and no Swift warnings. Its log is m18-daemon-checks.log.
 No production code changed in this follow-up.
 Resolve initial folder naming and Keep Both before claiming M18 works or proposing installation.
+
+## Initial naming follow-up, 2026-10-23
+
+The user approved initial folder naming while leaving general renaming deferred. The
+[naming investigation](2026-10-23-initial-folder-naming.md) records the failed native rename and
+create/delete routes, a passing isolated direct SMB rename, and the remaining dependency and
+credential questions. No production naming code has been added. Keep Both remains unresolved.

@@ -91,6 +91,13 @@ progress. New Folder naming and Keep Both still fail, so M18 is not complete. Ex
 stay read-only. The physical-Mac app remains M16. See the [results](docs/results/2026-10-23-create-items.md) and
 [accepted plan](docs/phase4-plan.md).
 
+Initial folder naming investigation, 2026-10-23: the user approved this part of New Folder.
+Native exclusive rename is unavailable on the tested SMB mount, and create/delete failed a
+replacement race. An isolated direct SMB client preserved existing destinations in collision
+and competing-create checks. Naming remains unimplemented; dependency adoption and macOS
+credential reuse are still open. The fixture is removed and sharing is restored. See the
+[investigation](docs/results/2026-10-23-initial-folder-naming.md).
+
 ## Run the prototype
 
 See [prototype setup and validation](docs/prototype.md). Build the benchmark with `swift build -c release`; run `.build/release/transfer-bench --help`. Open `TinyMounter.xcodeproj` to configure signing for the Finder prototype.
