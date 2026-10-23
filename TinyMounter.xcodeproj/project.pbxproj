@@ -281,6 +281,330 @@
 			"path" = "Sources/TransferCore/StallDeadline.swift";
 			"sourceTree" = "<group>";
 		};
+		"B67918808C5E24071924AA9A" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/aes.c";
+			"sourceTree" = "<group>";
+		};
+		"3816C9F0F403A4DCDF0D234F" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/aes128ccm.c";
+			"sourceTree" = "<group>";
+		};
+		"D9E0485A9D88F1661721923C" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/alloc.c";
+			"sourceTree" = "<group>";
+		};
+		"76F709E071034A1D8DA7491E" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/asn1-ber.c";
+			"sourceTree" = "<group>";
+		};
+		"B7B5E375A92E8DC73FEDAB4A" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/compat.c";
+			"sourceTree" = "<group>";
+		};
+		"EF632016EF1E14CD8670E27A" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/dcerpc.c";
+			"sourceTree" = "<group>";
+		};
+		"55DDE6D11F4B9EBB6DF2BE47" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/dcerpc-lsa.c";
+			"sourceTree" = "<group>";
+		};
+		"F22D150CD4636FE4F243965A" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/dcerpc-srvsvc.c";
+			"sourceTree" = "<group>";
+		};
+		"04CE965C7C6FA366406FCE06" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/errors.c";
+			"sourceTree" = "<group>";
+		};
+		"75797FF22F172B8A388C3836" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/init.c";
+			"sourceTree" = "<group>";
+		};
+		"D8CCA8F382CE0BAECDADE02B" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/hmac.c";
+			"sourceTree" = "<group>";
+		};
+		"FD60C40ABD779C428B8F6B7B" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/hmac-md5.c";
+			"sourceTree" = "<group>";
+		};
+		"7EE08BEA40AC9996F4A8B86C" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/krb5-wrapper.c";
+			"sourceTree" = "<group>";
+		};
+		"2E6BAC0796863B05047AF111" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/libsmb2.c";
+			"sourceTree" = "<group>";
+		};
+		"784E9362C512D4F02BE0BA6B" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/md4c.c";
+			"sourceTree" = "<group>";
+		};
+		"BCD2D668807D2AB64E548D10" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/md5.c";
+			"sourceTree" = "<group>";
+		};
+		"1354E3650CE97B1C53389D6D" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/ntlmssp.c";
+			"sourceTree" = "<group>";
+		};
+		"CEADFF236CD867DDB3CFD6E6" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/pdu.c";
+			"sourceTree" = "<group>";
+		};
+		"295DEB41FF845AE2669EDAB7" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/sha1.c";
+			"sourceTree" = "<group>";
+		};
+		"66869205C3E8A33079DEBE4C" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/sha224-256.c";
+			"sourceTree" = "<group>";
+		};
+		"B2C212E821B297FADA7F4D7E" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/sha384-512.c";
+			"sourceTree" = "<group>";
+		};
+		"FCD5D8C4583A2C6F3EB2C371" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/smb2-cmd-close.c";
+			"sourceTree" = "<group>";
+		};
+		"EA6052041C3AF9424AE2619F" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/smb2-cmd-create.c";
+			"sourceTree" = "<group>";
+		};
+		"DD7C9DC5331E2F68E8B447D0" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/smb2-cmd-echo.c";
+			"sourceTree" = "<group>";
+		};
+		"9728FD642976F13E54461A8D" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/smb2-cmd-error.c";
+			"sourceTree" = "<group>";
+		};
+		"93B470963012858AC9C5E439" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/smb2-cmd-flush.c";
+			"sourceTree" = "<group>";
+		};
+		"749095278204CAE8B1010149" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/smb2-cmd-ioctl.c";
+			"sourceTree" = "<group>";
+		};
+		"498DF4DCD01B83768CCB9F2A" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/smb2-cmd-lock.c";
+			"sourceTree" = "<group>";
+		};
+		"A5E986E0A0E102432ECDEF90" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/smb2-cmd-logoff.c";
+			"sourceTree" = "<group>";
+		};
+		"E754D253507ADA56EF538238" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/smb2-cmd-negotiate.c";
+			"sourceTree" = "<group>";
+		};
+		"858ED7C8D2B4B1C1DA76BC8B" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/smb2-cmd-notify-change.c";
+			"sourceTree" = "<group>";
+		};
+		"6A2DA256184B9C30CCEAFF48" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/smb2-cmd-oplock-break.c";
+			"sourceTree" = "<group>";
+		};
+		"237B14A802C16F09C2F44856" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/smb2-cmd-query-directory.c";
+			"sourceTree" = "<group>";
+		};
+		"576DDCCC1AD7F59C09146FAF" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/smb2-cmd-query-info.c";
+			"sourceTree" = "<group>";
+		};
+		"8918E7CAB8ABFD8EF3497069" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/smb2-cmd-read.c";
+			"sourceTree" = "<group>";
+		};
+		"1CAA56D4A3FF2C3BAD7320A1" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/smb2-cmd-session-setup.c";
+			"sourceTree" = "<group>";
+		};
+		"4848CF247E3317190B150C9D" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/smb2-cmd-set-info.c";
+			"sourceTree" = "<group>";
+		};
+		"AAAD9D59C274C2CC1C062F4A" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/smb2-cmd-tree-connect.c";
+			"sourceTree" = "<group>";
+		};
+		"1CAC9AEE19D42DA13683860B" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/smb2-cmd-tree-disconnect.c";
+			"sourceTree" = "<group>";
+		};
+		"FD92ABC3940171A2341FD870" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/smb2-cmd-write.c";
+			"sourceTree" = "<group>";
+		};
+		"1B1FD2D0857AB7679529EF38" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/smb2-data-file-info.c";
+			"sourceTree" = "<group>";
+		};
+		"8A8C0A829BFCAD5809089EB7" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/smb2-data-filesystem-info.c";
+			"sourceTree" = "<group>";
+		};
+		"98FD6F292986F4846CF7A02C" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/smb2-data-reparse-point.c";
+			"sourceTree" = "<group>";
+		};
+		"2B91F770A986D9F815BAA817" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/smb2-data-security-descriptor.c";
+			"sourceTree" = "<group>";
+		};
+		"D90761B47723240BD14921D1" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/smb2-share-enum.c";
+			"sourceTree" = "<group>";
+		};
+		"1A735C86954984DB4285582D" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/smb3-seal.c";
+			"sourceTree" = "<group>";
+		};
+		"F3EEB8742F1A08474384616F" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/smb2-signing.c";
+			"sourceTree" = "<group>";
+		};
+		"0178DEA3DC77AA7E1B4CDE90" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/socket.c";
+			"sourceTree" = "<group>";
+		};
+		"CE436E0E88ABC0CA31DEF6DE" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/spnego-wrapper.c";
+			"sourceTree" = "<group>";
+		};
+		"0B8BEDF14F9B41033651F3E5" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/sync.c";
+			"sourceTree" = "<group>";
+		};
+		"3BD06A2D657ADDCB1CD48E7C" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/timestamps.c";
+			"sourceTree" = "<group>";
+		};
+		"E62B4A2B7D9AA4F106FC3837" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/unicode.c";
+			"sourceTree" = "<group>";
+		};
+		"DA78F94EB2BABC4B1512B36C" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Vendor/libsmb2/lib/usha.c";
+			"sourceTree" = "<group>";
+		};
+		"E88A6AEBF3631DC3CD75684B" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Prototype/SMB/SMBRename.c";
+			"sourceTree" = "<group>";
+		};
 		"5C023B695060408517A5B5A3" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "text.xcconfig";
@@ -323,12 +647,19 @@
 			"path" = "TinyMounterProvider.appex";
 			"sourceTree" = "BUILT_PRODUCTS_DIR";
 		};
+		"7526330395179381C6191535" = {
+			"isa" = "PBXFileReference";
+			"explicitFileType" = "compiled.mach-o.dylib";
+			"path" = "libTinyMounterSMB.dylib";
+			"sourceTree" = "BUILT_PRODUCTS_DIR";
+		};
 		"0A3E27B8CA818264D75C8D81" = {
 			"isa" = "PBXGroup";
 			"name" = "Products";
 			"children" = (
 				"681C948D238C526E9E3424E0",
 				"9B5EA5B470B5FDC806AA1095",
+				"7526330395179381C6191535",
 			);
 			"sourceTree" = "<group>";
 		};
@@ -399,6 +730,67 @@
 			);
 			"sourceTree" = "<group>";
 		};
+		"CBF887C65A294E9D9E07A6CA" = {
+			"isa" = "PBXGroup";
+			"name" = "SMB";
+			"children" = (
+				"B67918808C5E24071924AA9A",
+				"3816C9F0F403A4DCDF0D234F",
+				"D9E0485A9D88F1661721923C",
+				"76F709E071034A1D8DA7491E",
+				"B7B5E375A92E8DC73FEDAB4A",
+				"EF632016EF1E14CD8670E27A",
+				"55DDE6D11F4B9EBB6DF2BE47",
+				"F22D150CD4636FE4F243965A",
+				"04CE965C7C6FA366406FCE06",
+				"75797FF22F172B8A388C3836",
+				"D8CCA8F382CE0BAECDADE02B",
+				"FD60C40ABD779C428B8F6B7B",
+				"7EE08BEA40AC9996F4A8B86C",
+				"2E6BAC0796863B05047AF111",
+				"784E9362C512D4F02BE0BA6B",
+				"BCD2D668807D2AB64E548D10",
+				"1354E3650CE97B1C53389D6D",
+				"CEADFF236CD867DDB3CFD6E6",
+				"295DEB41FF845AE2669EDAB7",
+				"66869205C3E8A33079DEBE4C",
+				"B2C212E821B297FADA7F4D7E",
+				"FCD5D8C4583A2C6F3EB2C371",
+				"EA6052041C3AF9424AE2619F",
+				"DD7C9DC5331E2F68E8B447D0",
+				"9728FD642976F13E54461A8D",
+				"93B470963012858AC9C5E439",
+				"749095278204CAE8B1010149",
+				"498DF4DCD01B83768CCB9F2A",
+				"A5E986E0A0E102432ECDEF90",
+				"E754D253507ADA56EF538238",
+				"858ED7C8D2B4B1C1DA76BC8B",
+				"6A2DA256184B9C30CCEAFF48",
+				"237B14A802C16F09C2F44856",
+				"576DDCCC1AD7F59C09146FAF",
+				"8918E7CAB8ABFD8EF3497069",
+				"1CAA56D4A3FF2C3BAD7320A1",
+				"4848CF247E3317190B150C9D",
+				"AAAD9D59C274C2CC1C062F4A",
+				"1CAC9AEE19D42DA13683860B",
+				"FD92ABC3940171A2341FD870",
+				"1B1FD2D0857AB7679529EF38",
+				"8A8C0A829BFCAD5809089EB7",
+				"98FD6F292986F4846CF7A02C",
+				"2B91F770A986D9F815BAA817",
+				"D90761B47723240BD14921D1",
+				"1A735C86954984DB4285582D",
+				"F3EEB8742F1A08474384616F",
+				"0178DEA3DC77AA7E1B4CDE90",
+				"CE436E0E88ABC0CA31DEF6DE",
+				"0B8BEDF14F9B41033651F3E5",
+				"3BD06A2D657ADDCB1CD48E7C",
+				"E62B4A2B7D9AA4F106FC3837",
+				"DA78F94EB2BABC4B1512B36C",
+				"E88A6AEBF3631DC3CD75684B",
+			);
+			"sourceTree" = "<group>";
+		};
 		"679F4E5B46EF53E000AB57E7" = {
 			"isa" = "PBXGroup";
 			"name" = "Configuration";
@@ -417,6 +809,7 @@
 				"F267DDABAAD63189B22B48F7",
 				"D48AB647DDC7FE8969F6317C",
 				"80AE64A9F70FB6AEC1ED42B1",
+				"CBF887C65A294E9D9E07A6CA",
 				"679F4E5B46EF53E000AB57E7",
 				"0A3E27B8CA818264D75C8D81",
 			);
@@ -455,6 +848,445 @@
 			"name" = "Embed App Extensions";
 			"runOnlyForDeploymentPostprocessing" = 0;
 		};
+		"6E1B1481EACE1D16C38486B9" = {
+			"isa" = "PBXContainerItemProxy";
+			"containerPortal" = "244210E48437B6556980A702";
+			"proxyType" = 1;
+			"remoteGlobalIDString" = "EF2EF8845449B8F11BC297D9";
+			"remoteInfo" = "TinyMounterSMB";
+		};
+		"6ED7CD78067DA2DCA6EFD715" = {
+			"isa" = "PBXTargetDependency";
+			"target" = "EF2EF8845449B8F11BC297D9";
+			"targetProxy" = "6E1B1481EACE1D16C38486B9";
+		};
+		"1BE83931EA6F825D216A8779" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "7526330395179381C6191535";
+		};
+		"7A4C2DC8FCA657188648E999" = {
+			"isa" = "PBXFrameworksBuildPhase";
+			"buildActionMask" = 2147483647;
+			"files" = (
+				"1BE83931EA6F825D216A8779",
+			);
+			"runOnlyForDeploymentPostprocessing" = 0;
+		};
+		"4DA3A0404F9C7DDBCE87AE23" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "7526330395179381C6191535";
+			"settings" = {
+				"ATTRIBUTES" = (
+					"CodeSignOnCopy",
+				);
+			};
+		};
+		"85F3E1E14EF67AF60F8CA8D7" = {
+			"isa" = "PBXCopyFilesBuildPhase";
+			"buildActionMask" = 2147483647;
+			"dstPath" = "";
+			"dstSubfolderSpec" = 10;
+			"files" = (
+				"4DA3A0404F9C7DDBCE87AE23",
+			);
+			"name" = "Embed SMB Client";
+			"runOnlyForDeploymentPostprocessing" = 0;
+		};
+		"0827BF0B25F6DC5879802F9E" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "text";
+			"path" = "Vendor/libsmb2/LICENCE-LGPL-2.1.txt";
+			"sourceTree" = "<group>";
+		};
+		"ECA08CE09744092C23196FCA" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "net.daringfireball.markdown";
+			"path" = "Vendor/libsmb2/README.md";
+			"sourceTree" = "<group>";
+		};
+		"E2072433D7A0654ED45963AA" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "0827BF0B25F6DC5879802F9E";
+		};
+		"528C7A687E3A0F171E8BE800" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "ECA08CE09744092C23196FCA";
+		};
+		"F9187E824FE171A6F0EFAE28" = {
+			"isa" = "PBXResourcesBuildPhase";
+			"buildActionMask" = 2147483647;
+			"files" = (
+				"E2072433D7A0654ED45963AA",
+				"528C7A687E3A0F171E8BE800",
+			);
+			"runOnlyForDeploymentPostprocessing" = 0;
+		};
+		"0291D3EA43DE195F339A0033" = {
+			"isa" = "XCBuildConfiguration";
+			"buildSettings" = {
+				"PRODUCT_NAME" = "TinyMounterSMB";
+				"EXECUTABLE_PREFIX" = "lib";
+				"SKIP_INSTALL" = "YES";
+				"MACH_O_TYPE" = "mh_dylib";
+				"LD_DYLIB_INSTALL_NAME" = "@rpath/libTinyMounterSMB.dylib";
+				"GCC_C_LANGUAGE_STANDARD" = "gnu11";
+				"GCC_PREPROCESSOR_DEFINITIONS" = (
+					"$(inherited)",
+					"HAVE_CONFIG_H=1",
+					"HAVE_LIBKRB5=1",
+					"_U_=__attribute__((unused))",
+				);
+				"HEADER_SEARCH_PATHS" = (
+					"$(SRCROOT)/Vendor/libsmb2/include/apple",
+					"$(SRCROOT)/Vendor/libsmb2/include",
+					"$(SRCROOT)/Vendor/libsmb2/include/smb2",
+				);
+				"OTHER_LDFLAGS" = (
+					"-framework",
+					"GSS",
+					"-framework",
+					"CoreFoundation",
+				);
+				"SWIFT_OPTIMIZATION_LEVEL" = "-Onone";
+				"DEBUG_INFORMATION_FORMAT" = "dwarf";
+				"SWIFT_ACTIVE_COMPILATION_CONDITIONS" = "DEBUG";
+			};
+			"name" = "Debug";
+			"baseConfigurationReference" = "5C023B695060408517A5B5A3";
+		};
+		"595AB4E88F786954FC6FE757" = {
+			"isa" = "XCBuildConfiguration";
+			"buildSettings" = {
+				"PRODUCT_NAME" = "TinyMounterSMB";
+				"EXECUTABLE_PREFIX" = "lib";
+				"SKIP_INSTALL" = "YES";
+				"MACH_O_TYPE" = "mh_dylib";
+				"LD_DYLIB_INSTALL_NAME" = "@rpath/libTinyMounterSMB.dylib";
+				"GCC_C_LANGUAGE_STANDARD" = "gnu11";
+				"GCC_PREPROCESSOR_DEFINITIONS" = (
+					"$(inherited)",
+					"HAVE_CONFIG_H=1",
+					"HAVE_LIBKRB5=1",
+					"_U_=__attribute__((unused))",
+				);
+				"HEADER_SEARCH_PATHS" = (
+					"$(SRCROOT)/Vendor/libsmb2/include/apple",
+					"$(SRCROOT)/Vendor/libsmb2/include",
+					"$(SRCROOT)/Vendor/libsmb2/include/smb2",
+				);
+				"OTHER_LDFLAGS" = (
+					"-framework",
+					"GSS",
+					"-framework",
+					"CoreFoundation",
+				);
+				"SWIFT_OPTIMIZATION_LEVEL" = "-O";
+				"DEBUG_INFORMATION_FORMAT" = "dwarf-with-dsym";
+			};
+			"name" = "Release";
+			"baseConfigurationReference" = "5C023B695060408517A5B5A3";
+		};
+		"5FAB68B82E78F04B6D7F1FBD" = {
+			"isa" = "XCConfigurationList";
+			"buildConfigurations" = (
+				"0291D3EA43DE195F339A0033",
+				"595AB4E88F786954FC6FE757",
+			);
+			"defaultConfigurationIsVisible" = 0;
+			"defaultConfigurationName" = "Release";
+		};
+		"7D6EE7660BE5A4B443042B28" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "B67918808C5E24071924AA9A";
+		};
+		"8B5BE40FD8EE6AEEFDF971BB" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "3816C9F0F403A4DCDF0D234F";
+		};
+		"B59FA1DBBB931064DA213B43" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "D9E0485A9D88F1661721923C";
+		};
+		"991223ECE7AEED53D95A3172" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "76F709E071034A1D8DA7491E";
+		};
+		"58C6FB1D0959187454FE40F0" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "B7B5E375A92E8DC73FEDAB4A";
+		};
+		"B3D1E2834E141BA16B6117E6" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "EF632016EF1E14CD8670E27A";
+		};
+		"ABF80E2090FBB9F7530F6FB3" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "55DDE6D11F4B9EBB6DF2BE47";
+		};
+		"BB3C920CA77E242E87917C40" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "F22D150CD4636FE4F243965A";
+		};
+		"0A106459C4F48EDF76DA6419" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "04CE965C7C6FA366406FCE06";
+		};
+		"E034FBB22574C12770B80E43" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "75797FF22F172B8A388C3836";
+		};
+		"AB4B6DDDF6B64E507F10E13E" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "D8CCA8F382CE0BAECDADE02B";
+		};
+		"F3D3923D3159690EF42FF4D5" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "FD60C40ABD779C428B8F6B7B";
+		};
+		"0ACE8ABAE6B1F3132A30D17F" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "7EE08BEA40AC9996F4A8B86C";
+		};
+		"3D0BBB467CEB053F480DF5DE" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "2E6BAC0796863B05047AF111";
+		};
+		"5DFB60F0E4CDA9A69AE21983" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "784E9362C512D4F02BE0BA6B";
+		};
+		"A2007AD1CA4DA4179A9B40DE" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "BCD2D668807D2AB64E548D10";
+		};
+		"A7290FE52D6443439F86C2F9" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "1354E3650CE97B1C53389D6D";
+		};
+		"8A6C1C90E0F2EA908571BEFF" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "CEADFF236CD867DDB3CFD6E6";
+		};
+		"465F716A7B9E7CCA56EEFD79" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "295DEB41FF845AE2669EDAB7";
+		};
+		"F05DC9FA5DB3FD995A6FF44B" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "66869205C3E8A33079DEBE4C";
+		};
+		"E25F4FD77635994C614AAB6D" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "B2C212E821B297FADA7F4D7E";
+		};
+		"D90C7523B46BBE373B15880E" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "FCD5D8C4583A2C6F3EB2C371";
+		};
+		"92D41892BD9293E4E423A39B" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "EA6052041C3AF9424AE2619F";
+		};
+		"9AAC311DE33B681BBC82B62F" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "DD7C9DC5331E2F68E8B447D0";
+		};
+		"4B27EA400277B699BADC7AFD" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "9728FD642976F13E54461A8D";
+		};
+		"66EBABE624EAAFC86C88E7ED" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "93B470963012858AC9C5E439";
+		};
+		"8BDC17216F4629E32B82116E" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "749095278204CAE8B1010149";
+		};
+		"23C5EDF87382AE49FC588276" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "498DF4DCD01B83768CCB9F2A";
+		};
+		"1A0CA79C33697591DDCB4D84" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "A5E986E0A0E102432ECDEF90";
+		};
+		"5ED023F763B94E635A9257A1" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "E754D253507ADA56EF538238";
+		};
+		"E148990ECD372CCF380C0F51" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "858ED7C8D2B4B1C1DA76BC8B";
+		};
+		"653272E70F3710C0A474CF1F" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "6A2DA256184B9C30CCEAFF48";
+		};
+		"C6F99C375654D894F69B3E01" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "237B14A802C16F09C2F44856";
+		};
+		"D198DFFBB4A84872AB2A51E7" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "576DDCCC1AD7F59C09146FAF";
+		};
+		"F0EFD47C140A4C2C9ECFC833" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "8918E7CAB8ABFD8EF3497069";
+		};
+		"03AF81E569A66944EE59D227" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "1CAA56D4A3FF2C3BAD7320A1";
+		};
+		"E8082FD795D22F487499F471" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "4848CF247E3317190B150C9D";
+		};
+		"1AAA1F2E9122642EA2825712" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "AAAD9D59C274C2CC1C062F4A";
+		};
+		"433E78FE875694CA4050BC69" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "1CAC9AEE19D42DA13683860B";
+		};
+		"A968F5FC2B758F282B0D4AF0" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "FD92ABC3940171A2341FD870";
+		};
+		"C4072B28221102979E50BEAB" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "1B1FD2D0857AB7679529EF38";
+		};
+		"E27D120ED65332AB37E57B0D" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "8A8C0A829BFCAD5809089EB7";
+		};
+		"19E030C7B67FBFE638B22FC3" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "98FD6F292986F4846CF7A02C";
+		};
+		"57163A9ED61D5887B450DC2A" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "2B91F770A986D9F815BAA817";
+		};
+		"E6861D4867409714C2F84184" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "D90761B47723240BD14921D1";
+		};
+		"A1A28079082A298F442F748C" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "1A735C86954984DB4285582D";
+		};
+		"80028FB315975DC7E9BCB931" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "F3EEB8742F1A08474384616F";
+		};
+		"DF3D7F1E4E1C1B31AD17FA92" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "0178DEA3DC77AA7E1B4CDE90";
+		};
+		"61BA03857368A17E74715FDB" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "CE436E0E88ABC0CA31DEF6DE";
+		};
+		"7FFDB1E2744623B90083DA20" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "0B8BEDF14F9B41033651F3E5";
+		};
+		"70FAEF49EECB0F87E093FF71" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "3BD06A2D657ADDCB1CD48E7C";
+		};
+		"30C918DE14CD9C988B9E4566" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "E62B4A2B7D9AA4F106FC3837";
+		};
+		"C22CD4F62C56261BA81164CC" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "DA78F94EB2BABC4B1512B36C";
+		};
+		"7D949746C9FCBB2FB57BBF9B" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "E88A6AEBF3631DC3CD75684B";
+		};
+		"6ED262C96F13ED98B88F3F95" = {
+			"isa" = "PBXSourcesBuildPhase";
+			"buildActionMask" = 2147483647;
+			"files" = (
+				"7D6EE7660BE5A4B443042B28",
+				"8B5BE40FD8EE6AEEFDF971BB",
+				"B59FA1DBBB931064DA213B43",
+				"991223ECE7AEED53D95A3172",
+				"58C6FB1D0959187454FE40F0",
+				"B3D1E2834E141BA16B6117E6",
+				"ABF80E2090FBB9F7530F6FB3",
+				"BB3C920CA77E242E87917C40",
+				"0A106459C4F48EDF76DA6419",
+				"E034FBB22574C12770B80E43",
+				"AB4B6DDDF6B64E507F10E13E",
+				"F3D3923D3159690EF42FF4D5",
+				"0ACE8ABAE6B1F3132A30D17F",
+				"3D0BBB467CEB053F480DF5DE",
+				"5DFB60F0E4CDA9A69AE21983",
+				"A2007AD1CA4DA4179A9B40DE",
+				"A7290FE52D6443439F86C2F9",
+				"8A6C1C90E0F2EA908571BEFF",
+				"465F716A7B9E7CCA56EEFD79",
+				"F05DC9FA5DB3FD995A6FF44B",
+				"E25F4FD77635994C614AAB6D",
+				"D90C7523B46BBE373B15880E",
+				"92D41892BD9293E4E423A39B",
+				"9AAC311DE33B681BBC82B62F",
+				"4B27EA400277B699BADC7AFD",
+				"66EBABE624EAAFC86C88E7ED",
+				"8BDC17216F4629E32B82116E",
+				"23C5EDF87382AE49FC588276",
+				"1A0CA79C33697591DDCB4D84",
+				"5ED023F763B94E635A9257A1",
+				"E148990ECD372CCF380C0F51",
+				"653272E70F3710C0A474CF1F",
+				"C6F99C375654D894F69B3E01",
+				"D198DFFBB4A84872AB2A51E7",
+				"F0EFD47C140A4C2C9ECFC833",
+				"03AF81E569A66944EE59D227",
+				"E8082FD795D22F487499F471",
+				"1AAA1F2E9122642EA2825712",
+				"433E78FE875694CA4050BC69",
+				"A968F5FC2B758F282B0D4AF0",
+				"C4072B28221102979E50BEAB",
+				"E27D120ED65332AB37E57B0D",
+				"19E030C7B67FBFE638B22FC3",
+				"57163A9ED61D5887B450DC2A",
+				"E6861D4867409714C2F84184",
+				"A1A28079082A298F442F748C",
+				"80028FB315975DC7E9BCB931",
+				"DF3D7F1E4E1C1B31AD17FA92",
+				"61BA03857368A17E74715FDB",
+				"7FFDB1E2744623B90083DA20",
+				"70FAEF49EECB0F87E093FF71",
+				"30C918DE14CD9C988B9E4566",
+				"C22CD4F62C56261BA81164CC",
+				"7D949746C9FCBB2FB57BBF9B",
+			);
+			"runOnlyForDeploymentPostprocessing" = 0;
+		};
+		"EF2EF8845449B8F11BC297D9" = {
+			"isa" = "PBXNativeTarget";
+			"name" = "TinyMounterSMB";
+			"productName" = "TinyMounterSMB";
+			"productType" = "com.apple.product-type.library.dynamic";
+			"productReference" = "7526330395179381C6191535";
+			"buildConfigurationList" = "5FAB68B82E78F04B6D7F1FBD";
+			"buildPhases" = (
+				"6ED262C96F13ED98B88F3F95",
+			);
+			"buildRules" = (
+			);
+			"dependencies" = (
+			);
+		};
 		"B00CCDD09424E369308D67FA" = {
 			"isa" = "XCBuildConfiguration";
 			"buildSettings" = {
@@ -462,6 +1294,7 @@
 				"PRODUCT_BUNDLE_IDENTIFIER" = "$(TINYMOUNTER_BUNDLE_ID)";
 				"INFOPLIST_FILE" = "Prototype/Config/App-Info.plist";
 				"CODE_SIGN_ENTITLEMENTS" = "Prototype/Config/App.entitlements";
+				"SWIFT_OBJC_BRIDGING_HEADER" = "Prototype/SMB/SMBRename.h";
 				"LD_RUNPATH_SEARCH_PATHS" = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -480,6 +1313,7 @@
 				"PRODUCT_BUNDLE_IDENTIFIER" = "$(TINYMOUNTER_BUNDLE_ID)";
 				"INFOPLIST_FILE" = "Prototype/Config/App-Info.plist";
 				"CODE_SIGN_ENTITLEMENTS" = "Prototype/Config/App.entitlements";
+				"SWIFT_OBJC_BRIDGING_HEADER" = "Prototype/SMB/SMBRename.h";
 				"LD_RUNPATH_SEARCH_PATHS" = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -755,12 +1589,16 @@
 			"buildConfigurationList" = "7BCEE9A04133D8A2FED7D4D3";
 			"buildPhases" = (
 				"AFF87A50730392B6633ACECE",
+				"7A4C2DC8FCA657188648E999",
 				"6B3E090DB545F4D7E323DB6E",
+				"85F3E1E14EF67AF60F8CA8D7",
+				"F9187E824FE171A6F0EFAE28",
 			);
 			"buildRules" = (
 			);
 			"dependencies" = (
 				"6375D99491A6299CABA4578E",
+				"6ED7CD78067DA2DCA6EFD715",
 			);
 		};
 		"90D51BB294664EF4F8EB7B89" = {
@@ -948,6 +1786,7 @@
 			"targets" = (
 				"C1E9827DB735CA9BAA54A540",
 				"EBCFD6EC3D41739BFF7A4491",
+				"EF2EF8845449B8F11BC297D9",
 			);
 		};
 	};

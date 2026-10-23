@@ -14,9 +14,10 @@ current status.
 - **Prefer the simplest correct solution.** Add an abstraction only when it removes more
   complexity than it adds. Prefer modern Apple APIs. A deprecated API is a defect. Don't add
   compatibility layers or speculative fallbacks.
-- **No third-party dependencies yet.** Adopting one, such as `libsmb2`, is a user decision that
-  comes after measurement and a licence review ([architecture.md
-  §5](docs/architecture.md#5-native-smb-versus-direct-smb)).
+- **Dependencies need a decision.** The user accepted a limited `libsmb2` prototype for M18
+  initial folder naming after the safety checks and licence review. Reads and uploads stay
+  native. Further dependencies or transport changes need a user decision after measurement and
+  a licence review ([architecture.md §5](docs/architecture.md#5-native-smb-versus-direct-smb)).
 
 ## Where things are
 

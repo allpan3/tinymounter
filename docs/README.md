@@ -56,4 +56,6 @@ tests passed. Normal Finder uploads now pass after a VM daemon restart, but New 
 and Keep Both still fail. See the
 [M18 results](results/2026-10-23-create-items.md).
 The user accepted initial folder naming. Its [safety investigation](results/2026-10-23-initial-folder-naming.md)
-found a direct SMB route, with dependency adoption and macOS credential reuse still open.
+found a direct SMB route. The [authentication follow-up](results/2026-10-23-folder-naming-authentication.md)
+corrected the credential probe and passed a signed sandboxed connection. A limited naming client
+is accepted; the Finder fix remains in progress.

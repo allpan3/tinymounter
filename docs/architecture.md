@@ -126,7 +126,13 @@ If a separate per-user helper is required, establish supported sandbox-to-helper
 
 Separate latency-sensitive metadata from bulk reads; pool authenticated sessions only when measured beneficial. Scope a pool by server, share, account, and security policy. Multiple connections/files are not the same as pipelined reads of one large file, nor are they automatically SMB Multichannel. Verify leases, reconnect behavior, authentication, negotiated read size/credits, and server compatibility rather than assuming parity with Apple's client.
 
-`libsmb2` is LGPL-2.1. Dependency selection must include notices/source obligations, linkage and user-relinking requirements, and signing/distribution compatibility. The wrapper's MIT license does not erase its bundled library's obligations [L1–L2]. Complete that review before committing to a distribution build.
+`libsmb2` is LGPL-2.1-or-later. Dependency selection must include notices/source obligations, linkage and user-relinking requirements, and signing/distribution compatibility. The wrapper's MIT license does not erase its bundled library's obligations [L1–L2]. Complete that review before committing to a distribution build.
+
+A limited `libsmb2-6.3` prototype is accepted for M18 initial folder naming on 2026-10-23.
+Native reads and uploads remain selected. The app embeds a separate dynamic library and uses
+public GSS APIs for macOS-cached NTLM credentials. Authenticated naming requires SMB encryption.
+Its source, local changes and licence are in Vendor/libsmb2. This does not select a replacement
+read transport or a distribution package. See the [authentication checks](results/2026-10-23-folder-naming-authentication.md).
 
 ### Selection rule
 
@@ -215,7 +221,7 @@ it waits for the transport decision.
 ## 11. Open decisions for the first experiment
 
 - **Safe upload publication, accepted for M18.** Use native exclusive creation, preserve complete local pending copies, and verify before acknowledging upload. Other devices can see partial new content. Never open an existing remote destination for writing. An uncertain interrupted attempt remains pending unless remote identity and complete contents prove success. See the [API results](results/2026-10-23-upload-publication.md).
-- **Initial folder naming, accepted for M18 on 2026-10-23.** Finder creates an untitled folder, then sends a rename for the typed name. The implementation still rejects that rename. Native exclusive folder rename failed, and create/delete is unsafe under replacement races. An isolated direct SMB client passed no-overwrite rename checks. A limited `libsmb2` naming prototype is proposed; dependency adoption and password-free authentication remain open. General renaming stays deferred. See the [naming investigation](results/2026-10-23-initial-folder-naming.md). Finder's separate Keep Both failure is unresolved.
+- **Initial folder naming, accepted for M18 on 2026-10-23.** Finder creates an untitled folder, then sends a rename for the typed name. The implementation still rejects that rename. Native exclusive folder rename failed, and create/delete is unsafe under replacement races. An isolated direct SMB client passed no-overwrite rename checks. A limited `libsmb2` naming prototype is accepted. A corrected credential probe connected in the signed sandbox without a password; app naming and recovery remain open. General renaming stays deferred. See the [naming investigation](results/2026-10-23-initial-folder-naming.md). Finder's separate Keep Both failure is unresolved.
 
 - Physical Mac hardware, exact NAS/disk models, NIC/link topology, and physical-Mac SMB settings. VM/NAS telemetry now establishes 64 GB RAM, Samba 4.17.12-Debian, ext4/LVM/linear md storage and the negotiated VM SMB settings; see the cache report.
 - Current competitor app versions and exact scripts/files used for the reported rates.

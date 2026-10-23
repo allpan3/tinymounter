@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Generate the dependency-free two-target Xcode project. IDs are deterministic."""
+"""Generate the app, provider and SMB client Xcode project. IDs are deterministic."""
 from hashlib import sha256
 from pathlib import Path
 import json
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 objects = {}
@@ -49,6 +50,12 @@ provider_paths = ["Prototype/Provider/CatalogItem.swift", "Prototype/Provider/En
                   "Sources/TransferCore/FirstPage.swift", "Sources/TransferCore/ProviderCatalog.swift",
                   "Sources/TransferCore/StallDeadline.swift"]
 files = {path: ref(path, "sourcecode.swift") for path in core_paths + app_paths + provider_paths}
+smb_makefile = (ROOT / "Vendor/libsmb2/lib/Makefile.am").read_text()
+smb_sources = smb_makefile.split("libsmb2_la_SOURCES =", 1)[1].split("SOCURRENT", 1)[0]
+smb_paths = ["Vendor/libsmb2/lib/" + name for name in re.findall(r"[\w-]+\.c", smb_sources)]
+smb_paths.append("Prototype/SMB/SMBRename.c")
+files.update({path: ref(path, "sourcecode.c.c") for path in smb_paths})
+
 config_path = "Prototype/Config/Prototype.xcconfig"
 base_config = ref(config_path, "text.xcconfig")
 config_refs = [base_config] + [ref("Prototype/Config/" + path, "text.plist.xml") for path in
@@ -57,9 +64,11 @@ app_product = add("app-product", "PBXFileReference", explicitFileType="wrapper.a
                   path="TinyMounterPrototype.app", sourceTree="BUILT_PRODUCTS_DIR")
 extension_product = add("extension-product", "PBXFileReference", explicitFileType="wrapper.app-extension",
                         path="TinyMounterProvider.appex", sourceTree="BUILT_PRODUCTS_DIR")
-products = add("products", "PBXGroup", name="Products", children=[app_product, extension_product], sourceTree="<group>")
+smb_product = add("smb-product", "PBXFileReference", explicitFileType="compiled.mach-o.dylib",
+                  path="libTinyMounterSMB.dylib", sourceTree="BUILT_PRODUCTS_DIR")
+products = add("products", "PBXGroup", name="Products", children=[app_product, extension_product, smb_product], sourceTree="<group>")
 groups = []
-for name, paths in [("Shared", core_paths), ("App", app_paths), ("Provider", provider_paths)]:
+for name, paths in [("Shared", core_paths), ("App", app_paths), ("Provider", provider_paths), ("SMB", smb_paths)]:
     groups.append(add(name + "-group", "PBXGroup", name=name, children=[files[p] for p in paths], sourceTree="<group>"))
 groups.append(add("config-group", "PBXGroup", name="Configuration", children=config_refs, sourceTree="<group>"))
 main_group = add("main-group", "PBXGroup", children=groups + [products], sourceTree="<group>")
@@ -96,8 +105,38 @@ embed_file = add("embed-provider", "PBXBuildFile", fileRef=extension_product,
                  settings={"ATTRIBUTES": ["CodeSignOnCopy", "RemoveHeadersOnCopy"]})
 embed_phase = add("embed-phase", "PBXCopyFilesBuildPhase", buildActionMask=2147483647, dstPath="",
                   dstSubfolderSpec=13, files=[embed_file], name="Embed App Extensions", runOnlyForDeploymentPostprocessing=0)
+smb_key = identity("smb-target")
+smb_proxy = add("smb-proxy", "PBXContainerItemProxy", containerPortal=project_key, proxyType=1,
+                remoteGlobalIDString=smb_key, remoteInfo="TinyMounterSMB")
+smb_dependency = add("smb-dependency", "PBXTargetDependency", target=smb_key, targetProxy=smb_proxy)
+smb_link = add("link-smb", "PBXBuildFile", fileRef=smb_product)
+smb_link_phase = add("app-frameworks", "PBXFrameworksBuildPhase", buildActionMask=2147483647,
+                      files=[smb_link], runOnlyForDeploymentPostprocessing=0)
+smb_embed = add("embed-smb", "PBXBuildFile", fileRef=smb_product,
+                 settings={"ATTRIBUTES": ["CodeSignOnCopy"]})
+smb_embed_phase = add("embed-smb-phase", "PBXCopyFilesBuildPhase", buildActionMask=2147483647,
+                       dstPath="", dstSubfolderSpec=10, files=[smb_embed], name="Embed SMB Client",
+                       runOnlyForDeploymentPostprocessing=0)
+smb_license = ref("Vendor/libsmb2/LICENCE-LGPL-2.1.txt", "text")
+smb_notice = ref("Vendor/libsmb2/README.md", "net.daringfireball.markdown")
+license_builds = [add("notice:" + path, "PBXBuildFile", fileRef=reference) for path, reference in
+                  [("license", smb_license), ("notice", smb_notice)]]
+notice_phase = add("app-resources", "PBXResourcesBuildPhase", buildActionMask=2147483647,
+                   files=license_builds, runOnlyForDeploymentPostprocessing=0)
+smb_configs = configs("smb", dict(PRODUCT_NAME="TinyMounterSMB", EXECUTABLE_PREFIX="lib", SKIP_INSTALL="YES",
+    MACH_O_TYPE="mh_dylib", LD_DYLIB_INSTALL_NAME="@rpath/libTinyMounterSMB.dylib",
+    GCC_C_LANGUAGE_STANDARD="gnu11", GCC_PREPROCESSOR_DEFINITIONS=["$(inherited)", "HAVE_CONFIG_H=1",
+        "HAVE_LIBKRB5=1", "_U_=__attribute__((unused))"],
+    HEADER_SEARCH_PATHS=["$(SRCROOT)/Vendor/libsmb2/include/apple", "$(SRCROOT)/Vendor/libsmb2/include",
+        "$(SRCROOT)/Vendor/libsmb2/include/smb2"],
+    OTHER_LDFLAGS=["-framework", "GSS", "-framework", "CoreFoundation"]))
+add("smb-target", "PBXNativeTarget", name="TinyMounterSMB", productName="TinyMounterSMB",
+    productType="com.apple.product-type.library.dynamic", productReference=smb_product,
+    buildConfigurationList=smb_configs, buildPhases=[source_phase("smb", smb_paths)],
+    buildRules=[], dependencies=[])
 app_configs = configs("app", dict(PRODUCT_NAME="TinyMounterPrototype", PRODUCT_BUNDLE_IDENTIFIER="$(TINYMOUNTER_BUNDLE_ID)",
     INFOPLIST_FILE="Prototype/Config/App-Info.plist", CODE_SIGN_ENTITLEMENTS="Prototype/Config/App.entitlements",
+    SWIFT_OBJC_BRIDGING_HEADER="Prototype/SMB/SMBRename.h",
     LD_RUNPATH_SEARCH_PATHS=["$(inherited)", "@executable_path/../Frameworks"]))
 provider_configs = configs("provider", dict(PRODUCT_NAME="TinyMounterProvider", PRODUCT_BUNDLE_IDENTIFIER="$(TINYMOUNTER_BUNDLE_ID).provider",
     INFOPLIST_FILE="Prototype/Config/Provider-Info.plist", CODE_SIGN_ENTITLEMENTS="Prototype/Config/Provider.entitlements",
@@ -105,7 +144,8 @@ provider_configs = configs("provider", dict(PRODUCT_NAME="TinyMounterProvider", 
     LD_RUNPATH_SEARCH_PATHS=["$(inherited)", "@executable_path/../Frameworks", "@executable_path/../../../../Frameworks"]))
 app_key = add("app-target", "PBXNativeTarget", name="TinyMounterPrototype", productName="TinyMounterPrototype",
     productType="com.apple.product-type.application", productReference=app_product, buildConfigurationList=app_configs,
-    buildPhases=[source_phase("app", core_paths + app_paths), embed_phase], buildRules=[], dependencies=[dependency])
+    buildPhases=[source_phase("app", core_paths + app_paths), smb_link_phase, embed_phase, smb_embed_phase, notice_phase],
+    buildRules=[], dependencies=[dependency, smb_dependency])
 add("provider-target", "PBXNativeTarget", name="TinyMounterProvider", productName="TinyMounterProvider",
     productType="com.apple.product-type.app-extension", productReference=extension_product,
     buildConfigurationList=provider_configs, buildPhases=[source_phase("provider", core_paths + provider_paths)],
@@ -114,7 +154,7 @@ project_configs = configs("project", dict(SDKROOT="macosx", CLANG_ENABLE_MODULES
 add("project", "PBXProject", attributes={"LastUpgradeCheck": "2700", "BuildIndependentTargetsInParallel": "YES"},
     buildConfigurationList=project_configs, compatibilityVersion="Xcode 14.0", developmentRegion="en",
     hasScannedForEncodings=0, knownRegions=["en", "Base"], mainGroup=main_group,
-    productRefGroup=products, projectDirPath="", projectRoot="", targets=[app_key, provider_key])
+    productRefGroup=products, projectDirPath="", projectRoot="", targets=[app_key, provider_key, smb_key])
 
 
 def render(value, depth=0):
