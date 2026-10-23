@@ -85,9 +85,10 @@ required checks passed. See the [results](docs/results/2026-10-22-location-lifec
 Write support (M18), 2026-10-23: new file/folder creation, explicit per-location write grants,
 pending copies and recovery are implemented. All 208 VM tests and required checks passed.
 Signed extension callbacks through authenticated IPC created files and folders with matching
-remote hashes; interruption and lifecycle guards passed. Automatic Finder upload scheduling
-remains unverified, so M18 is not complete. Existing locations stay read-only. The physical-Mac
-app remains M16. See the [results](docs/results/2026-10-23-create-items.md) and
+remote hashes; interruption and lifecycle guards passed. After an approved VM File Provider daemon
+restart, normal Finder file and nested-folder uploads passed, with matching hashes and native
+progress. New Folder naming and Keep Both still fail, so M18 is not complete. Existing locations
+stay read-only. The physical-Mac app remains M16. See the [results](docs/results/2026-10-23-create-items.md) and
 [accepted plan](docs/phase4-plan.md).
 
 ## Run the prototype
