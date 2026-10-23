@@ -73,8 +73,8 @@ Disk-space protection (M16), 2026-10-22: the signed VM checks passed blocking, c
 errors, recovery after relaunch, manual Pause and preservation of completed copies. A disposable
 volume also passed real disk-full cleanup and recovery. All 192 tests and required checks passed.
 The app reserves 2 GiB and shows Not sufficient space for blocked keeps. VM fixtures are removed
-and sharing is restored. The signed build is ready; physical-Mac installation and low-space
-checks remain. See the [results](docs/results/2026-10-21-disk-space-protection.md).
+and sharing is restored. The signed update is installed on the physical Mac with its existing
+location retained. Physical-Mac low-space checks remain. See the [results](docs/results/2026-10-21-disk-space-protection.md).
 
 ## Run the prototype
 
