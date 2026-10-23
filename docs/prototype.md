@@ -23,6 +23,11 @@ installed on the physical Mac with its existing location retained. Physical-Mac 
 remain.
 See the [disk-space results](results/2026-10-21-disk-space-protection.md).
 
+M17 checked location changes and removal in the signed VM on 2026-10-22. Interrupted Apply
+and Remove recovered without affecting a second location's kept copy. Provider off/on preserved
+both configurations, including across relaunch. No production code changed. See the
+[location lifecycle results](results/2026-10-22-location-lifecycle.md) for limits.
+
 ## Implemented and checked
 
 - A dependency-free Swift package with `transfer-bench` and a reusable transfer engine.

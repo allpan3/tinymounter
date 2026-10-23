@@ -6,7 +6,7 @@ The user approved their behaviour on 2026-10-18: the app connects the share agai
 starts again after a crash but not after the user quits it, and the user connects in the app,
 with only the locations in Finder. The design below is the agent's. M13 to M15 add verified
 offline status, folder keeps and live change discovery below. M16 adds local disk-space
-protection. The remaining domain lifecycle work is not planned yet.
+protection. M17 checks the existing location lifecycle below.
 
 Physical-Mac follow-up, 2026-10-19: the user reports the supplied checks passed except macOS
 restart, including sleep and wake and a network change. Logs show partial playback reads and
@@ -362,3 +362,36 @@ errors, independent offline status, persisted retry after relaunch, Pause and re
 ENOSPC cleanup and recovery passed on a disposable volume. Sharing is restored and all fixtures
 are removed. The signed update is installed on the physical Mac; its low-space checks remain.
 See the [results](results/2026-10-21-disk-space-protection.md).
+
+
+### M17: verify location changes and removal
+
+Decision status: verification of accepted behavior on 2026-10-22 under the user's
+"Install, then go onto the next step" instruction. The Add, Name, Apply and Remove contract is
+already accepted in phase 2 sections 7 and 8. This step adds no new feature or interface.
+
+Check that one location can change its name or source, or be removed, without changing another
+location's identity, kept requests or downloaded copies. A rejected Apply must leave the old
+location usable. A crash after saving an Apply or Remove must finish in order at the next app
+launch. Removed and retired domains must leave no catalog, watcher, reader reservation or retry
+record in use. A user-disabled location must keep its saved configuration and recover when the
+provider is enabled again.
+
+Use two temporary VM locations on the existing read-only grant, bounded small file reads and
+opaque evidence. Do not change the NAS, sharing, native mounts or network. Inject interruptions
+only into the test app or a separate test build. Never stop shared system services. Keep Cairndex
+and the original connection intact, then remove every temporary location and download. Broader
+multi-location load and performance checks remain in phase 6. A full macOS restart remains the
+user's separate check; the VM is not restarted.
+
+Record the signed results and run Tools/run-checks.sh before closing this step. If a check finds
+a defect in the accepted behavior, fix the cause, add a useful regression check and update the
+affected docs in the same commit. New recovery actions or destructive behavior need a separate
+user decision.
+
+The signed run passed the location-change checks without a production code change. Rename,
+rejected Apply, interrupted Apply/Remove and provider off/on left the other location's kept
+copy intact. A saved request returned on re-add; its automatic download completion remains
+unverified. The test locations and downloads are removed. All 192 tests and required checks
+passed. See the
+[results](results/2026-10-22-location-lifecycle.md) for evidence and the remaining phase 3 gates.

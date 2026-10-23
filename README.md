@@ -76,6 +76,12 @@ The app reserves 2 GiB and shows Not sufficient space for blocked keeps. VM fixt
 and sharing is restored. The signed update is installed on the physical Mac with its existing
 location retained. Physical-Mac low-space checks remain. See the [results](docs/results/2026-10-21-disk-space-protection.md).
 
+Location changes and removal (M17), 2026-10-22: signed VM checks passed rename, rejected source
+changes, interrupted Apply/Remove and provider off/on without changing the other location's kept
+copy. Re-adding restored a saved request; automatic download completion remains unverified.
+No production code changed. Test locations and downloads are removed. All 192 tests and
+required checks passed. See the [results](docs/results/2026-10-22-location-lifecycle.md).
+
 ## Run the prototype
 
 See [prototype setup and validation](docs/prototype.md). Build the benchmark with `swift build -c release`; run `.build/release/transfer-bench --help`. Open `TinyMounter.xcodeproj` to configure signing for the Finder prototype.
