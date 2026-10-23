@@ -18,10 +18,11 @@ Existing locations stay read-only. The user must explicitly enable changes for a
 select its share again to grant write access. Passwords still belong to macOS and Keychain.
 The first implementation and all destructive checks use disposable VM data, not the user's NAS.
 
-Limit the first milestone to creating ordinary files and folders. Replacing or editing existing
-files, renaming, moving and deleting come later. A name collision fails without changing the
-existing item. Do not make an editor's save look successful when it requires an operation that
-this milestone does not support.
+Limit the first milestone to creating ordinary files and folders, including the initial naming
+step after Finder creates an untitled folder. The user accepted that extension on 2026-10-23.
+Replacing or editing existing files, general renaming, moving and deleting come later. A name
+collision fails without changing the existing item. Do not make an editor's save look successful
+when it requires an operation that this milestone does not support.
 
 The visible behavior is:
 
@@ -88,6 +89,16 @@ matching hashes and native progress. New Folder naming and Keep Both still fail,
 met its exit checks. The physical-Mac app remains M16. See the
 [results](results/2026-10-23-create-items.md).
 
-Initial folder naming, decision status: proposed. Finder sends a rename after creating its
-untitled folder. Handling that initial rename needs a scope decision because renaming is
-excluded above. General renaming remains a later milestone. Keep Both's error is unresolved.
+Initial folder naming, decision status: accepted, 2026-10-23. The user approved handling the
+initial name of a newly created folder. General renaming remains a later milestone. Native
+exclusive folder rename failed, and a create/delete alternative deleted another client's
+replacement folder in a controlled race. Neither route is suitable. An isolated direct SMB
+client passed collision and competing-create checks, but macOS credential reuse is unproven.
+No dependency or production naming change has been added. See the
+[naming investigation](results/2026-10-23-initial-folder-naming.md).
+
+Next step, decision status: proposed. Prototype `libsmb2` for initial folder naming only,
+keeping native reads and uploads. Adoption needs the user's dependency decision after the
+measured checks and LGPL-2.1-or-later review. Preserve the macOS-managed password contract.
+Credential reuse, source identity checks, durable rename recovery and signed Finder behavior
+must pass before installation. Keep Both's separate error remains unresolved.

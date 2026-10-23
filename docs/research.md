@@ -174,6 +174,13 @@ No reviewed page establishes ≥90% native throughput for an offline-caching SMB
   Foundation confirmed that a competing create between these steps can be overwritten on SMB
   and APFS. See the [follow-up results](results/2026-10-23-upload-publication.md#native-api-follow-up).
 
+- **W5:** `libsmb2-6.3` [rename implementation](https://github.com/sahlberg/libsmb2/blob/libsmb2-6.3/lib/libsmb2.c)
+  sets `replace_if_exist` to zero. Its [COPYING](https://github.com/sahlberg/libsmb2/blob/libsmb2-6.3/COPYING)
+  assigns LGPL-2.1-or-later to the core library and headers. An isolated client with a guest-session
+  signing fix passed the [folder rename checks](results/2026-10-23-initial-folder-naming.md).
+  Installed Xcode 27 `GSS.framework` headers expose credential iteration and acquisition without
+  password export. Metadata probes did not establish reuse of the mounted NAS credentials.
+
 ## Research limitations
 
 Live web documentation and current SDK headers establish API contracts, not actual throughput. Search was unreliable, and several sites initially failed the VM's DNS resolution; direct HTTPS retrieval with explicitly resolved public addresses succeeded. No VM DNS settings were changed. Subsequent work measured native SMB and short NAS-backed provider reads and ran signed correctness checks; dated results logs record those separately. Competitor installations, the player matrix, large-file throughput acceptance, and controlled failure experiments remain incomplete, as described in the benchmark plan.
