@@ -86,3 +86,12 @@ and uploads. Keep password-free authentication as a gate, then verify source ide
 rename recovery, collisions and the signed Finder flow. Dependency adoption needs the user's
 approval under AGENTS.md. General renaming remains deferred. Keep Both is a separate unresolved
 creation failure and must not be assumed fixed by this route.
+
+
+## Authentication correction, 2026-10-23
+
+The earlier zero-match result came from a parser defect. The corrected probe matched the
+account and exact server, acquired its credential and connected in a signed sandboxed app
+without a password. The [follow-up](2026-10-23-folder-naming-authentication.md) records the
+correction and remaining implementation checks. The user asked to continue the fix after the
+dependency explanation; a limited naming prototype is now accepted.

@@ -98,6 +98,12 @@ and competing-create checks. Naming remains unimplemented; dependency adoption a
 credential reuse are still open. The fixture is removed and sharing is restored. See the
 [investigation](docs/results/2026-10-23-initial-folder-naming.md).
 
+Folder naming authentication follow-up, 2026-10-23: the earlier zero-match credential result
+came from a parser defect. The corrected probe acquired the account/server-bound credential
+and connected in a signed sandboxed app without a password. A limited `libsmb2` naming
+prototype is accepted; initial naming is still in progress. Native reads and uploads remain
+unchanged. See the [follow-up](docs/results/2026-10-23-folder-naming-authentication.md).
+
 ## Run the prototype
 
 See [prototype setup and validation](docs/prototype.md). Build the benchmark with `swift build -c release`; run `.build/release/transfer-bench --help`. Open `TinyMounter.xcodeproj` to configure signing for the Finder prototype.

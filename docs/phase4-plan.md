@@ -93,12 +93,14 @@ Initial folder naming, decision status: accepted, 2026-10-23. The user approved 
 initial name of a newly created folder. General renaming remains a later milestone. Native
 exclusive folder rename failed, and a create/delete alternative deleted another client's
 replacement folder in a controlled race. Neither route is suitable. An isolated direct SMB
-client passed collision and competing-create checks, but macOS credential reuse is unproven.
-No dependency or production naming change has been added. See the
+client passed collision and competing-create checks. The authentication follow-up below resolved
+the credential-probe defect. No production naming callback has been added. See the
 [naming investigation](results/2026-10-23-initial-folder-naming.md).
 
-Next step, decision status: proposed. Prototype `libsmb2` for initial folder naming only,
-keeping native reads and uploads. Adoption needs the user's dependency decision after the
-measured checks and LGPL-2.1-or-later review. Preserve the macOS-managed password contract.
-Credential reuse, source identity checks, durable rename recovery and signed Finder behavior
-must pass before installation. Keep Both's separate error remains unresolved.
+Next step, decision status: accepted, 2026-10-23. After the dependency explanation, the user
+asked to continue the fix. Prototype `libsmb2` for initial folder naming only, keeping native
+reads and uploads. The corrected credential probe and a signed sandboxed connection passed
+without password acquisition. The [authentication follow-up](results/2026-10-23-folder-naming-authentication.md)
+records the earlier probe defect and the LGPL-2.1-or-later obligations. Preserve the macOS-managed password contract.
+Repeat credential checks with the final client. Source identity checks, durable rename recovery
+and signed Finder behavior must pass before installation. Keep Both's separate error remains unresolved.
