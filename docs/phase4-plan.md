@@ -65,6 +65,8 @@ overwrite an unrelated file or retry under a new name without a user decision.
 Use a dedicated writable SMB fixture in macOS VM 1. Temporarily enable only that test share,
 snapshot its settings, and restore them after removing all test data. The original NAS remains
 read-only. Do not restart the VM, cut its network or stop shared system services.
+The user separately approved one File Provider daemon restart for the stale-state diagnostic
+on 2026-10-23. That restart is complete; it does not authorize other service restarts.
 
 Verify a new file and folder in the signed sandboxed app, then compare the complete local and
 remote file contents. Test same-name collisions, read-only locations and denied grants. Interrupt
@@ -81,5 +83,11 @@ approval. This approval does not authorize them.
 Creation, explicit write grants, migrations and durable pending copies are implemented. All 208
 VM tests and required checks passed. Signed extension callbacks through authenticated IPC passed
 file/folder creation, and signed app stops checked recovery and pending-write lifecycle guards.
-Automatic Finder uploads remain unverified, so M18 has not met its exit checks. The physical-Mac
-app remains M16. See the [results](results/2026-10-23-create-items.md).
+After the approved daemon restart, normal Finder file and nested-folder uploads passed with
+matching hashes and native progress. New Folder naming and Keep Both still fail, so M18 has not
+met its exit checks. The physical-Mac app remains M16. See the
+[results](results/2026-10-23-create-items.md).
+
+Initial folder naming, decision status: proposed. Finder sends a rename after creating its
+untitled folder. Handling that initial rename needs a scope decision because renaming is
+excluded above. General renaming remains a later milestone. Keep Both's error is unresolved.

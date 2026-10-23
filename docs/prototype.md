@@ -385,11 +385,19 @@ The mounted share, Personal Team signing and app-owned NAS access prerequisites 
 ## New files and folders, M18
 
 Creation, recovery and migration checks passed in the VM, including signed extension callbacks
-through authenticated IPC. Automatic Finder uploads remain unverified; M18 is not complete.
+through authenticated IPC. After an approved VM File Provider daemon restart, normal Finder file
+and nested-folder uploads passed with matching hashes and native progress. New Folder naming
+and Keep Both still fail, so M18 is not complete.
 See the [results](results/2026-10-23-create-items.md). In a location's Changes
 section, Enable Changes asks the user to select the same share root for write access. The grant
 belongs to this location. Existing locations remain read-only. Editing, replacement, rename,
 move, delete, packages and symbolic links remain outside this milestone.
+
+Finder's New Folder creates an untitled folder on the server, then sends a separate rename when
+the user types a name. That rename fails with permission error 513 and leaves the typed name
+pending locally. Copying a folder that already has its final name works, including its children.
+Finder's Keep Both action fails with error code 0 before a new create callback arrives; the
+existing remote file stays unchanged. Resolve these flows before installation.
 
 The app records the request before local staging, then saves immutable pending bytes before
 exclusive remote creation. A replay can restage matching system input after a staging interruption.

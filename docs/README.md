@@ -52,5 +52,6 @@ Latest competitor review: [2026-10-11 — PolyDrive research](research.md#polydr
 
 Write-support gate: [2026-10-23 native SMB publication check](results/2026-10-23-upload-publication.md).
 Native exclusive creation is accepted and implemented. Signed upload/recovery checks and all 208
-tests passed; automatic Finder uploads remain unverified. See the
+tests passed. Normal Finder uploads now pass after a VM daemon restart, but New Folder naming
+and Keep Both still fail. See the
 [M18 results](results/2026-10-23-create-items.md).
