@@ -82,6 +82,11 @@ copy. Re-adding restored a saved request; automatic download completion remains 
 No production code changed. Test locations and downloads are removed. All 192 tests and
 required checks passed. See the [results](docs/results/2026-10-22-location-lifecycle.md).
 
+Write-support gate (M18), 2026-10-23: the user approved new files and folders, but the
+native SMB check rejected safe exclusive publication. The app remains read-only. All 192 tests
+and required checks passed, and the VM fixture is removed with sharing settings restored. See the
+[gate results](docs/results/2026-10-23-upload-publication.md) and [accepted plan](docs/phase4-plan.md).
+
 ## Run the prototype
 
 See [prototype setup and validation](docs/prototype.md). Build the benchmark with `swift build -c release`; run `.build/release/transfer-bench --help`. Open `TinyMounter.xcodeproj` to configure signing for the Finder prototype.

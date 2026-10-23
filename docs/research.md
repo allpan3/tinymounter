@@ -149,6 +149,18 @@ No reviewed page establishes ≥90% native throughput for an offline-caching SMB
 - **N3:** [NWPathMonitor](https://developer.apple.com/documentation/network/nwpathmonitor), [SMAppService](https://developer.apple.com/documentation/servicemanagement/smappservice) — official API descriptions read; network observations and per-user helper registration.
 - **F1:** [FSKit](https://developer.apple.com/documentation/fskit) — official framework overview read; user-space filesystem modules, resources, and current design flows.
 
+### Upload publication
+
+- **W1:** Installed Xcode 27 SDK `sys/stdio.h`, `sys/attr.h` and Foundation `NSURL.h`, reviewed
+  2026-10-23. `RENAME_EXCL` and `VOL_CAP_INT_RENAME_EXCL` describe exclusive rename support.
+  Apple's [volumeSupportsExclusiveRenaming](https://developer.apple.com/documentation/foundation/urlresourcevalues/volumesupportsexclusiverenaming)
+  property reflects support for that rename option. The [VM fixture check](results/2026-10-23-upload-publication.md)
+  found the capability absent on native SMB and present on APFS; these are runtime results for
+  that fixture, not a compatibility claim about every server.
+- **W2:** Microsoft's [FileRenameInformation for SMB2](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/52aa0b70-8094-4971-862d-79793f41e6a8),
+  reviewed 2026-10-23. `ReplaceIfExists` false requires a failure when the destination exists.
+  This establishes a protocol operation to investigate, not a verified direct-client upload path.
+
 ## Research limitations
 
 Live web documentation and current SDK headers establish API contracts, not actual throughput. Search was unreliable, and several sites initially failed the VM's DNS resolution; direct HTTPS retrieval with explicitly resolved public addresses succeeded. No VM DNS settings were changed. Subsequent work measured native SMB and short NAS-backed provider reads and ran signed correctness checks; dated results logs record those separately. Competitor installations, the player matrix, large-file throughput acceptance, and controlled failure experiments remain incomplete, as described in the benchmark plan.

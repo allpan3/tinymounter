@@ -1,9 +1,13 @@
 # Phase 4: write support
 
-Date: 2026-10-23. Decision status: proposed. M18 starts phase 4 of
+Date: 2026-10-23. Decision status: accepted. M18 starts phase 4 of
 [architecture §10](architecture.md#10-implementation-sequence-and-exit-criteria) with new files
 and folders, then adds editing and conflict handling in later milestones. The remaining phase 3
 checks are still open; starting this design does not mark them passed.
+
+Native publication gate, 2026-10-23: the writable VM SMB check returned ENOTSUP for
+exclusive rename and hard links. M18 implementation is blocked until a supported safe publication
+route is established. See the [gate results](results/2026-10-23-upload-publication.md).
 
 ## First milestone: create files and folders
 
@@ -68,4 +72,4 @@ from the installed settings/catalog formats. Record matched before/after Finder 
 
 Run Tools/run-checks.sh in the VM, update affected reference docs, and finish with a dated result
 and README status. A physical-Mac install, publication and real-NAS write tests need separate
-approval. This proposal does not authorize them.
+approval. This approval does not authorize them.

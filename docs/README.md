@@ -15,7 +15,7 @@ it wrong.
 | [research.md](research.md) | External findings, competitors and the source register | you start relying on a new external fact |
 | [phase2-plan.md](phase2-plan.md) | Phase 2, the read-only vertical slice: decisions, data model, errors, UI scope and milestones | a phase 2 decision, milestone or design choice changes |
 | [phase3-plan.md](phase3-plan.md) | Phase 3, offline and NAS changes you can trust: reconnection, restart after a crash, connecting in the app, verified offline status, folder keeps, live change discovery and disk-space protection and location lifecycle checks (M11 to M17 checked in the VM; limits in results) | a phase 3 decision, milestone or design choice changes |
-| [phase4-plan.md](phase4-plan.md) | Proposed first write milestone: new files/folders, durable pending writes and safe publication (M18) | write scope, permissions or recovery behavior changes |
+| [phase4-plan.md](phase4-plan.md) | Accepted first write milestone: new files/folders and durable recovery; M18 is blocked on safe publication | write scope, permissions or recovery behavior changes |
 | [synchronization.md](synchronization.md) | How File Provider locations stay consistent with server volumes and other writers (proposed) | the sync model, its guarantees or its tests change |
 | [ui-design.md](ui-design.md) and [ui-mockup.html](ui-mockup.html) | App and Finder interface, accepted for prototyping: its terms, its ASD-STE100 text and an interactive mockup | the interface or its copy changes |
 | [architecture-overview.html](architecture-overview.html) | The interactive data-path overview | the architecture changes visibly |
@@ -49,3 +49,6 @@ works](results/2026-10-10-app-reader.md), and [local provider checks and direct 
 denial](results/2026-10-10-provider-runtime.md).
 
 Latest competitor review: [2026-10-11 — PolyDrive research](research.md#polydrive--reviewed-2026-10-11). Documentation review only; no PolyDrive runtime or speed measurements.
+
+Write-support gate: [2026-10-23 native SMB publication check](results/2026-10-23-upload-publication.md).
+M18 is approved but not implemented; exclusive publication failed on the writable VM fixture.
