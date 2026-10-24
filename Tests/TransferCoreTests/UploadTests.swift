@@ -105,13 +105,10 @@ final class UploadTests: XCTestCase {
             XCTAssertEqual($0 as? UploadError, .collision)
         }
         XCTAssertEqual(try Data(contentsOf: fixture.appending(path: "new.bin")), payload)
-        var folder = try prepared(kind: .folder, name: "folder")
-        try outbox.upload(&folder, locationRoot: descriptor, progress: Progress())
-        folder = try XCTUnwrap(outbox.records().first { $0.name == "folder" })
-        try outbox.upload(&folder, locationRoot: descriptor, progress: Progress())
+
     }
 
-    func testCompleteFileFolderAndIdempotentAcknowledgement() throws {
+    func testCompleteFileAndIdempotentAcknowledgement() throws {
         var record = try prepared()
         try outbox.upload(&record, locationRoot: fd, progress: Progress())
         XCTAssertEqual(try Data(contentsOf: remote.appending(path: record.name)), payload)
@@ -120,10 +117,7 @@ final class UploadTests: XCTestCase {
         try outbox.complete(&record, item: UUID().uuidString)
         XCTAssertEqual(try outbox.pendingCount, 0)
         XCTAssertEqual(try outbox.records().first?.item, record.item)
-        var folder = try prepared(kind: .folder, name: "folder")
-        try outbox.upload(&folder, locationRoot: fd, progress: Progress())
-        XCTAssertEqual(folder.state, .verified)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: remote.appending(path: "folder").path))
+
     }
 
     func testCollisionNeverChangesExistingBytes() throws {

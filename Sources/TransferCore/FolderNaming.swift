@@ -7,6 +7,8 @@ public struct InitialFolderName: Codable, Sendable {
     public let destination: String
     public let name: String
     public var state: State
+    public var sourceID: UInt64?
+    public var nativeID: UInt64?
 
     public var isPending: Bool { state != .completed && state != .observed }
 
@@ -22,20 +24,21 @@ public struct InitialFolderName: Codable, Sendable {
     }
 }
 
-public struct FolderNamingFailure: Error {
+public struct FolderMutationFailure: Error {
     public let code: Int32
-    public let mayHaveRenamed: Bool
+    public let mayHaveChanged: Bool
 
-    public init(code: Int32, mayHaveRenamed: Bool) {
+    public init(code: Int32, mayHaveChanged: Bool) {
         self.code = code
-        self.mayHaveRenamed = mayHaveRenamed
+        self.mayHaveChanged = mayHaveChanged
     }
 }
 
 extension UploadOutbox {
     public func initialNamingRecord(item: String) throws -> PendingUpload {
         guard let record = try records().first(where: { $0.item == item }),
-              record.kind == .folder, record.state == .completed, record.remoteID != nil else {
+              record.kind == .folder, record.state == .completed, record.remoteID != nil,
+              record.serverFolder != nil else {
             throw UploadError.readOnly
         }
         return record
@@ -43,9 +46,9 @@ extension UploadOutbox {
 
     public func nameFolder(_ record: inout PendingUpload, name: String,
                            checkpoint: (InitialFolderName.State) throws -> Void = { _ in },
-                           rename: (RelativePath, RelativePath, UInt64, Bool) throws -> Void) throws {
+                           rename: (RelativePath, RelativePath, RemoteFolderIdentity, Bool) throws -> UInt64) throws {
         guard record.kind == .folder, record.state == .completed, record.item != nil,
-              let identity = record.remoteID, RelativePath.isValidComponent(name) else {
+              let identity = record.serverFolder, RelativePath.isValidComponent(name) else {
             throw UploadError.readOnly
         }
         if let naming = record.initialName, !naming.isPending {
@@ -53,6 +56,10 @@ extension UploadOutbox {
             return
         }
         if record.initialName == nil || record.initialName?.state == .prepared {
+            let prefix = record.path + "/"
+            guard try !records().contains(where: { $0.id != record.id && $0.path.hasPrefix(prefix) }) else {
+                throw UploadError.readOnly
+            }
             if record.name.utf8.elementsEqual(name.utf8) {
                 if record.initialName != nil {
                     record.initialName = nil
@@ -65,6 +72,7 @@ extension UploadOutbox {
                   let destination = parent.appending(name) else { throw UploadError.invalidRequest }
             record.initialName = InitialFolderName(source: source.string, destination: destination.string,
                                                    name: name, state: .prepared)
+            record.initialName?.sourceID = record.remoteID
             try save(record)
             try checkpoint(.prepared)
         }
@@ -79,14 +87,16 @@ extension UploadOutbox {
         try save(record)
         try checkpoint(.attempting)
         do {
-            try rename(source, destination, identity, recovering)
-        } catch let failure as FolderNamingFailure where !recovering && !failure.mayHaveRenamed {
+            let nativeID = try rename(source, destination, identity, recovering)
+            guard nativeID != 0 else { throw UploadError.unresolved }
+            record.initialName?.nativeID = nativeID
+        } catch let failure as FolderMutationFailure where !recovering && !failure.mayHaveChanged {
             if failure.code == EEXIST { record.initialName = nil }
             else { record.initialName?.state = .prepared }
             try save(record)
             if failure.code == EEXIST { throw UploadError.collision }
             throw failure
-        } catch let failure as FolderNamingFailure where !recovering && failure.code == EEXIST {
+        } catch let failure as FolderMutationFailure where !recovering && failure.code == EEXIST {
             record.initialName = nil
             try save(record)
             throw UploadError.collision
@@ -97,9 +107,11 @@ extension UploadOutbox {
     }
 
     public func completeFolderName(_ record: inout PendingUpload) throws {
-        guard let naming = record.initialName, naming.state == .verified else { throw UploadError.unresolved }
+        guard let naming = record.initialName, naming.state == .verified,
+              let nativeID = naming.nativeID else { throw UploadError.unresolved }
         record.name = naming.name
         record.path = naming.destination
+        record.remoteID = nativeID
         record.initialName?.state = .completed
         try save(record)
     }
@@ -112,21 +124,20 @@ extension UploadOutbox {
         }
         for var record in try records() where record.parent == parent {
             guard let naming = record.initialName, naming.state != .observed else { continue }
+            if naming.state == .attempting { throw SourceFailure.listingIncomplete }
+            if naming.state == .verified {
+                try apply(record, naming)
+                try completeFolderName(&record)
+            }
             let present = entries.contains {
-                $0.kind == .folder && $0.fileID == record.remoteID && $0.name == naming.name
+                $0.kind == .folder && $0.fileID == naming.nativeID && $0.name == naming.name
             }
             if present {
-                if naming.isPending {
-                    record.initialName?.state = .verified
-                    try save(record)
-                    try apply(record, naming)
-                    try completeFolderName(&record)
-                }
                 record.initialName?.state = .observed
                 try save(record)
             } else if naming.state == .verified || naming.state == .completed {
                 let oldName = RelativePath(naming.source)?.components.last
-                if entries.contains(where: { $0.fileID == record.remoteID && $0.name == oldName }) {
+                if entries.contains(where: { $0.fileID == naming.sourceID && $0.name == oldName }) {
                     throw SourceFailure.listingIncomplete
                 }
             }

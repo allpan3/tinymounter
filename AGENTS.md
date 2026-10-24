@@ -15,9 +15,9 @@ current status.
   complexity than it adds. Prefer modern Apple APIs. A deprecated API is a defect. Don't add
   compatibility layers or speculative fallbacks.
 - **Dependencies need a decision.** The user accepted a limited `libsmb2` prototype for M18
-  initial folder naming after the safety checks and licence review. Reads and uploads stay
-  native. Further dependencies or transport changes need a user decision after measurement and
-  a licence review ([architecture.md §5](docs/architecture.md#5-native-smb-versus-direct-smb)).
+  exclusive folder creation and initial naming after the safety checks and licence review.
+  Reads and file uploads stay native. Further dependencies or transport changes need a user
+  decision after measurement and a licence review ([architecture.md §5](docs/architecture.md#5-native-smb-versus-direct-smb)).
 
 ## Where things are
 

@@ -101,6 +101,12 @@
 			"path" = "Sources/TransferCore/FolderNaming.swift";
 			"sourceTree" = "<group>";
 		};
+		"E7A49BA61D953CDE3063E9C7" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Sources/TransferCore/FolderCreation.swift";
+			"sourceTree" = "<group>";
+		};
 		"11D1CAE6ECB645FC1765C499" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
@@ -702,6 +708,7 @@
 			"children" = (
 				"32D8E9D5406EE4B1A3E4342E",
 				"0523D3A43604D8C7886B49BE",
+				"E7A49BA61D953CDE3063E9C7",
 				"11D1CAE6ECB645FC1765C499",
 				"42ABF194494BD386FC6DD6D2",
 				"A7D78921BC26905C682D411A",
@@ -1461,6 +1468,10 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "0523D3A43604D8C7886B49BE";
 		};
+		"4D1ACB5A19C9E0322F0D075A" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "E7A49BA61D953CDE3063E9C7";
+		};
 		"E1A13F584A2F5792E6B1B54E" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "11D1CAE6ECB645FC1765C499";
@@ -1577,6 +1588,7 @@
 				"3BCD6E15AC4C59136756A78B",
 				"8F2E7B119543D20ECF860E62",
 				"44A7E63479978016D0D1D884",
+				"4D1ACB5A19C9E0322F0D075A",
 				"E1A13F584A2F5792E6B1B54E",
 				"92F4C2B3FBEFD866DFF57A0B",
 				"D2F5CC2E1A5F11572715EADE",

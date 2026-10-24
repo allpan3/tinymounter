@@ -111,7 +111,7 @@ static char *cached_principal(const char *server, const char *account)
 struct reply {
     int done, error;
     smb2_file_id file;
-    uint64_t identity;
+    uint64_t identity, birth;
     char name[256];
 };
 
@@ -140,6 +140,8 @@ static void inspected(struct smb2_context *smb, int status, void *data, void *co
             (info->basic.file_attributes & SMB2_FILE_ATTRIBUTE_REPARSE_POINT)) reply->error = ESTALE;
         else {
             reply->identity = info->index_number;
+            reply->birth = info->basic.creation_time.tv_sec > 0
+                ? (uint64_t)info->basic.creation_time.tv_sec * 1000000 + info->basic.creation_time.tv_usec : 0;
             const char *name = (const char *)info->name;
             const char *leaf = name ? strrchr(name, '\\') : NULL;
             if (!leaf && name) leaf = strrchr(name, '/');
@@ -169,16 +171,27 @@ static int perform(struct smb2_context *smb, struct smb2_pdu *pdu, struct reply 
     return reply->error;
 }
 
-static int open_folder(struct smb2_context *smb, const char *path, int writable, struct reply *reply)
+static int open_folder(struct smb2_context *smb, const char *path, int writable,
+                       int exclusive, int *sent, struct reply *reply)
 {
     struct smb2_create_request create = {0};
     create.impersonation_level = SMB2_IMPERSONATION_IMPERSONATION;
     create.desired_access = SMB2_FILE_READ_ATTRIBUTES | (writable ? SMB2_DELETE : 0);
     create.share_access = SMB2_FILE_SHARE_READ | SMB2_FILE_SHARE_WRITE;
-    create.create_disposition = SMB2_FILE_OPEN;
+    create.create_disposition = exclusive ? SMB2_FILE_CREATE : SMB2_FILE_OPEN;
     create.create_options = SMB2_FILE_DIRECTORY_FILE | SMB2_FILE_OPEN_REPARSE_POINT;
     create.name = path;
-    int error = perform(smb, smb2_cmd_create_async(smb, &create, opened, reply), reply);
+    struct smb2_pdu *pdu = smb2_cmd_create_async(smb, &create, opened, reply);
+    if (pdu && exclusive && sent) *sent = 1;
+    int error = perform(smb, pdu, reply);
+    if (error && reply->done && sent) {
+        switch (error) {
+        case EEXIST: case EACCES: case EPERM: case ENOENT: case ENOTDIR: case EINVAL: case EROFS: case ENOTSUP:
+            *sent = 0;
+            break;
+        default: break;
+        }
+    }
     if (error) return error;
     struct smb2_query_info_request query = {0};
     query.info_type = SMB2_0_INFO_FILE;
@@ -210,23 +223,13 @@ static int same_name(const char *left, const char *right, CFStringCompareFlags f
     return equal;
 }
 
-int tm_smb_name_folder(const char *server, const char *share, const char *account,
-                       const char *source, const char *destination, uint64_t expected_id,
-                       int recovery_only, int *rename_sent)
+static struct smb2_context *connect_folder_share(const char *server, const char *share,
+                                                 const char *account, int *error)
 {
-    if (rename_sent) *rename_sent = 0;
-    if (!server || !*server || !share || !*share || !account || !*account || !expected_id ||
-        !valid_path(source) || !valid_path(destination) || !strcmp(source, destination)) return EINVAL;
-    const char *source_leaf = strrchr(source, '/'), *destination_leaf = strrchr(destination, '/');
-    size_t parent_length = source_leaf ? (size_t)(source_leaf - source + 1) : 0;
-    if (parent_length != (destination_leaf ? (size_t)(destination_leaf - destination + 1) : 0) ||
-        strncmp(source, destination, parent_length)) return EINVAL;
-    pthread_mutex_lock(&client_lock);
-    int error = EAUTH;
-    struct reply reply = {0};
     struct smb2_context *smb = smb2_init_context();
     char *principal = cached_principal(server, account);
-    if (!smb) { free(principal); pthread_mutex_unlock(&client_lock); return ENOMEM; }
+    *error = EAUTH;
+    if (!smb) { free(principal); *error = ENOMEM; return NULL; }
     smb2_set_timeout(smb, 10);
     if (principal) {
         smb2_set_user(smb, principal);
@@ -239,24 +242,84 @@ int tm_smb_name_folder(const char *server, const char *share, const char *accoun
         smb2_set_password(smb, "");
     } else goto done;
     int connected = smb2_connect_share(smb, server, share, NULL);
-    if (connected) { error = connected < 0 ? -connected : EIO; goto done; }
+    if (connected) { *error = connected < 0 ? -connected : EIO; goto done; }
+    free(principal);
+    return smb;
+done:
+    smb2_destroy_context(smb);
+    free(principal);
+    return NULL;
+}
+
+static int hold_parents(struct smb2_context *smb, const char *source, size_t parent_length,
+                         struct reply *reply)
+{
     char path[1024] = {0};
-    error = open_folder(smb, "", 0, &reply);
-    if (error) goto done;
+    int error = open_folder(smb, "", 0, 0, NULL, reply);
+    if (error) return error;
     memcpy(path, source, strlen(source) + 1);
     for (size_t i = 0; i < parent_length; i++) {
         if (path[i] != '/') continue;
         path[i] = '\0';
-        error = open_folder(smb, path, 0, &reply);
+        error = open_folder(smb, path, 0, 0, NULL, reply);
         path[i] = '/';
-        if (error) goto done;
+        if (error) return error;
     }
-    error = open_folder(smb, destination, 0, &reply);
+    return 0;
+}
+
+int tm_smb_create_folder(const char *server, const char *share, const char *account,
+                         const char *path, uint64_t expected_id, uint64_t expected_birth,
+                         tm_smb_folder_callback receipt, void *context, int *create_sent)
+{
+    if (create_sent) *create_sent = 0;
+    if (!server || !*server || !share || !*share || !account || !*account || !receipt ||
+        !valid_path(path) || (!!expected_id != !!expected_birth)) return EINVAL;
+    pthread_mutex_lock(&client_lock);
+    int error;
+    struct smb2_context *smb = connect_folder_share(server, share, account, &error);
+    if (!smb) { pthread_mutex_unlock(&client_lock); return error; }
+    struct reply reply = {0};
+    const char *leaf = strrchr(path, '/');
+    error = hold_parents(smb, path, leaf ? (size_t)(leaf - path + 1) : 0, &reply);
+    if (!error) error = open_folder(smb, path, 0, !expected_id, create_sent, &reply);
+    if (!error && (!reply.identity || !reply.birth)) error = ENOTSUP;
+    if (!error && expected_id && (reply.identity != expected_id || reply.birth != expected_birth)) error = ESTALE;
+    if (!error) error = receipt(context, reply.identity, reply.birth);
+    smb2_destroy_context(smb);
+    pthread_mutex_unlock(&client_lock);
+    return error;
+}
+
+int tm_smb_name_folder(const char *server, const char *share, const char *account,
+                       const char *source, const char *destination, uint64_t expected_id,
+                       uint64_t expected_birth, int recovery_only,
+                       tm_smb_folder_callback receipt, void *context, int *rename_sent)
+{
+    if (rename_sent) *rename_sent = 0;
+    if (!server || !*server || !share || !*share || !account || !*account || !expected_id ||
+        !expected_birth || !receipt || !valid_path(source) || !valid_path(destination) ||
+        !strcmp(source, destination)) return EINVAL;
+    const char *source_leaf = strrchr(source, '/'), *destination_leaf = strrchr(destination, '/');
+    size_t parent_length = source_leaf ? (size_t)(source_leaf - source + 1) : 0;
+    if (parent_length != (destination_leaf ? (size_t)(destination_leaf - destination + 1) : 0) ||
+        strncmp(source, destination, parent_length)) return EINVAL;
+    pthread_mutex_lock(&client_lock);
+    int error;
+    struct smb2_context *smb = connect_folder_share(server, share, account, &error);
+    if (!smb) { pthread_mutex_unlock(&client_lock); return error; }
+    struct reply reply = {0};
+    error = hold_parents(smb, source, parent_length, &reply);
+    if (error) goto done;
+    error = open_folder(smb, destination, 0, 0, NULL, &reply);
     if (!error) {
-        if (reply.identity != expected_id) { error = EEXIST; goto done; }
+        if (reply.identity != expected_id || reply.birth != expected_birth) { error = EEXIST; goto done; }
         const char *name = destination_leaf ? destination_leaf + 1 : destination;
         int case_only = same_name(source, destination, kCFCompareNonliteral | kCFCompareCaseInsensitive);
-        if (!case_only && same_name(reply.name, name, kCFCompareNonliteral)) goto done;
+        if (!case_only && same_name(reply.name, name, kCFCompareNonliteral)) {
+            error = receipt(context, reply.identity, reply.birth);
+            goto done;
+        }
         if (!recovery_only) {
             struct smb2_close_request close = {0};
             memcpy(close.file_id, reply.file, SMB2_FD_SIZE);
@@ -268,9 +331,9 @@ int tm_smb_name_folder(const char *server, const char *share, const char *accoun
         goto done;
     }
     if (recovery_only) { error = EAGAIN; goto done; }
-    error = open_folder(smb, source, 1, &reply);
+    error = open_folder(smb, source, 1, 0, NULL, &reply);
     if (error) goto done;
-    if (reply.identity != expected_id) { error = ESTALE; goto done; }
+    if (reply.identity != expected_id || reply.birth != expected_birth) { error = ESTALE; goto done; }
     char *target = strdup(destination);
     if (!target) { error = ENOMEM; goto done; }
     for (char *p = target; *p; p++) if (*p == '/') *p = '\\';
@@ -292,9 +355,9 @@ int tm_smb_name_folder(const char *server, const char *share, const char *accoun
         }
     }
     free(target);
+    if (!error) error = receipt(context, reply.identity, reply.birth);
 done:
     smb2_destroy_context(smb);
-    free(principal);
     pthread_mutex_unlock(&client_lock);
     return error;
 }

@@ -16,6 +16,7 @@ public struct PendingUpload: Codable, Sendable {
     public var remoteID: UInt64?
     public var item: String?
     public var initialName: InitialFolderName?
+    public var serverFolder: RemoteFolderIdentity?
 
     public var isPending: Bool { state != .completed || initialName?.isPending == true }
 }
@@ -43,6 +44,7 @@ public final class UploadOutbox {
                 let record = try JSONDecoder().decode(PendingUpload.self, from: Data(contentsOf: url))
                 guard record.id == id, RelativePath(record.path) != nil, !record.path.isEmpty,
                       RelativePath.isValidComponent(record.name), record.size >= 0,
+                      record.serverFolder.map({ record.kind == .folder && $0.fileID != 0 && $0.birthMicroseconds != 0 }) != false,
                       record.initialName?.isValid(for: record) != false else {
                     throw UploadError.invalidRequest
                 }
@@ -86,6 +88,7 @@ public final class UploadOutbox {
                 previous.path = path.string
                 previous.state = .prepared
                 previous.remoteID = nil
+                previous.serverFolder = nil
                 try save(previous)
             }
             return previous
@@ -161,6 +164,7 @@ public final class UploadOutbox {
     /// An interrupted existing file is read and proved complete, never reopened for writing.
     public func upload(_ record: inout PendingUpload, locationRoot: Int32, progress: Progress,
                        checkpoint: (PendingUpload.State) throws -> Void = { _ in }) throws {
+        guard record.kind == .file else { throw UploadError.readOnly }
         guard record.state != .staging else { throw UploadError.unresolved }
         guard record.state != .collision else { throw UploadError.collision }
         guard record.state != .completed else { return }
@@ -180,13 +184,7 @@ public final class UploadOutbox {
         record.state = .attempting
         try save(record)
         try checkpoint(.attempting)
-        let fd: Int32
-        if record.kind == .folder {
-            guard mkdirat(parent, name, 0o755) == 0 else { try creationFailed(&record); return }
-            fd = openat(parent, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
-        } else {
-            fd = openat(parent, name, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o644)
-        }
+        let fd = openat(parent, name, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o644)
         guard fd >= 0 else { try creationFailed(&record); return }
         defer { close(fd) }
         var info = stat()
@@ -195,17 +193,15 @@ public final class UploadOutbox {
         record.state = .created
         try save(record)
         try checkpoint(.created)
-        if record.kind == .file {
-            let local = try ReadOnlyFile(url: contentURL(record.id))
-            guard local.snapshot.size == record.size,
-                  try local.checksum(range: ByteRange(offset: 0, length: record.size, fileSize: record.size)) == record.digest else {
-                throw UploadError.unresolved
-            }
-            progress.totalUnitCount = max(1, Int64(clamping: Int128(record.size) * 2))
-            try Self.copy(from: local.descriptor, to: fd, size: record.size, progress: progress)
-            try local.validateUnchanged()
-            guard fsync(fd) == 0 else { throw posixError("sync upload") }
+        let local = try ReadOnlyFile(url: contentURL(record.id))
+        guard local.snapshot.size == record.size,
+              try local.checksum(range: ByteRange(offset: 0, length: record.size, fileSize: record.size)) == record.digest else {
+            throw UploadError.unresolved
         }
+        progress.totalUnitCount = max(1, Int64(clamping: Int128(record.size) * 2))
+        try Self.copy(from: local.descriptor, to: fd, size: record.size, progress: progress)
+        try local.validateUnchanged()
+        guard fsync(fd) == 0 else { throw posixError("sync upload") }
         try verify(record, parent: parent, name: name)
         record.state = .verified
         try save(record)
@@ -229,10 +225,7 @@ public final class UploadOutbox {
         defer { close(fd) }
         var before = stat(), after = stat()
         guard fstat(fd, &before) == 0, before.st_ino == identity else { throw UploadError.unresolved }
-        if record.kind == .folder {
-            guard before.st_mode & S_IFMT == S_IFDIR else { throw UploadError.unresolved }
-        } else {
-            guard before.st_mode & S_IFMT == S_IFREG, before.st_size == record.size,
+        guard before.st_mode & S_IFMT == S_IFREG, before.st_size == record.size,
                   try Self.checksum(fd, size: record.size) == record.digest,
                   fstat(fd, &after) == 0, before.st_ino == after.st_ino, before.st_size == after.st_size,
                   before.st_mtimespec.tv_sec == after.st_mtimespec.tv_sec,
@@ -241,7 +234,6 @@ public final class UploadOutbox {
                   before.st_ctimespec.tv_nsec == after.st_ctimespec.tv_nsec else {
                 throw UploadError.unresolved
             }
-        }
     }
 
     private func contentURL(_ id: UUID) -> URL { directory.appending(path: id.uuidString + ".data") }

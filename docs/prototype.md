@@ -34,7 +34,7 @@ both configurations, including across relaunch. No production code changed. See 
 - Source files opened read-only, using bounded `pread` calls; optional local staging uses exclusive creation and `pwrite` at the source offsets.
 - Full/range reads, runtime-aligned ranges, empty files, metadata fingerprint checks, progress/cancellation, and cleanup on handled failures.
 - JSONL reporting of byte range, filesystem, open/transfer/first-read time, sustained rate after the first chunk, CPU, process-lifetime peak RSS, cache label, and optional post-timing SHA-256 verification.
-- A SwiftUI app with a Settings window and a menu bar item, and a replicated File Provider extension (section 2). The app saves a share-root grant, adds and removes locations, and owns all share I/O and every catalog write: it lists folders into each location's SQLite catalog and stages file bytes with the transfer engine. The extension reads the catalog read-only to page folders, fetches full and partial ranges by item ID from the app through a restricted File Provider service, runs read-ahead per item, and supports new ordinary files/folders only in explicitly enabled locations. Initial folder naming is implemented through an app-owned SMB client; general modify/delete remain denied. Its signed Finder verification is pending.
+- A SwiftUI app with a Settings window and a menu bar item, and a replicated File Provider extension (section 2). The app saves a share-root grant, adds and removes locations, and owns all share I/O and every catalog write: it lists folders into each location's SQLite catalog and stages file bytes with the transfer engine. The extension reads the catalog read-only to page folders, fetches full and partial ranges by item ID from the app through a restricted File Provider service, runs read-ahead per item, and supports new ordinary files/folders only in explicitly enabled locations. Initial folder naming is implemented through an app-owned SMB client; general modify/delete remain denied. Its signed Finder checks pass; Keep Both remains unresolved.
 - 140 unit tests passed on 2026-10-18. They cover transfer correctness and cancellation,
   read-ahead bounds, stale requests and evictions, full-handoff cleanup, catalog and listing
   consistency, storage sums, folder completion, safe paths, mount identity, share health, error
@@ -388,18 +388,21 @@ The mounted share, Personal Team signing and app-owned NAS access prerequisites 
 
 Creation, recovery and migration checks passed in the VM, including signed extension callbacks
 through authenticated IPC. After an approved VM File Provider daemon restart, normal Finder file
-and nested-folder uploads passed with matching hashes and native progress. New Folder naming
-and Keep Both still fail, so M18 is not complete.
+and nested-folder uploads passed with matching hashes and native progress. Initial naming now
+passes the [signed follow-up](results/2026-10-23-folder-naming-fix.md). Keep Both still fails,
+so M18 is not complete.
 See the [results](results/2026-10-23-create-items.md). In a location's Changes
 section, Enable Changes asks the user to select the same share root for write access. The grant
-belongs to this location. Existing locations remain read-only. Editing, replacement, rename,
-move, delete, packages and symbolic links remain outside this milestone.
+belongs to this location. Existing locations remain read-only. Editing, replacement, general
+rename, move, delete, packages and symbolic links remain outside this milestone.
 
 Finder's New Folder creates an untitled folder on the server, then sends a separate rename when
-the user types a name. That rename fails with permission error 513 and leaves the typed name
-pending locally. Copying a folder that already has its final name works, including its children.
+the user types a name. The app's restricted SMB client now creates and names that folder using
+its retained server identity and creation time. A folder's initial name must precede child
+creation; child requests first finish any already pending parent naming. Copying a folder that
+already has its final name works, including its children. File uploads and reads stay native.
 Finder's Keep Both action fails with error code 0 before a new create callback arrives; the
-existing remote file stays unchanged. Resolve these flows before installation.
+existing remote file stays unchanged. Resolve that separate flow before installation.
 
 The app records the request before local staging, then saves immutable pending bytes before
 exclusive remote creation. A replay can restage matching system input after a staging interruption.
@@ -408,5 +411,5 @@ see the new file during upload. It is not acknowledged until its remote identity
 content are verified. An interrupted partial upload stays pending rather than opening the
 remote file for writing again. The source cannot change, and the location cannot be removed,
 while a write is pending. Completed receipts deduplicate system replay and are removed with a
-finished location. Pending records and content stay in private app storage; the extension uses only an authenticated create request.
+finished location. Pending records and content stay in private app storage; the extension sends authenticated create and initial-name requests.
 See the accepted [phase 4 plan](phase4-plan.md).

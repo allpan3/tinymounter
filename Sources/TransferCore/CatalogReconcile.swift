@@ -389,21 +389,25 @@ extension Catalog {
         }
     }
 
-    public func nameCreatedFolder(id: String, name: String, expectedIdentity: UInt64) throws {
+    public func nameCreatedFolder(id: String, name: String, expectedIdentity: UInt64,
+                                  newIdentity: UInt64? = nil) throws {
         try write { seq in
             guard RelativePath.isValidComponent(name), let row = try item(id: id), !row.deleted,
-                  row.kind == .folder, let parent = row.parentID,
-                  try remoteIdentity(id) == expectedIdentity else { throw UploadError.unresolved }
+                  row.kind == .folder, let parent = row.parentID else { throw UploadError.unresolved }
+            let identity = newIdentity ?? expectedIdentity
+            let current = try remoteIdentity(id)
+            if row.name.utf8.elementsEqual(name.utf8), current == identity { return }
+            guard current == expectedIdentity else { throw UploadError.unresolved }
             if let other = try liveChild(parent: parent, nameKey: NameKey(name)), other.id != id {
                 throw UploadError.collision
             }
-            guard !row.name.utf8.elementsEqual(name.utf8) else { return }
             seq += 1
-            try database.prepare("UPDATE items SET name = ?, name_key = ?, change_seq = ? WHERE id = ?") { statement in
+            try database.prepare("UPDATE items SET name = ?, name_key = ?, change_seq = ?, file_id = ? WHERE id = ?") { statement in
                 try statement.bind(1, name)
                 try statement.bind(2, NameKey(name).value)
                 try statement.bind(3, seq)
-                try statement.bind(4, id)
+                try statement.bind(4, Int64(bitPattern: identity))
+                try statement.bind(5, id)
                 try statement.run()
             }
         }

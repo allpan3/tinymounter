@@ -30,10 +30,12 @@ final class CatalogTests: XCTestCase {
         try catalog.setKeep(ids: [child.id], value: true)
         let anchor = try catalog.currentAnchor()
         let before = try catalog.children(of: root, limit: 100).map(\.id)
-        try catalog.nameCreatedFolder(id: folder.id, name: "chosen", expectedIdentity: 10)
+        try catalog.nameCreatedFolder(id: folder.id, name: "chosen", expectedIdentity: 10, newIdentity: 110)
         XCTAssertEqual(try catalog.liveChild(parent: root, nameKey: NameKey("chosen"))?.id, folder.id)
         XCTAssertNil(try catalog.liveChild(parent: root, nameKey: NameKey("untitled folder")))
         XCTAssertEqual(try catalog.item(id: folder.id)?.row, folder.row)
+        XCTAssertEqual(try catalog.remoteIdentity(folder.id), 110)
+        try catalog.nameCreatedFolder(id: folder.id, name: "chosen", expectedIdentity: 10, newIdentity: 110)
         XCTAssertEqual(try catalog.relativePath(of: child.id)?.string, "chosen/child")
         XCTAssertEqual(try catalog.keepRequests().map(\.id), [child.id])
         XCTAssertEqual(try catalog.children(of: root, limit: 100).map(\.id), before)
@@ -42,7 +44,7 @@ final class CatalogTests: XCTestCase {
         XCTAssertThrowsError(try catalog.nameCreatedFolder(id: folder.id, name: "wrong", expectedIdentity: 99))
         XCTAssertEqual(try catalog.item(id: folder.id)?.name, "chosen")
         try catalog.reconcile(folder: root, listing: DirectoryListing([
-            .entry(.init(name: "chosen", kind: .folder, size: 0, mtimeNs: 1, ctimeNs: 2, fileID: 10)),
+            .entry(.init(name: "chosen", kind: .folder, size: 0, mtimeNs: 1, ctimeNs: 2, fileID: 110)),
             .entry(.init(name: "other", kind: .folder, size: 0, mtimeNs: 1, ctimeNs: 2, fileID: 20)),
             .entry(.init(name: "untitled folder", kind: .folder, size: 0, mtimeNs: 1, ctimeNs: 2, fileID: 30))])) { _ in true }
         var ids: [String] = []
