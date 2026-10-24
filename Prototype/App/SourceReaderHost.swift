@@ -1,3 +1,4 @@
+import Darwin
 import FileProvider
 import OSLog
 
@@ -201,19 +202,54 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
                 lock.withLock { jobs[request.id] = nil }
                 do { reply(try ReaderMessage.encode(result.get()), nil) }
                 catch {
-                    let failure: NSError
-                    switch error as? UploadError {
-                    case .collision: failure = NSFileProviderError(.filenameCollision) as NSError
-                    case .readOnly: failure = CocoaError(.fileWriteNoPermission) as NSError
-                    default:
-                        if DownloadSpace.isFull(error) { failure = CocoaError(.fileWriteOutOfSpace) as NSError }
-                        else if error as? TransferError == .cancelled { failure = CocoaError(.userCancelled) as NSError }
-                        else { failure = NSFileProviderError(.cannotSynchronize) as NSError }
-                    }
-                    reply(nil, failure)
+                    reply(nil, Self.mutationError(error))
                 }
             }
         } catch { reply(nil, Self.replyError(error)) }
+    }
+
+    func nameFolder(_ data: Data, reply: @escaping (Data?, NSError?) -> Void) {
+        do {
+            let request = try ReaderMessage.decode(FolderNameRequest.self, from: data)
+            guard let source else { throw LocationError.catalogClosed }
+            let job = Job()
+            job.progress.totalUnitCount = 1
+            let accepted = lock.withLock {
+                guard !closed, jobs.count < Self.maxJobs, jobs[request.id] == nil else { return false }
+                jobs[request.id] = job
+                return true
+            }
+            guard accepted else { throw CocoaError(.fileReadUnknown) }
+            let timer = progressTimer(request.id, job)
+            source.nameFolder(request, progress: job.progress, started: { [weak self] in
+                try? self?.registration()?.started(ReaderMessage.encode(SourceReadStarted(id: request.id)))
+            }) { [self] result in
+                timer.cancel()
+                lock.withLock { jobs[request.id] = nil }
+                do { reply(try ReaderMessage.encode(result.get()), nil) }
+                catch { reply(nil, Self.mutationError(error)) }
+            }
+        } catch { reply(nil, Self.mutationError(error)) }
+    }
+
+    private static func mutationError(_ error: Error) -> NSError {
+        if let failure = error as? FolderNamingFailure {
+            switch failure.code {
+            case EAUTH: return NSFileProviderError(.notAuthenticated) as NSError
+            case EACCES, EPERM: return CocoaError(.fileWriteNoPermission) as NSError
+            case EINVAL: return CocoaError(.fileWriteInvalidFileName) as NSError
+            default: return NSFileProviderError(.cannotSynchronize) as NSError
+            }
+        }
+        switch error as? UploadError {
+        case .collision: return NSFileProviderError(.filenameCollision) as NSError
+        case .readOnly: return CocoaError(.fileWriteNoPermission) as NSError
+        case .invalidRequest: return CocoaError(.fileWriteInvalidFileName) as NSError
+        default:
+            if DownloadSpace.isFull(error) { return CocoaError(.fileWriteOutOfSpace) as NSError }
+            if error as? TransferError == .cancelled { return CocoaError(.userCancelled) as NSError }
+            return NSFileProviderError(.cannotSynchronize) as NSError
+        }
     }
 
     func keep(_ data: Data, reply: @escaping (Data?, NSError?) -> Void) {

@@ -52,12 +52,14 @@ extension Catalog {
                     try statement.run()
                 }
                 try database.prepare("""
-                    INSERT INTO items (id, parent_id, name, name_key, kind, change_seq) VALUES (?, NULL, ?, ?, ?, 0)
+                    INSERT INTO items (id, parent_id, name, name_key, kind, change_seq, enumeration_key)
+                    VALUES (?, NULL, ?, ?, ?, 0, ?)
                     """) { statement in
                     try statement.bind(1, rootItemID)
                     try statement.bind(2, rootName)
                     try statement.bind(3, NameKey(rootName).value)
                     try statement.bind(4, CatalogRow.Kind.folder.rawValue)
+                    try statement.bind(5, NameKey(rootName).value)
                     try statement.run()
                 }
             }
@@ -115,6 +117,18 @@ extension Catalog {
             try database.write {
                 try database.execute("ALTER TABLE meta ADD COLUMN allows_creation INTEGER NOT NULL DEFAULT 0; PRAGMA user_version = 3;",
                                      operation: "migrate creation permission")
+            }
+        }
+        if version == 1 || version == 2 || version == 3 {
+            _ = try checkedEpoch(database, domainID: domainID, version: 3)
+            try configureWriter(database)
+            try database.write {
+                try database.execute("""
+                    ALTER TABLE items ADD COLUMN enumeration_key TEXT NOT NULL DEFAULT '';
+                    UPDATE items SET enumeration_key = name_key;
+                    CREATE INDEX items_listing ON items(parent_id, enumeration_key, row) WHERE deleted = 0;
+                    PRAGMA user_version = 4;
+                    """, operation: "migrate naming cursors")
             }
         }
         let epoch = try checkedEpoch(database, domainID: domainID)
@@ -199,8 +213,8 @@ extension Catalog {
                 """) { update in
                 try database.prepare("""
                     INSERT INTO items (id, parent_id, name, name_key, kind, size, mtime_ns, ctime_ns, file_id,
-                                       change_seq, keep)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                       change_seq, keep, enumeration_key)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """) { insert in
                     for (entry, row) in changes {
                         seq += 1
@@ -226,6 +240,7 @@ extension Catalog {
                             try insert.bind(9, Int64(bitPattern: entry.fileID))
                             try insert.bind(10, seq)
                             try insert.bind(11, folder.keep)
+                            try insert.bind(12, entry.key.value)
                             try insert.run()
                             insert.reset()
                         }
@@ -374,6 +389,26 @@ extension Catalog {
         }
     }
 
+    public func nameCreatedFolder(id: String, name: String, expectedIdentity: UInt64) throws {
+        try write { seq in
+            guard RelativePath.isValidComponent(name), let row = try item(id: id), !row.deleted,
+                  row.kind == .folder, let parent = row.parentID,
+                  try remoteIdentity(id) == expectedIdentity else { throw UploadError.unresolved }
+            if let other = try liveChild(parent: parent, nameKey: NameKey(name)), other.id != id {
+                throw UploadError.collision
+            }
+            guard !row.name.utf8.elementsEqual(name.utf8) else { return }
+            seq += 1
+            try database.prepare("UPDATE items SET name = ?, name_key = ?, change_seq = ? WHERE id = ?") { statement in
+                try statement.bind(1, name)
+                try statement.bind(2, NameKey(name).value)
+                try statement.bind(3, seq)
+                try statement.bind(4, id)
+                try statement.run()
+            }
+        }
+    }
+
     /// `body` adds 1 per visible change, so a batch cut at its last sequence skips no row.
     private func write<Result>(_ body: (inout Int64) throws -> Result) throws -> Result {
         try database.write {
@@ -398,7 +433,7 @@ extension Catalog {
             try statement.bind(1, folderID)
             var children: [String: StoredChild] = [:]
             while try statement.step() {
-                // The stored key, as the unique index uses: name_key is fixed for the row's life.
+                // Use the stored key so listing comparisons match the unique index.
                 children[statement.text(3)] = StoredChild(
                     row: statement.int64(0), id: statement.text(1), name: statement.text(2),
                     kind: Int(statement.int64(4)), size: statement.int64(5), mtimeNs: statement.int64(6),

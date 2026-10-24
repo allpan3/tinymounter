@@ -59,3 +59,5 @@ The user accepted initial folder naming. Its [safety investigation](results/2026
 found a direct SMB route. The [authentication follow-up](results/2026-10-23-folder-naming-authentication.md)
 corrected the credential probe and passed a signed sandboxed connection. A limited naming client
 is accepted; the Finder fix remains in progress.
+The [naming implementation checks](results/2026-10-23-folder-naming-fix.md) track the callback,
+durable recovery and cursor-preserving catalog migration. Runtime verification is pending.

@@ -424,8 +424,27 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                     changedFields: NSFileProviderItemFields, contents newContents: URL?, options: NSFileProviderModifyItemOptions,
                     request: NSFileProviderRequest,
                     completionHandler: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void) -> Progress {
-        countMutation("modify", "result=rejected")
-        completionHandler(nil, [], false, CocoaError(.fileWriteNoPermission)); return Progress()
+        guard changedFields == .filename, newContents == nil, Self.kind(of: item) == .folder else {
+            countMutation("modify", "result=rejected fields=\(changedFields.rawValue)")
+            completionHandler(nil, [], false, CocoaError(.fileWriteNoPermission))
+            return Progress()
+        }
+        countMutation("modify", "result=initial_name")
+        let progress = Progress(totalUnitCount: 1)
+        let once = Once()
+        let finish = { (item: NSFileProviderItem?, error: Error?) in
+            if once.claim() { completionHandler(item, [], false, error) }
+        }
+        progress.cancellationHandler = { finish(nil, CocoaError(.userCancelled)) }
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            do {
+                let message = try FolderNameRequest(item: item.itemIdentifier.rawValue,
+                                                   parent: item.parentItemIdentifier.rawValue, name: item.filename)
+                let receipt = try sourceReader.nameFolder(message, progress: progress)
+                finish(CatalogItem(try catalog.liveRow(receipt.item)), nil)
+            } catch { finish(nil, providerError(error)) }
+        }
+        return progress
     }
 
     func deleteItem(identifier: NSFileProviderItemIdentifier, baseVersion version: NSFileProviderItemVersion,
@@ -435,7 +454,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         completionHandler(CocoaError(.fileWriteNoPermission)); return Progress()
     }
 
-    /// Rejected mutations are counted without recording names.
+    /// Mutations are counted without recording names.
     private func countMutation(_ mutation: String, _ fields: String) {
         let count = lock.withLock { () -> Int in
             mutations[mutation, default: 0] += 1

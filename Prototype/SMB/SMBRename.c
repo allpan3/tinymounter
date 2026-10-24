@@ -18,7 +18,8 @@ static pthread_mutex_t client_lock = PTHREAD_MUTEX_INITIALIZER;
 struct credential_lookup {
     atomic_int references;
     dispatch_semaphore_t finished;
-    char *server, *account, *principal;
+    char *server, *account, *domain, *principal;
+    int ambiguous;
 };
 
 static void release_lookup(struct credential_lookup *lookup)
@@ -27,6 +28,7 @@ static void release_lookup(struct credential_lookup *lookup)
     dispatch_release(lookup->finished);
     free(lookup->server);
     free(lookup->account);
+    free(lookup->domain);
     free(lookup->principal);
     free(lookup);
 }
@@ -42,17 +44,27 @@ static void credential(void *context, gss_iter_OID mechanism, gss_cred_id_t cred
     OM_uint32 minor;
     gss_name_t name = GSS_C_NO_NAME;
     gss_buffer_desc text = GSS_C_EMPTY_BUFFER;
-    if (!lookup->principal &&
-        gss_inquire_cred(&minor, cred, &name, NULL, NULL, NULL) == GSS_S_COMPLETE &&
+    if (gss_inquire_cred(&minor, cred, &name, NULL, NULL, NULL) == GSS_S_COMPLETE &&
         gss_display_name(&minor, name, &text, NULL) == GSS_S_COMPLETE) {
         char *value = strndup(text.value, text.length);
         if (value) {
-            char *domain = strchr(value, '@');
+            size_t length = strlen(lookup->account);
+            char *domain = strlen(value) > length && value[length] == '@' ? value + length : NULL;
             char *host = domain ? strrchr(domain, '\\') : NULL;
             int server_matches = host && strcasecmp(host + 1, lookup->server) == 0;
+            if (host) *host = '\0';
+            int domain_matches = !lookup->domain || (domain && !strcasecmp(domain + 1, lookup->domain));
             if (domain) *domain = '\0';
-            if (server_matches && strcasecmp(value, lookup->account) == 0)
-                lookup->principal = strndup(text.value, text.length);
+            if (server_matches && domain_matches && strcasecmp(value, lookup->account) == 0) {
+                char *candidate = strndup(text.value, text.length);
+                if (candidate) {
+                    if (!lookup->principal) lookup->principal = candidate;
+                    else {
+                        if (strcasecmp(candidate, lookup->principal)) lookup->ambiguous = 1;
+                        free(candidate);
+                    }
+                }
+            }
             free(value);
         }
     }
@@ -68,16 +80,27 @@ static char *cached_principal(const char *server, const char *account)
     atomic_init(&lookup->references, 2);
     lookup->server = strdup(server);
     lookup->account = strdup(account);
+    char *separator = lookup->account ? strrchr(lookup->account, ';') : NULL;
+    if (!separator && lookup->account) separator = strrchr(lookup->account, '\\');
+    int explicit_domain = separator != NULL;
+    if (separator) {
+        lookup->domain = strndup(lookup->account, (size_t)(separator - lookup->account));
+        char *user = strdup(separator + 1);
+        free(lookup->account);
+        lookup->account = user;
+    }
     lookup->finished = dispatch_semaphore_create(0);
-    if (!lookup->server || !lookup->account || !lookup->finished) {
+    if (!lookup->server || !lookup->account || !*lookup->account || !lookup->finished ||
+        (explicit_domain && !lookup->domain)) {
         if (lookup->finished) dispatch_release(lookup->finished);
-        free(lookup->server); free(lookup->account); free(lookup);
+        free(lookup->server); free(lookup->account); free(lookup->domain); free(lookup);
         return NULL;
     }
     OM_uint32 minor;
     gss_iter_creds_f(&minor, 0, GSS_NTLM_MECHANISM, lookup, credential);
     char *principal = NULL;
-    if (!dispatch_semaphore_wait(lookup->finished, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC))) {
+    if (!dispatch_semaphore_wait(lookup->finished, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) &&
+        !lookup->ambiguous) {
         principal = lookup->principal;
         lookup->principal = NULL;
     }
@@ -177,19 +200,21 @@ static int valid_path(const char *path)
     }
 }
 
-static int same_name(const char *left, const char *right)
+static int same_name(const char *left, const char *right, CFStringCompareFlags flags)
 {
     CFStringRef a = CFStringCreateWithCString(NULL, left, kCFStringEncodingUTF8);
     CFStringRef b = CFStringCreateWithCString(NULL, right, kCFStringEncodingUTF8);
-    int equal = a && b && CFStringCompare(a, b, kCFCompareNonliteral) == kCFCompareEqualTo;
+    int equal = a && b && CFStringCompare(a, b, flags) == kCFCompareEqualTo;
     if (a) CFRelease(a);
     if (b) CFRelease(b);
     return equal;
 }
 
 int tm_smb_name_folder(const char *server, const char *share, const char *account,
-                       const char *source, const char *destination, uint64_t expected_id, int recovery_only)
+                       const char *source, const char *destination, uint64_t expected_id,
+                       int recovery_only, int *rename_sent)
 {
+    if (rename_sent) *rename_sent = 0;
     if (!server || !*server || !share || !*share || !account || !*account || !expected_id ||
         !valid_path(source) || !valid_path(destination) || !strcmp(source, destination)) return EINVAL;
     const char *source_leaf = strrchr(source, '/'), *destination_leaf = strrchr(destination, '/');
@@ -197,7 +222,7 @@ int tm_smb_name_folder(const char *server, const char *share, const char *accoun
     if (parent_length != (destination_leaf ? (size_t)(destination_leaf - destination + 1) : 0) ||
         strncmp(source, destination, parent_length)) return EINVAL;
     pthread_mutex_lock(&client_lock);
-    int error = EACCES;
+    int error = EAUTH;
     struct reply reply = {0};
     struct smb2_context *smb = smb2_init_context();
     char *principal = cached_principal(server, account);
@@ -230,7 +255,14 @@ int tm_smb_name_folder(const char *server, const char *share, const char *accoun
     if (!error) {
         if (reply.identity != expected_id) { error = EEXIST; goto done; }
         const char *name = destination_leaf ? destination_leaf + 1 : destination;
-        if (same_name(reply.name, name)) goto done;
+        int case_only = same_name(source, destination, kCFCompareNonliteral | kCFCompareCaseInsensitive);
+        if (!case_only && same_name(reply.name, name, kCFCompareNonliteral)) goto done;
+        if (!recovery_only) {
+            struct smb2_close_request close = {0};
+            memcpy(close.file_id, reply.file, SMB2_FD_SIZE);
+            error = perform(smb, smb2_cmd_close_async(smb, &close, finished, &reply), &reply);
+            if (error) goto done;
+        }
     } else if (error != ENOENT) {
         if (error == ENOTDIR) error = EEXIST;
         goto done;
@@ -248,7 +280,17 @@ int tm_smb_name_folder(const char *server, const char *share, const char *accoun
     set.file_info_class = SMB2_FILE_RENAME_INFORMATION;
     memcpy(set.file_id, reply.file, SMB2_FD_SIZE);
     set.input_data = &name;
-    error = perform(smb, smb2_cmd_set_info_async(smb, &set, finished, &reply), &reply);
+    struct smb2_pdu *pdu = smb2_cmd_set_info_async(smb, &set, finished, &reply);
+    if (pdu && rename_sent) *rename_sent = 1;
+    error = perform(smb, pdu, &reply);
+    if (reply.done && rename_sent) {
+        switch (error) {
+        case EEXIST: case EACCES: case EPERM: case ENOENT: case ENOTDIR: case EINVAL: case EROFS: case ENOTSUP:
+            *rename_sent = 0;
+            break;
+        default: break;
+        }
+    }
     free(target);
 done:
     smb2_destroy_context(smb);

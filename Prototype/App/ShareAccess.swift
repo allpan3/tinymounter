@@ -945,6 +945,10 @@ final class LocationSource: @unchecked Sendable {
                                               progress: progressed)
                 }
                 let listed = ContinuousClock.now
+                try Self.outbox(domainID: domainID).observeFolderNames(parent: folderID, listing: listing) { record, naming in
+                    guard let item = record.item, let identity = record.remoteID else { throw UploadError.invalidRequest }
+                    try withCatalog { try $0.nameCreatedFolder(id: item, name: naming.name, expectedIdentity: identity) }
+                }
                 let missing = try withCatalog { try $0.missingChildren(of: folderID, listing: listing) }
                 try shareCall(requestID, parent: parentID, context: .listing) {
                     try DirectoryListing.confirmMissing(missing, locationRoot: root, relativePath: path,
