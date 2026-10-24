@@ -95,7 +95,7 @@ Choices this plan makes where the reviewed designs disagreed, one reason each:
 - **Error rules from the failure-first design.** Only a tombstone that a complete listing wrote
   gives `noSuchItem`. Every other doubt is a transient or connection error.
 - **Keyset paging in name order.** The page token is a row number, and the query reads that row's
-  name key. It is stable across reconciles and holds no names. `OFFSET` paging with
+  immutable enumeration key. It is stable across reconciles and initial naming, and holds no names. `OFFSET` paging with
   `pageExpired` was rejected: that code (-1002) makes the system re-sync from scratch [H].
 - **A per-entry error does not fail a listing.** The entry's name proves that it exists, so its
   row stays as it was. Failing the folder would block it indefinitely.
@@ -350,7 +350,7 @@ CREATE TABLE items (
   id TEXT NOT NULL UNIQUE,             -- UUID; the root row holds the root container constant
   parent_id TEXT REFERENCES items(id), -- NULL only for the root
   name TEXT NOT NULL,                  -- exact remote component; root: location name
-  name_key TEXT NOT NULL,              -- NFD, case fold, NFC; fixed for the row's life
+  name_key TEXT NOT NULL,              -- NFD, case fold, NFC; current lookup key
   kind INTEGER NOT NULL,               -- 1 folder, 2 file
   size INTEGER NOT NULL DEFAULT 0,
   mtime_ns INTEGER NOT NULL DEFAULT 0,
@@ -362,9 +362,11 @@ CREATE TABLE items (
   deleted INTEGER NOT NULL DEFAULT 0,  -- tombstone; only reconcile sets it
   change_seq INTEGER NOT NULL UNIQUE,  -- last visible change
   keep_request INTEGER NOT NULL DEFAULT 0, -- explicit file or folder request
-  listing_complete INTEGER NOT NULL DEFAULT 0); -- no skipped or unreadable entries
+  listing_complete INTEGER NOT NULL DEFAULT 0, -- no skipped or unreadable entries
+  enumeration_key TEXT NOT NULL);     -- original name key; fixed for the row's life
 CREATE UNIQUE INDEX items_live_name ON items(parent_id, name_key) WHERE deleted = 0;
 CREATE INDEX items_kept ON items(row) WHERE keep = 1 AND deleted = 0;
+CREATE INDEX items_listing ON items(parent_id, enumeration_key, row) WHERE deleted = 0;
 ```
 
 At creation, `meta` holds the domain ID, a random epoch, `last_seq = 0`, `listing_gen = 0` and
@@ -406,11 +408,11 @@ open descriptor. `FileSnapshot.versionData` stays as it is for `transfer-bench`.
 | Cursor | Bytes | Content |
 | --- | --- | --- |
 | Sync anchor | 25 | `0x01`, epoch (16), `change_seq` (Int64, big-endian) |
-| Folder page | 9 | `0x02`, last row (Int64); the next page reads that row's `name_key` |
+| Folder page | 9 | `0x02`, last row (Int64); the next page reads that row's immutable `enumeration_key` |
 | Working-set page | 9 | `0x03`, last row (Int64) |
 
 **Writers.** Only the app writes. Only `reconcile` sets `deleted`. `updateFingerprint`, `setKeep`,
-`setPaused` and `setRootName` give each row they change a new `change_seq` and never delete;
+`setPaused`, `setRootName` and M18's `nameCreatedFolder` give each row they change a new `change_seq` and never delete;
 `setPaused` changes every kept row. Every visible change takes `last_seq + 1`, so a change batch
 can never end inside a group of equal sequences. Tombstones stay for the catalog's life, which is
 the domain's life.
@@ -442,11 +444,13 @@ the domain's life.
   `serverUnreachable`.
 - Never listed, no reader: `serverUnreachable` at once.
 
-**Pages.** `WHERE parent_id = ? AND deleted = 0 AND name_key > (SELECT name_key FROM items WHERE
-row = ?) ORDER BY name_key LIMIT n`, with `n = suggestedPageSize ?? 200`, at most 1,000. Fewer
+**Pages.** `WHERE parent_id = ? AND deleted = 0 AND (enumeration_key, row) >
+(SELECT enumeration_key, row FROM items WHERE row = ?) ORDER BY enumeration_key, row LIMIT n`, with `n = suggestedPageSize ?? 200`, at most 1,000. Fewer
 than `n` rows ends the enumeration. Later pages never call the app. A malformed token, or one
 whose row is not a child of the folder, gives `pageExpired`. The working set pages all live rows
-except the root by `row`, and never starts a listing.
+except the root by `row`, and never starts a listing. Catalog version 4 adds the immutable enumeration key
+so initial naming can change the lookup key without moving an existing cursor. A row tie-breaker
+keeps a newly created folder with the old name distinct in later pages.
 
 **Changes.** `enumerateChanges(from:)` reads, in one read transaction, `WHERE change_seq > ? ORDER
 BY change_seq LIMIT suggestedBatchSize ?? 200`. Live rows go to `didUpdate`, tombstones to

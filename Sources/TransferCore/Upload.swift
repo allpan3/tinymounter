@@ -15,8 +15,9 @@ public struct PendingUpload: Codable, Sendable {
     public var state: State
     public var remoteID: UInt64?
     public var item: String?
+    public var initialName: InitialFolderName?
 
-    public var isPending: Bool { state != .completed }
+    public var isPending: Bool { state != .completed || initialName?.isPending == true }
 }
 
 /// Private app storage; callers serialize operations and never delete pending records.
@@ -41,7 +42,8 @@ public final class UploadOutbox {
                 }
                 let record = try JSONDecoder().decode(PendingUpload.self, from: Data(contentsOf: url))
                 guard record.id == id, RelativePath(record.path) != nil, !record.path.isEmpty,
-                      RelativePath.isValidComponent(record.name), record.size >= 0 else {
+                      RelativePath.isValidComponent(record.name), record.size >= 0,
+                      record.initialName?.isValid(for: record) != false else {
                     throw UploadError.invalidRequest
                 }
                 return record
@@ -62,8 +64,10 @@ public final class UploadOutbox {
                         progress: Progress, checkSpace: ((Int64) throws -> Void)? = nil) throws -> PendingUpload {
         if var previous = try records().first(where: { $0.template == request.template }) {
             let renamedCollision = previous.state == .collision && !previous.name.utf8.elementsEqual(request.name.utf8)
+            let createdName = previous.initialName.flatMap { RelativePath($0.source)?.components.last }
             guard previous.parent == request.parent,
-                  previous.name.utf8.elementsEqual(request.name.utf8) || renamedCollision,
+                  previous.name.utf8.elementsEqual(request.name.utf8)
+                    || createdName?.utf8.elementsEqual(request.name.utf8) == true || renamedCollision,
                   previous.kind == request.kind else { throw UploadError.unresolved }
             if request.kind == .file {
                 let file = try contents.map { try ReadOnlyFile(url: $0, allowMaterialization: true) }

@@ -18,6 +18,65 @@ final class CatalogTests: XCTestCase {
         try FileManager.default.removeItem(at: directory)
     }
 
+    func testInitialFolderNameKeepsIdentityChildrenAndPageOrder() throws {
+        let catalog = try makeCatalog()
+        try catalog.reconcile(folder: root, listing: DirectoryListing([
+            .entry(.init(name: "untitled folder", kind: .folder, size: 0, mtimeNs: 1, ctimeNs: 2, fileID: 10)),
+            .entry(.init(name: "other", kind: .folder, size: 0, mtimeNs: 1, ctimeNs: 2, fileID: 20))])) { _ in true }
+        let folder = try XCTUnwrap(catalog.liveChild(parent: root, nameKey: NameKey("untitled folder")))
+        try catalog.reconcile(folder: folder.id, listing: DirectoryListing([
+            .entry(.init(name: "child", kind: .file, size: 7, mtimeNs: 1, ctimeNs: 2, fileID: 11))])) { _ in true }
+        let child = try XCTUnwrap(catalog.liveChild(parent: folder.id, nameKey: NameKey("child")))
+        try catalog.setKeep(ids: [child.id], value: true)
+        let anchor = try catalog.currentAnchor()
+        let before = try catalog.children(of: root, limit: 100).map(\.id)
+        try catalog.nameCreatedFolder(id: folder.id, name: "chosen", expectedIdentity: 10)
+        XCTAssertEqual(try catalog.liveChild(parent: root, nameKey: NameKey("chosen"))?.id, folder.id)
+        XCTAssertNil(try catalog.liveChild(parent: root, nameKey: NameKey("untitled folder")))
+        XCTAssertEqual(try catalog.item(id: folder.id)?.row, folder.row)
+        XCTAssertEqual(try catalog.relativePath(of: child.id)?.string, "chosen/child")
+        XCTAssertEqual(try catalog.keepRequests().map(\.id), [child.id])
+        XCTAssertEqual(try catalog.children(of: root, limit: 100).map(\.id), before)
+        XCTAssertTrue(try catalog.changes(after: anchor, limit: 100).updated.contains { $0.id == folder.id })
+        XCTAssertThrowsError(try catalog.nameCreatedFolder(id: folder.id, name: "other", expectedIdentity: 10))
+        XCTAssertThrowsError(try catalog.nameCreatedFolder(id: folder.id, name: "wrong", expectedIdentity: 99))
+        XCTAssertEqual(try catalog.item(id: folder.id)?.name, "chosen")
+        try catalog.reconcile(folder: root, listing: DirectoryListing([
+            .entry(.init(name: "chosen", kind: .folder, size: 0, mtimeNs: 1, ctimeNs: 2, fileID: 10)),
+            .entry(.init(name: "other", kind: .folder, size: 0, mtimeNs: 1, ctimeNs: 2, fileID: 20)),
+            .entry(.init(name: "untitled folder", kind: .folder, size: 0, mtimeNs: 1, ctimeNs: 2, fileID: 30))])) { _ in true }
+        var ids: [String] = []
+        var cursor: Int64?
+        while let item = try catalog.children(of: root, afterRow: cursor, limit: 1).first {
+            ids.append(item.id)
+            cursor = item.row
+        }
+        XCTAssertEqual(ids.count, 3)
+        XCTAssertEqual(Set(ids).count, 3)
+        XCTAssertEqual(Array(ids.prefix(2)), before)
+    }
+
+    func testNamingCursorMigrationKeepsAnchorPermissionsAndKeeps() throws {
+        var catalog: Catalog? = try makeCatalog()
+        try reconcile(catalog!, [file("a.bin"), file("b.bin")])
+        let before = try catalog!.children(of: root, limit: 100)
+        try catalog!.setKeep(ids: [before[0].id], value: true)
+        try catalog!.setAllowsCreation(true)
+        let anchor = try catalog!.currentAnchor(), epoch = catalog!.epoch
+        try catalog!.database.execute("""
+            DROP INDEX items_listing;
+            ALTER TABLE items DROP COLUMN enumeration_key;
+            PRAGMA user_version = 3;
+            """, operation: "test")
+        catalog = nil
+        let migrated = try Catalog.openWriter(at: url(), domainID: "domain-A")
+        XCTAssertEqual(migrated.epoch, epoch)
+        XCTAssertEqual(try migrated.currentAnchor(), anchor)
+        XCTAssertEqual(try migrated.keepRequests().map(\.id), [before[0].id])
+        XCTAssertTrue(try XCTUnwrap(migrated.item(id: root)).allowsCreation)
+        XCTAssertEqual(try migrated.children(of: root, afterRow: before[0].row, limit: 1).map(\.id), [before[1].id])
+    }
+
     func testCreationPermissionMigrationPreservesRowsKeepsAndAnchor() throws {
         var catalog: Catalog? = try makeCatalog()
         try catalog!.reconcile(folder: root, listing: DirectoryListing([.entry(.init(name: "data", kind: .file,
@@ -25,7 +84,12 @@ final class CatalogTests: XCTestCase {
         let item = try XCTUnwrap(catalog!.liveChild(parent: root, nameKey: NameKey("data")))
         try catalog!.setKeep(ids: [item.id], value: true)
         let anchor = try catalog!.currentAnchor(), epoch = catalog!.epoch
-        try catalog!.database.execute("ALTER TABLE meta DROP COLUMN allows_creation; PRAGMA user_version = 2;", operation: "test")
+        try catalog!.database.execute("""
+            DROP INDEX items_listing;
+            ALTER TABLE items DROP COLUMN enumeration_key;
+            ALTER TABLE meta DROP COLUMN allows_creation;
+            PRAGMA user_version = 2;
+            """, operation: "test")
         catalog = nil
         let migrated = try Catalog.openWriter(at: directory.appending(path: "catalog.sqlite"), domainID: "domain-A")
         XCTAssertEqual(migrated.epoch, epoch)
@@ -41,7 +105,7 @@ final class CatalogTests: XCTestCase {
 
     func testCreateWritesSchemaPragmasMetaAndRoot() throws {
         let catalog = try makeCatalog()
-        XCTAssertEqual(try scalar(catalog, "PRAGMA user_version"), "3")
+        XCTAssertEqual(try scalar(catalog, "PRAGMA user_version"), "4")
         XCTAssertEqual(try scalar(catalog, "PRAGMA journal_mode"), "wal")
         XCTAssertEqual(try scalar(catalog, "PRAGMA synchronous"), "2") // FULL
         XCTAssertEqual(try scalar(catalog, "PRAGMA fullfsync"), "1")
@@ -53,10 +117,11 @@ final class CatalogTests: XCTestCase {
                        ["id", "domain_id", "epoch", "last_seq", "listing_gen", "paused", "allows_creation"])
         XCTAssertEqual(try rows(catalog, "SELECT name FROM pragma_table_info('items')"),
                        ["row", "id", "parent_id", "name", "name_key", "kind", "size", "mtime_ns", "ctime_ns", "file_id",
-                        "keep", "list_gen", "listed_at", "deleted", "change_seq", "keep_request", "listing_complete"])
+                        "keep", "list_gen", "listed_at", "deleted", "change_seq", "keep_request", "listing_complete", "enumeration_key"])
         let indexes = "SELECT sql FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL ORDER BY name"
         XCTAssertEqual(try rows(catalog, indexes),
                        ["CREATE INDEX items_kept ON items(row) WHERE keep = 1 AND deleted = 0",
+                        "CREATE INDEX items_listing ON items(parent_id, enumeration_key, row) WHERE deleted = 0",
                         "CREATE UNIQUE INDEX items_live_name ON items(parent_id, name_key) WHERE deleted = 0"])
 
         let top = try XCTUnwrap(catalog.item(id: root))
@@ -108,7 +173,7 @@ final class CatalogTests: XCTestCase {
         XCTAssertEqual(try fileNames(), ["catalog.sqlite", "catalog.sqlite-shm", "catalog.sqlite-wal", "empty.sqlite"])
         XCTAssertEqual(try Data(contentsOf: url("empty")).count, 0)
 
-        try catalog.database.execute("PRAGMA user_version = 4", operation: "test")
+        try catalog.database.execute("PRAGMA user_version = 5", operation: "test")
         for open in openers {
             XCTAssertThrowsError(try open(url(), "domain-A")) {
                 XCTAssertEqual($0 as? CatalogError, .unsupportedSchema)

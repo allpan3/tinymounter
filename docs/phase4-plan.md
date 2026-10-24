@@ -94,7 +94,8 @@ initial name of a newly created folder. General renaming remains a later milesto
 exclusive folder rename failed, and a create/delete alternative deleted another client's
 replacement folder in a controlled race. Neither route is suitable. An isolated direct SMB
 client passed collision and competing-create checks. The authentication follow-up below resolved
-the credential-probe defect. No production naming callback has been added. See the
+the credential-probe defect. The initial naming callback and durable recovery state are implemented; signed Finder checks
+are still pending. See the
 [naming investigation](results/2026-10-23-initial-folder-naming.md).
 
 Next step, decision status: accepted, 2026-10-23. After the dependency explanation, the user
@@ -102,5 +103,14 @@ asked to continue the fix. Prototype `libsmb2` for initial folder naming only, k
 reads and uploads. The corrected credential probe and a signed sandboxed connection passed
 without password acquisition. The [authentication follow-up](results/2026-10-23-folder-naming-authentication.md)
 records the earlier probe defect and the LGPL-2.1-or-later obligations. Preserve the macOS-managed password contract.
-Repeat credential checks with the final client. Source identity checks, durable rename recovery
+Catalog version 4 separates the current lookup key from the immutable enumeration key, keeping
+existing cursors and item IDs across naming. Migrations from versions 1, 2 and 3 preserve user
+state. Repeat credential checks with the final client. Source identity checks, durable rename recovery
 and signed Finder behavior must pass before installation. Keep Both's separate error remains unresolved.
+
+Folder-creation transport, decision status: proposed, 2026-10-23. Read-only NAS checks found
+that native inodes are name hashes while direct SMB returns the server's object identifiers.
+The current comparison therefore refuses naming. Use direct SMB for exclusive folder creation
+as well as initial naming, retaining the server identity from creation and keeping native catalog
+identity separate. File uploads and reads would remain native. This extension needs approval
+before implementation. See the [identity findings](results/2026-10-23-folder-naming-fix.md#native-identifier-mismatch).

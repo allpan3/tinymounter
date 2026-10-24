@@ -202,6 +202,30 @@ public struct CreateReceipt: Codable, Sendable {
     public init(item: String) { self.item = item }
 }
 
+public struct FolderNameRequest: Codable, Sendable {
+    public let id: UUID
+    public let item: String
+    public let parent: String
+    public let name: String
+
+    public init(id: UUID = UUID(), item: String, parent: String, name: String) throws {
+        guard item != Catalog.rootItemID, ReaderMessage.isItemID(item), ReaderMessage.isItemID(parent),
+              RelativePath.isValidComponent(name), !name.contains("\\"), !name.hasPrefix(".tinymounter-") else {
+            throw UploadError.invalidRequest
+        }
+        self.id = id
+        self.item = item
+        self.parent = parent
+        self.name = name
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(id: c.decode(UUID.self, forKey: .id), item: c.decode(String.self, forKey: .item),
+                      parent: c.decode(String.self, forKey: .parent), name: c.decode(String.self, forKey: .name))
+    }
+}
+
 
 public enum UploadError: Error, Equatable, Sendable {
     case invalidRequest

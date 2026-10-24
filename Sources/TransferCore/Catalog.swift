@@ -123,7 +123,7 @@ public final class Catalog {
     /// `NSFileProviderItemIdentifier.rootContainer.rawValue`; core doesn't import FileProvider.
     public static let rootItemID = "NSFileProviderRootContainerItemIdentifier"
     static let maxDepth = 256
-    static let schemaVersion: Int64 = 3
+    static let schemaVersion: Int64 = 4
     // No real number of writes reaches it, so a writer's `seq += 1` can't overflow.
     static let maxLastSeq = Int64.max / 2
     private static let busyTimeoutMilliseconds = 2000
@@ -154,10 +154,12 @@ public final class Catalog {
           deleted INTEGER NOT NULL DEFAULT 0,
           change_seq INTEGER NOT NULL UNIQUE,
           keep_request INTEGER NOT NULL DEFAULT 0,
-          listing_complete INTEGER NOT NULL DEFAULT 0);
+          listing_complete INTEGER NOT NULL DEFAULT 0,
+          enumeration_key TEXT NOT NULL);
         CREATE UNIQUE INDEX items_live_name ON items(parent_id, name_key) WHERE deleted = 0;
         CREATE INDEX items_kept ON items(row) WHERE keep = 1 AND deleted = 0;
-        PRAGMA user_version = 3;
+        CREATE INDEX items_listing ON items(parent_id, enumeration_key, row) WHERE deleted = 0;
+        PRAGMA user_version = 4;
         """
 
     public let domainID: String
@@ -227,13 +229,13 @@ public final class Catalog {
         precondition(limit > 0)
         guard let afterRow else {
             return try items("""
-                SELECT \(CatalogRow.columns) FROM items WHERE parent_id = ? AND deleted = 0 ORDER BY name_key LIMIT ?
+                SELECT \(CatalogRow.columns) FROM items WHERE parent_id = ? AND deleted = 0 ORDER BY enumeration_key, row LIMIT ?
                 """) { statement in
                 try statement.bind(1, folderID)
                 try statement.bind(2, limit)
             }
         }
-        // A row's parent never changes, and its name key stays after it becomes a tombstone.
+        // The immutable enumeration key survives naming and tombstones.
         let parent = try database.prepare("SELECT parent_id FROM items WHERE row = ?") { statement in
             try statement.bind(1, afterRow)
             return try statement.step() && !statement.isNull(0) ? statement.text(0) : nil
@@ -241,7 +243,8 @@ public final class Catalog {
         guard parent == folderID else { throw CatalogError.pageExpired }
         return try items("""
             SELECT \(CatalogRow.columns) FROM items WHERE parent_id = ? AND deleted = 0
-            AND name_key > (SELECT name_key FROM items WHERE row = ?) ORDER BY name_key LIMIT ?
+            AND (enumeration_key, row) > (SELECT enumeration_key, row FROM items WHERE row = ?)
+            ORDER BY enumeration_key, row LIMIT ?
             """) { statement in
             try statement.bind(1, folderID)
             try statement.bind(2, afterRow)

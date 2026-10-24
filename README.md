@@ -104,6 +104,15 @@ and connected in a signed sandboxed app without a password. A limited `libsmb2` 
 prototype is accepted; initial naming is still in progress. Native reads and uploads remain
 unchanged. See the [follow-up](docs/results/2026-10-23-folder-naming-authentication.md).
 
+Initial folder naming implementation, 2026-10-23: Finder's initial folder-name callback, durable
+intent and catalog updates are implemented. General renaming remains denied. Catalog version 4
+preserves listing cursors with an immutable enumeration key and migrates earlier formats.
+The read-only NAS check found native name-based identifiers that cannot prove rename ownership.
+Extending direct SMB to exclusive folder creation is proposed; signed Finder and recovery
+verification remain pending. Required VM checks passed with 220 tests passed, one optional
+fixture test skipped and no Swift warnings. The fixture is removed and sharing is restored. See the
+[checks](docs/results/2026-10-23-folder-naming-fix.md).
+
 ## Run the prototype
 
 See [prototype setup and validation](docs/prototype.md). Build the benchmark with `swift build -c release`; run `.build/release/transfer-bench --help`. Open `TinyMounter.xcodeproj` to configure signing for the Finder prototype.

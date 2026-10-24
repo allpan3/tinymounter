@@ -49,7 +49,8 @@ extension LocationSource {
 
     private func createOnLane(_ request: CreateRequest, contents: URL?, progress: Progress,
                               checkSpace: @escaping (Int64) throws -> Void) throws -> CreateReceipt {
-        try uploadLock.withLock {
+        try finishPendingFolderName(request.parent)
+        return try uploadLock.withLock {
             guard !mutationsSuspended, let bookmark = writeBookmark else { throw UploadError.readOnly }
             let path = try withCatalog { catalog -> RelativePath in
                 guard let parent = try catalog.item(id: request.parent), !parent.deleted, parent.kind == .folder,
@@ -63,18 +64,8 @@ extension LocationSource {
                try liveChild(of: request.parent, named: request.name) != nil { throw UploadError.collision }
             var record = try outbox.prepare(request, path: path, contents: contents, progress: progress, checkSpace: checkSpace)
             if record.state == .completed, let item = record.item { return CreateReceipt(item: item) }
-            var stale = false
-            let url = try URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope, .withoutUI, .withoutMounting],
-                              relativeTo: nil, bookmarkDataIsStale: &stale)
-            guard url.startAccessingSecurityScopedResource() else { throw UploadError.readOnly }
-            defer { url.stopAccessingSecurityScopedResource() }
-            try access.withSession { session, _ in
-                let mount = try ShareAccess.connectedShares().first { $0.path == ShareAccess.filePath(url) }
-                guard mount?.identity == session.identity else { throw UploadError.readOnly }
-                let root = try session.locationRoot(folder)
-                try session.identity.guarding(root: root) {
-                    try outbox.upload(&record, locationRoot: root, progress: progress)
-                }
+            try withWriteSession(bookmark) { _, root in
+                try outbox.upload(&record, locationRoot: root, progress: progress)
             }
             _ = try listOnLane(request.parent, requestID: request.id)
             guard let row = try liveChild(of: request.parent, named: request.name), row.kind == request.kind,
@@ -85,6 +76,20 @@ extension LocationSource {
             try outbox.complete(&record, item: row.id)
             scheduleSignal()
             return CreateReceipt(item: row.id)
+        }
+    }
+
+    func withWriteSession<Result>(_ bookmark: Data, _ body: (ShareSession, Int32) throws -> Result) throws -> Result {
+        var stale = false
+        let url = try URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope, .withoutUI, .withoutMounting],
+                          relativeTo: nil, bookmarkDataIsStale: &stale)
+        guard url.startAccessingSecurityScopedResource() else { throw UploadError.readOnly }
+        defer { url.stopAccessingSecurityScopedResource() }
+        return try access.withSession { session, _ in
+            let mount = try ShareAccess.connectedShares().first { $0.path == ShareAccess.filePath(url) }
+            guard mount?.identity == session.identity else { throw UploadError.readOnly }
+            let root = try session.locationRoot(folder)
+            return try session.identity.guarding(root: root) { try body(session, root) }
         }
     }
 }
