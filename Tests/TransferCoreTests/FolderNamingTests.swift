@@ -28,24 +28,36 @@ final class FolderNamingTests: XCTestCase {
                                         name: "untitled folder", kind: .folder, staging: nil)
         var record = try outbox.prepare(request, path: XCTUnwrap(RelativePath(request.name)),
                                        contents: nil, progress: Progress())
-        try outbox.upload(&record, locationRoot: root, progress: Progress())
+        try outbox.createFolder(&record, progress: Progress()) { path, expected, persist in
+            let target = remote.appending(path: path.string)
+            if expected == nil { try FileManager.default.createDirectory(at: target, withIntermediateDirectories: false) }
+            var info = stat()
+            guard stat(target.path, &info) == 0 else { throw UploadError.unresolved }
+            let identity = try RemoteFolderIdentity(fileID: info.st_ino, birthMicroseconds: 1)
+            if let expected { XCTAssertEqual(expected, identity) }
+            try persist(identity)
+            return info.st_ino
+        }
         try outbox.complete(&record, item: UUID().uuidString)
         return record
     }
 
-    private func rename(_ source: RelativePath, _ destination: RelativePath, _ identity: UInt64,
-                        _ recovering: Bool) throws {
+    private func rename(_ source: RelativePath, _ destination: RelativePath, _ identity: RemoteFolderIdentity,
+                        _ recovering: Bool) throws -> UInt64 {
         let target = remote.appending(path: destination.string)
         if recovering {
             var info = stat()
-            guard stat(target.path, &info) == 0, info.st_ino == identity else {
-                throw FolderNamingFailure(code: EAGAIN, mayHaveRenamed: false)
+            guard stat(target.path, &info) == 0, info.st_ino == identity.fileID else {
+                throw FolderMutationFailure(code: EAGAIN, mayHaveChanged: false)
             }
-            return
+            return info.st_ino
         }
         guard renameatx_np(root, source.string, root, destination.string, UInt32(RENAME_EXCL)) == 0 else {
-            throw FolderNamingFailure(code: errno, mayHaveRenamed: false)
+            throw FolderMutationFailure(code: errno, mayHaveChanged: false)
         }
+        var info = stat()
+        guard stat(target.path, &info) == 0 else { throw UploadError.unresolved }
+        return info.st_ino
     }
 
     func testInitialNameKeepsReceiptAndReplaysOriginalCreate() throws {
@@ -63,7 +75,7 @@ final class FolderNamingTests: XCTestCase {
         let receipt = try outbox.prepare(replay, path: XCTUnwrap(RelativePath(original.path)),
                                         contents: nil, progress: Progress())
         XCTAssertEqual(receipt.item, original.item)
-        try outbox.nameFolder(&record, name: "chosen") { _, _, _, _ in XCTFail("Must not rename twice") }
+        try outbox.nameFolder(&record, name: "chosen") { _, _, _, _ in XCTFail("Must not rename twice"); return 0 }
         XCTAssertThrowsError(try outbox.nameFolder(&record, name: "other", rename: rename)) {
             XCTAssertEqual($0 as? UploadError, .readOnly)
         }
@@ -89,7 +101,7 @@ final class FolderNamingTests: XCTestCase {
     func testConfirmedNoSendCanRetryAndStillBlocksRemoval() throws {
         var record = try created()
         XCTAssertThrowsError(try outbox.nameFolder(&record, name: "chosen") { _, _, _, _ in
-            throw FolderNamingFailure(code: EAUTH, mayHaveRenamed: false)
+            throw FolderMutationFailure(code: EAUTH, mayHaveChanged: false)
         })
         XCTAssertEqual(record.initialName?.state, .prepared)
         XCTAssertEqual(try outbox.pendingCount, 1)
@@ -103,15 +115,15 @@ final class FolderNamingTests: XCTestCase {
     func testAmbiguousResultOnlyChecksTheDestinationOnReplay() throws {
         var record = try created()
         XCTAssertThrowsError(try outbox.nameFolder(&record, name: "chosen") { source, destination, identity, recovering in
-            try rename(source, destination, identity, recovering)
-            throw FolderNamingFailure(code: EIO, mayHaveRenamed: true)
+            _ = try rename(source, destination, identity, recovering)
+            throw FolderMutationFailure(code: EIO, mayHaveChanged: true)
         })
         record = try XCTUnwrap(outbox.records().first)
         XCTAssertEqual(record.initialName?.state, .attempting)
         XCTAssertEqual(try outbox.pendingCount, 1)
         try outbox.nameFolder(&record, name: "chosen") { source, destination, identity, recovering in
             XCTAssertTrue(recovering)
-            try rename(source, destination, identity, recovering)
+            return try rename(source, destination, identity, recovering)
         }
         try outbox.completeFolderName(&record)
         XCTAssertEqual(try outbox.pendingCount, 0)
@@ -122,12 +134,13 @@ final class FolderNamingTests: XCTestCase {
         var record = try created()
         let original = record.name
         XCTAssertThrowsError(try outbox.nameFolder(&record, name: "chosen") { _, _, _, _ in
-            throw FolderNamingFailure(code: EAUTH, mayHaveRenamed: false)
+            throw FolderMutationFailure(code: EAUTH, mayHaveChanged: false)
         })
         XCTAssertEqual(try outbox.pendingCount, 1)
         record = try XCTUnwrap(outbox.records().first)
         try outbox.nameFolder(&record, name: original) { _, _, _, _ in
             XCTFail("Reverting an unsent intent must not rename")
+            return 0
         }
         XCTAssertNil(try outbox.records().first?.initialName)
         XCTAssertEqual(try outbox.pendingCount, 0)
@@ -142,7 +155,7 @@ final class FolderNamingTests: XCTestCase {
         record = try XCTUnwrap(outbox.records().first)
         XCTAssertThrowsError(try outbox.nameFolder(&record, name: "chosen") { source, destination, identity, recovering in
             XCTAssertTrue(recovering)
-            try rename(source, destination, identity, recovering)
+            return try rename(source, destination, identity, recovering)
         })
         XCTAssertEqual(try outbox.pendingCount, 1)
         XCTAssertTrue(FileManager.default.fileExists(atPath: remote.appending(path: "untitled folder").path))
@@ -154,7 +167,7 @@ final class FolderNamingTests: XCTestCase {
             if state == .verified { throw TransferError.cancelled }
         }, rename: rename))
         record = try XCTUnwrap(outbox.records().first)
-        try outbox.nameFolder(&record, name: "chosen") { _, _, _, _ in XCTFail("Already verified") }
+        try outbox.nameFolder(&record, name: "chosen") { _, _, _, _ in XCTFail("Already verified"); return 0 }
         try outbox.completeFolderName(&record)
         XCTAssertEqual(try outbox.pendingCount, 0)
     }
@@ -174,23 +187,66 @@ final class FolderNamingTests: XCTestCase {
         XCTAssertEqual(try outbox.records().first?.initialName?.state, .observed)
     }
 
-    func testFreshListingResolvesLostRenameAcknowledgement() throws {
+    func testNativeListingCannotResolveLostRenameAcknowledgement() throws {
         var record = try created()
         XCTAssertThrowsError(try outbox.nameFolder(&record, name: "chosen") { source, destination, identity, recovering in
-            try rename(source, destination, identity, recovering)
-            throw FolderNamingFailure(code: EIO, mayHaveRenamed: true)
+            _ = try rename(source, destination, identity, recovering)
+            throw FolderMutationFailure(code: EIO, mayHaveChanged: true)
         })
         let fresh = DirectoryListing([.entry(.init(name: "chosen", kind: .folder, size: 0,
                                                    mtimeNs: 1, ctimeNs: 2, fileID: record.remoteID!))])
-        var applied = 0
-        try outbox.observeFolderNames(parent: record.parent, listing: fresh) { receipt, naming in
-            XCTAssertEqual(receipt.item, record.item)
-            XCTAssertEqual(naming.name, "chosen")
-            applied += 1
-        }
-        XCTAssertEqual(applied, 1)
+        XCTAssertThrowsError(try outbox.observeFolderNames(parent: record.parent, listing: fresh) { _, _ in
+            XCTFail("A native identifier cannot prove direct SMB ownership")
+        })
+        XCTAssertEqual(try outbox.pendingCount, 1)
+        try outbox.nameFolder(&record, name: "chosen", rename: rename)
+        try outbox.completeFolderName(&record)
         XCTAssertEqual(try outbox.pendingCount, 0)
+    }
+
+    func testNativeIdentityCanChangeWhileServerIdentityStaysFixed() throws {
+        var record = try created()
+        let server = try XCTUnwrap(record.serverFolder), original = record.remoteID
+        let item = record.item
+        try outbox.nameFolder(&record, name: "chosen") { _, _, identity, recovering in
+            XCTAssertEqual(identity, server)
+            XCTAssertFalse(recovering)
+            return 200
+        }
+        try outbox.completeFolderName(&record)
+        XCTAssertEqual(record.remoteID, 200)
+        XCTAssertNotEqual(record.remoteID, original)
+        XCTAssertEqual(record.serverFolder, server)
+        XCTAssertEqual(record.item, item)
+        let stale = DirectoryListing([.entry(.init(name: "untitled folder", kind: .folder, size: 0,
+                                                   mtimeNs: 1, ctimeNs: 2, fileID: original!))])
+        XCTAssertThrowsError(try outbox.observeFolderNames(parent: record.parent, listing: stale) { _, _ in })
+        let fresh = DirectoryListing([.entry(.init(name: "chosen", kind: .folder, size: 0,
+                                                   mtimeNs: 1, ctimeNs: 2, fileID: 200))])
+        try outbox.observeFolderNames(parent: record.parent, listing: fresh) { _, _ in XCTFail("Already applied") }
         XCTAssertEqual(try outbox.records().first?.initialName?.state, .observed)
+    }
+
+    func testLegacyFolderReceiptCannotAcquireRenamePermission() throws {
+        var record = try created()
+        record.serverFolder = nil
+        try outbox.save(record)
+        XCTAssertThrowsError(try outbox.initialNamingRecord(item: record.item!))
+        XCTAssertThrowsError(try outbox.nameFolder(&record, name: "chosen", rename: rename))
+        XCTAssertEqual(try outbox.pendingCount, 0)
+    }
+
+    func testCreatingChildrenClosesTheInitialNamingWindow() throws {
+        var record = try created()
+        let child = try CreateRequest(template: UUID().uuidString, parent: record.item!, name: "child",
+                                      kind: .folder, staging: nil)
+        _ = try outbox.prepare(child, path: XCTUnwrap(RelativePath(record.path + "/child")),
+                               contents: nil, progress: Progress())
+        XCTAssertThrowsError(try outbox.nameFolder(&record, name: "chosen") { _, _, _, _ in
+            XCTFail("A parent rename must not move a child's saved upload path")
+            return 0
+        }) { XCTAssertEqual($0 as? UploadError, .readOnly) }
+        XCTAssertNil(record.initialName)
     }
 
     func testLegacyReceiptAndMalformedNamingState() throws {

@@ -1,10 +1,9 @@
 # Finder initial folder naming, 2026-10-23
 
-Initial naming is implemented, but the NAS identity check blocks installation. Signed Finder
-verification is still pending. The extension
-accepts a folder's initial filename callback, and the app requires a completed create receipt,
-the same parent, a fresh write grant and the expected remote identity. General renaming,
-moving, file modification and deletion remain denied. M18 is not ready for installation.
+Finder initial folder naming passes the signed VM checks. The app creates folders exclusively
+through the accepted SMB client and retains server identity separately from native catalog
+identity. Reads and file uploads remain native. All 230 tests and required checks pass.
+Keep Both remains a separate unresolved creation flow, so M18 is not ready for installation.
 
 ## Implementation
 
@@ -12,14 +11,14 @@ The app owns the direct SMB naming client. It uses macOS-cached NTLM credentials
 account and exact server, and requires encryption for authenticated access. Explicit guest
 access is separate. The client opens directory handles without delete sharing, refuses reparse
 points, checks the source folder's identity and requests a rename with replacement disabled.
-Reads, uploads and mount management remain native. The extension gains no share access.
+Reads, file uploads and mount management remain native. The extension gains no share access.
 
 The existing app outbox stores the initial naming intent before the operation. It records a
 verified reply before the catalog changes and keeps unresolved attempts pending. Recovery
-checks the destination identity and name without repeating an uncertain mutation. A complete
-listing can also confirm the result. Completed receipts allow replay of the original create
-without another folder. Each completed new folder gets one initial naming operation; the
-provider does not advertise general rename capability.
+checks the destination identity and name without repeating an uncertain mutation. Native
+listings only mark a verified result observed; they cannot establish ownership. Completed
+receipts allow replay of the original create without another folder. A new folder gets one
+initial naming operation before child creation. The provider does not advertise general rename capability.
 
 The first disposable client check renamed a folder and preserved its identity and child bytes.
 The native mount could still report the old path briefly afterward. A completed name therefore
@@ -33,25 +32,55 @@ tie-breaker also handles a later new folder with the old name. Migrations from v
 the cursor compatibility requirement. Outbox receipts add an optional naming record and keep
 reading receipts from the earlier build; no outbox version field was added.
 
-## Verification in progress
+## VM verification
 
-The setup is macOS VM 1 on macOS 27.0.1 build 26A434. Writes use only the approved disposable
-APFS-backed guest SMB fixture on loopback. The original NAS stays read-only. Cache state is
-uncontrolled; these are correctness checks. No VM, network or File Provider daemon restart is
-authorized for this run.
+The setup is macOS VM 1 on macOS 27.0.1 build 26A434. Writes used only the approved disposable
+APFS-backed guest SMB fixture on loopback. Cache state was uncontrolled; these are correctness
+checks. The original NAS stayed read-only. No VM, network or File Provider daemon was restarted.
+Only TinyMounter's app and extension were restarted.
 
-Regression tests cover collision preservation, definite pre-send failures, interrupted attempts,
-lost acknowledgements, stale listings, create replay, request validation and legacy receipts.
-Catalog tests cover migration and cursor stability, including two rows with the same original
-enumeration key. Required checks and signed Finder results are pending.
+The signed normal app passed Finder New Folder naming, nested naming and a small file copy into
+the named nested folder, with matching remote bytes. The final normal build repeated New Folder
+successfully. The restricted client preserved empty folders, nonempty folders and files in
+collision checks. It preserved a child's bytes through naming, refused a wrong server ID or
+creation time, and recovered through read-only identity checks without another mutation.
 
-Before/after recording, final cleanup and private evidence will be recorded when the VM checks
-finish. The physical-Mac app remains M16. No publication or physical-Mac installation is approved.
+A separate signed source archive added fixture-only commands and stops in two app files. Its
+source changes were checked against the normal source; no test hooks are in the repository.
+Read-only enforcement, Unicode and case-only names, stable item/server identity and refusal of
+a second rename passed. Stops after saving the creation receipt, after creation verification,
+after rename success but before its acknowledgement, and after saving rename verification all
+recovered to one completed operation. Attempts stopped before a provable result stayed pending.
+Each pending case refused disabling changes, removing the location and changing its source.
+Only disposable test receipts were discarded during cleanup.
 
-## Remaining M18 checks
+The final client also checked an existing NAS folder through both recovery entry points using
+its server ID and creation time. Authentication and metadata checks passed. Both mutation-sent
+flags were zero; no create or rename was sent to the NAS. Real-NAS writes and physical-Mac
+behavior remain unverified.
 
-Verify normal New Folder naming, collisions, read-only enforcement and recovery in the signed
-app. Keep Both remains a separate unresolved creation flow; this fix does not claim to resolve it.
+Tools/run-checks.sh passed with the writable fixture enabled: 230 tests, no skips or failures,
+the generated-project check, release CLI and benchmark verification, and the unsigned app build.
+There were no Swift warnings. Regression coverage includes migration, cursor stability,
+server/native ID separation, legacy receipts, lost replies and the initial-naming boundary.
+
+## Cleanup and evidence
+
+The test location, server, grant, local copies and remote fixture data are removed. Exact sharing
+records, service override and guest settings are restored. The original NAS connection and both
+Cairndex processes stayed running. The final normal signed build remains running in the VM with
+zero locations, catalogs, domains, kept items or stages. No test hooks remain registered.
+
+During the final diagnostic, an operator error sent SIGBUS instead of SIGUSR1 to TinyMounter.
+The normal app was reopened. Reconciliation found no failed sequence; the original share/session
+was retained. This was a test-command error, not an observed application defect.
+
+Before/after recordings use the same Finder New Folder, typed name and Return sequence. They
+are results/folder-naming-20261023/before.mp4 and after.mp4 on the development Mac. Name-free
+VM evidence is in .local/phase2/m18-folder-create-*.json and m18-folder-runtime-*.json, with the
+required-check log m18-folder-create-required-checks.log. Source-hook scope and a local patch
+are retained in the ignored evidence directory. Temporary probe binaries and the instrumented
+archive were removed. The physical-Mac app remains M16; no install or publication is approved.
 
 ## Native identifier mismatch
 
@@ -66,31 +95,33 @@ and [name hash](https://github.com/apple-oss-distributions/SMBClient/blob/main/k
 explain the native values. The client also remaps the share root's identifier to 2; none of the
 three samples was a root alias.
 
-The current identity guard correctly refuses those folders. Native name-based identifiers
+The earlier native-identity comparison correctly refused those folders. Native name-based identifiers
 cannot establish ownership after a rename or another client's replacement at the same path.
-The recommended fix is to use the direct client for exclusive new-folder creation and initial
+The accepted fix uses the direct client for exclusive new-folder creation and initial
 naming, retaining its server identity separately from native catalog identity. Native file
-uploads and reads would stay unchanged. Decision status: proposed; the user must approve the
-additional folder-creation transport before implementation.
+uploads and reads stay unchanged. Decision status: accepted. The user approved the additional
+folder-creation transport. The new implementation saves the server identity and creation time
+while a handle blocks replacement, then records native metadata under that handle. The same
+server proof guards initial naming. Its native callback can update the catalog's file ID
+without replacing the item's UUID, children or keep requests. An uncertain naming attempt
+requires a direct identity check, rather than trusting a name-based native listing.
+
+Existing outbox receipts remain readable. A legacy folder receipt without server proof cannot
+authorize naming, and an uncertain legacy create remains pending. No new outbox version field
+was added. The VM checks above cover the new implementation and signed Finder behavior.
+
+Initial naming precedes child creation. Once a child creation request exists, the parent cannot
+start its initial naming operation. This prevents moving saved child upload paths through a
+later general rename. A child request first finishes any already pending parent naming.
 
 Name-free evidence is in the VM's .local/phase2/m18-folder-name-identity-classes.json and
 m18-folder-name-native-mapping.json. The
 earlier recovery-only probe is m18-folder-name-nas-readonly.json. Neither probe sent a rename.
 
 The old signed M18 app reproduced the Finder failure on the disposable fixture with New Folder,
-the name "new-folder" and Return. Finder displayed the requested name, but direct inspection of
-the fixture backing directory found only the original untitled folder. The before recording
-uses that sequence; an after recording is pending. The test location, server, grant and data
-were removed, and the fixture's sharing records, service override and guest settings were
-restored. The original NAS mount and both Cairndex processes remained running.
+the name "new-folder" and Return. Finder displayed the requested name, but the server retained
+the original untitled folder. The new signed app completed that same sequence with the requested
+name on the server and no leftover untitled folder.
 
 A separate regression fix clears a prepared, never-sent naming intent when the user returns
-to the original name. All 11 focused naming tests passed with no Swift warnings. The required
-Tools/run-checks.sh also passed: 220 tests passed, the optional native SMB fixture test was
-skipped after fixture cleanup, and the required builds and benchmark verification passed with
-no Swift warnings. This does not verify the signed candidate's Finder behavior. No candidate
-app was launched during this follow-up.
-
-The before recording is results/folder-naming-20261023/before.mp4 on the development Mac.
-The required-check log remains in the VM at .local/phase2/m18-folder-name-required-checks.log.
-Temporary authentication probe apps, source downloads and binaries were removed.
+to the original name. It is covered by the final required checks above.

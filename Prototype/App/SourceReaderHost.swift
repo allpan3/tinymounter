@@ -233,7 +233,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
     }
 
     private static func mutationError(_ error: Error) -> NSError {
-        if let failure = error as? FolderNamingFailure {
+        if let failure = error as? FolderMutationFailure {
             switch failure.code {
             case EAUTH: return NSFileProviderError(.notAuthenticated) as NSError
             case EACCES, EPERM: return CocoaError(.fileWriteNoPermission) as NSError

@@ -52,12 +52,13 @@ Latest competitor review: [2026-10-11 — PolyDrive research](research.md#polydr
 
 Write-support gate: [2026-10-23 native SMB publication check](results/2026-10-23-upload-publication.md).
 Native exclusive creation is accepted and implemented. Signed upload/recovery checks and all 208
-tests passed. Normal Finder uploads now pass after a VM daemon restart, but New Folder naming
-and Keep Both still fail. See the
+tests passed. Normal Finder uploads pass after a VM daemon restart; the follow-up below fixes
+initial naming. Keep Both still fails. See the
 [M18 results](results/2026-10-23-create-items.md).
 The user accepted initial folder naming. Its [safety investigation](results/2026-10-23-initial-folder-naming.md)
 found a direct SMB route. The [authentication follow-up](results/2026-10-23-folder-naming-authentication.md)
-corrected the credential probe and passed a signed sandboxed connection. A limited naming client
-is accepted; the Finder fix remains in progress.
-The [naming implementation checks](results/2026-10-23-folder-naming-fix.md) track the callback,
-durable recovery and cursor-preserving catalog migration. Runtime verification is pending.
+corrected the credential probe and passed a signed sandboxed connection. The accepted client
+now handles exclusive folder creation and initial naming.
+The [naming implementation checks](results/2026-10-23-folder-naming-fix.md) passed signed Finder,
+collision and interrupted recovery checks, with all 230 tests and required VM checks passing.
+The fixture is removed and sharing is restored. The physical-Mac app remains M16.

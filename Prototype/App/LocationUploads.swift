@@ -64,8 +64,12 @@ extension LocationSource {
                try liveChild(of: request.parent, named: request.name) != nil { throw UploadError.collision }
             var record = try outbox.prepare(request, path: path, contents: contents, progress: progress, checkSpace: checkSpace)
             if record.state == .completed, let item = record.item { return CreateReceipt(item: item) }
-            try withWriteSession(bookmark) { _, root in
-                try outbox.upload(&record, locationRoot: root, progress: progress)
+            try withWriteSession(bookmark) { session, root in
+                if record.kind == .folder {
+                    try createFolder(&record, outbox: outbox, session: session, root: root, progress: progress)
+                } else {
+                    try outbox.upload(&record, locationRoot: root, progress: progress)
+                }
             }
             _ = try listOnLane(request.parent, requestID: request.id)
             guard let row = try liveChild(of: request.parent, named: request.name), row.kind == request.kind,

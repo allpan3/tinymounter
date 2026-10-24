@@ -1,11 +1,11 @@
-# libsmb2 for initial folder naming
+# libsmb2 for folder creation and initial naming
 
 Source: [libsmb2-6.3](https://github.com/sahlberg/libsmb2/tree/libsmb2-6.3).
 The core library and headers are LGPL-2.1-or-later. COPYING and LICENCE-LGPL-2.1.txt contain
 the upstream terms. Copyright notices remain in each source file.
 
 TinyMounter builds a separate dynamic library and embeds it in Contents/Frameworks. It uses
-this library only for initial folder naming. Reads, uploads and mount management remain native.
+this library only for exclusive folder creation and initial naming. Reads, file uploads and mount management remain native.
 The checked-in source builds without network access. Release packaging must preserve the
 licence notices, source availability and the user's ability to rebuild and relink the library.
 Signed distribution remains a separate release gate.
@@ -23,5 +23,5 @@ Local changes:
 
 Prototype/SMB/SMBRename.c is the app's restricted entry point. Authenticated connections require
 SMB encryption. It opens and checks directory handles, preserves ancestor paths against SMB
-deletion/rename while naming, checks the source's server identity, and sends a rename with
+deletion/rename while creating or naming, retains server identity and creation time, and sends a rename with
 replacement disabled. Only the app calls it, after enforcing the location's explicit write grant.

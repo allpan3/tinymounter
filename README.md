@@ -87,30 +87,32 @@ pending copies and recovery are implemented. All 208 VM tests and required check
 Signed extension callbacks through authenticated IPC created files and folders with matching
 remote hashes; interruption and lifecycle guards passed. After an approved VM File Provider daemon
 restart, normal Finder file and nested-folder uploads passed, with matching hashes and native
-progress. New Folder naming and Keep Both still fail, so M18 is not complete. Existing locations
-stay read-only. The physical-Mac app remains M16. See the [results](docs/results/2026-10-23-create-items.md) and
+progress. Initial naming now passes the follow-up checks below. Keep Both still fails, so M18
+is not complete. Existing locations stay read-only. The physical-Mac app remains M16. See the [results](docs/results/2026-10-23-create-items.md) and
 [accepted plan](docs/phase4-plan.md).
 
 Initial folder naming investigation, 2026-10-23: the user approved this part of New Folder.
 Native exclusive rename is unavailable on the tested SMB mount, and create/delete failed a
 replacement race. An isolated direct SMB client preserved existing destinations in collision
-and competing-create checks. Naming remains unimplemented; dependency adoption and macOS
-credential reuse are still open. The fixture is removed and sharing is restored. See the
+and competing-create checks. The follow-ups below resolve dependency adoption, macOS credential
+reuse and initial naming. The fixture is removed and sharing is restored. See the
 [investigation](docs/results/2026-10-23-initial-folder-naming.md).
 
 Folder naming authentication follow-up, 2026-10-23: the earlier zero-match credential result
 came from a parser defect. The corrected probe acquired the account/server-bound credential
 and connected in a signed sandboxed app without a password. A limited `libsmb2` naming
-prototype is accepted; initial naming is still in progress. Native reads and uploads remain
-unchanged. See the [follow-up](docs/results/2026-10-23-folder-naming-authentication.md).
+prototype is accepted; initial naming now passes the implementation checks below. Native reads
+and file uploads remain unchanged. See the [follow-up](docs/results/2026-10-23-folder-naming-authentication.md).
 
 Initial folder naming implementation, 2026-10-23: Finder's initial folder-name callback, durable
 intent and catalog updates are implemented. General renaming remains denied. Catalog version 4
 preserves listing cursors with an immutable enumeration key and migrates earlier formats.
 The read-only NAS check found native name-based identifiers that cannot prove rename ownership.
-Extending direct SMB to exclusive folder creation is proposed; signed Finder and recovery
-verification remain pending. Required VM checks passed with 220 tests passed, one optional
-fixture test skipped and no Swift warnings. The fixture is removed and sharing is restored. See the
+The accepted direct SMB client now creates and initially names folders with retained server
+identity, separate from native catalog identity. Signed Finder, collision, read-only and recovery
+checks passed, and all 230 tests and required VM checks passed without skips or Swift warnings.
+The fixture is removed and sharing is restored. Keep Both remains unresolved; the physical-Mac
+app remains M16. See the
 [checks](docs/results/2026-10-23-folder-naming-fix.md).
 
 ## Run the prototype
