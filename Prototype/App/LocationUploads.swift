@@ -42,6 +42,10 @@ extension LocationSource {
         access.enqueue { [self] in
             started()
             let result = Result { try createOnLane(request, contents: contents, progress: progress, checkSpace: checkSpace) }
+            if case .failure(let error) = result, error as? UploadError == .collision {
+                _ = try? listOnLane(request.parent, requestID: request.id)
+                scheduleSignal()
+            }
             Self.uploadLog.info("upload request=\(request.id.uuidString, privacy: .public) domain=\(self.domainID, privacy: .public) ok=\((try? result.get()) != nil ? 1 : 0)")
             reply(result)
         }

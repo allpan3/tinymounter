@@ -21,8 +21,12 @@ final class CatalogItem: NSObject, NSFileProviderItem {
     var documentSize: NSNumber? { isFolder ? nil : NSNumber(value: row.size) }
     var contentModificationDate: Date? { row.parentID == nil ? nil : row.modificationDate }
     var capabilities: NSFileProviderItemCapabilities {
-        if isFolder { return row.allowsCreation ? [.allowsContentEnumerating, .allowsAddingSubItems] : .allowsContentEnumerating }
-        return .allowsReading
+        // Finder needs rename permission to choose a new name for an incoming copy in Keep Both.
+        if isFolder {
+            return row.allowsCreation ? [.allowsContentEnumerating, .allowsAddingSubItems, .allowsRenaming]
+                : .allowsContentEnumerating
+        }
+        return row.allowsCreation ? [.allowsReading, .allowsRenaming] : .allowsReading
     }
     var fileSystemFlags: NSFileProviderFileSystemFlags {
         if isFolder { return row.allowsCreation ? [.userReadable, .userWritable, .userExecutable] : [.userReadable, .userExecutable] }

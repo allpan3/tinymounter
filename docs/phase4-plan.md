@@ -86,8 +86,8 @@ VM tests and required checks passed. Signed extension callbacks through authenti
 file/folder creation, and signed app stops checked recovery and pending-write lifecycle guards.
 After the approved daemon restart, normal Finder file and nested-folder uploads passed with
 matching hashes and native progress. Initial naming now passes the signed follow-up below;
-Keep Both still fails, so M18 has not met its exit checks. The physical-Mac app remains M16. See the
-[results](results/2026-10-23-create-items.md).
+file Keep Both now passes the signed follow-up at the end of this plan. The physical-Mac app
+remains M16. See the [results](results/2026-10-23-create-items.md).
 
 Initial folder naming, decision status: accepted, 2026-10-23. The user approved handling the
 initial name of a newly created folder. General renaming remains a later milestone. Native
@@ -107,7 +107,8 @@ Catalog version 4 separates the current lookup key from the immutable enumeratio
 existing cursors and item IDs across naming. Migrations from versions 1, 2 and 3 preserve user
 state. The final client passed read-only credential/identity checks on the NAS, signed fixture
 creation/naming and interrupted recovery. All 230 tests and required checks passed with no Swift
-warnings. Keep Both's separate error remains unresolved, so installation remains blocked.
+warnings. File Keep Both now passes the follow-up below. Physical-Mac installation still needs
+approval.
 
 Folder-creation transport, decision status: accepted, 2026-10-23. Read-only NAS checks found
 that native inodes are name hashes while direct SMB returns the server's object identifiers.
@@ -122,3 +123,13 @@ TinyMounter creates children in that folder. A folder with child creation receip
 another naming operation, which would move those saved paths and become general renaming.
 Signed verification passed on the disposable VM fixture; real-NAS writes remain unverified.
 See the [identity findings](results/2026-10-23-folder-naming-fix.md#native-identifier-mismatch).
+
+Keep Both follow-up, 2026-10-25: signed VM trials isolated Finder's need for rename capability
+before it chooses the incoming copy's name. The implementation enables that capability in
+locations with changes enabled. Finder also offers ordinary Rename, which the backend still
+refuses. The accepted transport and create-only boundaries remain in force. Definite collisions
+now include the existing catalog item in the error; uncertain uploads cannot change names.
+All 232 VM tests and required checks passed. Final signed file Keep Both, repeated-collision,
+byte-preservation, folder-copy and read-only Finder checks passed. The fixture is removed and
+sharing is restored. The VM create checks are complete; physical-Mac writes remain unverified.
+See the [results](results/2026-10-25-keep-both.md).

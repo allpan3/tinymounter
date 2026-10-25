@@ -45,6 +45,10 @@ extension LocationSource {
         access.enqueue { [self] in
             started()
             let result = Result { try nameFolderOnLane(request, progress: progress) }
+            if case .failure(let error) = result, error as? UploadError == .collision {
+                _ = try? listOnLane(request.parent, requestID: request.id)
+                scheduleSignal()
+            }
             Self.namingLog.info("folder_name request=\(request.id.uuidString, privacy: .public) ok=\((try? result.get()) != nil ? 1 : 0)")
             reply(result)
         }

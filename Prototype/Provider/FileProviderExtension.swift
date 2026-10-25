@@ -387,7 +387,8 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                     progress.completedUnitCount = progress.totalUnitCount
                     finish(CatalogItem(row), nil)
                 } catch {
-                    let failure = providerError(error) as NSError
+                    let failure = mutationError(error, parent: itemTemplate.parentItemIdentifier.rawValue,
+                                                name: itemTemplate.filename) as NSError
                     countMutation("create", "new=1 phase=failed domain=\(failure.domain) code=\(failure.code)")
                     finish(nil, failure)
                 }
@@ -442,9 +443,21 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                                                    parent: item.parentItemIdentifier.rawValue, name: item.filename)
                 let receipt = try sourceReader.nameFolder(message, progress: progress)
                 finish(CatalogItem(try catalog.liveRow(receipt.item)), nil)
-            } catch { finish(nil, providerError(error)) }
+            } catch {
+                finish(nil, mutationError(error, parent: item.parentItemIdentifier.rawValue, name: item.filename))
+            }
         }
         return progress
+    }
+
+    private func mutationError(_ error: Error, parent: String, name: String) -> Error {
+        let failure = providerError(error) as NSError
+        guard failure.domain == NSFileProviderErrorDomain,
+              failure.code == NSFileProviderError.filenameCollision.rawValue else { return failure }
+        guard let row = try? catalog.read({ try $0.liveChild(parent: parent, nameKey: NameKey(name)) }) else {
+            return NSFileProviderError(.cannotSynchronize)
+        }
+        return NSError.fileProviderErrorForCollision(with: CatalogItem(row))
     }
 
     func deleteItem(identifier: NSFileProviderItemIdentifier, baseVersion version: NSFileProviderItemVersion,
