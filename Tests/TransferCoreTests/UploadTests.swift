@@ -158,6 +158,57 @@ final class UploadTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: remote.appending(path: "new.bin").path))
     }
 
+    func testCollisionRetryPreservesInputAndEveryExistingDestination() throws {
+        let original = Data("original".utf8), alternate = Data("alternate".utf8)
+        try original.write(to: remote.appending(path: "new.bin"))
+        try alternate.write(to: remote.appending(path: "new 2.bin"))
+        var record = try prepared()
+        XCTAssertThrowsError(try outbox.upload(&record, locationRoot: fd, progress: Progress()))
+        let pending = root.appending(path: "pending/\(record.id.uuidString).data")
+        let retry = try CreateRequest(template: record.template, parent: record.parent,
+                                      name: "new 2.bin", kind: .file, staging: nil)
+        let changed = root.appending(path: "changed")
+        try Data("different input".utf8).write(to: changed)
+        XCTAssertThrowsError(try outbox.prepare(retry, path: XCTUnwrap(RelativePath("new 2.bin")),
+                                               contents: changed, progress: Progress())) {
+            XCTAssertEqual($0 as? UploadError, .unresolved)
+        }
+        XCTAssertEqual(try outbox.records().first?.state, .collision)
+        XCTAssertEqual(try Data(contentsOf: pending), payload)
+        record = try outbox.prepare(retry, path: XCTUnwrap(RelativePath("new 2.bin")),
+                                    contents: input, progress: Progress())
+        XCTAssertThrowsError(try outbox.upload(&record, locationRoot: fd, progress: Progress())) {
+            XCTAssertEqual($0 as? UploadError, .collision)
+        }
+        let final = try CreateRequest(template: record.template, parent: record.parent,
+                                      name: "new 3.bin", kind: .file, staging: nil)
+        record = try outbox.prepare(final, path: XCTUnwrap(RelativePath("new 3.bin")),
+                                    contents: input, progress: Progress())
+        try outbox.upload(&record, locationRoot: fd, progress: Progress())
+        XCTAssertEqual(try Data(contentsOf: remote.appending(path: "new.bin")), original)
+        XCTAssertEqual(try Data(contentsOf: remote.appending(path: "new 2.bin")), alternate)
+        XCTAssertEqual(try Data(contentsOf: remote.appending(path: "new 3.bin")), payload)
+        try outbox.complete(&record, item: UUID().uuidString)
+        XCTAssertEqual(try outbox.pendingCount, 0)
+    }
+
+    func testUncertainUploadCannotRetryUnderAnotherName() throws {
+        var record = try prepared()
+        XCTAssertThrowsError(try outbox.upload(&record, locationRoot: fd, progress: Progress()) { state in
+            if state == .attempting { throw UploadError.unresolved }
+        })
+        let retry = try CreateRequest(template: record.template, parent: record.parent,
+                                      name: "new 2.bin", kind: .file, staging: nil)
+        XCTAssertThrowsError(try outbox.prepare(retry, path: XCTUnwrap(RelativePath("new 2.bin")),
+                                               contents: input, progress: Progress())) {
+            XCTAssertEqual($0 as? UploadError, .unresolved)
+        }
+        XCTAssertEqual(try outbox.records().first?.state, .attempting)
+        XCTAssertEqual(try outbox.pendingCount, 1)
+        XCTAssertEqual(try Data(contentsOf: root.appending(path: "pending/\(record.id.uuidString).data")), payload)
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: remote.path).isEmpty)
+    }
+
     func testPartialRemoteIsNeverReopenedForWriting() throws {
         var record = try prepared()
         XCTAssertThrowsError(try outbox.upload(&record, locationRoot: fd, progress: Progress()) { state in

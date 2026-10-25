@@ -133,3 +133,10 @@ The user approved initial folder naming while leaving general renaming deferred.
 [naming investigation](2026-10-23-initial-folder-naming.md) records the failed native rename and
 create/delete routes, a passing isolated direct SMB rename, and the remaining dependency and
 credential questions. No production naming code has been added. Keep Both remains unresolved.
+
+## Keep Both follow-up, 2026-10-25
+
+File Keep Both now passes in the final signed VM app, including repeated collisions and complete
+byte comparisons. The [follow-up](2026-10-25-keep-both.md) records the permission metadata fix,
+collision-error payload, limits and restored fixture state. All 232 tests and required checks
+passed. The physical-Mac app remains M16.
