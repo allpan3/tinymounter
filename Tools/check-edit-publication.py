@@ -24,7 +24,7 @@ class Client:
         self.library = library
         self.handles = []
         error = C.c_int()
-        self.context = library.probe_connect(C.byref(error))
+        self.context = library.probe_connect(library.fixture_password, C.byref(error))
         if not self.context:
             raise OSError(error.value, "connect fixture")
 
@@ -86,12 +86,21 @@ class Client:
         return bytes(buffer[:count.value])
 
 
-def load(path):
+def load(path, authenticated=False):
     library = C.CDLL(str(path))
+    library.fixture_password = None
+    if authenticated:
+        credential = subprocess.run([
+            "/usr/bin/security", "find-internet-password", "-s", "127.0.0.1",
+            "-a", "_tinymounter_m19", "-r", "smb ", "-p", "/tinymounter-m19-edit-test", "-w",
+        ], capture_output=True)
+        if credential.returncode:
+            raise OSError(errno.EACCES, "test credential unavailable")
+        library.fixture_password = credential.stdout.rstrip(b"\n")
     pointer = C.c_void_p
     byte_pointer = C.POINTER(C.c_ubyte)
     declarations = {
-        "connect": ([C.POINTER(C.c_int)], pointer),
+        "connect": ([C.c_char_p, C.POINTER(C.c_int)], pointer),
         "disconnect": ([pointer], None),
         "open": ([pointer, C.c_char_p, C.c_uint32, C.c_uint32, C.c_int, byte_pointer], C.c_int),
         "close": ([pointer, byte_pointer], C.c_int),
@@ -209,6 +218,7 @@ def probe(root, library):
         a.close(verifier)
     except OSError as error:
         report["probe_errno"] = error.errno
+        report["last_ntstatus"] = hex(library.probe_status())
     finally:
         a.disconnect()
         b.disconnect()
@@ -263,18 +273,21 @@ def main():
     parser.add_argument("--fixture-root", type=Path, required=True)
     parser.add_argument("--check-backing-access", action="store_true",
                         help="also exercise server-local access to the disposable fixture")
+    parser.add_argument("--authenticated-test-account", action="store_true",
+                        help="use the separately approved disposable account's Keychain credential")
     args = parser.parse_args()
     expected = Path("/Volumes/tinymounter-m19-edit-test")
     if args.fixture_root != expected or not os.path.ismount(expected):
         parser.error("requires the approved mounted M19 loopback fixture")
     mounts = subprocess.run(["/sbin/mount", "-t", "smbfs"], capture_output=True, text=True, check=True)
+    accounts = ("_tinymounter_m19",) if args.authenticated_test_account else ("guest", "guest:")
     sources = tuple("//" + user + "@127.0.0.1/tinymounter-m19-edit-test on " + str(expected) + " ("
-                    for user in ("guest", "guest:"))
+                    for user in accounts)
     if not any(line.startswith(sources) for line in mounts.stdout.splitlines()):
-        parser.error("fixture must be the approved native loopback guest mount")
-    report = probe(expected, load(args.library))
+        parser.error("fixture must be the approved native loopback mount and account")
+    report = probe(expected, load(args.library, args.authenticated_test_account))
     if args.check_backing_access:
-        report["backing_access"] = probe_backing_access(load(args.library))
+        report["backing_access"] = probe_backing_access(load(args.library, args.authenticated_test_account))
     print(json.dumps(report, sort_keys=True))
 
 

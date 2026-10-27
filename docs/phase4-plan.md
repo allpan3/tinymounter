@@ -327,8 +327,10 @@ or merge is authorized. The protocol route, actual editor callbacks, metadata co
 reconnect proof and performance cost remain unverified until these gates pass.
 
 The fixture-only Tools/check-edit-publication.c and .py probe the first protocol gate without
-changing the app. The C helper connects only to the named M19 loopback guest fixture; the
-Python runner also verifies that exact native mount. Compile the helper against the existing
+changing the app. The C helper connects only to the named M19 loopback fixture; the
+Python runner also verifies that exact native mount. The separately approved disposable
+account can be selected with --authenticated-test-account; its password is read privately
+from Keychain, never supplied on the command line. Compile the helper against the existing
 libTinyMounterSMB.dylib in the VM, then pass its path with --library and the approved mount
 with --fixture-root. The probe leaves its uniquely named synthetic files for inspection and
 fixture cleanup. Its JSON reports observations, not a claim that M19 is implemented.
@@ -338,3 +340,7 @@ backing-filesystem writes, renames and deletion bypassed protection. The user ac
 that explicit location opt-in; the client cannot establish server-wide access policy itself.
 Use --check-backing-access to reproduce this limit on the disposable fixture. Transport errors
 terminate the probe process with status 70 so queued callbacks cannot outlive their storage.
+The authenticated follow-up also fails the permission-preservation gate: direct security
+queries return STATUS_NOT_SUPPORTED and native SMB misses an explicit backing ACL. Do not
+treat that as an empty ACL or publish a replacement. The results log proposes a standalone
+Samba fixture in VM 1; installing its test dependencies and running that server need approval.
