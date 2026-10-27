@@ -69,3 +69,19 @@ locations still require a separate editing opt-in.
 Signed editor saves, crash/interruption recovery, metadata preservation, ancestor protection
 and matched recordings remain unverified. No M19 app build was installed. The original NAS remains read-only for
 agent testing; no physical-Mac change, push, publication or merge occurred.
+
+## Follow-up implementation
+
+The user approved reopening the same disposable VM share for the remaining checks. A separate
+private snapshot covers this second session, which is active. The metadata probe confirms that
+an already-open SMB writer prevents acquisition of the replacement guard. Security queries
+for owner, group and DACL, individually and together, return STATUS_NOT_SUPPORTED through the
+guest connection. Named-stream queries succeed. Permission preservation is not established;
+an authenticated disposable test account is proposed, awaiting separate permission.
+
+The local EditOutbox foundation retains each save generation independently, including extended
+attributes, with a content and metadata digest. Strong base receipts are immutable and use an
+e1 token distinct from existing f1 fingerprints. Incomplete and orphaned content blocks removal;
+completion requires the recorded publication identity and complete content. This code is not
+yet connected to File Provider callbacks or remote writes. All eight focused EditOutbox tests
+passed in macOS VM 1, including metadata retention and replay after reopening the outbox.

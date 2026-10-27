@@ -33,6 +33,7 @@ core_paths = ["Sources/TransferCore/ByteRange.swift", "Sources/TransferCore/Cata
               "Prototype/Shared/SourceReaderProtocol.swift"]
 # Share access and catalog creation and writes are app only; the extension only reads catalogs.
 app_paths = ["Sources/TransferCore/Upload.swift", "Sources/TransferCore/FolderNaming.swift",
+             "Sources/TransferCore/EditOutbox.swift",
              "Sources/TransferCore/FolderCreation.swift",
              "Prototype/App/LocationUploads.swift", "Prototype/App/LocationFolderNaming.swift",
              "Prototype/App/TinyMounterApp.swift", "Prototype/App/SourceReaderHost.swift",
