@@ -133,9 +133,12 @@ renames and deletion bypassed SMB protection. The user accepted restricting edit
 whose writers all use SMB. Local pending-edit storage passes its eight focused VM tests.
 Format migrations preserve existing identities and leave editing off. Required VM checks pass
 with 244 tests, one optional fixture skip and no failures. The authenticated Apple SMB fixture
-cannot expose access rules needed for safe replacement. A replacement test server awaits approval;
-editor saves remain unsupported. Sharing is restored, and the temporary account and credential
-are removed.
+cannot expose access rules needed for safe replacement. The approved Samba fixture exposes
+them, but competing SMB clients can change permissions and add streams while the proposed guard
+is held, even with all sharing denied. This blocks the accepted save design; editor saves
+remain unsupported. The temporary server, installation, fixture and credential are removed.
+Apple's sharing settings are unchanged. An additional native-create fixture check failed during
+directory setup, before reaching its upload assertions.
 See the [gate status](docs/results/2026-10-27-edit-publication.md).
 
 ## Run the prototype

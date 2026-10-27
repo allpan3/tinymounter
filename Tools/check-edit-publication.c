@@ -50,7 +50,7 @@ void *probe_connect(const char *password, int *error)
     struct smb2_context *smb = smb2_init_context();
     *error = ENOMEM;
     if (!smb) return NULL;
-    smb2_set_timeout(smb, 10);
+    smb2_set_timeout(smb, 45);
     smb2_set_authentication(smb, 1);
     smb2_set_user(smb, password ? "_tinymounter_m19" : "guest");
     smb2_set_password(smb, password ? password : "");
@@ -227,4 +227,55 @@ int probe_metadata(void *smb, uint8_t *file, int security, uint8_t *buffer,
     smb2_set_passthrough(smb, 0);
     *count = reply.count;
     return error;
+}
+
+int probe_set_metadata(void *smb, uint8_t *file, int security,
+                       uint8_t *buffer, uint32_t length)
+{
+    if (!buffer || length > 65536 || (security ? length < 20 : length != 40)) return EINVAL;
+    struct smb2_set_info_request request = {0};
+    request.info_type = security ? SMB2_0_INFO_SECURITY : SMB2_0_INFO_FILE;
+    request.file_info_class = security ? 0 : SMB2_FILE_BASIC_INFORMATION;
+    request.additional_information = security ? SMB2_DACL_SECURITY_INFORMATION : 0;
+    request.input_data = buffer;
+    request.buffer_length = length;
+    request.buffer_offset = 96;
+    memcpy(request.file_id, file, SMB2_FD_SIZE);
+    struct probe_reply reply = {0};
+    smb2_set_passthrough(smb, 1);
+    int error = wait_reply(smb, smb2_cmd_set_info_async(smb, &request, done, &reply), &reply);
+    smb2_set_passthrough(smb, 0);
+    return error;
+}
+
+int probe_open_stream(void *smb, const char *path, uint8_t *file)
+{
+    if (!fixture_path(path)) return EINVAL;
+    char name[280];
+    size_t length = strlen(path);
+    memcpy(name, path, length);
+    strcpy(name + length, ":m19-probe:$DATA");
+    struct smb2_create_request request = {0};
+    request.impersonation_level = SMB2_IMPERSONATION_IMPERSONATION;
+    request.desired_access = SMB2_FILE_WRITE_DATA | SMB2_FILE_READ_ATTRIBUTES;
+    request.share_access = SMB2_FILE_SHARE_READ | SMB2_FILE_SHARE_WRITE | SMB2_FILE_SHARE_DELETE;
+    request.create_disposition = SMB2_FILE_CREATE;
+    request.create_options = SMB2_FILE_NON_DIRECTORY_FILE | SMB2_FILE_OPEN_REPARSE_POINT;
+    request.name = name;
+    struct probe_reply reply = {0};
+    int error = wait_reply(smb, smb2_cmd_create_async(smb, &request, opened, &reply), &reply);
+    if (!error) memcpy(file, reply.file, SMB2_FD_SIZE);
+    return error;
+}
+
+int probe_write_stream(void *smb, uint8_t *file)
+{
+    static const char contents[] = "competing synthetic stream\n";
+    struct smb2_write_request request = {0};
+    request.length = sizeof(contents) - 1;
+    request.buf = (const uint8_t *)contents;
+    request.flags = SMB2_WRITEFLAG_WRITE_THROUGH;
+    memcpy(request.file_id, file, SMB2_FD_SIZE);
+    struct probe_reply reply = {0};
+    return wait_reply(smb, smb2_cmd_write_async(smb, &request, 0, done, &reply), &reply);
 }

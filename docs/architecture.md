@@ -231,7 +231,12 @@ it waits for the transport decision.
   not fix server-local exclusion. Editor callbacks, metadata
   preservation and interrupted recovery remain unverified. The authenticated Apple SMB fixture
   does not expose security descriptors, and native SMB also misses an explicit backing ACL.
-  A standalone Samba fixture in VM 1 is proposed for approval, including its test dependencies.
+  The user approved a standalone Samba fixture and its test dependencies in VM 1.
+  It exposes security descriptors, but competing SMB permission and named-stream changes
+  bypass the proposed guard. The accepted SMB-only boundary does not cover this gap.
+  Denying all sharing also permits those changes. A revised publication design needs approval;
+  no further safety restriction or separate-copy save behavior is accepted. The temporary
+  server, installation and test data are removed, with Apple's sharing settings unchanged.
   No M19 editing behavior is implemented.
   See the [protocol results](results/2026-10-27-edit-publication.md).
 - **Safe upload publication, accepted for M18.** Use native exclusive creation, preserve complete local pending copies, and verify before acknowledging upload. Other devices can see partial new content. Never open an existing remote destination for writing. An uncertain interrupted attempt remains pending unless remote identity and complete contents prove success. See the [API results](results/2026-10-23-upload-publication.md).

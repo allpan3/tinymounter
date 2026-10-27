@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import struct
 import subprocess
 import uuid
 
@@ -85,6 +86,23 @@ class Client:
             raise OSError(error, "query fixture metadata")
         return bytes(buffer[:count.value])
 
+    def set_metadata(self, handle, data, security):
+        buffer = (C.c_ubyte * len(data)).from_buffer_copy(data)
+        error = self.library.probe_set_metadata(self.context, handle, security, buffer, len(buffer))
+        if error:
+            raise OSError(error, "set fixture metadata")
+
+    def create_stream(self, name):
+        handle = HANDLE()
+        error = self.library.probe_open_stream(self.context, name.encode(), handle)
+        if error:
+            raise OSError(error, "create fixture stream")
+        self.handles.append(handle)
+        error = self.library.probe_write_stream(self.context, handle)
+        if error:
+            raise OSError(error, "write competing fixture stream")
+        return handle
+
 
 def load(path, authenticated=False):
     library = C.CDLL(str(path))
@@ -110,6 +128,9 @@ def load(path, authenticated=False):
         "delete": ([pointer, byte_pointer], C.c_int),
         "flush": ([pointer, byte_pointer], C.c_int),
         "metadata": ([pointer, byte_pointer, C.c_int, byte_pointer, C.c_uint32, C.POINTER(C.c_uint32)], C.c_int),
+        "set_metadata": ([pointer, byte_pointer, C.c_int, byte_pointer, C.c_uint32], C.c_int),
+        "open_stream": ([pointer, C.c_char_p, byte_pointer], C.c_int),
+        "write_stream": ([pointer, byte_pointer], C.c_int),
         "status": ([], C.c_uint32),
     }
     for name, (arguments, result) in declarations.items():
@@ -267,6 +288,86 @@ def probe_backing_access(library):
     return report
 
 
+def deny_data_writes(security):
+    if len(security) < 20 or security[0] != 1:
+        raise ValueError("invalid fixture security descriptor")
+    offset = struct.unpack_from("<I", security, 16)[0]
+    if offset < 20 or offset + 8 > len(security):
+        raise ValueError("fixture requires an explicit DACL")
+    revision, _, length, count, _ = struct.unpack_from("<BBHHH", security, offset)
+    if length < 8 or offset + length > len(security):
+        raise ValueError("invalid fixture DACL")
+    everyone = bytes.fromhex("010100000000000100000000")
+    deny = struct.pack("<BBHI", 1, 0, 8 + len(everyone), WRITE) + everyone
+    acl = struct.pack("<BBHHH", revision, 0, length + len(deny), count + 1, 0)
+    acl += deny + security[offset + 8:offset + length]
+    return struct.pack("<BBHIIII", 1, 0, 0x8004, 0, 0, 0, 20) + acl
+
+
+def probe_metadata_exclusion(root, library, sharing=SHARE_READ):
+    a, b = Client(library), Client(library)
+    name = "probe-" + uuid.uuid4().hex + "-metadata"
+    payload = b"unchanged synthetic contents\n" * 64
+    report = {"fixture_prefix": name, "macos": platform.mac_ver()[0],
+              "cache_state": "uncontrolled", "guard_sharing": sharing}
+    try:
+        native_write(root / name, payload, True)
+        guard = a.open(name, READ | DELETE, sharing)
+        before = a.info(guard)
+        security = a.metadata(guard, True)
+        report["security_descriptor_readable"] = bool(security)
+        report["data_writer_denied_errno"] = attempt(lambda: b.close(b.open(name, WRITE)))
+
+        def change_date():
+            handle = b.open(name, 0x100)
+            filetime = (before[5] + 1000000) * 10 + 116444736000000000
+            b.set_metadata(handle, struct.pack("<QQQQII", 0, 0, filetime, 0, 0, 0), False)
+            b.close(handle)
+        report["competing_date_change_errno"] = attempt(change_date)
+        report["date_changed_under_guard"] = a.info(guard)[5] != before[5]
+
+        def change_permissions():
+            handle = b.open(name, 0x20000 | 0x40000)
+            b.set_metadata(handle, deny_data_writes(security), True)
+            b.close(handle)
+        report["competing_dacl_change_errno"] = attempt(change_permissions)
+        report["dacl_changed_under_guard"] = a.metadata(guard, True) != security
+        if report["dacl_changed_under_guard"]:
+            a.close(guard)
+            report["changed_dacl_denies_writer_errno"] = attempt(lambda: b.close(b.open(name, WRITE)))
+            handle = b.open(name, 0x40000)
+            b.set_metadata(handle, security, True)
+            b.close(handle)
+            report["restored_dacl_allows_writer_errno"] = attempt(lambda: b.close(b.open(name, WRITE)))
+            guard = a.open(name, READ | DELETE, sharing)
+            report["dacl_restored"] = a.metadata(guard, True) == security
+
+        streams = a.metadata(guard, False)
+        report["competing_stream_create_errno"] = attempt(lambda: b.close(b.create_stream(name)))
+        after_streams = a.metadata(guard, False)
+        report["streams_changed_under_guard"] = after_streams != streams
+        offset = 0
+        while offset + 24 <= len(after_streams):
+            next_offset, name_size, size, _ = struct.unpack_from("<IIQQ", after_streams, offset)
+            stream_name = after_streams[offset + 24:offset + 24 + name_size].decode("utf-16-le")
+            if stream_name == ":m19-probe:$DATA":
+                report["competing_stream_size"] = size
+            if not next_offset:
+                break
+            if next_offset < 24:
+                raise ValueError("invalid fixture stream information")
+            offset += next_offset
+        report["main_identity_unchanged"] = a.info(guard)[:2] == before[:2]
+        report["main_contents_unchanged"] = a.read(guard) == payload
+    except OSError as error:
+        report["probe_errno"] = error.errno
+        report["last_ntstatus"] = hex(library.probe_status())
+    finally:
+        a.disconnect()
+        b.disconnect()
+    return report
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--library", type=Path, required=True)
@@ -275,6 +376,10 @@ def main():
                         help="also exercise server-local access to the disposable fixture")
     parser.add_argument("--authenticated-test-account", action="store_true",
                         help="use the separately approved disposable account's Keychain credential")
+    parser.add_argument("--check-metadata-exclusion", action="store_true",
+                        help="test competing SMB date, DACL and named-stream changes")
+    parser.add_argument("--deny-all-sharing", action="store_true",
+                        help="also deny read sharing in the metadata exclusion check")
     args = parser.parse_args()
     expected = Path("/Volumes/tinymounter-m19-edit-test")
     if args.fixture_root != expected or not os.path.ismount(expected):
@@ -285,7 +390,13 @@ def main():
                     for user in accounts)
     if not any(line.startswith(sources) for line in mounts.stdout.splitlines()):
         parser.error("fixture must be the approved native loopback mount and account")
-    report = probe(expected, load(args.library, args.authenticated_test_account))
+    if args.deny_all_sharing and not args.check_metadata_exclusion:
+        parser.error("--deny-all-sharing requires --check-metadata-exclusion")
+    library = load(args.library, args.authenticated_test_account)
+    if args.check_metadata_exclusion:
+        report = probe_metadata_exclusion(expected, library, 0 if args.deny_all_sharing else SHARE_READ)
+    else:
+        report = probe(expected, library)
     if args.check_backing_access:
         report["backing_access"] = probe_backing_access(load(args.library, args.authenticated_test_account))
     print(json.dumps(report, sort_keys=True))
