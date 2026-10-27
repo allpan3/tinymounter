@@ -82,7 +82,7 @@ private snapshot covers this second session. The metadata probe confirms that
 an already-open SMB writer prevents acquisition of the replacement guard. Security queries
 for owner, group and DACL, individually and together, return STATUS_NOT_SUPPORTED through the
 guest connection. Named-stream queries succeed. Permission preservation is not established.
-The user approved an authenticated disposable test account. It is temporary and non-admin,
+The user approved an authenticated disposable test account. It was temporary and non-admin,
 with no login shell or secure token. Its generated password was kept in Keychain and supplied
 to the fixture probe in memory.
 
@@ -143,11 +143,20 @@ match the second snapshot, SMB is unloaded, and guest SMB access and guest login
 The exact test Keychain item was deleted. No matching cached NTLM credential was found.
 
 macOS refused deletion of the temporary account with eDSPermissionError, including through
-sysadminctl and administrator execution. The account is disabled, and pwpolicy confirms that
-it cannot authenticate. Its record still needs removal through an authenticated VM administrator
-action; cleanup is not complete. The user was given the supported sysadminctl command with a
-local password prompt. The original NAS remains read-only. No shared daemon restart, VM restart,
+sysadminctl and administrator execution. The account was disabled until the user removed it
+through an authenticated VM administrator action. A fresh directory-service query confirms
+that its record is gone. Sharing, launch settings, fixture removal and absence of the exact
+Keychain item were checked again; cleanup is complete. Evidence: m19-auth-cleanup.json and
+m19-credential-cleanup.json. The original NAS remains read-only. No shared daemon restart, VM restart,
 network interruption, physical-Mac installation or publication occurred.
+
+At the user's request, session cleanup also closed 23 Finder windows and quit the test app.
+It removed 18 obsolete build directories, whose allocated sizes totalled 1,561.1 MiB before
+removal, while retaining the verified signed M18 app, current build outputs and results evidence.
+This is the sum reported by du, not a measurement of physical disk space reclaimed from APFS.
+The VM then had zero Finder windows and no running tinymounter test app. Evidence:
+vm-cleanup-20261027.json. Future sessions must close their test apps/windows and remove obsolete
+artifacts before handoff, preserving user work and useful evidence.
 
 ## Proposed replacement fixture
 

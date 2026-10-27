@@ -134,8 +134,8 @@ whose writers all use SMB. Local pending-edit storage passes its eight focused V
 Format migrations preserve existing identities and leave editing off. Required VM checks pass
 with 244 tests, one optional fixture skip and no failures. The authenticated Apple SMB fixture
 cannot expose access rules needed for safe replacement. A replacement test server awaits approval;
-editor saves remain unsupported. Sharing is restored; the disabled temporary account still needs
-authenticated administrator removal.
+editor saves remain unsupported. Sharing is restored, and the temporary account and credential
+are removed.
 See the [gate status](docs/results/2026-10-27-edit-publication.md).
 
 ## Run the prototype
