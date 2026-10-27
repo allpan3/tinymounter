@@ -43,7 +43,7 @@ File Provider, cache ownership, and metadata architecture are selected. The ship
 are separate records. The app owns read-only grants; macOS owns passwords and SMB mounts. An
 existing connection can be associated with a saved server by explicit selection, with confirmation
 for another address. Disconnect ejects that OS volume. Remove ejects all associated connections
-before deleting the server; failure retains the records. Settings version 4 migrates versions 1, 2 and 3
+before deleting the server; failure retains the records. Settings version 5 migrates versions 1 through 4
 atomically, preserving location and domain identity, bookmarks and Keep Downloaded lists, with
 typed file and folder requests ([M14 results](results/2026-10-19-folder-keeps.md)). The
 [connection-management results](results/2026-10-18-connection-management.md) record VM checks and

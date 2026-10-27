@@ -18,6 +18,103 @@ final class CatalogTests: XCTestCase {
         try FileManager.default.removeItem(at: directory)
     }
 
+    func testEditingMigrationPreservesExistingVersionsIDsKeepsAndAnchors() throws {
+        var catalog: Catalog? = try makeCatalog()
+        try reconcile(catalog!, [file("data")])
+        let before = try child(catalog!, "data")
+        try catalog!.setKeep(ids: [before.id], value: true)
+        try catalog!.setAllowsCreation(true)
+        let anchor = try catalog!.currentAnchor(), epoch = catalog!.epoch
+        try catalog!.database.execute("""
+            ALTER TABLE meta DROP COLUMN allows_editing;
+            ALTER TABLE items DROP COLUMN edit_version;
+            PRAGMA user_version = 4;
+            """, operation: "test")
+        catalog = nil
+        XCTAssertThrowsError(try Catalog.open(at: url(), domainID: "domain-A"))
+        let upgraded = try Catalog.openWriter(at: url(), domainID: "domain-A")
+        let after = try XCTUnwrap(upgraded.item(id: before.id))
+        XCTAssertEqual(upgraded.epoch, epoch)
+        XCTAssertEqual(try upgraded.currentAnchor(), anchor)
+        XCTAssertEqual(after.row, before.row)
+        XCTAssertEqual(after.contentVersion, before.contentVersion)
+        XCTAssertTrue(after.keepRequested)
+        XCTAssertTrue(after.allowsCreation)
+        XCTAssertFalse(after.allowsEditing)
+        try upgraded.setAllowsEditing(true)
+        XCTAssertTrue(try XCTUnwrap(upgraded.item(id: before.id)).allowsEditing)
+        try upgraded.setAllowsCreation(false)
+        try upgraded.setAllowsCreation(true)
+        XCTAssertFalse(try XCTUnwrap(upgraded.item(id: before.id)).allowsEditing)
+    }
+
+    func testStrongRevisionKeepsItemAndKeepRequestButExternalChangeInvalidatesIt() throws {
+        let catalog = try makeCatalog()
+        try reconcile(catalog, [file("data")])
+        let before = try child(catalog, "data")
+        try catalog.setKeep(ids: [before.id], value: true)
+        XCTAssertThrowsError(try catalog.setAllowsEditing(true))
+        try catalog.setAllowsCreation(true)
+        try catalog.setAllowsEditing(true)
+        let remote = try EditFileVersion(identity: EditFileIdentity(fileID: 17, birthMicroseconds: 18),
+                                         size: before.size, digest: String(repeating: "a", count: 64),
+                                         modifiedMicroseconds: 19, changedMicroseconds: 20,
+                                         attributes: 32, security: Data([1]))
+        let receipt = try EditBaseReceipt(item: before.id, version: remote)
+        try catalog.rememberEditBase(receipt, expectedVersion: before.contentVersion)
+        XCTAssertEqual(try child(catalog, "data").contentVersion, receipt.contentVersion)
+        XCTAssertTrue(try child(catalog, "data").keepRequested)
+        try reconcile(catalog, [file("data")])
+        XCTAssertEqual(try child(catalog, "data").contentVersion, receipt.contentVersion)
+        _ = try catalog.updateFingerprint(item: before.id,
+                                           fingerprint: ContentFingerprint(size: before.size + 1, mtimeNs: 88, ctimeNs: 99),
+                                           fileID: 17)
+        let changed = try child(catalog, "data")
+        XCTAssertNil(changed.editVersion)
+        XCTAssertTrue(changed.contentVersion.hasPrefix("f1:"))
+        XCTAssertEqual(changed.id, before.id)
+        XCTAssertTrue(changed.keepRequested)
+        XCTAssertThrowsError(try catalog.rememberEditBase(receipt, expectedVersion: before.contentVersion))
+    }
+
+    func testPublishedEditKeepsIdentityAndConflictCreatesSeparateItem() throws {
+        let catalog = try makeCatalog()
+        try reconcile(catalog, [file("data")])
+        let before = try child(catalog, "data")
+        try catalog.setKeep(ids: [before.id], value: true)
+        let input = directory.appending(path: "input")
+        try Data("new contents".utf8).write(to: input)
+        let outbox = try EditOutbox(directory: directory.appending(path: "Edits"))
+        var edit = try outbox.prepare(item: before.id, parent: root, path: XCTUnwrap(RelativePath("data")),
+                                      baseVersion: before.contentVersion, failOnConflict: false,
+                                      contents: input, progress: Progress())
+        let version = try EditFileVersion(identity: EditFileIdentity(fileID: 33, birthMicroseconds: 44),
+                                          size: edit.size, digest: edit.digest, modifiedMicroseconds: 55,
+                                          changedMicroseconds: 66, attributes: 32, security: Data([1]))
+        edit.stageIdentity = version.identity
+        edit.state = .published
+        edit.published = try EditBaseReceipt(item: before.id, version: version)
+        let fingerprint = ContentFingerprint(size: edit.size, mtimeNs: 55_000, ctimeNs: 66_000)
+        XCTAssertEqual(try catalog.commitEdit(edit, fingerprint: fingerprint, nativeID: 99), before.id)
+        let updated = try child(catalog, "data")
+        XCTAssertEqual(updated.row, before.row)
+        XCTAssertTrue(updated.keepRequested)
+        XCTAssertEqual(updated.contentVersion, edit.published?.contentVersion)
+        let anchor = try catalog.currentAnchor()
+        _ = try catalog.commitEdit(edit, fingerprint: fingerprint, nativeID: 99)
+        XCTAssertEqual(try catalog.currentAnchor(), anchor)
+        edit.conflict = true
+        edit.destination = "data conflict"
+        edit.published = try EditBaseReceipt(item: edit.id.uuidString, version: version)
+        XCTAssertEqual(try catalog.commitEdit(edit, fingerprint: fingerprint, nativeID: 101), edit.id.uuidString)
+        XCTAssertEqual(try child(catalog, "data"), updated)
+        XCTAssertFalse(try child(catalog, "data conflict").keepRequested)
+        XCTAssertEqual(try catalog.keepRequests().map(\.id), [before.id])
+        edit.destination = "data"
+        XCTAssertThrowsError(try catalog.commitEdit(edit, fingerprint: fingerprint, nativeID: 101))
+        XCTAssertEqual(try child(catalog, "data"), updated)
+    }
+
     func testInitialFolderNameKeepsIdentityChildrenAndPageOrder() throws {
         let catalog = try makeCatalog()
         try catalog.reconcile(folder: root, listing: DirectoryListing([
@@ -66,6 +163,8 @@ final class CatalogTests: XCTestCase {
         try catalog!.setAllowsCreation(true)
         let anchor = try catalog!.currentAnchor(), epoch = catalog!.epoch
         try catalog!.database.execute("""
+            ALTER TABLE meta DROP COLUMN allows_editing;
+            ALTER TABLE items DROP COLUMN edit_version;
             DROP INDEX items_listing;
             ALTER TABLE items DROP COLUMN enumeration_key;
             PRAGMA user_version = 3;
@@ -87,6 +186,8 @@ final class CatalogTests: XCTestCase {
         try catalog!.setKeep(ids: [item.id], value: true)
         let anchor = try catalog!.currentAnchor(), epoch = catalog!.epoch
         try catalog!.database.execute("""
+            ALTER TABLE meta DROP COLUMN allows_editing;
+            ALTER TABLE items DROP COLUMN edit_version;
             DROP INDEX items_listing;
             ALTER TABLE items DROP COLUMN enumeration_key;
             ALTER TABLE meta DROP COLUMN allows_creation;
@@ -107,7 +208,7 @@ final class CatalogTests: XCTestCase {
 
     func testCreateWritesSchemaPragmasMetaAndRoot() throws {
         let catalog = try makeCatalog()
-        XCTAssertEqual(try scalar(catalog, "PRAGMA user_version"), "4")
+        XCTAssertEqual(try scalar(catalog, "PRAGMA user_version"), "5")
         XCTAssertEqual(try scalar(catalog, "PRAGMA journal_mode"), "wal")
         XCTAssertEqual(try scalar(catalog, "PRAGMA synchronous"), "2") // FULL
         XCTAssertEqual(try scalar(catalog, "PRAGMA fullfsync"), "1")
@@ -116,10 +217,10 @@ final class CatalogTests: XCTestCase {
             + " || '|' || paused FROM meta"
         XCTAssertEqual(try rows(catalog, meta), ["1|domain-A|16|0|0|0"])
         XCTAssertEqual(try rows(catalog, "SELECT name FROM pragma_table_info('meta')"),
-                       ["id", "domain_id", "epoch", "last_seq", "listing_gen", "paused", "allows_creation"])
+                       ["id", "domain_id", "epoch", "last_seq", "listing_gen", "paused", "allows_creation", "allows_editing"])
         XCTAssertEqual(try rows(catalog, "SELECT name FROM pragma_table_info('items')"),
                        ["row", "id", "parent_id", "name", "name_key", "kind", "size", "mtime_ns", "ctime_ns", "file_id",
-                        "keep", "list_gen", "listed_at", "deleted", "change_seq", "keep_request", "listing_complete", "enumeration_key"])
+                        "keep", "list_gen", "listed_at", "deleted", "change_seq", "keep_request", "listing_complete", "enumeration_key", "edit_version"])
         let indexes = "SELECT sql FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL ORDER BY name"
         XCTAssertEqual(try rows(catalog, indexes),
                        ["CREATE INDEX items_kept ON items(row) WHERE keep = 1 AND deleted = 0",
@@ -175,7 +276,7 @@ final class CatalogTests: XCTestCase {
         XCTAssertEqual(try fileNames(), ["catalog.sqlite", "catalog.sqlite-shm", "catalog.sqlite-wal", "empty.sqlite"])
         XCTAssertEqual(try Data(contentsOf: url("empty")).count, 0)
 
-        try catalog.database.execute("PRAGMA user_version = 5", operation: "test")
+        try catalog.database.execute("PRAGMA user_version = 6", operation: "test")
         for open in openers {
             XCTAssertThrowsError(try open(url(), "domain-A")) {
                 XCTAssertEqual($0 as? CatalogError, .unsupportedSchema)

@@ -85,3 +85,13 @@ e1 token distinct from existing f1 fingerprints. Incomplete and orphaned content
 completion requires the recorded publication identity and complete content. This code is not
 yet connected to File Provider callbacks or remote writes. All eight focused EditOutbox tests
 passed in macOS VM 1, including metadata retention and replay after reopening the outbox.
+
+The catalog/settings foundation migrates formats 1–4 to 5 to represent separate editing
+permission and strong content versions. This compatibility boundary makes older builds refuse
+records they cannot preserve. Existing locations retain their write grants and keep requests,
+with editing off; catalog rows keep their IDs, epochs, anchors and legacy content versions.
+Verified same-item commits preserve item identity and keep requests; conflicts have separate
+rows. These operations are not yet exposed by the app. Tools/run-checks.sh passed in VM 1:
+244 tests executed, one optional fixture skip, no failures, and all required builds passed
+with no Swift warnings. The build emitted the existing AppIntents extraction notice.
+Evidence: .local/phase2/m19-foundation-required-checks.log.

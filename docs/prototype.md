@@ -324,10 +324,13 @@ Build again with a new certificate before it expires: what an expired one does i
 **Update.** Quit tinymounter, build the new version, and open it. After Quit, the app stays
 stopped: only a crash makes the extension start it again. The locations, their downloads
 and their Keep Downloaded requests stay. Keep the same team and bundle identifier, because the
-settings and catalogs are in containers named after them. Settings version 4 adds an optional per-location write bookmark and retains typed file
-and folder keep requests, server addresses and share grants. It migrates versions 1, 2 and 3
-atomically, preserving bookmarks, grant and location IDs, domains and saved lists.
-Catalog versions 1, 2 and 3 migrate to version 4 without replacing item IDs or the epoch. The
+settings and catalogs are in containers named after them. Settings version 5 adds a separate
+optional SMB-only editing confirmation and retains write bookmarks, typed keep requests,
+server addresses and share grants. Versions 1 through 4 migrate atomically without granting
+editing to existing locations. Bookmarks, grant/location IDs, domains and saved lists remain.
+Catalog versions 1 through 4 migrate to version 5 without replacing item IDs or the epoch.
+Version 5 stores the editing permission and optional strong content-revision token; existing
+rows retain their f1 versions until a verified full handoff establishes an immutable receipt. The
 immutable enumeration key keeps existing folder-page cursors valid when initial naming changes
 the lookup key. The earlier version 1 keep migration gives live items new metadata sequences
 so Finder receives the folder actions. Earlier anchors remain valid.

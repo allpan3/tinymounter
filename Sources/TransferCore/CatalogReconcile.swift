@@ -131,6 +131,17 @@ extension Catalog {
                     """, operation: "migrate naming cursors")
             }
         }
+        if (1...4).contains(version) {
+            _ = try checkedEpoch(database, domainID: domainID, version: 4)
+            try configureWriter(database)
+            try database.write {
+                try database.execute("""
+                    ALTER TABLE meta ADD COLUMN allows_editing INTEGER NOT NULL DEFAULT 0;
+                    ALTER TABLE items ADD COLUMN edit_version TEXT;
+                    PRAGMA user_version = 5;
+                    """, operation: "migrate editing permission and revisions")
+            }
+        }
         let epoch = try checkedEpoch(database, domainID: domainID)
         try configureWriter(database)
         return Catalog(database: database, domainID: domainID, epoch: epoch)
@@ -208,7 +219,7 @@ extension Catalog {
             }
             try database.prepare("""
                 UPDATE items SET name = ?, size = ?, mtime_ns = ?, ctime_ns = ?, file_id = ?, change_seq = ?,
-                  listing_complete = CASE WHEN kind = 1 THEN 0 ELSE listing_complete END
+                  listing_complete = CASE WHEN kind = 1 THEN 0 ELSE listing_complete END, edit_version = NULL
                 WHERE row = ?
                 """) { update in
                 try database.prepare("""
@@ -283,7 +294,7 @@ extension Catalog {
                 throw CatalogError.notALiveFile
             }
             try database.prepare("""
-                UPDATE items SET size = ?1, mtime_ns = ?2, ctime_ns = ?3, file_id = ?4, change_seq = ?5
+                UPDATE items SET size = ?1, mtime_ns = ?2, ctime_ns = ?3, file_id = ?4, change_seq = ?5, edit_version = NULL
                 WHERE row = ?6 AND (size, mtime_ns, ctime_ns, file_id) IS NOT (?1, ?2, ?3, ?4)
                 """) { statement in
                 try statement.bind(1, fingerprint.size)
@@ -342,7 +353,7 @@ extension Catalog {
             try statement.bind(1, id)
             try statement.bind(2, rootKeep)
             var result: [(CatalogRow, Bool)] = []
-            while try statement.step() { result.append((try CatalogRow(statement), statement.bool(17))) }
+            while try statement.step() { result.append((try CatalogRow(statement), statement.bool(19))) }
             return result
         }
     }
@@ -414,7 +425,7 @@ extension Catalog {
     }
 
     /// `body` adds 1 per visible change, so a batch cut at its last sequence skips no row.
-    private func write<Result>(_ body: (inout Int64) throws -> Result) throws -> Result {
+    func write<Result>(_ body: (inout Int64) throws -> Result) throws -> Result {
         try database.write {
             let first = try lastSeq()
             var seq = first
@@ -513,8 +524,9 @@ extension Catalog {
         try write { seq in
             guard try item(id: Self.rootItemID)?.allowsCreation != enabled else { return }
             let ids = try items("SELECT \(CatalogRow.columns) FROM items WHERE deleted = 0").map(\.id)
-            try database.prepare("UPDATE meta SET allows_creation = ?") { statement in
+            try database.prepare("UPDATE meta SET allows_creation = ?, allows_editing = allows_editing AND ?") { statement in
                 try statement.bind(1, enabled)
+                try statement.bind(2, enabled)
                 try statement.run()
             }
             for id in ids {

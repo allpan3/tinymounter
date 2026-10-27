@@ -14,6 +14,28 @@ final class SettingsTests: XCTestCase {
         try? FileManager.default.removeItem(at: directory)
     }
 
+    func testExistingWriteGrantDoesNotEnableEditingDuringUpgrade() throws {
+        let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "smb://home-nas")))
+        let address = try XCTUnwrap(ShareAddress("//account@home-nas/share"))
+        let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//account@home-nas/share", address: address)
+        var location = LocationRecord(name: "Location", serverID: grant.id, folder: .root)
+        location.writeBookmark = Data([2])
+        location.pendingKeeps = [KeepPath(path: "file", kind: .file)]
+        let settings = AppSettings(servers: [server], shares: [grant], locations: [location])
+        var object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as! [String: Any]
+        object["version"] = 4
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let path = directory.appending(path: "Settings.json")
+        try JSONSerialization.data(withJSONObject: object).write(to: path)
+        let upgraded = try AppSettings.load(from: path)
+        XCTAssertEqual(upgraded.locations, settings.locations)
+        XCTAssertEqual(upgraded.shares, settings.shares)
+        XCTAssertNil(upgraded.locations[0].smbOnlyEditing)
+        XCTAssertEqual(upgraded.locations[0].writeBookmark, Data([2]))
+        XCTAssertEqual(upgraded.version, 5)
+        XCTAssertEqual(try AppSettings.load(from: path), upgraded)
+    }
+
     func testVersionThreeLocationsStayReadOnlyWithIDsAndKeepsIntact() throws {
         let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "smb://home-nas")))
         let address = try XCTUnwrap(ShareAddress("//account@home-nas/share"))
@@ -27,7 +49,7 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(upgraded.locations, settings.locations)
         XCTAssertEqual(upgraded.shares, settings.shares)
         XCTAssertNil(upgraded.locations[0].writeBookmark)
-        XCTAssertEqual(upgraded.version, 4)
+        XCTAssertEqual(upgraded.version, 5)
     }
 
     func testNormalizedFolderTrimsSlashesAndRejectsInvalidComponents() {
@@ -201,7 +223,7 @@ final class SettingsTests: XCTestCase {
     func testOnlyAMissingFileLoadsAsEmptySettings() throws {
         let empty = try AppSettings.load(from: directory.appending(path: "Settings.json"))
         XCTAssertEqual(empty, AppSettings())
-        XCTAssertEqual(empty.version, 4)
+        XCTAssertEqual(empty.version, 5)
         XCTAssertTrue(empty.servers.isEmpty && empty.shares.isEmpty && empty.locations.isEmpty && empty.savedKeeps.isEmpty)
 
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -225,8 +247,8 @@ final class SettingsTests: XCTestCase {
 
     func testAnUnknownVersionIsRejected() throws {
         var object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(AppSettings())) as! [String: Any]
-        XCTAssertEqual(object["version"] as? Int, 4)
-        for version in [0, 5] {
+        XCTAssertEqual(object["version"] as? Int, 5)
+        for version in [0, 6] {
             object["version"] = version
             let data = try JSONSerialization.data(withJSONObject: object)
             XCTAssertThrowsError(try JSONDecoder().decode(AppSettings.self, from: data)) {
@@ -262,7 +284,7 @@ final class SettingsTests: XCTestCase {
         let url = directory.appending(path: "Settings.json")
         try previous.write(to: url)
         let migrated = try AppSettings.load(from: url)
-        XCTAssertEqual(migrated.version, 4)
+        XCTAssertEqual(migrated.version, 5)
         XCTAssertEqual(migrated.servers.count, 2)
         XCTAssertEqual(migrated.shares.count, 3)
         XCTAssertEqual(migrated.shares[0].id.uuidString, "11111111-1111-1111-1111-111111111111")
@@ -276,7 +298,7 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(migrated.savedKeeps[0].paths, fileKeeps(["Music/b.flac"]))
         XCTAssertEqual(try AppSettings.load(from: url), migrated)
         let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any]
-        XCTAssertEqual(saved["version"] as? Int, 4)
+        XCTAssertEqual(saved["version"] as? Int, 5)
         XCTAssertEqual(try mode(url), 0o600)
     }
 

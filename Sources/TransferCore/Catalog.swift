@@ -38,9 +38,11 @@ public struct CatalogRow: Equatable, Sendable {
     /// `meta.paused` in the same read, so a kept item's download policy matches its `changeSeq`.
     public let paused: Bool
     public let allowsCreation: Bool
+    public let allowsEditing: Bool
+    public let editVersion: String?
 
     public var contentVersion: String {
-        kind == .file ? ContentFingerprint(size: size, mtimeNs: mtimeNs, ctimeNs: ctimeNs).contentVersion : "d1"
+        kind == .file ? editVersion ?? ContentFingerprint(size: size, mtimeNs: mtimeNs, ctimeNs: ctimeNs).contentVersion : "d1"
     }
 
     public var metadataVersion: String { String(changeSeq) }
@@ -50,7 +52,8 @@ public struct CatalogRow: Equatable, Sendable {
 
     static let columns = """
         row, id, parent_id, name, kind, size, mtime_ns, ctime_ns, keep, deleted, list_gen, listed_at, \
-        change_seq, (SELECT paused FROM meta), keep_request, listing_complete, (SELECT allows_creation FROM meta)
+        change_seq, (SELECT paused FROM meta), keep_request, listing_complete, (SELECT allows_creation FROM meta), \
+        (SELECT allows_editing FROM meta), edit_version
         """
 
     init(_ statement: Statement) throws {
@@ -74,6 +77,8 @@ public struct CatalogRow: Equatable, Sendable {
         keepRequested = statement.bool(14)
         listingComplete = statement.bool(15)
         allowsCreation = statement.bool(16)
+        allowsEditing = statement.bool(17) && allowsCreation
+        editVersion = statement.isNull(18) ? nil : statement.text(18)
     }
 }
 
@@ -123,7 +128,7 @@ public final class Catalog {
     /// `NSFileProviderItemIdentifier.rootContainer.rawValue`; core doesn't import FileProvider.
     public static let rootItemID = "NSFileProviderRootContainerItemIdentifier"
     static let maxDepth = 256
-    static let schemaVersion: Int64 = 4
+    static let schemaVersion: Int64 = 5
     // No real number of writes reaches it, so a writer's `seq += 1` can't overflow.
     static let maxLastSeq = Int64.max / 2
     private static let busyTimeoutMilliseconds = 2000
@@ -136,7 +141,8 @@ public final class Catalog {
           last_seq INTEGER NOT NULL,
           listing_gen INTEGER NOT NULL,
           paused INTEGER NOT NULL DEFAULT 0,
-          allows_creation INTEGER NOT NULL DEFAULT 0);
+          allows_creation INTEGER NOT NULL DEFAULT 0,
+          allows_editing INTEGER NOT NULL DEFAULT 0);
         CREATE TABLE items (
           row INTEGER PRIMARY KEY,
           id TEXT NOT NULL UNIQUE,
@@ -155,11 +161,12 @@ public final class Catalog {
           change_seq INTEGER NOT NULL UNIQUE,
           keep_request INTEGER NOT NULL DEFAULT 0,
           listing_complete INTEGER NOT NULL DEFAULT 0,
-          enumeration_key TEXT NOT NULL);
+          enumeration_key TEXT NOT NULL,
+          edit_version TEXT);
         CREATE UNIQUE INDEX items_live_name ON items(parent_id, name_key) WHERE deleted = 0;
         CREATE INDEX items_kept ON items(row) WHERE keep = 1 AND deleted = 0;
         CREATE INDEX items_listing ON items(parent_id, enumeration_key, row) WHERE deleted = 0;
-        PRAGMA user_version = 4;
+        PRAGMA user_version = 5;
         """
 
     public let domainID: String

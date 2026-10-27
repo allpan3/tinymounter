@@ -266,7 +266,7 @@ final class FolderKeepTests: XCTestCase {
         let url = directory.appending(path: "Settings.json")
         try JSONSerialization.data(withJSONObject: old).write(to: url)
         let migrated = try AppSettings.load(from: url)
-        XCTAssertEqual(migrated.version, 4)
+        XCTAssertEqual(migrated.version, 5)
         XCTAssertEqual(migrated.locations[0].id, record.id)
         XCTAssertEqual(migrated.locations[0].domainID, record.domainID)
         XCTAssertEqual(migrated.locations[0].pendingKeeps, [file])
@@ -304,6 +304,8 @@ final class FolderKeepTests: XCTestCase {
 
     private func downgrade(_ catalog: Catalog) throws {
         try catalog.database.execute("""
+            ALTER TABLE meta DROP COLUMN allows_editing;
+            ALTER TABLE items DROP COLUMN edit_version;
             DROP INDEX items_listing;
             ALTER TABLE items DROP COLUMN enumeration_key;
             ALTER TABLE meta DROP COLUMN allows_creation;
