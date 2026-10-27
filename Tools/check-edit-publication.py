@@ -197,19 +197,65 @@ def probe(root, library):
     return report
 
 
+def probe_backing_access(library):
+    root = Path("/Users/Shared/tinymounter-m19-edit-fixture")
+    shares = subprocess.run(["/usr/sbin/sharing", "-l", "-f", "json"],
+                            capture_output=True, text=True, check=True)
+    exported = json.loads(shares.stdout)["tinymounter-m19-edit-test"]
+    if root.is_symlink() or exported["path"] != str(root) or not exported["smb_shared"]:
+        raise ValueError("requires the approved disposable backing directory")
+    name = "probe-" + uuid.uuid4().hex + "-local"
+    old, changed, competing = b"old synthetic bytes", b"new synthetic bytes", b"competing file"
+    report = {"fixture_prefix": name, "macos": platform.mac_ver()[0],
+              "cache_state": "uncontrolled"}
+    a, b = Client(library), Client(library)
+    try:
+        native_write(root / name, old, True)
+        guard = a.open(name, READ | DELETE, SHARE_READ)
+        identity = a.info(guard)[:2]
+        report["before_matches"] = a.read(guard) == old
+        report["local_write_errno"] = attempt(lambda: native_write(root / name, changed))
+        report["guarded_read_changed"] = a.read(guard) == changed
+        report["local_rename_errno"] = attempt(lambda: os.rename(root / name, root / (name + "-moved")))
+        if report["local_rename_errno"] == 0:
+            native_write(root / name, competing, True)
+            report["guarded_rename_after_local_replacement_errno"] = attempt(
+                lambda: a.rename(guard, name + "-recovery"))
+            current = b.open(name)
+            report["competing_path_preserved"] = b.read(current) == competing
+            report["guard_identity_retained"] = a.info(guard)[:2] == identity
+            report["guard_bytes_changed"] = a.read(guard) == changed
+            report["recovery_exists"] = (root / (name + "-recovery")).exists()
+            if report["recovery_exists"]:
+                report["local_delete_guarded_recovery_errno"] = attempt(
+                    lambda: os.unlink(root / (name + "-recovery")))
+                report["guard_still_readable_after_unlink"] = a.read(guard) == changed
+    except OSError as error:
+        report["probe_errno"] = error.errno
+    finally:
+        a.disconnect()
+        b.disconnect()
+    return report
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--library", type=Path, required=True)
     parser.add_argument("--fixture-root", type=Path, required=True)
+    parser.add_argument("--check-backing-access", action="store_true",
+                        help="also exercise server-local access to the disposable fixture")
     args = parser.parse_args()
     expected = Path("/Volumes/tinymounter-m19-edit-test")
     if args.fixture_root != expected or not os.path.ismount(expected):
         parser.error("requires the approved mounted M19 loopback fixture")
     mounts = subprocess.run(["/sbin/mount", "-t", "smbfs"], capture_output=True, text=True, check=True)
-    source = "//guest@127.0.0.1/tinymounter-m19-edit-test on " + str(expected) + " ("
-    if not any(line.startswith(source) for line in mounts.stdout.splitlines()):
+    sources = tuple("//" + user + "@127.0.0.1/tinymounter-m19-edit-test on " + str(expected) + " ("
+                    for user in ("guest", "guest:"))
+    if not any(line.startswith(sources) for line in mounts.stdout.splitlines()):
         parser.error("fixture must be the approved native loopback guest mount")
     report = probe(expected, load(args.library))
+    if args.check_backing_access:
+        report["backing_access"] = probe_backing_access(load(args.library))
     print(json.dumps(report, sort_keys=True))
 
 

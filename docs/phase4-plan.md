@@ -329,5 +329,9 @@ Python runner also verifies that exact native mount. Compile the helper against 
 libTinyMounterSMB.dylib in the VM, then pass its path with --library and the approved mount
 with --fixture-root. The probe leaves its uniquely named synthetic files for inspection and
 fixture cleanup. Its JSON reports observations, not a claim that M19 is implemented.
-The [gate status](results/2026-10-27-edit-publication.md) records the clean VM probe compilation
-and required checks. Fresh sharing permission is pending; no writable probe has run.
+The [gate status](results/2026-10-27-edit-publication.md) records the approved writable VM probe.
+Native/direct interoperability and publication passed against competing SMB clients. Direct
+backing-filesystem writes, renames and deletion bypassed protection. The tested server/path
+therefore fails the exclusion gate; do not expose same-name editing on that evidence.
+Use --check-backing-access to reproduce this limit on the disposable fixture. Transport errors
+terminate the probe process with status 70 so queued callbacks cannot outlive their storage.
