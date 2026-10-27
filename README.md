@@ -127,10 +127,11 @@ The existing catalog ID and diagnostic counts are retained; the location stays r
 Downloaded bytes were not independently checked. Creation and Keep Both await the user's run.
 See the [installation results](docs/results/2026-10-25-keep-both.md#physical-mac-installation-2026-10-27).
 
-Online editing (M19), 2026-10-27: the safety design is accepted, and the isolated protocol probe
-compiles in the VM. Required checks passed with 232 tests executed, one optional fixture skip
-and no failures. Writable protocol checks await fresh VM fixture permission; editing is not
-implemented. See the [gate status](docs/results/2026-10-27-edit-publication.md).
+Online editing (M19), 2026-10-27: the approved VM protocol probe passed native upload,
+exclusive publication, competing SMB access and reconnect checks. Server-local writes,
+renames and deletion bypassed SMB protection, so the safety gate remains blocked and editing
+is not implemented. Required checks passed with 232 tests, one optional fixture skip and no
+failures. See the [gate status](docs/results/2026-10-27-edit-publication.md).
 
 ## Run the prototype
 

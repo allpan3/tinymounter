@@ -30,10 +30,11 @@ static int wait_reply(struct smb2_context *smb, struct smb2_pdu *pdu, struct pro
     clock_gettime(CLOCK_MONOTONIC, &start);
     while (!reply->done) {
         struct pollfd fd = {.fd = smb2_get_fd(smb), .events = smb2_which_events(smb)};
-        if (poll(&fd, 1, 100) < 0 && errno != EINTR) return errno;
-        if (smb2_service(smb, fd.revents) < 0) return EIO;
+        /* Queued callbacks retain stack storage; an uncertain connection cannot be reused. */
+        if (poll(&fd, 1, 100) < 0 && errno != EINTR) _Exit(70);
+        if (smb2_service(smb, fd.revents) < 0) _Exit(70);
         clock_gettime(CLOCK_MONOTONIC, &now);
-        if (now.tv_sec - start.tv_sec > 12) return ETIMEDOUT;
+        if (now.tv_sec - start.tv_sec > 12) _Exit(70);
     }
     return reply->error;
 }
