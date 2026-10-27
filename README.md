@@ -88,7 +88,7 @@ Signed extension callbacks through authenticated IPC created files and folders w
 remote hashes; interruption and lifecycle guards passed. After an approved VM File Provider daemon
 restart, normal Finder file and nested-folder uploads passed, with matching hashes and native
 progress. Initial naming and file Keep Both now pass the follow-up checks below. Existing
-locations stay read-only. The physical-Mac app remains M16. See the
+locations stay read-only. The physical-Mac installation is recorded below. See the
 [results](docs/results/2026-10-23-create-items.md) and
 [accepted plan](docs/phase4-plan.md).
 
@@ -112,15 +112,20 @@ The read-only NAS check found native name-based identifiers that cannot prove re
 The accepted direct SMB client now creates and initially names folders with retained server
 identity, separate from native catalog identity. Signed Finder, collision, read-only and recovery
 checks passed, and all 230 tests and required VM checks passed without skips or Swift warnings.
-The fixture is removed and sharing is restored. Keep Both failed in this run; the physical-Mac
-app remains M16. See the
+The fixture is removed and sharing is restored. Keep Both failed in this run; the follow-up
+below resolves file collisions. See the
 [checks](docs/results/2026-10-23-folder-naming-fix.md).
 
 Keep Both follow-up, 2026-10-25: signed VM isolation trials found that Finder needs rename
 capability to select an alternative name before creation. Enabled locations now advertise it;
 general remote renaming remains denied. The final signed app passed repeated file collisions, original-byte preservation, folder copying and read-only
 Finder paste. All 232 VM tests and required checks passed. The fixture is removed and sharing
-is restored. The physical-Mac app remains M16. See the [results](docs/results/2026-10-25-keep-both.md).
+is restored. See the [results](docs/results/2026-10-25-keep-both.md).
+
+Physical-Mac M18 installation, 2026-10-27: the signed app and provider run from Applications.
+The existing catalog ID and diagnostic counts are retained; the location stays read-only.
+Downloaded bytes were not independently checked. Creation and Keep Both await the user's run.
+See the [installation results](docs/results/2026-10-25-keep-both.md#physical-mac-installation-2026-10-27).
 
 ## Run the prototype
 

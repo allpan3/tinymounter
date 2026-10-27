@@ -392,6 +392,10 @@ and nested-folder uploads passed with matching hashes and native progress. Initi
 passes the [signed follow-up](results/2026-10-23-folder-naming-fix.md). File Keep Both also passes
 the [signed follow-up](results/2026-10-25-keep-both.md). M18's VM create checks are complete;
 physical-Mac writes and other file managers remain unverified.
+
+The user approved installing M18 on 2026-10-27. The app and provider run from Applications with
+the existing catalog ID and diagnostic counts retained; the location remains read-only. See the
+[installation results](results/2026-10-25-keep-both.md#physical-mac-installation-2026-10-27).
 See the [results](results/2026-10-23-create-items.md). In a location's Changes
 section, Enable Changes asks the user to select the same share root for write access. The grant
 belongs to this location. Existing locations remain read-only. Editing, replacement, general
