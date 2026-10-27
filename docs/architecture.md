@@ -220,6 +220,12 @@ it waits for the transport decision.
 
 ## 11. Open decisions for the first experiment
 
+- **M19 online editing, accepted 2026-10-27.** The [safety design](phase4-plan.md#m19-online-editing)
+  uses protected, no-replace renames through a recovery name, complete local pending copies,
+  proven base revisions and conflict copies. The user accepted the temporary absence of
+  the original pathname, internal file rename/cleanup and the limited libsmb2 expansion.
+  Regular-file handle protection, native/direct staging interoperability, editor callbacks,
+  metadata preservation and reconnect evidence remain gates. No M19 behavior is implemented.
 - **Safe upload publication, accepted for M18.** Use native exclusive creation, preserve complete local pending copies, and verify before acknowledging upload. Other devices can see partial new content. Never open an existing remote destination for writing. An uncertain interrupted attempt remains pending unless remote identity and complete contents prove success. See the [API results](results/2026-10-23-upload-publication.md).
 - **Initial folder naming, accepted for M18 on 2026-10-23.** Finder creates an untitled folder, then sends a rename for the typed name. The callback and signed Finder checks pass. Native exclusive folder rename failed, and create/delete is unsafe under replacement races. An isolated direct SMB client passed no-overwrite rename checks. A limited `libsmb2` prototype is accepted for exclusive folder creation and initial naming, retaining server identity separately from native inodes. Corrected credential checks connected without a password, and signed naming and interrupted recovery passed on the disposable VM fixture. General renaming stays deferred. See the [naming investigation](results/2026-10-23-initial-folder-naming.md). File Keep Both now passes the [signed follow-up](results/2026-10-25-keep-both.md). General remote rename remains denied, although enabled locations advertise rename capability so Finder can choose a new copy name.
 

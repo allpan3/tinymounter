@@ -127,6 +127,11 @@ The existing catalog ID and diagnostic counts are retained; the location stays r
 Downloaded bytes were not independently checked. Creation and Keep Both await the user's run.
 See the [installation results](docs/results/2026-10-25-keep-both.md#physical-mac-installation-2026-10-27).
 
+Online editing (M19), 2026-10-27: the safety design is accepted, and the isolated protocol probe
+compiles in the VM. Required checks passed with 232 tests executed, one optional fixture skip
+and no failures. Writable protocol checks await fresh VM fixture permission; editing is not
+implemented. See the [gate status](docs/results/2026-10-27-edit-publication.md).
+
 ## Run the prototype
 
 See [prototype setup and validation](docs/prototype.md). Build the benchmark with `swift build -c release`; run `.build/release/transfer-bench --help`. Open `TinyMounter.xcodeproj` to configure signing for the Finder prototype.

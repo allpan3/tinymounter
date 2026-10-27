@@ -18,6 +18,8 @@ current status.
   exclusive folder creation and initial naming after the safety checks and licence review.
   Reads and file uploads stay native. Further dependencies or transport changes need a user
   decision after measurement and a licence review ([architecture.md §5](docs/architecture.md#5-native-smb-versus-direct-smb)).
+  M19's accepted design adds protected regular-file staging, verification and transactional
+  rename/cleanup, gated by the [protocol checks](docs/phase4-plan.md#m19-online-editing).
 
 ## Where things are
 
@@ -61,6 +63,8 @@ Never break these without an explicit task to do so.
   per-location write opt-in, with no overwrite. Runtime writes in development use only the approved
   disposable VM fixture; the original NAS stays read-only. Run disruptive tests only within an
   agreed isolated scope.
+  M19 permits existing-file content updates only through its accepted recovery transaction;
+  it does not authorize in-place overwrites or general rename, move or delete operations.
 - **Never present incomplete data as complete.** An uncached range fails clearly and is never filled
   with zeroes. A requested pin is not "available offline" until the download is verified.
 - **No secrets in the repo, logs or chat.** Credentials go through Keychain or the user's own Finder
