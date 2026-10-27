@@ -142,7 +142,10 @@ remains read-only. Physical-Mac writes await the user's run; see the
 
 Date: 2026-10-27. Decision status: accepted. The user approved this scope after reviewing the
 normal save, conflict, recovery and temporary missing-file behavior. Ordinary implementation
-decisions are delegated. The protocol gate comes first; editing is not yet implemented.
+decisions are delegated. The user subsequently accepted restricting editing to folders whose
+writers all use SMB. Programs accessing the server filesystem directly, including other
+protocols, are outside this safety boundary. Enabling editing must explicitly confirm this
+requirement; existing write-enabled locations do not acquire editing permission automatically. The protocol gate comes first; editing is not yet implemented.
 
 Implement whole-file content updates to ordinary existing files in explicitly write-enabled
 locations. Preserve the old remote file under a recovery name, then publish the complete edit
@@ -331,7 +334,7 @@ with --fixture-root. The probe leaves its uniquely named synthetic files for ins
 fixture cleanup. Its JSON reports observations, not a claim that M19 is implemented.
 The [gate status](results/2026-10-27-edit-publication.md) records the approved writable VM probe.
 Native/direct interoperability and publication passed against competing SMB clients. Direct
-backing-filesystem writes, renames and deletion bypassed protection. The tested server/path
-therefore fails the exclusion gate; do not expose same-name editing on that evidence.
+backing-filesystem writes, renames and deletion bypassed protection. The user accepted an SMB-only writer boundary after this result. Same-name editing requires
+that explicit location opt-in; the client cannot establish server-wide access policy itself.
 Use --check-backing-access to reproduce this limit on the disposable fixture. Transport errors
 terminate the probe process with status 70 so queued callbacks cannot outlive their storage.

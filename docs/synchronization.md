@@ -101,8 +101,8 @@ them:
   without replacing existing items. Its [native publication gate](results/2026-10-23-upload-publication.md)
   failed on the VM SMB fixture. M18 subsequently implemented exclusive creation with the
   user's accepted partial visibility of new uploads. Existing-file editing has an accepted
-  [M19 design](phase4-plan.md#m19-online-editing), blocked by the server-local exclusion
-  [gate](results/2026-10-27-edit-publication.md) before implementation;
+  [M19 design](phase4-plan.md#m19-online-editing) with an accepted SMB-only writer boundary
+  after the exclusion [gate](results/2026-10-27-edit-publication.md); implementation is pending;
   M18 does not authorize partial overwrites.
 - If the NAS fingerprint differs from the base, the edit becomes a conflict copy, for example
   `Report (conflict, Mac, 2026-10-12 14.03).docx`. Both versions survive.

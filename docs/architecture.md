@@ -225,9 +225,10 @@ it waits for the transport decision.
   proven base revisions and conflict copies. The user accepted the temporary absence of
   the original pathname, internal file rename/cleanup and the limited libsmb2 expansion.
   The approved VM probe passed mixed native/direct staging and competing SMB access checks,
-  but server-local access bypassed protection. This server/path fails the exclusion gate.
-  A safe deployment boundary or a revised publication design remains unresolved; do not infer
-  that a different client transport fixes server-local exclusion. Editor callbacks, metadata
+  but server-local access bypassed protection. The user accepted an SMB-only writer boundary:
+  editing requires explicit confirmation that every writer accesses the folder through SMB.
+  Existing write grants retain creation-only permission. A different client transport does
+  not fix server-local exclusion. Editor callbacks, metadata
   preservation and interrupted recovery remain unverified. No M19 behavior is implemented.
   See the [protocol results](results/2026-10-27-edit-publication.md).
 - **Safe upload publication, accepted for M18.** Use native exclusive creation, preserve complete local pending copies, and verify before acknowledging upload. Other devices can see partial new content. Never open an existing remote destination for writing. An uncertain interrupted attempt remains pending unless remote identity and complete contents prove success. See the [API results](results/2026-10-23-upload-publication.md).

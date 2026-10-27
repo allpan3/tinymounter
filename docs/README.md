@@ -64,5 +64,5 @@ collision and interrupted recovery checks, with all 230 tests and required VM ch
 The fixture is removed and sharing is restored. The physical-Mac app remains M16.
 
 M19's [publication gate](results/2026-10-27-edit-publication.md) passed competing SMB checks
-but found that server-local access bypasses protection. Editing remains disabled pending a
-scope decision. The disposable fixture is removed and the VM sharing settings are restored.
+but found that server-local access bypasses protection. The user accepted an explicit SMB-only
+writer requirement for editing. Implementation and remaining checks are in progress.

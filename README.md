@@ -129,8 +129,8 @@ See the [installation results](docs/results/2026-10-25-keep-both.md#physical-mac
 
 Online editing (M19), 2026-10-27: the approved VM protocol probe passed native upload,
 exclusive publication, competing SMB access and reconnect checks. Server-local writes,
-renames and deletion bypassed SMB protection, so the safety gate remains blocked and editing
-is not implemented. Required checks passed with 232 tests, one optional fixture skip and no
+renames and deletion bypassed SMB protection. The user accepted restricting editing to folders
+whose writers all use SMB; implementation and remaining safety checks are in progress. Required checks passed with 232 tests, one optional fixture skip and no
 failures. See the [gate status](docs/results/2026-10-27-edit-publication.md).
 
 ## Run the prototype

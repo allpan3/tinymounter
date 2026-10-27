@@ -1,11 +1,10 @@
 # Existing-file publication gate
 
-Date: 2026-10-27. Decision status: M19 design accepted; exclusion gate blocked.
+Date: 2026-10-27. Decision status: M19 design accepted with a subsequently approved SMB-only writer boundary.
 
 The approved disposable VM probe passed the mixed native/direct SMB publication sequence.
 It also proved that a program accessing the server's backing filesystem can change, rename
-or unlink a file while SMB protection is held. This server/path cannot meet the accepted
-exclusion requirement. Editing remains unsupported; no app behavior changed.
+or unlink a file while SMB protection is held. The user subsequently accepted limiting editing to folders whose writers all use SMB. Editing remains unsupported; no app behavior changed.
 
 ## Setup and observations
 
@@ -64,8 +63,8 @@ final mount-directory removal found it already absent after unmount; independent
 confirmed that restoration had completed.
 
 The proposed follow-up is an explicit SMB-only folder boundary: every writer must access the
-folder through SMB, including server applications. That scope decision is awaiting the user;
-permission to create the temporary fixture did not approve a weaker safety boundary.
+folder through SMB, including server applications. The user accepted this scope explicitly after reviewing the result. Existing write-enabled
+locations still require a separate editing opt-in.
 
 Signed editor saves, crash/interruption recovery, metadata preservation, ancestor protection
 and matched recordings remain unverified. No M19 app build was installed. The original NAS remains read-only for
