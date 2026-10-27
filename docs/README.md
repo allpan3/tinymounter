@@ -15,7 +15,7 @@ it wrong.
 | [research.md](research.md) | External findings, competitors and the source register | you start relying on a new external fact |
 | [phase2-plan.md](phase2-plan.md) | Phase 2, the read-only vertical slice: decisions, data model, errors, UI scope and milestones | a phase 2 decision, milestone or design choice changes |
 | [phase3-plan.md](phase3-plan.md) | Phase 3, offline and NAS changes you can trust: reconnection, restart after a crash, connecting in the app, verified offline status, folder keeps, live change discovery and disk-space protection and location lifecycle checks (M11 to M17 checked in the VM; limits in results) | a phase 3 decision, milestone or design choice changes |
-| [phase4-plan.md](phase4-plan.md) | Accepted first write milestone: new files/folders, initial folder naming and durable recovery; normal Finder uploads pass, naming and Keep Both remain open | write scope, permissions or recovery behavior changes |
+| [phase4-plan.md](phase4-plan.md) | Accepted M18 creation, initial folder naming and Keep Both; accepted M19 design for editing, conflicts and commit recovery | write scope, permissions or recovery behavior changes |
 | [synchronization.md](synchronization.md) | How File Provider locations stay consistent with server volumes and other writers (proposed) | the sync model, its guarantees or its tests change |
 | [ui-design.md](ui-design.md) and [ui-mockup.html](ui-mockup.html) | App and Finder interface, accepted for prototyping: its terms, its ASD-STE100 text and an interactive mockup | the interface or its copy changes |
 | [architecture-overview.html](architecture-overview.html) | The interactive data-path overview | the architecture changes visibly |

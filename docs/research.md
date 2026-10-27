@@ -181,6 +181,36 @@ No reviewed page establishes ≥90% native throughput for an offline-caching SMB
   Installed Xcode 27 `GSS.framework` headers expose credential iteration and acquisition without
   password export. Metadata probes did not establish reuse of the mounted NAS credentials.
 
+### M19 source review, 2026-10-27
+
+The following sources support the [M19 design](phase4-plan.md#m19-online-editing),
+not a runtime claim. SDK inspection and public HTTPS retrieval ran in macOS VM 1. No share
+configuration, app installation or remote content changed.
+
+- **W6:** Microsoft's [SMB2 rename structure](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/52aa0b70-8094-4971-862d-79793f41e6a8)
+  supplies ReplaceIfExists and a destination name, with no expected destination revision.
+  False requires failure if a different file occupies the destination. The
+  [FileRenameInformation algorithm](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fsa/87f86c9b-6c2a-4803-84b7-131a74a434fa)
+  requires DELETE access on the source open and can reject replacement of a target with an
+  existing open. These contracts do not establish a conditional atomic replacement.
+- **W7:** Microsoft's [SMB2 CREATE request](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/e8fb45c1-a03d-44ca-b7ae-47385cfd7997)
+  defines FILE_SHARE_WRITE and FILE_SHARE_DELETE, including rename under delete sharing, and
+  FILE_CREATE's failure when the name exists. Share-mode protection concerns SMB opens;
+  enforcement against server-local and other-protocol writers needs separate evidence.
+- **W8:** Apple's published [smbfs_vnop_rename](https://github.com/apple-oss-distributions/SMBClient/blob/main/kernel/smbfs/smbfs_vnops.c)
+  was retrieved again. Its existing-target branch calls smbfs_remove before smbfs_smb_rename.
+  This agrees with the earlier native investigation, without identifying the installed kernel
+  as that exact source revision. The vendored libsmb2 raw API exposes rename with replacement
+  disabled; the app's approved entry points currently restrict it to M18 folders.
+- **W9:** Installed Xcode SDK NSFileProviderReplicatedExtension.h, read in the VM: modifyItem's
+  baseVersion describes the last version reflected on disk; filename and contents should sync
+  together; callback URLs are unlinked after completion; failOnConflict delegates resolution
+  back to the system. Returning nil without error or returning different content can remove
+  or replace local data, so preservation must precede conflict acknowledgement. Apple's
+  [NSDocument save description](https://developer.apple.com/library/archive/documentation/DataManagement/Conceptual/DocBasedAppProgrammingGuideForOSX/AdvancedTopics/AdvancedTopics.html)
+  describes temporary-directory and old-revision rename routes in writeSafelyToURL. These
+  establish workflows to test, not the actual callback sequence of an editor in this build.
+
 ## Research limitations
 
 Live web documentation and current SDK headers establish API contracts, not actual throughput. Search was unreliable, and several sites initially failed the VM's DNS resolution; direct HTTPS retrieval with explicitly resolved public addresses succeeded. No VM DNS settings were changed. Subsequent work measured native SMB and short NAS-backed provider reads and ran signed correctness checks; dated results logs record those separately. Competitor installations, the player matrix, large-file throughput acceptance, and controlled failure experiments remain incomplete, as described in the benchmark plan.

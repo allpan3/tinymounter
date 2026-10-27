@@ -99,7 +99,10 @@ them:
   publication operation. A `stat` followed by ordinary `rename` is not atomic compare-and-swap
   and is insufficient. The accepted [M18 plan](phase4-plan.md) starts with new files and folders,
   without replacing existing items. Its [native publication gate](results/2026-10-23-upload-publication.md)
-  failed on the VM SMB fixture; writes remain unimplemented.
+  failed on the VM SMB fixture. M18 subsequently implemented exclusive creation with the
+  user's accepted partial visibility of new uploads. Existing-file editing has an accepted
+  [M19 design](phase4-plan.md#m19-online-editing), awaiting its protocol gate and implementation;
+  M18 does not authorize partial overwrites.
 - If the NAS fingerprint differs from the base, the edit becomes a conflict copy, for example
   `Report (conflict, Mac, 2026-10-12 14.03).docx`. Both versions survive.
 - Delete-versus-edit: if the NAS deleted a file this Mac edited, the edit is uploaded as a new file.
@@ -168,8 +171,9 @@ Phase 3 extends that subset with verified offline status, folder keeps and chang
   scheduling policies, not the latency targets proposed in section 4. See the
   [M15 plan](phase3-plan.md#m15-discover-nas-changes-while-the-app-runs) and
   [signed VM results](results/2026-10-19-nas-change-discovery.md).
-- **Not built:** local FSEvents integration, rename matching and writes. A rename is still a
-  delete plus a create; its keep request does not follow.
+- **Not built:** local FSEvents integration, general remote rename matching and existing-file
+  editing. M18 adds new files/folders and receipt-backed initial folder naming. An externally
+  renamed item is still a delete plus a create; its keep request does not follow.
 
 **The gap between relistings.** A downloaded copy can stay stale until the next successful
 refresh, because the system opens it without asking the extension. Directory events can be
