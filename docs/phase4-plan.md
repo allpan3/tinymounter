@@ -86,8 +86,8 @@ VM tests and required checks passed. Signed extension callbacks through authenti
 file/folder creation, and signed app stops checked recovery and pending-write lifecycle guards.
 After the approved daemon restart, normal Finder file and nested-folder uploads passed with
 matching hashes and native progress. Initial naming now passes the signed follow-up below;
-file Keep Both now passes the signed follow-up at the end of this plan. The physical-Mac app
-remains M16. See the [results](results/2026-10-23-create-items.md).
+file Keep Both now passes the signed follow-up at the end of this plan. See the
+[results](results/2026-10-23-create-items.md).
 
 Initial folder naming, decision status: accepted, 2026-10-23. The user approved handling the
 initial name of a newly created folder. General renaming remains a later milestone. Native
@@ -107,8 +107,7 @@ Catalog version 4 separates the current lookup key from the immutable enumeratio
 existing cursors and item IDs across naming. Migrations from versions 1, 2 and 3 preserve user
 state. The final client passed read-only credential/identity checks on the NAS, signed fixture
 creation/naming and interrupted recovery. All 230 tests and required checks passed with no Swift
-warnings. File Keep Both now passes the follow-up below. Physical-Mac installation still needs
-approval.
+warnings. File Keep Both now passes the follow-up below.
 
 Folder-creation transport, decision status: accepted, 2026-10-23. Read-only NAS checks found
 that native inodes are name hashes while direct SMB returns the server's object identifiers.
@@ -133,3 +132,8 @@ All 232 VM tests and required checks passed. Final signed file Keep Both, repeat
 byte-preservation, folder-copy and read-only Finder checks passed. The fixture is removed and
 sharing is restored. The VM create checks are complete; physical-Mac writes remain unverified.
 See the [results](results/2026-10-25-keep-both.md).
+
+Physical-Mac installation, 2026-10-27: the user approved installing M18. The app and provider run
+from Applications with the existing catalog ID and diagnostic counts retained. The location
+remains read-only. Physical-Mac writes await the user's run; see the
+[installation results](results/2026-10-25-keep-both.md#physical-mac-installation-2026-10-27).
