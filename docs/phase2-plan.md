@@ -293,11 +293,12 @@ struct SavedKeepList: Codable {
 }
 ```
 
-Settings versions 1, 2 and 3 migrate atomically to version 4 without changing grant, location or
+Settings versions 1 through 4 migrate atomically to version 5 without changing grant, location or
 domain IDs. Existing string paths become typed file requests. Folder requests retain their kind
 so a restored file request cannot expand to a replacement folder. `LocationRecord.serverID`
 remains the share grant ID. New per-location write grants are optional and absent on old locations.
-Older builds refuse version 4, so they cannot remove locations with pending uploads (M18).
+Version 5 adds optional SMB-only editing confirmation, absent on existing locations. Older
+builds refuse version 5, so they cannot discard edit receipts or pending writes they do not understand.
 
 The bookmark, `mountFrom`, host, account and saved paths are private. They are never logged and
 never in the App Group: the bookmark holds the SMB account and the server address [V]. Drafts
@@ -336,7 +337,7 @@ default [V]. Writes use `BEGIN IMMEDIATE` and never hold share I/O inside.
 `import SQLite3` autolinks the system library in SwiftPM and in both Xcode targets [V].
 
 ```sql
-PRAGMA user_version = 3;               -- the app migrates versions 1 and 2; others fail closed
+PRAGMA user_version = 5;               -- the app migrates versions 1 through 4; others fail closed
 CREATE TABLE meta (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   domain_id TEXT NOT NULL,             -- must equal the domain that opens it
@@ -344,6 +345,7 @@ CREATE TABLE meta (
   last_seq INTEGER NOT NULL,           -- highest change_seq handed out
   listing_gen INTEGER NOT NULL,        -- number of complete listings applied
   allows_creation INTEGER NOT NULL DEFAULT 0, -- opt-in; existing catalogs start read-only
+  allows_editing INTEGER NOT NULL DEFAULT 0,  -- separate SMB-only editing opt-in
   paused INTEGER NOT NULL DEFAULT 0);  -- Pause Downloads; the app clears it at launch
 CREATE TABLE items (
   row INTEGER PRIMARY KEY,             -- never reused, because rows are never deleted
@@ -363,7 +365,8 @@ CREATE TABLE items (
   change_seq INTEGER NOT NULL UNIQUE,  -- last visible change
   keep_request INTEGER NOT NULL DEFAULT 0, -- explicit file or folder request
   listing_complete INTEGER NOT NULL DEFAULT 0, -- no skipped or unreadable entries
-  enumeration_key TEXT NOT NULL);     -- original name key; fixed for the row's life
+  enumeration_key TEXT NOT NULL,      -- original name key; fixed for the row's life
+  edit_version TEXT);                 -- immutable e1 receipt token; NULL keeps legacy f1 semantics
 CREATE UNIQUE INDEX items_live_name ON items(parent_id, name_key) WHERE deleted = 0;
 CREATE INDEX items_kept ON items(row) WHERE keep = 1 AND deleted = 0;
 CREATE INDEX items_listing ON items(parent_id, enumeration_key, row) WHERE deleted = 0;
