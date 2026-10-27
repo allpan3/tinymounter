@@ -11,7 +11,7 @@ import subprocess
 import uuid
 
 
-READ = 0x00000001 | 0x00000080
+READ = 0x00000001 | 0x00000080 | 0x00020000
 WRITE = 0x00000002
 DELETE = 0x00010000
 SHARE_READ, SHARE_WRITE, SHARE_DELETE = 1, 2, 4
@@ -77,6 +77,14 @@ class Client:
         if error:
             raise OSError(error, "flush fixture file")
 
+    def metadata(self, handle, security):
+        buffer = (C.c_ubyte * 65536)()
+        count = C.c_uint32()
+        error = self.library.probe_metadata(self.context, handle, 7 if security else 0, buffer, len(buffer), C.byref(count))
+        if error:
+            raise OSError(error, "query fixture metadata")
+        return bytes(buffer[:count.value])
+
 
 def load(path):
     library = C.CDLL(str(path))
@@ -92,6 +100,8 @@ def load(path):
         "rename": ([pointer, byte_pointer, C.c_char_p], C.c_int),
         "delete": ([pointer, byte_pointer], C.c_int),
         "flush": ([pointer, byte_pointer], C.c_int),
+        "metadata": ([pointer, byte_pointer, C.c_int, byte_pointer, C.c_uint32, C.POINTER(C.c_uint32)], C.c_int),
+        "status": ([], C.c_uint32),
     }
     for name, (arguments, result) in declarations.items():
         function = getattr(library, "probe_" + name)
@@ -145,9 +155,18 @@ def probe(root, library):
         report["stage_unchanged_under_guards"] = a.read(stage) == payload
 
         native_write(root / names["original"], original, True)
+        writer = b.open(names["original"], WRITE)
+        report["existing_writer_blocks_guard_errno"] = attempt(
+            lambda: a.close(a.open(names["original"], READ | DELETE, SHARE_READ)))
+        b.close(writer)
         old = a.open(names["original"], READ | DELETE, SHARE_READ)
         old_identity = a.info(old)[:2]
         report["old_full_read_matches"] = a.read(old) == original
+        old_security, stage_security = a.metadata(old, True), a.metadata(stage, True)
+        report["security_descriptor_present"] = bool(old_security) and bool(stage_security)
+        report["stage_inherited_security_matches"] = old_security == stage_security
+        report["original_stream_info_hex"] = a.metadata(old, False).hex()
+        report["stage_stream_info_hex"] = a.metadata(stage, False).hex()
         report["old_native_writer_denied_errno"] = attempt(lambda: native_write(root / names["original"], b"must not write"))
         report["old_native_rename_denied_errno"] = attempt(lambda: os.rename(root / names["original"], root / names["moved"]))
         report["old_native_delete_denied_errno"] = attempt(lambda: os.unlink(root / names["original"]))

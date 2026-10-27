@@ -13,11 +13,17 @@ struct probe_reply {
     smb2_file_id file;
     uint64_t values[8];
     uint32_t count;
+    uint8_t *buffer;
+    uint32_t capacity;
 };
+
+static _Thread_local uint32_t last_status;
+uint32_t probe_status(void) { return last_status; }
 
 static void done(struct smb2_context *smb, int status, void *data, void *context)
 {
     struct probe_reply *reply = context;
+    last_status = (uint32_t)status;
     reply->error = status ? nterror_to_errno((uint32_t)status) : 0;
     reply->done = 1;
 }
@@ -188,4 +194,33 @@ int probe_flush(void *smb, uint8_t *file)
     memcpy(request.file_id, file, SMB2_FD_SIZE);
     struct probe_reply reply = {0};
     return wait_reply(smb, smb2_cmd_flush_async(smb, &request, done, &reply), &reply);
+}
+
+static void queried(struct smb2_context *smb, int status, void *data, void *context)
+{
+    struct probe_reply *reply = context;
+    struct smb2_query_info_reply *info = data;
+    done(smb, status, data, context);
+    if (!status && info && info->output_buffer && info->output_buffer_length <= reply->capacity) {
+        memcpy(reply->buffer, info->output_buffer, info->output_buffer_length);
+        reply->count = info->output_buffer_length;
+    } else if (!status) reply->error = EOVERFLOW;
+    if (info && info->output_buffer) smb2_free_data(smb, info->output_buffer);
+}
+
+int probe_metadata(void *smb, uint8_t *file, int security, uint8_t *buffer,
+                   uint32_t capacity, uint32_t *count)
+{
+    struct smb2_query_info_request request = {0};
+    request.info_type = security ? SMB2_0_INFO_SECURITY : SMB2_0_INFO_FILE;
+    request.file_info_class = security ? 0 : SMB2_FILE_STREAM_INFORMATION;
+    request.additional_information = (uint32_t)security;
+    request.output_buffer_length = capacity;
+    memcpy(request.file_id, file, SMB2_FD_SIZE);
+    struct probe_reply reply = {.buffer = buffer, .capacity = capacity};
+    smb2_set_passthrough(smb, 1);
+    int error = wait_reply(smb, smb2_cmd_query_info_async(smb, &request, queried, &reply), &reply);
+    smb2_set_passthrough(smb, 0);
+    *count = reply.count;
+    return error;
 }
