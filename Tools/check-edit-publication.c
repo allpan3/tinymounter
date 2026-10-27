@@ -45,15 +45,19 @@ static int wait_reply(struct smb2_context *smb, struct smb2_pdu *pdu, struct pro
     return reply->error;
 }
 
-void *probe_connect(int *error)
+void *probe_connect(const char *password, int *error)
 {
     struct smb2_context *smb = smb2_init_context();
     *error = ENOMEM;
     if (!smb) return NULL;
     smb2_set_timeout(smb, 10);
     smb2_set_authentication(smb, 1);
-    smb2_set_user(smb, "guest");
-    smb2_set_password(smb, "");
+    smb2_set_user(smb, password ? "_tinymounter_m19" : "guest");
+    smb2_set_password(smb, password ? password : "");
+    if (password) {
+        smb2_set_sign(smb, 1);
+        smb2_set_seal(smb, 1);
+    }
     int result = smb2_connect_share(smb, "127.0.0.1", "tinymounter-m19-edit-test", NULL);
     if (result) {
         *error = result < 0 ? -result : EIO;

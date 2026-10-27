@@ -132,7 +132,11 @@ exclusive publication, competing SMB access and reconnect checks. Server-local w
 renames and deletion bypassed SMB protection. The user accepted restricting editing to folders
 whose writers all use SMB. Local pending-edit storage passes its eight focused VM tests.
 Format migrations preserve existing identities and leave editing off. Required VM checks pass
-with 244 tests, one optional fixture skip and no failures. Editor saves remain unsupported. See the [gate status](docs/results/2026-10-27-edit-publication.md).
+with 244 tests, one optional fixture skip and no failures. The authenticated Apple SMB fixture
+cannot expose access rules needed for safe replacement. A replacement test server awaits approval;
+editor saves remain unsupported. Sharing is restored; the disabled temporary account still needs
+authenticated administrator removal.
+See the [gate status](docs/results/2026-10-27-edit-publication.md).
 
 ## Run the prototype
 
