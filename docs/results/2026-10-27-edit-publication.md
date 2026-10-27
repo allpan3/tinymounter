@@ -2,9 +2,11 @@
 
 Date: 2026-10-27. Decision status: M19 design accepted with a subsequently approved SMB-only writer boundary.
 
-M19 remains blocked at permission preservation. Authenticated queries on the disposable
-Apple SMB server return STATUS_NOT_SUPPORTED, including for a file with an explicit backing
-ACL. Native SMB also fails to expose that ACL. Editing remains unsupported.
+M19 remains blocked at concurrent metadata preservation. The approved Samba fixture exposes
+access rules, but a competing SMB client can change them, change the modification time and
+write a named stream while the proposed file guard is held, even with all sharing denied.
+The main contents stay protected. Editing remains unsupported; the app's safety boundary has
+not been relaxed. The temporary server, installation, fixture and credential are removed.
 
 The approved disposable VM probe passed the mixed native/direct SMB publication sequence.
 It also proved that a program accessing the server's backing filesystem can change, rename
@@ -158,9 +160,10 @@ The VM then had zero Finder windows and no running tinymounter test app. Evidenc
 vm-cleanup-20261027.json. Future sessions must close their test apps/windows and remove obsolete
 artifacts before handoff, preserving user work and useful evidence.
 
-## Proposed replacement fixture
+## Replacement fixture
 
-Decision status: proposed. Use a standalone Samba server inside macOS VM 1, bound only to
+Decision status: accepted. The user approved installation of the replacement test server and
+its dependencies. Use a standalone Samba server inside macOS VM 1, bound only to
 loopback and serving one disposable synthetic directory. Install the test dependencies only in
 the VM, with an inventory for cleanup. Run smbd as a manually started test process with its own
 configuration, private account database, logs and state; do not register a background service or
@@ -172,8 +175,80 @@ Samba is a test dependency, not linked into or distributed with tinymounter. The
 [Homebrew formula](https://github.com/Homebrew/homebrew-core/blob/main/Formula/s/samba.rb)
 provides a macOS build and identifies GPL-3.0-or-later. Its [licence](https://github.com/samba-team/samba/blob/master/COPYING)
 permits private execution; distribution obligations would need review before shipping any copy.
-The VM currently has neither Homebrew nor Samba, so installation needs approval. The formula
-disables POSIX ACL support: permission handling must first be proved using Samba's stored SMB
-ACLs, without assuming that the package satisfies this gate. No test-server installation has
-been performed. Existing-file editing stays disabled until the full protocol and signed
-workflow checks pass.
+Homebrew and Samba 4.25.1 were installed only in the VM and removed after the checks.
+The standalone server listened only on loopback; no background service, shell startup change
+or Apple sharing change was made.
+The formula disables POSIX ACL support: permission handling must first be proved using
+Samba's stored SMB ACLs, without assuming that the package satisfies this gate. Existing-file
+editing stays disabled until the full protocol and signed workflow checks pass.
+
+The probe checks competing SMB DACL, modification-time and named-stream changes under
+the original-file guard. Its connection timeout is 45 seconds because the standalone server
+waits for its own hostname lookup during negotiation. This changes only the fixture probe;
+the app's connection behavior is unchanged.
+
+The fixture used acl_xattr with stored SMB access rules and streams_xattr, with an everyone
+default DACL for synthetic files. A private Samba account mapped to the existing VM user;
+no macOS account was added or changed. Its generated password stayed in Keychain and memory.
+Authenticated direct connections requested signing and encryption. Guest direct connections
+failed at tree connect with STATUS_ACCESS_DENIED and a bad-signature server diagnostic;
+the successful checks used the authenticated account. Production cached-GSS authentication
+against this new fixture was not tested, and no app transport or guest behavior changed.
+
+Authenticated native uploads, full direct readback, competing data-writer exclusion, exclusive
+renames, reconnect identity and protected recovery cleanup passed on Samba. Owner/group/DACL
+queries succeeded and the original and stage inherited matching descriptors. A direct FLUSH
+through the read/delete stage handle failed with EACCES; the native writer's fsync succeeded.
+The probe reports that failure and does not establish the complete durability gate.
+
+The competing metadata check changed the DACL while the original guard denied write/delete
+sharing. The altered DACL denied a data writer even after the guard closed; restoring it
+allowed that writer again. The same protected file also accepted a modification-time change
+and a new named stream. Follow-ups with read sharing allowed and with all sharing denied both
+allowed the competing client to write 27 bytes into the stream. Full backing-file checks
+confirmed those bytes and the unchanged main contents. The changed DACL still denied data
+writes after the guard closed, and its restoration allowed them again. These are competing
+SMB operations, so the accepted SMB-only boundary does not exclude them.
+
+Checking permissions and streams again before a rename leaves a race after the check.
+Deleting the old recovery file could then discard a concurrent stream change, and the
+published file could carry obsolete access rules. The proposed sequence therefore does not
+meet M19's preservation guarantee. No extra metadata restriction or separate-copy behavior
+has been approved, and no editing callbacks or UI were enabled. A revised publication design
+must resolve this before signed editor, interruption and matched-recording work can proceed.
+The plan records a separately proposed Save Edited Copy workflow as a smaller alternative;
+it is not approved or implemented.
+
+Evidence in VM .local/phase2: m19-samba-auth-publication.json and
+m19-samba-auth-metadata-exclusion.json, m19-samba-auth-metadata-stream.json and
+m19-samba-auth-exclusive-metadata.json. The final C probe compiled without diagnostics and
+the Python probe passed syntax compilation. Tools/run-checks.sh passed with 244 tests, one
+optional fixture skip, no failures and no Swift warnings; m19-samba-required-checks.log records
+the run. App sources were unchanged by the later fixture-probe amendments.
+
+A separate run of the skipped native-create test failed in Foundation's directory setup with
+Cocoa 513 / EACCES. It created an empty fixture directory but did not reach the upload assertions.
+The directory was verified empty and removed during cleanup. This optional check is not claimed
+as passing; evidence is m19-samba-native-create-test.log. It does not alter the earlier M18
+results on Apple's fixture or establish a production regression.
+
+## Standalone fixture cleanup
+
+All six synthetic files, their complete main contents and the extra stream contents were
+verified before removal. The native test mount was unmounted, and only the standalone test
+server's checked process group was stopped. No listener remains. The private Samba account
+database, test state, fixture, mountpoint and exact Keychain item are removed. No matching cached
+NTLM credential remained. Apple's saved sharing dictionary and SMB launch override matched
+the snapshot; its SMB service remains unloaded. The earlier macOS test account remains removed.
+
+The newly installed Homebrew prefix and its 20 formulas were removed, as was the installation
+cache. Their allocated sizes before removal were 300.4 MiB and 115.0 MiB, measured by du.
+These are artifact sizes, not measured physical APFS space reclaimed. Eight temporary bundles
+and helper files were also removed. Finder has zero windows and the test app is closed; the
+verified M18 app and evidence remain. This does not diagnose the user's recurring storage issue.
+Evidence: m19-samba-fixture-inventory.json, m19-samba-cleanup.json,
+m19-samba-credential-cleanup.json and m19-samba-housekeeping.json. Selected evidence is also
+retained locally under results/edit-samba-20261027.
+
+No original-NAS writes, VM restart, shared-daemon restart, network interruption, physical-Mac
+installation, push or publication occurred.

@@ -211,6 +211,13 @@ configuration, app installation or remote content changed.
   describes temporary-directory and old-revision rename routes in writeSafelyToURL. These
   establish workflows to test, not the actual callback sequence of an editor in this build.
 
+- **W10:** Samba's [share-mode checks](https://github.com/samba-team/samba/blob/master/source3/smbd/open.c),
+  reviewed 2026-10-27. share_conflict considers data read/write/append, execution and deletion
+  access. WRITE_DAC, WRITE_OWNER, WRITE_ATTRIBUTES and WRITE_EA are outside that mask. Stronger
+  share modes therefore do not establish metadata exclusion. The [disposable Samba check](results/2026-10-27-edit-publication.md)
+  confirmed concurrent DACL, modification-time and nonempty named-stream changes even with all
+  sharing denied. This does not authorize relaxing the accepted preservation requirement.
+
 ## Research limitations
 
 Live web documentation and current SDK headers establish API contracts, not actual throughput. Search was unreliable, and several sites initially failed the VM's DNS resolution; direct HTTPS retrieval with explicitly resolved public addresses succeeded. No VM DNS settings were changed. Subsequent work measured native SMB and short NAS-backed provider reads and ran signed correctness checks; dated results logs record those separately. Competitor installations, the player matrix, large-file throughput acceptance, and controlled failure experiments remain incomplete, as described in the benchmark plan.

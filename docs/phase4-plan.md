@@ -333,7 +333,11 @@ account can be selected with --authenticated-test-account; its password is read 
 from Keychain, never supplied on the command line. Compile the helper against the existing
 libTinyMounterSMB.dylib in the VM, then pass its path with --library and the approved mount
 with --fixture-root. The probe leaves its uniquely named synthetic files for inspection and
-fixture cleanup. Its JSON reports observations, not a claim that M19 is implemented.
+fixture cleanup. Use --check-metadata-exclusion to test competing SMB permission, timestamp
+and named-stream changes while the original-file guard is held. Add --deny-all-sharing to
+check the strongest share mode. The competing client writes only a fixed synthetic stream
+payload; the app's payload transport is unchanged. Its JSON reports observations,
+not a claim that M19 is implemented.
 The [gate status](results/2026-10-27-edit-publication.md) records the approved writable VM probe.
 Native/direct interoperability and publication passed against competing SMB clients. Direct
 backing-filesystem writes, renames and deletion bypassed protection. The user accepted an SMB-only writer boundary after this result. Same-name editing requires
@@ -342,5 +346,26 @@ Use --check-backing-access to reproduce this limit on the disposable fixture. Tr
 terminate the probe process with status 70 so queued callbacks cannot outlive their storage.
 The authenticated follow-up also fails the permission-preservation gate: direct security
 queries return STATUS_NOT_SUPPORTED and native SMB misses an explicit backing ACL. Do not
-treat that as an empty ACL or publish a replacement. The results log proposes a standalone
-Samba fixture in VM 1; installing its test dependencies and running that server need approval.
+treat that as an empty ACL or publish a replacement. The user approved the standalone Samba
+fixture in VM 1 and its test dependencies. Samba exposes the access rules, but competing SMB
+permission, timestamp and nonempty named-stream changes bypass the original-file guard, even
+with all sharing denied. This blocks implementation of the accepted save route; reading metadata
+again cannot remove a race after that read. The fixture and temporary installation are removed.
+No new boundary is accepted. Do not substitute static permissions, a ban on other clients'
+metadata changes, or separate-copy saves without a new decision. A different payload transport
+alone would not make the tested server serialize those operations.
+
+### Alternative for a scope decision
+
+Decision status: proposed, not accepted. Offer an explicit Save Edited Copy workflow for a
+locally edited ordinary file. It creates a new file in a creation-enabled location and leaves
+the original, its permissions, item ID and keep requests untouched. Normal Save to an existing
+remote file remains unsupported. The new file uses the destination folder's normal access
+rules, as with M18 creation; it does not claim to clone the original's access rules.
+
+Use M18's complete local pending copy, exclusive creation, collision handling, full verification
+and conservative recovery after an uncertain result. Its already accepted partial visibility
+applies only to the newly created file. A collision must keep the existing file and choose a new
+name; interruption retains pending content. This is a smaller workflow built on creation,
+not completion of the original M19 editing goal. Implement it only if the user accepts that
+change in scope.
