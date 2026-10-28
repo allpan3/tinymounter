@@ -147,6 +147,10 @@ writers all use SMB. Programs accessing the server filesystem directly, includin
 protocols, are outside this safety boundary. Enabling editing must explicitly confirm this
 requirement; existing write-enabled locations do not acquire editing permission automatically. The protocol gate comes first; editing is not yet implemented.
 
+The replacement sequence below failed its metadata-preservation gate. The user reaffirmed
+Mac-only operation: use the server's existing SMB service, with no tinymounter server component.
+The [revised proposal](#revised-mac-only-save-proposal) needs approval before implementation.
+
 Implement whole-file content updates to ordinary existing files in explicitly write-enabled
 locations. Preserve the old remote file under a recovery name, then publish the complete edit
 with a second exclusive rename. Both operations must use checked SMB handles and prohibit
@@ -355,17 +359,91 @@ No new boundary is accepted. Do not substitute static permissions, a ban on othe
 metadata changes, or separate-copy saves without a new decision. A different payload transport
 alone would not make the tested server serialize those operations.
 
-### Alternative for a scope decision
+### Revised Mac-only save proposal
 
-Decision status: proposed, not accepted. Offer an explicit Save Edited Copy workflow for a
-locally edited ordinary file. It creates a new file in a creation-enabled location and leaves
-the original, its permissions, item ID and keep requests untouched. Normal Save to an existing
-remote file remains unsupported. The new file uses the destination folder's normal access
-rules, as with M18 creation; it does not claim to clone the original's access rules.
+Date: 2026-10-27. Decision status: proposed, not accepted or tested. Keep normal Save as the
+goal. Save Edited Copy was not accepted and is not a substitute for this milestone.
 
-Use M18's complete local pending copy, exclusive creation, collision handling, full verification
-and conservative recovery after an uncertain result. Its already accepted partial visibility
-applies only to the newly created file. A collision must keep the existing file and choose a new
-name; interruption retains pending content. This is a smaller workflow built on creation,
-not completion of the original M19 editing goal. Implement it only if the user accepts that
-change in scope.
+Keep the original remote file object, including its permissions and unrelated streams, and
+change only its main contents while it is away from its normal name. First preserve the old
+contents in a separate remote recovery copy. This avoids copying stale access rules onto a
+replacement and later deleting the original object with another client's attached data.
+The protocol sources support investigating this route; they do not prove it safe at runtime.
+
+**Changes requiring approval:** the original object is modified under a temporary name;
+the old contents survive in a separate file rather than in the untouched original object.
+Other readers must close the file before the update can start. It stays unavailable during
+backup, copying and verification, potentially much longer than the previous two-rename gap.
+New staging and backup files are disposable transaction storage: other programs, including
+programs using the same SMB account, must not change, rename or delete them. SMB cannot enforce ownership by
+one application. This additional boundary does not prohibit permission or stream changes to
+the user's original file, even while that file has its temporary name.
+
+The experiment would use this sequence:
+
+1. Retain the complete immutable edit locally. Create a separate remote stage with private
+   access rules, verified before putting content in it, and upload through native SMB.
+   Flush and verify the whole stage under retained identity and write protection.
+2. Open the original with read, write and rename access, denying other main-stream reads,
+   writes and deletion. Hold the relevant ancestor identities. An existing incompatible open
+   defers saving. Compare the original's identity, complete contents and base evidence;
+   a mismatch follows the accepted conflict path without modifying it.
+3. Exclusively create a private recovery file and copy the complete old main contents into it
+   with SMB server-side copy. Flush and verify the whole backup before changing the original.
+   Keep both backup and stage protected. No original permissions or streams are copied back.
+4. Record intent, then rename the original to a unique work name without replacement, through
+   the protected handle. Copy the stage into this same object, set its exact final length,
+   flush and verify all edited bytes. Never perform this write at the ordinary pathname.
+5. Restore that object's original name using another no-replace rename. A competing create
+   is preserved; retain the work file, backup and pending edit and report the conflict.
+   Verify identity and content again, record completion durably, and retain the catalog item
+   ID and keep requests. Only then acknowledge upload and clean up proved disposable copies.
+
+The work file is the user's original object, **never a disposable artifact**. Cleanup may
+remove only new stage/backup objects with recorded ownership and complete-content evidence.
+Known changes or uncertain ownership retain an artifact for recovery. Metadata races on these
+new disposable copies are outside the proposed boundary; checking their metadata does not
+make that boundary enforceable. Suppress only names proved by transaction receipts, not every
+name with a prefix. Preserve unrelated files and all unresolved copies.
+
+After a crash, first acquire fresh protection and inspect each recorded object. A complete old
+or new original can be restored or acknowledged only with matching identity/content evidence
+and an exclusive destination. An incomplete or changed original is not blindly overwritten:
+retain it, the full remote backup and the local edit, report the uncertainty, and offer recovery
+of the complete versions. The normal name can remain absent until recovery. A failed or
+unsupported operation before step 4 leaves the original contents intact. Remote space failure
+during step 4 must retain the already verified backup and local edit.
+
+Local callbacks remain limited to same-item content updates. Preserve remote permissions and
+unrelated attached data without rewriting them. Use the server's normal write timestamps;
+do not restore a stale pre-save timestamp. Explicit date or attached-data changes requested by
+an editor need a supported contract or must be refused. The TextEdit callback gate remains;
+no general rename, move, delete, Finder Replace, package, database or VM-image support follows
+from this proposal. Existing locations, IDs, keep requests and downloads remain unchanged.
+
+**Transport expansion:** use the existing libsmb2 raw API for resume keys and
+FSCTL_SRV_COPYCHUNK, exact-length updates on the hidden original, and private permissions on
+new transaction files. Server-side copy is an ordinary SMB request, not installed server code,
+and is not atomic. Native SMB retains downloads and stage payload uploads. There is no silent
+fallback to direct payload uploads. A server that cannot demonstrate private staging, protected
+copy, flush and recovery must refuse editing. No new app dependency is proposed; the existing
+LGPL distribution requirements still apply.
+
+The first gate is a CLI experiment in macOS VM 1, after fresh fixture approval. Recreate the
+previous standalone, loopback-only Samba fixture and its temporary dependencies, private
+account database and Keychain credential. Do not create a macOS account, register a service
+or change Apple's sharing settings. Use only synthetic files, bounded to 16 MiB each. Check
+private temporary-file access, existing readers/writers, permissions and nonempty stream changes
+through a second SMB client, empty/growing/shrinking files, complete old/new bytes, name
+collisions, low-space errors and interruption of the test client's own process or connection.
+Confirm that changing main contents leaves the original identity, current access rules and
+unrelated streams intact, including after reconnect. Retain ambiguous states instead of
+repairing them by assumption.
+
+Only a passing protocol gate permits app integration under an approved revision. Then complete
+the previously required signed TextEdit, conflict, interruption, lifecycle and matched-recording
+checks, plus Tools/run-checks.sh. Keep the original NAS read-only. Remove the fixture,
+credential and newly installed dependencies; close task-owned apps/windows and remove obsolete
+test artifacts before handoff. No VM/shared-daemon restart, network cut, physical-Mac install
+or publication is part of this proposal. Source findings and rejected leads are in
+[research W11–W13](research.md#m19-mac-only-revision-review-2026-10-27).

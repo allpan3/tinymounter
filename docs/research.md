@@ -218,6 +218,36 @@ configuration, app installation or remote content changed.
   confirmed concurrent DACL, modification-time and nonempty named-stream changes even with all
   sharing denied. This does not authorize relaxing the accepted preservation requirement.
 
+### M19 Mac-only revision review, 2026-10-27
+
+Public documentation and Samba 4.25.1 source were inspected without opening a writable fixture.
+These findings support a proposed experiment, not an implemented or verified save method.
+
+- **W11:** Microsoft's [server-side copy procedure](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/cd0162e4-7650-4293-8a2a-d696923203ef)
+  uses source and destination opens in the same session, requires data access, and processes
+  chunks sequentially. Failure can leave copied data; it is not atomic publication. Samba's
+  [network IOCTL handler](https://github.com/samba-team/samba/blob/samba-4.25.1/source3/smbd/smb2_ioctl_network_fs.c)
+  dispatches COPYCHUNK to its offload-write path. Its
+  [default implementation](https://github.com/samba-team/samba/blob/samba-4.25.1/source3/modules/vfs_default.c)
+  falls back to reads/writes, including for alternate streams. This supports investigating
+  main-content updates on a protected, temporarily renamed original, with a verified separate
+  backup. It does not establish server compatibility, durability or crash recovery.
+- **W12:** A whole-file backup in an attached stream is unsuitable as the general recovery
+  format. Samba's [streams_xattr documentation](https://www.samba.org/samba/docs/current/man-html/vfs_streams_xattr.8.html)
+  warns of filesystem limits on stream capacity; its default is one xattr per stream.
+  [Stream sharing rules](https://learn.microsoft.com/en-us/windows/win32/fileio/file-streams)
+  also couple main-file DELETE access to delete sharing on other streams. Samba's
+  [open implementation](https://github.com/samba-team/samba/blob/samba-4.25.1/source3/smbd/open.c)
+  checks this through open_streams_for_delete. Do not require server reconfiguration or assume
+  that a small stream test establishes capacity for ordinary files.
+- **W13:** The [SMB2_CREATE_SD_BUFFER context](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/bb8da54a-7d5a-491f-a5a0-04aa2c6cf56f)
+  supplies access rules when a new file is created. Unsupported servers can reject or ignore
+  them, so successful creation alone cannot prove private staging. Samba's
+  [CREATE handler](https://github.com/samba-team/samba/blob/samba-4.25.1/source3/smbd/smb2_create.c)
+  decodes this descriptor. The proposed gate must prove restricted access before writing
+  content, including after interruption. Permissions identify accounts, not applications;
+  they cannot protect temporary files from other programs using the same account.
+
 ## Research limitations
 
 Live web documentation and current SDK headers establish API contracts, not actual throughput. Search was unreliable, and several sites initially failed the VM's DNS resolution; direct HTTPS retrieval with explicitly resolved public addresses succeeded. No VM DNS settings were changed. Subsequent work measured native SMB and short NAS-backed provider reads and ran signed correctness checks; dated results logs record those separately. Competitor installations, the player matrix, large-file throughput acceptance, and controlled failure experiments remain incomplete, as described in the benchmark plan.

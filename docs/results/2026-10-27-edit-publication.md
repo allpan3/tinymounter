@@ -216,8 +216,8 @@ published file could carry obsolete access rules. The proposed sequence therefor
 meet M19's preservation guarantee. No extra metadata restriction or separate-copy behavior
 has been approved, and no editing callbacks or UI were enabled. A revised publication design
 must resolve this before signed editor, interruption and matched-recording work can proceed.
-The plan records a separately proposed Save Edited Copy workflow as a smaller alternative;
-it is not approved or implemented.
+Save Edited Copy was suggested as a smaller alternative but was not approved or implemented.
+The current proposal retains normal Save as the goal.
 
 Evidence in VM .local/phase2: m19-samba-auth-publication.json and
 m19-samba-auth-metadata-exclusion.json, m19-samba-auth-metadata-stream.json and
@@ -252,3 +252,27 @@ retained locally under results/edit-samba-20261027.
 
 No original-NAS writes, VM restart, shared-daemon restart, network interruption, physical-Mac
 installation, push or publication occurred.
+
+## Mac-only design follow-up
+
+The user reaffirmed that tinymounter must run only on the Mac and use the server's existing SMB
+service. The failed replacement experiment does not prove that a server component is required.
+Normal Save remains the goal; a separate-copy-only workflow has not been accepted.
+
+Source review found a route worth testing: preserve the original file object and its attached
+metadata, back up its main contents separately, and update those contents while the original
+has a temporary name. SMB COPYCHUNK works through file handles but is not atomic, so a complete
+backup and withholding the ordinary name are essential. A backup inside a named stream was
+rejected as the general format because common Samba storage imposes small capacity limits.
+See [research W11–W13](../research.md#m19-mac-only-revision-review-2026-10-27).
+
+The [revised proposal](../phase4-plan.md#revised-mac-only-save-proposal) requires approval for
+modifying the temporarily renamed original, a longer period of unavailability, additional
+SMB operations and a boundary reserving newly created transaction files for tinymounter.
+That boundary is not enforceable against another program using the same account. It does not
+reserve the original user file or permit dropping its concurrent permission/stream changes.
+Private staging must also pass before any payload is written; no new compatibility claim is made.
+
+This follow-up changed documentation only. No fixture was reopened, no app code changed and no
+new runtime checks ran. The earlier 244-test required-check result remains the evidence for
+the unchanged app sources; it does not validate the revised save proposal.

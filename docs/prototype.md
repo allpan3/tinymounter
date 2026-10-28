@@ -426,3 +426,8 @@ remote file for writing again. The source cannot change, and the location cannot
 while a write is pending. Completed receipts deduplicate system replay and are removed with a
 finished location. Pending records and content stay in private app storage; the extension sends authenticated create and initial-name requests.
 See the accepted [phase 4 plan](phase4-plan.md).
+
+Normal Save to existing files remains unsupported. M19's replacement design failed its
+concurrent metadata-preservation gate. The user reaffirmed Mac-only operation; a
+[revised save proposal](phase4-plan.md#revised-mac-only-save-proposal) needs approval and a new
+protocol check before app integration. No server component is required by the product contract.
