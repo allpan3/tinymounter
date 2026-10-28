@@ -238,6 +238,11 @@ it waits for the transport decision.
   no further safety restriction or separate-copy save behavior is accepted. The temporary
   server, installation and test data are removed, with Apple's sharing settings unchanged.
   No M19 editing behavior is implemented.
+  The user reaffirmed Mac-only operation through the server's existing SMB service. The
+  [revised proposal](phase4-plan.md#revised-mac-only-save-proposal) keeps the original object,
+  backs up its contents and updates it while temporarily renamed. It requires a new decision
+  on hidden content writes, longer unavailability, disposable transaction files and additional
+  SMB operations. No server component or Save Edited Copy workflow is approved.
   See the [protocol results](results/2026-10-27-edit-publication.md).
 - **Safe upload publication, accepted for M18.** Use native exclusive creation, preserve complete local pending copies, and verify before acknowledging upload. Other devices can see partial new content. Never open an existing remote destination for writing. An uncertain interrupted attempt remains pending unless remote identity and complete contents prove success. See the [API results](results/2026-10-23-upload-publication.md).
 - **Initial folder naming, accepted for M18 on 2026-10-23.** Finder creates an untitled folder, then sends a rename for the typed name. The callback and signed Finder checks pass. Native exclusive folder rename failed, and create/delete is unsafe under replacement races. An isolated direct SMB client passed no-overwrite rename checks. A limited `libsmb2` prototype is accepted for exclusive folder creation and initial naming, retaining server identity separately from native inodes. Corrected credential checks connected without a password, and signed naming and interrupted recovery passed on the disposable VM fixture. General renaming stays deferred. See the [naming investigation](results/2026-10-23-initial-folder-naming.md). File Keep Both now passes the [signed follow-up](results/2026-10-25-keep-both.md). General remote rename remains denied, although enabled locations advertise rename capability so Finder can choose a new copy name.

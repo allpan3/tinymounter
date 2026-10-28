@@ -138,7 +138,9 @@ them, but competing SMB clients can change permissions and add streams while the
 is held, even with all sharing denied. This blocks the accepted save design; editor saves
 remain unsupported. The temporary server, installation, fixture and credential are removed.
 Apple's sharing settings are unchanged. An additional native-create fixture check failed during
-directory setup, before reaching its upload assertions.
+directory setup, before reaching its upload assertions. The user reaffirmed Mac-only operation.
+A [revised save proposal](docs/phase4-plan.md#revised-mac-only-save-proposal) would retain the
+original file object and a separate recovery copy; it needs approval and runtime verification.
 See the [gate status](docs/results/2026-10-27-edit-publication.md).
 
 ## Run the prototype
