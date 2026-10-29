@@ -92,6 +92,7 @@ final class CatalogTests: XCTestCase {
                                           size: edit.size, digest: edit.digest, modifiedMicroseconds: 55,
                                           changedMicroseconds: 66, attributes: 32, security: Data([1]))
         edit.stageIdentity = version.identity
+        edit.previous = version
         edit.state = .published
         edit.published = try EditBaseReceipt(item: before.id, version: version)
         let fingerprint = ContentFingerprint(size: edit.size, mtimeNs: 55_000, ctimeNs: 66_000)

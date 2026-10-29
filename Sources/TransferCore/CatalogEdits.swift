@@ -41,7 +41,7 @@ extension Catalog {
     public func commitEdit(_ edit: PendingEdit, fingerprint: ContentFingerprint, nativeID: UInt64) throws -> String {
         try write { seq in
             guard edit.state == .published || edit.state == .completed, let receipt = edit.published,
-                  receipt.version.identity == edit.stageIdentity, receipt.version.digest == edit.digest,
+                  receipt.version.identity == edit.publishedIdentity, receipt.version.digest == edit.digest,
                   receipt.version.size == edit.size, fingerprint.size == edit.size,
                   let destination = RelativePath(edit.destination), let name = destination.components.last,
                   let parent = try item(id: edit.parent), !parent.deleted, parent.kind == .folder,

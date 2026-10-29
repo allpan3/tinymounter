@@ -112,3 +112,15 @@ check; the signed app route remains unverified on this fixture.
 Proceed to app integration. Signed TextEdit saves, conflict
 and app-crash recovery, lifecycle preservation, matched recordings and final required checks
 remain necessary under the [accepted design](../phase4-plan.md#revised-mac-only-save-proposal).
+
+## App transaction integration
+
+The first integration adds the durable same-object transaction and a protected SMB adapter.
+Normal Save is still disabled: provider callbacks, opt-in and signed editor verification are
+pending. Recovery checks fresh identity and complete contents, restores only a complete original
+through an exclusive rename, and retains partial work without repeating the write. Cleanup can
+remove proved stage and backup objects, never the original work object. Retained recovery data
+continues to block location removal. Nested receipt decoding and local metadata allocation are
+validated before use. All 253 VM unit tests passed, with one optional fixture skip.
+Project generation, release CLI and benchmark validation passed. The corrected unsigned app
+build passed without Swift warnings. Signed app checks remain.

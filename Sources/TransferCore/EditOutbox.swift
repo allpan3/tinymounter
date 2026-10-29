@@ -11,6 +11,12 @@ public struct EditFileIdentity: Codable, Equatable, Sendable {
         self.fileID = fileID
         self.birthMicroseconds = birthMicroseconds
     }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(fileID: values.decode(UInt64.self, forKey: .fileID),
+                      birthMicroseconds: values.decode(UInt64.self, forKey: .birthMicroseconds))
+    }
 }
 
 public struct EditFileVersion: Codable, Equatable, Sendable {
@@ -24,7 +30,9 @@ public struct EditFileVersion: Codable, Equatable, Sendable {
 
     public init(identity: EditFileIdentity, size: Int64, digest: String, modifiedMicroseconds: UInt64,
                 changedMicroseconds: UInt64, attributes: UInt32, security: Data) throws {
-        guard size >= 0, Self.validDigest(digest), !security.isEmpty else { throw UploadError.unresolved }
+        guard size >= 0, Self.validDigest(digest), !security.isEmpty, security.count <= 65_536 else {
+            throw UploadError.unresolved
+        }
         self.identity = identity
         self.size = size
         self.digest = digest
@@ -32,6 +40,21 @@ public struct EditFileVersion: Codable, Equatable, Sendable {
         self.changedMicroseconds = changedMicroseconds
         self.attributes = attributes
         self.security = security
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(identity: values.decode(EditFileIdentity.self, forKey: .identity),
+                      size: values.decode(Int64.self, forKey: .size),
+                      digest: values.decode(String.self, forKey: .digest),
+                      modifiedMicroseconds: values.decode(UInt64.self, forKey: .modifiedMicroseconds),
+                      changedMicroseconds: values.decode(UInt64.self, forKey: .changedMicroseconds),
+                      attributes: values.decode(UInt32.self, forKey: .attributes),
+                      security: values.decode(Data.self, forKey: .security))
+    }
+
+    public func hasSameContents(as other: EditFileVersion) -> Bool {
+        identity == other.identity && size == other.size && digest == other.digest
     }
 
     static func validDigest(_ digest: String) -> Bool {
@@ -51,11 +74,18 @@ public struct EditBaseReceipt: Codable, Equatable, Sendable {
         self.item = item
         self.version = version
     }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(id: values.decode(UUID.self, forKey: .id), item: values.decode(String.self, forKey: .item),
+                      version: values.decode(EditFileVersion.self, forKey: .version))
+    }
 }
 
 public struct PendingEdit: Codable, Equatable, Sendable {
     public enum State: String, Codable, Sendable {
-        case prepared, creatingStage, staged, movingOriginal, publishing, published, completed
+        case prepared, creatingStage, staged, creatingBackup, backedUp, movingOriginal
+        case copying, restoring, publishing, published, completed
     }
 
     public let id: UUID
@@ -71,6 +101,9 @@ public struct PendingEdit: Codable, Equatable, Sendable {
     public let recoveryPath: String
     public var state: State = .prepared
     public var stageIdentity: EditFileIdentity?
+    public var stageVersion: EditFileVersion?
+    public var backupIdentity: EditFileIdentity?
+    public var backupVersion: EditFileVersion?
     public var previous: EditFileVersion?
     public var destination: String
     public var published: EditBaseReceipt?
@@ -78,7 +111,9 @@ public struct PendingEdit: Codable, Equatable, Sendable {
     public var completedItem: String?
     public var recoveryRetained = false
 
-    public var isPending: Bool { state != .completed }
+    public var isPending: Bool { state != .completed || recoveryRetained }
+    public var publishedIdentity: EditFileIdentity? { conflict ? stageIdentity : previous?.identity }
+    public var workPath: String { String(recoveryPath.dropLast("recovery".count)) + "work" }
 }
 
 /// Serialized by the location's mutation lane; incomplete generations are never replaced.
@@ -208,7 +243,7 @@ public final class EditOutbox {
     public func complete(_ record: inout PendingEdit, item: String) throws {
         guard record.state == .published || record.state == .completed,
               let receipt = record.published, receipt.item == item,
-              receipt.version.identity == record.stageIdentity,
+              receipt.version.identity == record.publishedIdentity,
               receipt.version.size == record.size, receipt.version.digest == record.digest else {
             throw UploadError.unresolved
         }
@@ -219,7 +254,7 @@ public final class EditOutbox {
         guard var payload = try payloads.records().first(where: { $0.id == record.id }) else {
             throw UploadError.unresolved
         }
-        if payload.state != .completed { try payloads.complete(&payload, item: item) }
+        if payload.state != .completed, !record.recoveryRetained { try payloads.complete(&payload, item: item) }
     }
 
     public func removeIfCompleted() throws {
@@ -237,13 +272,17 @@ public final class EditOutbox {
     private static func metadataDigest(_ fd: Int32) throws -> String {
         let size = flistxattr(fd, nil, 0, 0)
         guard size >= 0 else { throw posixError("inspect edit metadata") }
+        guard size <= 65_536 else { throw UploadError.invalidRequest }
         var names = [CChar](repeating: 0, count: size)
         guard flistxattr(fd, &names, size, 0) == size else { throw UploadError.unresolved }
         var metadata: [String: Data] = [:]
+        var total = 0
         for bytes in names.split(separator: 0) {
             let name = String(decoding: bytes.map { UInt8(bitPattern: $0) }, as: UTF8.self)
             let length = fgetxattr(fd, name, nil, 0, 0, 0)
             guard length >= 0 else { throw posixError("inspect edit attribute") }
+            guard length <= 1_048_576, total <= 4_194_304 - length else { throw UploadError.invalidRequest }
+            total += length
             var value = Data(count: length)
             let count = value.withUnsafeMutableBytes { fgetxattr(fd, name, $0.baseAddress, length, 0, 0) }
             guard count == length else { throw UploadError.unresolved }

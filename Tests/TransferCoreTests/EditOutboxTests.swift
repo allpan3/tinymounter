@@ -76,12 +76,41 @@ final class EditOutboxTests: XCTestCase {
         record.state = .published
         record.published = try EditBaseReceipt(item: item, version: version(for: record))
         XCTAssertThrowsError(try outbox.complete(&record, item: item))
-        record.stageIdentity = record.published?.version.identity
+        record.previous = record.published?.version
         try outbox.complete(&record, item: item)
         XCTAssertEqual(try outbox.pendingCount, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: outbox.contentURL(record).path))
         XCTAssertEqual(try outbox.base(item: item, contentVersion: XCTUnwrap(record.published?.contentVersion)), record.published)
         try outbox.complete(&record, item: item)
+    }
+
+    func testRecoveryArtifactsKeepLifecycleBlockedAfterRemoteCompletion() throws {
+        var record = try prepare()
+        record.state = .published
+        record.previous = try version(for: record)
+        record.published = try EditBaseReceipt(item: item, version: version(for: record))
+        record.recoveryRetained = true
+        try outbox.complete(&record, item: item)
+        XCTAssertEqual(try outbox.pendingCount, 1)
+        try outbox.validateContents(record)
+        XCTAssertThrowsError(try outbox.removeIfCompleted())
+        record.recoveryRetained = false
+        try outbox.complete(&record, item: item)
+        XCTAssertEqual(try outbox.pendingCount, 0)
+    }
+
+    func testDecodedNestedIdentityAndVersionCannotBypassValidation() throws {
+        let record = try prepare()
+        let encoded = try JSONEncoder().encode(version(for: record))
+        var values = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        values["identity"] = ["fileID": 0, "birthMicroseconds": 34]
+        XCTAssertThrowsError(try JSONDecoder().decode(EditFileVersion.self, from: JSONSerialization.data(withJSONObject: values)))
+        values["identity"] = ["fileID": 12, "birthMicroseconds": 34]
+        values["size"] = -1
+        XCTAssertThrowsError(try JSONDecoder().decode(EditFileVersion.self, from: JSONSerialization.data(withJSONObject: values)))
+        values["size"] = 0
+        values["digest"] = "invalid"
+        XCTAssertThrowsError(try JSONDecoder().decode(EditFileVersion.self, from: JSONSerialization.data(withJSONObject: values)))
     }
 
     func testCorruptedPendingBytesAreRetainedAndRefuseValidation() throws {
