@@ -437,7 +437,10 @@ new local file's access and quarantine attributes.
 TextEdit's encoding attribute, last-used date and explicit modification date are not uploaded.
 Metadata-only retries return those fields as unsupported through File Provider's documented
 contract, preserving their local values without claiming remote synchronization.
-The physical-Mac build still supports M18 only. M19's replacement design failed its
+The verified M19 build is installed on the physical Mac. Background launch checks retain the
+location and catalog counts; physical-Mac saves and downloaded-byte comparisons remain unverified.
+See the [installation results](results/2026-10-28-same-object-save.md#physical-mac-installation-2026-10-28).
+M19's replacement design failed its
 concurrent metadata-preservation gate. The user reaffirmed Mac-only operation; a
 [revised save design](phase4-plan.md#revised-mac-only-save-proposal) was approved on 2026-10-28
 and passed its [CLI protocol gate](results/2026-10-28-same-object-save.md) on the disposable

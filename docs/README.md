@@ -73,4 +73,5 @@ export pass. IDs, keep requests and an independent download survive. The fixture
 dependencies and task windows are cleaned up, with original settings verified.
 The [October 28 protocol results](results/2026-10-28-same-object-save.md) record the current
 same-object save and recovery checks, including unresolved partial work and fixture connection
-delays. M18 remains installed on the physical Mac.
+delays. The verified M19 build is installed on the physical Mac, with retained location/catalog
+counts in background launch checks. Physical-Mac writes remain unverified.

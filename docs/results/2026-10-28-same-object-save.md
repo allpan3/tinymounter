@@ -5,7 +5,8 @@ are accepted. The CLI protocol gate, normal signed TextEdit saves, conflicts and
 retention checks pass. Partial work remains unresolved, with complete versions retained and
 the local edit exportable. All 264 tests and required VM checks pass, with one optional fixture
 skip. The disposable fixture is removed, original settings are verified and task windows are
-closed. M18 remains installed on the physical Mac.
+closed. The verified M19 build is now installed on the physical Mac; installation checks are
+recorded below. Physical-Mac writes remain unverified.
 
 Basic saves preserve the original remote object, its live permissions and attached stream on
 the disposable Samba fixture. Empty, growing and shrinking files, a competing destination and
@@ -254,3 +255,30 @@ above. It includes signed stop/recovery receipts, signed-final-audit.json,
 signed-partial-retention.json, signed-ui-export.json, retained-download-after.json,
 final-checks.json, final-cleanup.json, runtime-hooks.diff and both editor recordings. Private
 settings snapshots remain only in the VM and are excluded from copied evidence.
+
+## Physical-Mac installation, 2026-10-28
+
+The user approved installation. The retained normal signed M19 candidate replaced M18 in
+Applications after a normal quit and bundle backup. Strict/deep signature verification passed.
+The app and provider retain their bundle identifiers, App Group and exact entitlements, including
+the sandbox. Their installed executables and the SMB library match the verified candidate.
+Both processes run from Applications.
+
+The old app was first reopened in the background to collect fresh startup diagnostics, because
+macOS denied direct access to its private settings and catalog. Before and after the update,
+launch reconciliation reports one location, catalog and domain, with no unknown domains or
+failed sequences. Diagnostics retain 12,920 live items, two tombstones, 3,393 listed folders,
+one share/session, zero keep requests and zero staging files. The open catalog ID also matches
+the prior M18 installation evidence. These checks establish retained registration and matching
+counts, not an independent comparison of every item ID or downloaded byte.
+
+The installer changed no locations, write permissions, grants, mounts or caches. M19 still
+requires its separate editing opt-in. Settings migration and preservation of individual IDs,
+keeps and downloaded bytes were checked in the VM; private container access and downloaded-byte
+comparison were unavailable in this physical-Mac installation check. No Settings window was
+opened, no app was activated and the pointer was not moved. No NAS write was performed.
+
+Only the tinymounter app and its own provider were stopped. No shared daemon, VM or network
+restart occurred. The production code is unchanged from the completed 264-test VM run, so the
+required checks were not repeated for this installation and documentation update. Evidence is
+in results/m19-install-20261028. No push, publication or merge occurred.
