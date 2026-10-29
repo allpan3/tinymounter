@@ -153,11 +153,14 @@ requires its separate opt-in, and physical-Mac writes are the user's checks. See
 [October 28 results](docs/results/2026-10-28-same-object-save.md) and the
 [accepted design](docs/phase4-plan.md#revised-mac-only-save-proposal).
 
-Next feature proposed, 2026-10-28: M20 would let Finder rename an ordinary file within its
+M20 accepted, 2026-10-29: Finder will rename an ordinary file within its
 current folder, preserving the file and refusing name collisions. The first scope uses files
 with an M19 verified revision; older or unverified copies remain unsupported. The
-[scope and safety design](docs/phase4-plan.md#m20-file-renaming) await approval. No M20 code or
-new writable fixture is in place.
+[scope and safety design](docs/phase4-plan.md#m20-file-renaming) and disposable VM fixture are
+approved. The user also chose one write mode with a Read only toggle, off by default for new
+locations. Existing read-only locations keep their setting. The unified UI and migration are
+implemented, with VM verification pending; file renaming still awaits its protocol gate and
+implementation. The installed M19 build is unchanged. See the [work log](docs/results/2026-10-29-file-renaming.md).
 
 ## Run the prototype
 

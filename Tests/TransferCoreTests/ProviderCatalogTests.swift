@@ -15,6 +15,32 @@ final class ProviderCatalogTests: XCTestCase {
         try FileManager.default.removeItem(at: directory)
     }
 
+    func testUnifiedWriteModeUpdatesMetadataWithoutChangingIDsKeepsOrContents() throws {
+        let catalog = try makeCatalog()
+        try reconcile(catalog, [file("a"), file("b")])
+        let row = try XCTUnwrap(catalog.liveChild(parent: root, nameKey: NameKey("a")))
+        _ = try catalog.setKeep(ids: [row.id], value: true)
+        let initial = try XCTUnwrap(catalog.item(id: row.id))
+        let cursor = try catalog.folderPage(root, token: nil, size: 1).next
+        try catalog.setWriteAccess(creation: true, editing: true)
+        let writable = try XCTUnwrap(catalog.item(id: row.id))
+        XCTAssertTrue(writable.allowsCreation && writable.allowsEditing)
+        XCTAssertEqual(writable.contentVersion, initial.contentVersion)
+        XCTAssertTrue(writable.keepRequested)
+        XCTAssertEqual(writable.row, initial.row)
+        XCTAssertGreaterThan(writable.changeSeq, initial.changeSeq)
+        try catalog.setWriteAccess(creation: true, editing: true)
+        XCTAssertEqual(try catalog.item(id: row.id), writable)
+        XCTAssertThrowsError(try catalog.setWriteAccess(creation: false, editing: true))
+        XCTAssertEqual(try catalog.item(id: row.id), writable)
+        try catalog.setWriteAccess(creation: false, editing: false)
+        let readOnly = try XCTUnwrap(catalog.item(id: row.id))
+        XCTAssertFalse(readOnly.allowsCreation || readOnly.allowsEditing)
+        XCTAssertTrue(readOnly.keepRequested)
+        XCTAssertEqual(readOnly.contentVersion, initial.contentVersion)
+        XCTAssertEqual(try catalog.folderPage(root, token: cursor, size: 1).rows.count, 1)
+    }
+
     func testPageSizeIsTheSuggestionWithinBounds() {
         XCTAssertEqual(CatalogPage.size(suggested: nil), 200)
         XCTAssertEqual(CatalogPage.size(suggested: 37), 37)

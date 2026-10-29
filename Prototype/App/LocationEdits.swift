@@ -13,15 +13,6 @@ extension LocationSource {
         try outbox(domainID: domainID).pendingCount + editOutbox(domainID: domainID).pendingCount
     }
 
-    func configureEditing(_ enabled: Bool) throws {
-        try uploadLock.withLock {
-            guard !mutationsSuspended, !enabled || writeBookmark != nil else { throw UploadError.readOnly }
-            if !enabled, try Self.editOutbox(domainID: domainID).pendingCount > 0 { throw UploadError.pendingWrites }
-            try withCatalog { try $0.setAllowsEditing(enabled) }
-        }
-        scheduleSignal()
-    }
-
     func establishUploadedEditBase(_ upload: PendingUpload, row: CatalogRow, bookmark: Data,
                                    progress: Progress) throws {
         try withWriteSession(bookmark, progress: progress) { session, root in

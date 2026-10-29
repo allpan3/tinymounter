@@ -14,11 +14,11 @@ extension LocationSource {
 
     private func outbox() throws -> UploadOutbox { try Self.outbox(domainID: domainID) }
 
-    func configureWrites(_ bookmark: Data?) throws {
+    func configureWriteMode(_ bookmark: Data?, confirmed: Bool) throws {
         try uploadLock.withLock {
             guard !mutationsSuspended else { throw UploadError.readOnly }
             if bookmark == nil, try Self.pendingWrites(domainID: domainID) > 0 { throw UploadError.pendingWrites }
-            try withCatalog { try $0.setAllowsCreation(bookmark != nil) }
+            try withCatalog { try $0.setWriteAccess(creation: bookmark != nil, editing: bookmark != nil && confirmed) }
             writeBookmark = bookmark
         }
         scheduleSignal()

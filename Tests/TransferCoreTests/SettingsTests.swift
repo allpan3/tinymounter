@@ -20,6 +20,7 @@ final class SettingsTests: XCTestCase {
         let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//account@home-nas/share", address: address)
         var location = LocationRecord(name: "Location", serverID: grant.id, folder: .root)
         location.writeBookmark = Data([2])
+        location.readOnly = false
         location.pendingKeeps = [KeepPath(path: "file", kind: .file)]
         let settings = AppSettings(servers: [server], shares: [grant], locations: [location])
         var object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as! [String: Any]
@@ -32,7 +33,7 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(upgraded.shares, settings.shares)
         XCTAssertNil(upgraded.locations[0].smbOnlyEditing)
         XCTAssertEqual(upgraded.locations[0].writeBookmark, Data([2]))
-        XCTAssertEqual(upgraded.version, 5)
+        XCTAssertEqual(upgraded.version, 6)
         XCTAssertEqual(try AppSettings.load(from: path), upgraded)
     }
 
@@ -49,7 +50,53 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(upgraded.locations, settings.locations)
         XCTAssertEqual(upgraded.shares, settings.shares)
         XCTAssertNil(upgraded.locations[0].writeBookmark)
-        XCTAssertEqual(upgraded.version, 5)
+        XCTAssertEqual(upgraded.version, 6)
+    }
+
+    func testVersionFiveMigrationKeepsEachLocationsAccessAndIdentity() throws {
+        let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "smb://home-nas")))
+        let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//account@home-nas/share",
+                                address: try XCTUnwrap(ShareAddress("//account@home-nas/share")))
+        var readOnly = LocationRecord(name: "Read", serverID: grant.id, folder: .root)
+        readOnly.pendingKeeps = [KeepPath(path: "file", kind: .file)]
+        var legacy = LocationRecord(name: "Create", serverID: grant.id, folder: .root)
+        legacy.writeBookmark = Data([2])
+        var confirmed = LocationRecord(name: "Write", serverID: grant.id, folder: .root)
+        confirmed.writeBookmark = Data([3])
+        confirmed.smbOnlyEditing = true
+        let old = AppSettings(servers: [server], shares: [grant], locations: [readOnly, legacy, confirmed])
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(old)) as? [String: Any])
+        object["version"] = 5
+        object["locations"] = try XCTUnwrap(object["locations"] as? [[String: Any]]).map { location in
+            var result = location
+            result["readOnly"] = nil
+            return result
+        }
+        let migrated = try JSONDecoder().decode(AppSettings.self, from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertEqual(migrated.locations.map(\.id), old.locations.map(\.id))
+        XCTAssertEqual(migrated.locations.map(\.domainID), old.locations.map(\.domainID))
+        XCTAssertEqual(migrated.locations.map(\.pendingKeeps), old.locations.map(\.pendingKeeps))
+        XCTAssertEqual(migrated.locations.map(\.readOnly), [true, false, false])
+        XCTAssertEqual(migrated.locations.map(\.activeWriteBookmark), [nil, Data([2]), Data([3])])
+        XCTAssertEqual(migrated.locations.map(\.needsWriteConfirmation), [false, true, false])
+        XCTAssertEqual(migrated.locations.map(\.smbOnlyEditing), [nil, nil, true])
+    }
+
+    func testReadOnlyRetainsInactiveGrantAndConfirmationAcrossRelaunch() throws {
+        var location = LocationRecord(name: "Read", serverID: UUID(), folder: .root)
+        location.writeBookmark = Data([4])
+        location.smbOnlyEditing = true
+        location.readOnly = true
+        let settings = AppSettings(locations: [location])
+        let url = directory.appending(path: "Settings.json")
+        try settings.save(to: url)
+        let restored = try AppSettings.load(from: url)
+        XCTAssertEqual(restored, settings)
+        XCTAssertNil(restored.locations[0].activeWriteBookmark)
+        var enabled = restored.locations[0]
+        enabled.readOnly = false
+        XCTAssertEqual(enabled.activeWriteBookmark, Data([4]))
+        XCTAssertFalse(enabled.needsWriteConfirmation)
     }
 
     func testNormalizedFolderTrimsSlashesAndRejectsInvalidComponents() {
@@ -223,7 +270,7 @@ final class SettingsTests: XCTestCase {
     func testOnlyAMissingFileLoadsAsEmptySettings() throws {
         let empty = try AppSettings.load(from: directory.appending(path: "Settings.json"))
         XCTAssertEqual(empty, AppSettings())
-        XCTAssertEqual(empty.version, 5)
+        XCTAssertEqual(empty.version, 6)
         XCTAssertTrue(empty.servers.isEmpty && empty.shares.isEmpty && empty.locations.isEmpty && empty.savedKeeps.isEmpty)
 
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -247,8 +294,8 @@ final class SettingsTests: XCTestCase {
 
     func testAnUnknownVersionIsRejected() throws {
         var object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(AppSettings())) as! [String: Any]
-        XCTAssertEqual(object["version"] as? Int, 5)
-        for version in [0, 6] {
+        XCTAssertEqual(object["version"] as? Int, 6)
+        for version in [0, 7] {
             object["version"] = version
             let data = try JSONSerialization.data(withJSONObject: object)
             XCTAssertThrowsError(try JSONDecoder().decode(AppSettings.self, from: data)) {
@@ -284,7 +331,7 @@ final class SettingsTests: XCTestCase {
         let url = directory.appending(path: "Settings.json")
         try previous.write(to: url)
         let migrated = try AppSettings.load(from: url)
-        XCTAssertEqual(migrated.version, 5)
+        XCTAssertEqual(migrated.version, 6)
         XCTAssertEqual(migrated.servers.count, 2)
         XCTAssertEqual(migrated.shares.count, 3)
         XCTAssertEqual(migrated.shares[0].id.uuidString, "11111111-1111-1111-1111-111111111111")
@@ -298,7 +345,7 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(migrated.savedKeeps[0].paths, fileKeeps(["Music/b.flac"]))
         XCTAssertEqual(try AppSettings.load(from: url), migrated)
         let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any]
-        XCTAssertEqual(saved["version"] as? Int, 5)
+        XCTAssertEqual(saved["version"] as? Int, 6)
         XCTAssertEqual(try mode(url), 0o600)
     }
 

@@ -471,9 +471,9 @@ preservation and retained recovery data; the results log records their exact cov
 
 ## M20: file renaming
 
-Date: 2026-10-28. Decision status: proposed. The user requested the next implementation milestone
-after installing M19. This proposal needs approval because general renaming remains explicitly
-outside the accepted write scope. No implementation or new fixture session has started.
+Proposed 2026-10-28; accepted 2026-10-29, including the disposable VM fixture. The user also
+approved replacing the separate creation and editing controls with one Read only toggle.
+Implementation and verification are in progress; no M20 runtime result is claimed yet.
 
 ### What the user gets
 
@@ -490,8 +490,16 @@ a deliberate first-step limit; folder renaming and renaming never-verified files
 identity work. General moves, deletion, Finder Replace and combined rename/content saves remain
 outside this scope. Existing M18 initial folder naming continues unchanged.
 
-Renaming requires its own explicit per-location permission and the existing SMB-only writer
-confirmation. Existing locations and creation/editing permissions do not gain it automatically.
+Creation, editing and renaming use one write mode. A Read only toggle defaults off for new
+locations. Adding a writable location obtains the macOS share grant and confirms the existing
+SMB-only writer and transaction-file requirements during setup. Existing read-only locations
+remain read-only. Already confirmed M19 write access also permits the supported M20 rename.
+Legacy creation-only grants retain their existing access and pending work until the user
+completes the one-time write confirmation; they do not silently acquire editing permission.
+The UI reports that unfinished setup without separate controls for individual write features.
+Read only blocks new remote changes and cannot be enabled while mutations are pending. Retain
+the saved scoped grant and confirmation when toggling it, so permission is not requested again
+for the same source. A different source needs new scoped access and confirmation.
 The first milestone is online only. A pending rename is visible, prevents source/location removal
 or permission revocation, and does not claim completion until verified. Existing pending content
 edits or uploads must settle before the file can be renamed.
@@ -530,7 +538,7 @@ user-requested file rename. Reuse its existing protected opens, identity/readbac
 no-replace rename. Native downloads/uploads, macOS credentials, encryption requirements, dynamic
 linkage and licence obligations stay the same. No new dependency or server component is proposed.
 
-Approval is also requested for a fresh disposable loopback-only Samba session in macOS VM 1,
+The user approved a fresh disposable loopback-only Samba session in macOS VM 1,
 with the same bounded synthetic files, temporary dependencies and private Keychain credential
 used for M19. Do not create a macOS account, register a service or change Apple's sharing settings.
 Snapshot the affected state, then remove the fixture, credential and temporary dependencies and

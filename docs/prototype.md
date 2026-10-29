@@ -324,10 +324,12 @@ Build again with a new certificate before it expires: what an expired one does i
 **Update.** Quit tinymounter, build the new version, and open it. After Quit, the app stays
 stopped: only a crash makes the extension start it again. The locations, their downloads
 and their Keep Downloaded requests stay. Keep the same team and bundle identifier, because the
-settings and catalogs are in containers named after them. Settings version 5 adds a separate
-optional SMB-only editing confirmation and retains write bookmarks, typed keep requests,
-server addresses and share grants. Versions 1 through 4 migrate atomically without granting
-editing to existing locations. Bookmarks, grant/location IDs, domains and saved lists remain.
+settings and catalogs are in containers named after them. Settings version 6 adds the Read only mode while retaining scoped write bookmarks and the
+SMB-only write confirmation. Versions 1 through 5 migrate atomically: existing read-only
+locations stay read-only, confirmed writable locations keep their access, and creation-only
+locations retain creation access until Complete Write Setup. An inactive grant is retained
+when Read only is enabled. Older builds must refuse version 6 so they cannot mistake that
+retained grant for active write permission. IDs, domains, bookmarks and keep lists remain.
 Catalog versions 1 through 4 migrate to version 5 without replacing item IDs or the epoch.
 Version 5 stores the editing permission and optional strong content-revision token; existing
 rows retain their f1 versions until a verified full handoff establishes an immutable receipt. The
@@ -399,9 +401,11 @@ physical-Mac writes and other file managers remain unverified.
 The user approved installing M18 on 2026-10-27. The app and provider run from Applications with
 the existing catalog ID and diagnostic counts retained; the location remains read-only. See the
 [installation results](results/2026-10-25-keep-both.md#physical-mac-installation-2026-10-27).
-See the [results](results/2026-10-23-create-items.md). In a location's Changes
-section, Enable Changes asks the user to select the same share root for write access. The grant
-belongs to this location. Existing locations remain read-only. Editing, replacement, general
+See the [results](results/2026-10-23-create-items.md). In the development UI, a location's Access
+section has one Read only toggle. It defaults off for a new location; a duplicate inherits
+the original's mode. Writable setup selects the same share root and confirms the SMB-only
+write requirements. The grant belongs to this location. Existing read-only locations stay
+read-only. Complete Write Setup finishes confirmation for older creation-only grants. Editing, replacement, general
 rename, move, delete, packages and symbolic links remain outside this milestone.
 
 Finder's New Folder creates an untitled folder on the server, then sends a separate rename when
@@ -428,7 +432,8 @@ finished location. Pending records and content stay in private app storage; the 
 See the accepted [phase 4 plan](phase4-plan.md).
 
 Normal and repeated TextEdit Save pass in the signed VM app, including a concurrent-edit
-conflict. Editing has a separate opt-in.
+conflict. The installed M19 build has a separate editing opt-in; the development UI combines
+creation and editing under the confirmed write mode. M20 renaming remains under implementation.
 Interrupted local staging remains visible. New uploads establish a verified editing base, and
 changed strong revisions advance even when native timestamps are unchanged.
 Pending edits retain bounded original attributes separately, because macOS can change metadata

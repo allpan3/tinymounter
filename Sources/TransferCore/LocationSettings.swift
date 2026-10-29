@@ -9,7 +9,7 @@ public enum SettingsError: Error, Equatable, Sendable {
 
 /// Never in the App Group: grants and saved paths are private.
 public struct AppSettings: Codable, Equatable, Sendable {
-    public static let currentVersion = 5
+    public static let currentVersion = 6
 
     public private(set) var version = AppSettings.currentVersion
     public var servers: [ServerRecord]
@@ -28,12 +28,15 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let previousVersion = try container.decode(Int.self, forKey: .version)
-        guard [1, 2, 3, 4, Self.currentVersion].contains(previousVersion) else {
+        guard (1...Self.currentVersion).contains(previousVersion) else {
             throw SettingsError.unsupportedVersion(previousVersion)
         }
         locations = try container.decode([LocationRecord].self, forKey: .locations)
         if previousVersion < 5 {
             for index in locations.indices { locations[index].smbOnlyEditing = nil }
+        }
+        if previousVersion < 6 {
+            for index in locations.indices { locations[index].readOnly = locations[index].writeBookmark == nil }
         }
         savedKeeps = try container.decode([SavedKeepList].self, forKey: .savedKeeps)
         if previousVersion == 1 {
@@ -181,6 +184,10 @@ public struct LocationRecord: Codable, Equatable, Sendable {
     public var pendingKeeps: [KeepPath] = []
     public var writeBookmark: Data?
     public var smbOnlyEditing: Bool?
+    public var readOnly = true
+
+    public var activeWriteBookmark: Data? { readOnly ? nil : writeBookmark }
+    public var needsWriteConfirmation: Bool { !readOnly && writeBookmark != nil && smbOnlyEditing != true }
 
     public init(id: UUID = UUID(), name: String, serverID: UUID, folder: RelativePath,
                 domainID: String = UUID().uuidString) {
@@ -189,6 +196,21 @@ public struct LocationRecord: Codable, Equatable, Sendable {
         self.serverID = serverID
         self.folder = folder.string
         self.domainID = domainID
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        name = try values.decode(String.self, forKey: .name)
+        serverID = try values.decode(UUID.self, forKey: .serverID)
+        folder = try values.decode(String.self, forKey: .folder)
+        domainID = try values.decode(String.self, forKey: .domainID)
+        retiredDomainID = try values.decodeIfPresent(String.self, forKey: .retiredDomainID)
+        removing = try values.decode(Bool.self, forKey: .removing)
+        pendingKeeps = try values.decode([KeepPath].self, forKey: .pendingKeeps)
+        writeBookmark = try values.decodeIfPresent(Data.self, forKey: .writeBookmark)
+        smbOnlyEditing = try values.decodeIfPresent(Bool.self, forKey: .smbOnlyEditing)
+        readOnly = try values.decodeIfPresent(Bool.self, forKey: .readOnly) ?? true
     }
 
     /// Leading and trailing slashes are trimmed, so "/" and "" are the full share.
