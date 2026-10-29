@@ -124,3 +124,11 @@ continues to block location removal. Nested receipt decoding and local metadata 
 validated before use. All 253 VM unit tests passed, with one optional fixture skip.
 Project generation, release CLI and benchmark validation passed. The corrected unsigned app
 build passed without Swift warnings. Signed app checks remain.
+
+The provider integration now routes same-item content saves through the app and its explicit
+editing permission. Full handoffs can establish strong base receipts; strict fetches retain
+the requested version. Conflicts and pending edits appear in Settings, with local export and
+retry controls. Listings from overlapping locations on the same SMB source defer while an edit
+is unresolved, preventing the temporary namespace gap from deleting catalog items. Metadata
+fields outside the content update remain pending; resource-fork edits are refused. Normal
+TextEdit behavior, signed authentication and these controls still need VM verification.

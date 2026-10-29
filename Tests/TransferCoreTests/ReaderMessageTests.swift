@@ -5,6 +5,19 @@ import XCTest
 final class ReaderMessageTests: XCTestCase {
     private let item = UUID().uuidString
 
+    func testEditMessagesKeepBaseAndConflictPolicyAndRejectUnsafePaths() throws {
+        let request = try EditRequest(item: UUID().uuidString, parent: Catalog.rootItemID, name: "note.txt",
+                                      baseVersion: "e1:" + UUID().uuidString, staging: UUID(), failOnConflict: true)
+        let decoded = try ReaderMessage.decode(EditRequest.self, from: ReaderMessage.encode(request))
+        XCTAssertEqual(decoded.baseVersion, request.baseVersion)
+        XCTAssertEqual(decoded.staging, request.staging)
+        XCTAssertTrue(decoded.failOnConflict)
+        for name in ["../note.txt", "file:stream", "live.sqlite", "disk.vmdk"] {
+            XCTAssertThrowsError(try EditRequest(item: UUID().uuidString, parent: Catalog.rootItemID, name: name,
+                                                baseVersion: "legacy", staging: UUID(), failOnConflict: false))
+        }
+    }
+
     func testItemIDsAreTheRootConstantOrUpperCaseUUIDs() {
         XCTAssertTrue(ReaderMessage.isItemID(Catalog.rootItemID))
         XCTAssertTrue(ReaderMessage.isItemID(item))

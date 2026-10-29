@@ -546,6 +546,41 @@ final class AppModel {
         }
     }
 
+    func setEditing(_ recordID: UUID, enabled: Bool) {
+        guard let record = record(recordID), !busy.contains(recordID) else { return }
+        Task {
+            if enabled {
+                let alert = NSAlert()
+                alert.messageText = UIText.enableEditing
+                alert.informativeText = UIText.editingRequirements
+                alert.addButton(withTitle: UIText.confirmEditing)
+                alert.addButton(withTitle: UIText.cancel)
+                guard await present(alert) == .alertFirstButtonReturn else { return }
+            }
+            busy.insert(recordID)
+            defer { busy.remove(recordID) }
+            do { try await controller.setEditing(recordID, enabled: enabled) }
+            catch { show(error, grantID: record.serverID) }
+        }
+    }
+
+    func editRecords(_ record: LocationRecord) async -> [PendingEdit] { (try? await controller.editRecords(record)) ?? [] }
+
+    func retryEdits(_ record: LocationRecord) { controller.retryEdits(record) }
+
+    func exportEdit(_ edit: PendingEdit, record: LocationRecord) {
+        Task {
+            let panel = NSSavePanel()
+            panel.nameFieldStringValue = (edit.path as NSString).lastPathComponent
+            panel.prompt = UIText.exportEdit
+            guard await run(panel), let url = panel.url else { return }
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            do { try await controller.exportEdit(record, id: edit.id, destination: url) }
+            catch { show(error, grantID: record.serverID) }
+        }
+    }
+
     func pendingUploads(_ record: LocationRecord) async -> Int? { try? await controller.pendingUploads(record) }
 
     func showInFinder(_ recordID: UUID) {
@@ -1137,7 +1172,7 @@ final class AppModel {
         }
     }
 
-    private func run(_ panel: NSOpenPanel) async -> Bool {
+    private func run(_ panel: NSSavePanel) async -> Bool {
         if let window, window.isVisible { return await panel.beginSheetModal(for: window) == .OK }
         NSApp.activate()
         return panel.runModal() == .OK

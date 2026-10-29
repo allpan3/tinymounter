@@ -5,7 +5,11 @@ import UniformTypeIdentifiers
 /// File Provider permits creation only in a location with explicit write access.
 final class CatalogItem: NSObject, NSFileProviderItem {
     private let row: CatalogRow
-    init(_ row: CatalogRow) { self.row = row }
+    private let contentVersion: String
+    init(_ row: CatalogRow, contentVersion: String? = nil) {
+        self.row = row
+        self.contentVersion = contentVersion ?? row.contentVersion
+    }
 
     private var isFolder: Bool { row.kind == .folder }
 
@@ -26,11 +30,14 @@ final class CatalogItem: NSObject, NSFileProviderItem {
             return row.allowsCreation ? [.allowsContentEnumerating, .allowsAddingSubItems, .allowsRenaming]
                 : .allowsContentEnumerating
         }
+        if row.allowsEditing, EditRequest.supportsName(row.name), !contentType.conforms(to: .package) {
+            return [.allowsReading, .allowsRenaming, .allowsWriting]
+        }
         return row.allowsCreation ? [.allowsReading, .allowsRenaming] : .allowsReading
     }
     var fileSystemFlags: NSFileProviderFileSystemFlags {
         if isFolder { return row.allowsCreation ? [.userReadable, .userWritable, .userExecutable] : [.userReadable, .userExecutable] }
-        return .userReadable
+        return row.allowsEditing ? [.userReadable, .userWritable] : .userReadable
     }
     /// While paused, kept files are lazy, so the system starts no eager downloads (plan §6).
     var contentPolicy: NSFileProviderContentPolicy {
@@ -43,7 +50,7 @@ final class CatalogItem: NSObject, NSFileProviderItem {
         row.parentID == nil ? nil : ["keep": row.keep ? 1 : 0, "keepRequested": row.keepRequested ? 1 : 0]
     }
     var itemVersion: NSFileProviderItemVersion {
-        NSFileProviderItemVersion(contentVersion: Data(row.contentVersion.utf8),
+        NSFileProviderItemVersion(contentVersion: Data(contentVersion.utf8),
                                   metadataVersion: Data(row.metadataVersion.utf8))
     }
 }

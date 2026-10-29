@@ -106,7 +106,7 @@ them:
   subsequently failed concurrent metadata preservation. A
   [Mac-only revision](phase4-plan.md#revised-mac-only-save-proposal) was approved on 2026-10-28;
   its [CLI protocol gate](results/2026-10-28-same-object-save.md) passed on the disposable Samba
-  fixture, while app integration remains pending. M18 does not authorize partial overwrites.
+  fixture. App integration is now present; signed editor verification remains pending. M18 does not authorize partial overwrites.
 - If the NAS fingerprint differs from the base, the edit becomes a conflict copy, for example
   `Report (conflict, Mac, 2026-10-12 14.03).docx`. Both versions survive.
 - Delete-versus-edit: if the NAS deleted a file this Mac edited, the edit is uploaded as a new file.

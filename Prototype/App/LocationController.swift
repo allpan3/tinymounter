@@ -308,6 +308,7 @@ final class LocationController {
             try self.store.update { settings in
                 guard let index = settings.locations.firstIndex(where: { $0.id == recordID }) else { throw UploadError.readOnly }
                 settings.locations[index].writeBookmark = bookmark
+                if bookmark == nil { settings.locations[index].smbOnlyEditing = nil }
             }
         }
         if bookmark != nil {
@@ -324,6 +325,36 @@ final class LocationController {
         }
         onChange?()
     }
+
+    func setEditing(_ recordID: UUID, enabled: Bool) async throws {
+        guard isReady, let record = store.settings?.locations.first(where: { $0.id == recordID }),
+              record.writeBookmark != nil, !record.removing, let source = sources[record.domainID] else {
+            throw UploadError.readOnly
+        }
+        try await Self.offMain { try source.configureEditing(enabled) }
+        do {
+            try store.update { settings in
+                guard let index = settings.locations.firstIndex(where: { $0.id == recordID }) else { throw UploadError.readOnly }
+                settings.locations[index].smbOnlyEditing = enabled
+            }
+        } catch {
+            try? await Self.offMain { try source.configureEditing(record.smbOnlyEditing == true) }
+            throw error
+        }
+        onChange?()
+    }
+
+    func editRecords(_ record: LocationRecord) async throws -> [PendingEdit] {
+        guard let source = sources[record.domainID] else { throw LocationError.catalogClosed }
+        return try await Self.offMain { try source.editRecords() }
+    }
+
+    func exportEdit(_ record: LocationRecord, id: UUID, destination: URL) async throws {
+        guard let source = sources[record.domainID] else { throw LocationError.catalogClosed }
+        try await Self.offMain { try source.exportEdit(id, destination: destination) }
+    }
+
+    func retryEdits(_ record: LocationRecord) { sources[record.domainID]?.retryEdits() }
 
     func pendingUploads(_ record: LocationRecord) async throws -> Int {
         guard let source = sources[record.domainID] else { throw LocationError.catalogClosed }
@@ -363,7 +394,7 @@ final class LocationController {
         }
         let previousSource = sources[record.domainID]
         if let previousSource { try await Self.offMain { try previousSource.suspendMutations() } }
-        else if try LocationSource.outbox(domainID: record.domainID).pendingCount > 0 { throw UploadError.pendingWrites }
+        else if try LocationSource.pendingWrites(domainID: record.domainID) > 0 { throw UploadError.pendingWrites }
         defer { previousSource?.resumeMutations() }
         let oldGrant = settings.shares.first { $0.id == record.serverID }
         let kept = await keptSharePaths(record) + record.pendingKeeps
@@ -401,6 +432,7 @@ final class LocationController {
         try await run(.removeDomain(record.domainID), registered: registeredDomains())
         try Catalog.delete(at: SharedContainer.catalogURL(domainID: record.domainID))
         try LocationSource.outbox(domainID: record.domainID).removeIfCompleted()
+        try LocationSource.editOutbox(domainID: record.domainID).removeIfCompleted()
         try store.update { settings in
             guard let index = settings.locations.firstIndex(where: { $0.id == recordID }) else { return }
             settings.locations[index].retiredDomainID = nil
@@ -424,7 +456,7 @@ final class LocationController {
         }
         let previousSource = sources[record.domainID]
         if let previousSource { try await Self.offMain { try previousSource.suspendMutations() } }
-        else if try LocationSource.outbox(domainID: record.domainID).pendingCount > 0 { throw UploadError.pendingWrites }
+        else if try LocationSource.pendingWrites(domainID: record.domainID) > 0 { throw UploadError.pendingWrites }
         defer { previousSource?.resumeMutations() }
         let grant = settings.shares.first { $0.id == record.serverID }
         // A location whose catalog can't be read saves only its pending paths; it must stay removable.
@@ -442,6 +474,7 @@ final class LocationController {
         domains[record.domainID] = nil
         try Catalog.delete(at: SharedContainer.catalogURL(domainID: record.domainID))
         try LocationSource.outbox(domainID: record.domainID).removeIfCompleted()
+        try LocationSource.editOutbox(domainID: record.domainID).removeIfCompleted()
         try store.update { $0.locations.removeAll { $0.id == recordID } }
         Self.catalogLog.info("""
             location_removed domain=\(record.domainID, privacy: .public) saved_keeps=\(paths.count)
@@ -860,11 +893,14 @@ final class LocationController {
     private func run(_ step: LaunchReconciliation.Step, registered: [String: NSFileProviderDomain]) async throws {
         switch step {
         case .removeDomain(let id):
+            guard try LocationSource.pendingWrites(domainID: id) == 0 else { throw UploadError.pendingWrites }
             guard let domain = registered[id] else { return }
             _ = try await NSFileProviderManager.remove(domain, mode: .removeAll)
         case .deleteCatalog(let id):
+            guard try LocationSource.pendingWrites(domainID: id) == 0 else { throw UploadError.pendingWrites }
             try Catalog.delete(at: SharedContainer.catalogURL(domainID: id))
             try LocationSource.outbox(domainID: id).removeIfCompleted()
+            try LocationSource.editOutbox(domainID: id).removeIfCompleted()
         case .deleteRecord(let id):
             try store.update { $0.locations.removeAll { $0.id == id } }
         case .clearRetiredDomain(let id):
@@ -924,6 +960,8 @@ final class LocationController {
             }
         }
         try? source.configureWrites(record.writeBookmark)
+        try? source.configureEditing(record.writeBookmark != nil && record.smbOnlyEditing == true)
+        source.retryEdits()
         source.onChange { [weak self] in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
@@ -1058,6 +1096,14 @@ final class LocationController {
         let grantID = grant.id
         let share = ShareAccess(grant: grant, store: store) { [weak self] failures in
             Task { @MainActor in await self?.recovered(grantID, failures) }
+        }
+        if let settings = store.settings {
+            let related = Set(settings.shares.filter { $0.mountFrom.lowercased() == grant.mountFrom.lowercased() }.map(\.id))
+            for record in settings.locations where related.contains(record.serverID) {
+                if let folder = RelativePath(record.folder) {
+                    share.editNamespace.register(domain: record.domainID, folder: folder)
+                }
+            }
         }
         // Changes on two threads can be queued in reverse order, so read the state on main.
         share.onStateChange { [weak self, weak share] _ in

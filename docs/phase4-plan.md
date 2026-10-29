@@ -145,7 +145,7 @@ normal save, conflict, recovery and temporary missing-file behavior. Ordinary im
 decisions are delegated. The user subsequently accepted restricting editing to folders whose
 writers all use SMB. Programs accessing the server filesystem directly, including other
 protocols, are outside this safety boundary. Enabling editing must explicitly confirm this
-requirement; existing write-enabled locations do not acquire editing permission automatically. The protocol gate comes first; editing is not yet implemented.
+requirement; existing write-enabled locations do not acquire editing permission automatically. The protocol gate passed; app integration is implemented for verification, with signed editor checks pending.
 
 The replacement sequence below failed its metadata-preservation gate. The user reaffirmed
 Mac-only operation: use the server's existing SMB service, with no tinymounter server component.

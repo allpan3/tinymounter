@@ -143,7 +143,7 @@ final class SourceReaderService: NSObject, NSFileProviderServiceSource, NSXPCLis
     }
 
     /// D2: until the app's `started`, only a reply, a lost connection or cancellation ends the wait.
-    func fetch(_ request: SourceReadRequest, directory: URL, progress: Progress) throws -> (URL, TransferMetrics) {
+    func fetch(_ request: SourceReadRequest, directory: URL, progress: Progress) throws -> (URL, TransferMetrics, String?) {
         let id = request.id.uuidString
         let response = Response(progress: progress)
         let proxy = try proxy(startupProgress: progress) { response.finish(.failure($0)) }
@@ -174,7 +174,13 @@ final class SourceReaderService: NSObject, NSFileProviderServiceSource, NSXPCLis
                          UInt32(RENAME_EXCL)) == 0 else {
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
         }
-        return (destination, receipt.metrics)
+        if let version = receipt.contentVersion {
+            guard request.establishEditBase, version.hasPrefix("e1:"), version.utf8.count <= 128 else {
+                try? FileManager.default.removeItem(at: destination)
+                throw CocoaError(.fileReadCorruptFile)
+            }
+        }
+        return (destination, receipt.metrics, receipt.contentVersion)
     }
 
     /// Waits for the app's commit, as a fetch waits before `started`, but never past `keepDeadline`.
@@ -231,6 +237,25 @@ final class SourceReaderService: NSObject, NSFileProviderServiceSource, NSXPCLis
             guard !response.hasStalled else { throw NSFileProviderError(.serverUnreachable) }
         }
         return try ReaderMessage.decode(CreateReceipt.self, from: response.value())
+    }
+
+    func edit(_ request: EditRequest, progress: Progress) throws -> EditReceipt {
+        let response = Response(progress: progress)
+        let id = request.id.uuidString
+        let proxy = try proxy(startupProgress: progress) { response.finish(.failure($0)) }
+        lock.withLock { waiting[id] = response }
+        defer {
+            lock.withLock { waiting[id] = nil }
+            proxy.release(id)
+        }
+        proxy.edit(try ReaderMessage.encode(request)) { data, error in
+            response.finish(Result { try Self.payload(data, error) })
+        }
+        while response.ready.wait(timeout: .now() + 0.1) == .timedOut {
+            guard !progress.isCancelled else { throw TransferError.cancelled }
+            guard !response.hasStalled else { throw NSFileProviderError(.serverUnreachable) }
+        }
+        return try ReaderMessage.decode(EditReceipt.self, from: response.value())
     }
 
     private func proxy(startupProgress: Progress? = nil,

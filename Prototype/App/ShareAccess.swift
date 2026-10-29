@@ -109,6 +109,7 @@ final class ShareSession: @unchecked Sendable {
 /// One per server grant. Metadata work runs on one serial lane; transfers use their own threads.
 final class ShareAccess: @unchecked Sendable {
     let grantID: UUID
+    let editNamespace: EditNamespace
     private let mountFrom: String
     private let store: SettingsStore
     /// The errors to signal resolved, from a session start or a probe that recovered the share.
@@ -140,6 +141,7 @@ final class ShareAccess: @unchecked Sendable {
 
     init(grant: ServerGrant, store: SettingsStore, onRecovery: @escaping @Sendable ([SourceFailure]) -> Void) {
         grantID = grant.id
+        editNamespace = EditNamespace.shared(grant.mountFrom)
         mountFrom = grant.mountFrom
         bookmark = grant.bookmark
         self.store = store
@@ -718,6 +720,7 @@ final class LocationSource: @unchecked Sendable {
     private var catalog: Catalog?
     let uploadLock = NSLock()
     var writeBookmark: Data?
+    var editNamespace: EditNamespace { access.editNamespace }
     var mutationsSuspended = false
     private let lock = NSLock()
     /// Folders with a listing queued or running, and the replies that wait for it.
@@ -741,6 +744,7 @@ final class LocationSource: @unchecked Sendable {
         self.catalog = catalog
         self.access = access
         self.signal = signal
+        editNamespace.register(domain: domainID, folder: folder)
     }
 
     /// Closes the writer connection; later calls fail with `catalogClosed`.
@@ -890,6 +894,10 @@ final class LocationSource: @unchecked Sendable {
             guard let path = try catalog.relativePath(of: row.id) else { throw SourceFailure.missing }
             return (row, path)
         }
+        if request.version.hasPrefix("e1:") || (row.allowsEditing && request.establishEditBase) {
+            return try protectedTransfer(request, row: row, path: path, progress: progress,
+                                         stagingDirectory: stagingDirectory, checkSpace: checkSpace)
+        }
         let range: ByteRange
         do {
             range = try ByteRange(offset: request.range.offset, length: request.range.length, fileSize: row.size)
@@ -925,6 +933,13 @@ final class LocationSource: @unchecked Sendable {
     }
 
     func listOnLane(_ folderID: String, requestID: UUID) throws -> ListReceipt {
+        try editNamespace.perform {
+            try editNamespace.requireSettled()
+            return try listSettledOnLane(folderID, requestID: requestID)
+        }
+    }
+
+    private func listSettledOnLane(_ folderID: String, requestID: UUID) throws -> ListReceipt {
         let started = ContinuousClock.now
         do {
             let (parentID, path) = try withCatalog { catalog -> (String?, RelativePath) in
@@ -1083,8 +1098,12 @@ final class LocationSource: @unchecked Sendable {
     /// The file on the share differs from its row: record it, so the system asks for the new version.
     private func fileChanged(_ requestID: UUID, _ row: CatalogRow, _ snapshot: FileSnapshot) {
         do {
-            let updated = try withCatalog {
-                try $0.updateFingerprint(item: row.id, fingerprint: snapshot.fingerprint, fileID: snapshot.inode)
+            let updated = try editNamespace.perform {
+                try editNamespace.requireSettled()
+                return try withCatalog { catalog in
+                    guard try catalog.item(id: row.id)?.contentVersion == row.contentVersion else { return false }
+                    return try catalog.updateFingerprint(item: row.id, fingerprint: snapshot.fingerprint, fileID: snapshot.inode)
+                }
             }
             if updated { scheduleSignal() }
             Self.fetchLog.info("""

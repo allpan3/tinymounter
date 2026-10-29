@@ -17,18 +17,18 @@ extension LocationSource {
     func configureWrites(_ bookmark: Data?) throws {
         try uploadLock.withLock {
             guard !mutationsSuspended else { throw UploadError.readOnly }
-            if bookmark == nil, try outbox().pendingCount > 0 { throw UploadError.pendingWrites }
+            if bookmark == nil, try Self.pendingWrites(domainID: domainID) > 0 { throw UploadError.pendingWrites }
             try withCatalog { try $0.setAllowsCreation(bookmark != nil) }
             writeBookmark = bookmark
         }
         scheduleSignal()
     }
 
-    func pendingUploads() throws -> Int { try uploadLock.withLock { try outbox().pendingCount } }
+    func pendingUploads() throws -> Int { try uploadLock.withLock { try Self.pendingWrites(domainID: domainID) } }
 
     func suspendMutations() throws {
         try uploadLock.withLock {
-            guard try outbox().pendingCount == 0 else { throw UploadError.pendingWrites }
+            guard try Self.pendingWrites(domainID: domainID) == 0 else { throw UploadError.pendingWrites }
             mutationsSuspended = true
         }
     }
@@ -41,7 +41,10 @@ extension LocationSource {
                 reply: @escaping @Sendable (Result<CreateReceipt, Error>) -> Void) {
         access.enqueue { [self] in
             started()
-            let result = Result { try createOnLane(request, contents: contents, progress: progress, checkSpace: checkSpace) }
+            let result = Result { try editNamespace.perform {
+                try editNamespace.requireSettled()
+                return try createOnLane(request, contents: contents, progress: progress, checkSpace: checkSpace)
+            } }
             if case .failure(let error) = result, error as? UploadError == .collision {
                 _ = try? listOnLane(request.parent, requestID: request.id)
                 scheduleSignal()
