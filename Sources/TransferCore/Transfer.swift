@@ -17,7 +17,7 @@ public struct FileSnapshot: Codable, Equatable, Sendable {
     public let changedSeconds: Int64
     public let changedNanoseconds: Int64
 
-    fileprivate init(fd: Int32) throws {
+    public init(fd: Int32) throws {
         var value = stat()
         guard fstat(fd, &value) == 0 else { throw posixError("fstat") }
         guard value.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG) else {
@@ -170,6 +170,7 @@ public struct TransferOutput {
     /// Caller owns this file until handing it to File Provider. Remove it after a standalone benchmark.
     public let stagingURL: URL?
     public let metrics: TransferMetrics
+    public var contentVersion: String?
 }
 
 public enum Transfer {

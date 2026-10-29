@@ -78,8 +78,10 @@ public struct SourceReadRequest: Codable, Equatable, Sendable {
     public let range: ByteRange
     /// A system or speculative fetch, which no user waits for; Pause Downloads stops these.
     public let background: Bool
+    public let establishEditBase: Bool
 
-    public init(id: UUID, item: String, version: String, range: ByteRange, background: Bool) throws {
+    public init(id: UUID, item: String, version: String, range: ByteRange, background: Bool,
+                establishEditBase: Bool = false) throws {
         guard ReaderMessage.isItemID(item), version.utf8.count <= Self.maxVersionBytes else {
             throw CocoaError(.fileReadCorruptFile)
         }
@@ -88,6 +90,7 @@ public struct SourceReadRequest: Codable, Equatable, Sendable {
         self.version = version
         self.range = range
         self.background = background
+        self.establishEditBase = establishEditBase
     }
 
     public init(from decoder: any Decoder) throws {
@@ -95,7 +98,8 @@ public struct SourceReadRequest: Codable, Equatable, Sendable {
         try self.init(id: container.decode(UUID.self, forKey: .id), item: container.decode(String.self, forKey: .item),
                       version: container.decode(String.self, forKey: .version),
                       range: container.decode(ByteRange.self, forKey: .range),
-                      background: container.decode(Bool.self, forKey: .background))
+                      background: container.decode(Bool.self, forKey: .background),
+                      establishEditBase: container.decodeIfPresent(Bool.self, forKey: .establishEditBase) ?? false)
     }
 }
 
@@ -159,10 +163,12 @@ public struct KeepReceipt: Codable, Equatable, Sendable {
 public struct SourceReadReceipt: Codable, Sendable {
     public let stagingName: String
     public let metrics: TransferMetrics
+    public let contentVersion: String?
 
-    public init(stagingName: String, metrics: TransferMetrics) {
+    public init(stagingName: String, metrics: TransferMetrics, contentVersion: String? = nil) {
         self.stagingName = stagingName
         self.metrics = metrics
+        self.contentVersion = contentVersion
     }
 }
 
@@ -234,4 +240,53 @@ public enum UploadError: Error, Equatable, Sendable {
     case pendingWrites
     case readOnly
     case editConflict
+}
+
+public struct EditRequest: Codable, Sendable {
+    public let id: UUID
+    public let item: String
+    public let parent: String
+    public let name: String
+    public let baseVersion: String
+    public let staging: UUID
+    public let failOnConflict: Bool
+
+    public init(id: UUID = UUID(), item: String, parent: String, name: String, baseVersion: String,
+                staging: UUID, failOnConflict: Bool) throws {
+        guard ReaderMessage.isItemID(item), item != Catalog.rootItemID, ReaderMessage.isItemID(parent),
+              RelativePath.isValidComponent(name), !name.contains("\\"), !name.contains(":"),
+              baseVersion.utf8.count <= 128, Self.supportsName(name) else { throw UploadError.invalidRequest }
+        self.id = id
+        self.item = item
+        self.parent = parent
+        self.name = name
+        self.baseVersion = baseVersion
+        self.staging = staging
+        self.failOnConflict = failOnConflict
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(id: c.decode(UUID.self, forKey: .id), item: c.decode(String.self, forKey: .item),
+                      parent: c.decode(String.self, forKey: .parent), name: c.decode(String.self, forKey: .name),
+                      baseVersion: c.decode(String.self, forKey: .baseVersion), staging: c.decode(UUID.self, forKey: .staging),
+                      failOnConflict: c.decode(Bool.self, forKey: .failOnConflict))
+    }
+
+    public static func supportsName(_ name: String) -> Bool {
+        let suffix = (name as NSString).pathExtension.lowercased()
+        return !["db", "sqlite", "sqlite3", "sqlite-wal", "sqlite-shm", "vmdk", "qcow2", "vdi", "vhd", "vhdx",
+                 "dmg", "sparseimage", "sparsebundle"].contains(suffix)
+    }
+}
+
+public struct EditReceipt: Codable, Sendable {
+    public let item: String
+    public let conflict: Bool
+    public let contentVersion: String
+    public init(item: String, conflict: Bool, contentVersion: String) {
+        self.item = item
+        self.conflict = conflict
+        self.contentVersion = contentVersion
+    }
 }

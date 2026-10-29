@@ -208,6 +208,43 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
         } catch { reply(nil, Self.replyError(error)) }
     }
 
+    func edit(_ data: Data, reply: @escaping (Data?, NSError?) -> Void) {
+        do {
+            let request = try ReaderMessage.decode(EditRequest.self, from: data)
+            guard let source else { throw LocationError.catalogClosed }
+            let job = Job()
+            let accepted = lock.withLock {
+                guard !closed, jobs.count < Self.maxJobs, jobs[request.id] == nil else { return false }
+                jobs[request.id] = job
+                return true
+            }
+            guard accepted else { throw CocoaError(.fileReadUnknown) }
+            let contents: URL
+            do {
+                contents = try SharedContainer.uploadInbox(request.staging)
+                let size = try ReadOnlyFile(url: contents).snapshot.size
+                try space.begin(request.id, bytes: size)
+            } catch {
+                release(request.id.uuidString)
+                throw error
+            }
+            let timer = progressTimer(request.id, job)
+            source.edit(request, contents: contents, progress: job.progress, started: { [weak self] in
+                try? self?.registration()?.started(ReaderMessage.encode(SourceReadStarted(id: request.id)))
+            }, checkSpace: { [space] completed in
+                try space.check(request.id, completedBytes: completed)
+            }) { [self] result in
+                timer.cancel()
+                space.end(request.id)
+                lock.withLock { jobs[request.id] = nil }
+                do { reply(try ReaderMessage.encode(result.get()), nil) }
+                catch {
+                    reply(nil, Self.mutationError(error))
+                }
+            }
+        } catch { reply(nil, Self.replyError(error)) }
+    }
+
     func nameFolder(_ data: Data, reply: @escaping (Data?, NSError?) -> Void) {
         do {
             let request = try ReaderMessage.decode(FolderNameRequest.self, from: data)
@@ -242,6 +279,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
             }
         }
         switch error as? UploadError {
+        case .editConflict: return NSFileProviderError(.localVersionConflictingWithServer) as NSError
         case .collision: return NSFileProviderError(.filenameCollision) as NSError
         case .readOnly: return CocoaError(.fileWriteNoPermission) as NSError
         case .invalidRequest: return CocoaError(.fileWriteInvalidFileName) as NSError
@@ -313,7 +351,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
             staged = output.stagingURL
             guard let staged else { throw CocoaError(.fileReadUnknown) }
             let receipt = try ReaderMessage.encode(SourceReadReceipt(stagingName: staged.lastPathComponent,
-                                                                     metrics: output.metrics))
+                                                                     metrics: output.metrics, contentVersion: output.contentVersion))
             let retained = lock.withLock {
                 guard !closed, jobs[request.id] === job, !job.progress.isCancelled else { return false }
                 job.staging = staged

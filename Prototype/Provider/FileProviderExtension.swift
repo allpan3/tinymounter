@@ -125,6 +125,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             return progress
         }
         let partial = requested?.location == NSNotFound ? nil : requested
+        let establishEditBase = partial == nil && version == nil
         let start = partial.map { Int64($0.location) - Int64($0.location) % Int64(max(alignment, 1)) }
         let (kind, seekCancels, cancelled) = lock.withLock { () -> (ReadAheadPlanner.Kind?, [Progress], Bool) in
             var kind: ReadAheadPlanner.Kind?
@@ -190,7 +191,8 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 defer { stopProgress() }
                 let isBackground = lock.withLock { background.contains(requestID) }
                 let result = try sourceReader.fetch(SourceReadRequest(id: requestID, item: row.id, version: row.contentVersion,
-                                                                      range: range, background: isBackground),
+                                                                      range: range, background: isBackground,
+                                                                      establishEditBase: establishEditBase),
                                                     directory: directory, progress: progress)
                 staging = result.0
                 progress.completedUnitCount = range.length
@@ -200,7 +202,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 let queueSeconds = Double(startedAt - queuedAt) / 1e9
                 let planners = lock.withLock { readAhead.count }
                 logger.info("request=\(requestID.uuidString, privacy: .public) item=\(row.id, privacy: .public) mode=\(mode, privacy: .public) kind=\(kind.map(Self.label) ?? "full", privacy: .public) viewer=\(request.isFileViewerRequest) system=\(request.isSystemRequest) offset=\(range.offset) bytes=\(range.length) queue_seconds=\(queueSeconds) callback_seconds=\(elapsed) transfer_seconds=\(result.1.transferSeconds) planners=\(planners)")
-                completion(staging, CatalogItem(row), NSRange(location: Int(range.offset), length: Int(range.length)), nil)
+                completion(staging, CatalogItem(row, contentVersion: result.2), NSRange(location: Int(range.offset), length: Int(range.length)), nil)
                 // Ownership now belongs to File Provider; never modify or unlink after handoff.
                 staging = nil
                 if let kind {
@@ -351,6 +353,11 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
     func createItem(basedOn itemTemplate: NSFileProviderItem, fields: NSFileProviderItemFields, contents url: URL?,
                     options: NSFileProviderCreateItemOptions, request: NSFileProviderRequest,
                     completionHandler: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void) -> Progress {
+        if options.contains(.deletionConflicted), let url,
+           let version = itemTemplate.itemVersion ?? nil, Self.kind(of: itemTemplate) == .file {
+            return modifyContents(itemTemplate, baseVersion: version, changedFields: fields, contents: url,
+                                  options: [], deletionConflict: true, completion: completionHandler)
+        }
         if !options.contains(.mayAlreadyExist), !options.contains(.deletionConflicted) {
             countMutation("create", "new=1 phase=received")
             let progress = Progress(totalUnitCount: 1)
@@ -425,6 +432,10 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                     changedFields: NSFileProviderItemFields, contents newContents: URL?, options: NSFileProviderModifyItemOptions,
                     request: NSFileProviderRequest,
                     completionHandler: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void) -> Progress {
+        if changedFields.contains(.contents), let newContents, Self.kind(of: item) == .file {
+            return modifyContents(item, baseVersion: version, changedFields: changedFields, contents: newContents,
+                                  options: options, completion: completionHandler)
+        }
         guard changedFields == .filename, newContents == nil, Self.kind(of: item) == .folder else {
             countMutation("modify", "result=rejected fields=\(changedFields.rawValue)")
             completionHandler(nil, [], false, CocoaError(.fileWriteNoPermission))
@@ -445,6 +456,48 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 finish(CatalogItem(try catalog.liveRow(receipt.item)), nil)
             } catch {
                 finish(nil, mutationError(error, parent: item.parentItemIdentifier.rawValue, name: item.filename))
+            }
+        }
+        return progress
+    }
+
+    private func modifyContents(_ item: NSFileProviderItem, baseVersion: NSFileProviderItemVersion,
+                                changedFields: NSFileProviderItemFields, contents: URL,
+                                options: NSFileProviderModifyItemOptions, deletionConflict: Bool = false,
+                                completion: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void) -> Progress {
+        countMutation("modify", "result=contents fields=\(changedFields.rawValue)")
+        let progress = Progress(totalUnitCount: 1)
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            var staged: URL?
+            defer { if let staged { try? FileManager.default.removeItem(at: staged) } }
+            do {
+                guard let row = try catalog.read({ try $0.item(id: item.itemIdentifier.rawValue) }) else {
+                    throw CocoaError(.fileReadUnknown)
+                }
+                guard row.allowsEditing, row.name == item.filename,
+                      row.parentID == item.parentItemIdentifier.rawValue,
+                      item.contentType?.conforms(to: .package) != true else {
+                    throw CocoaError(.fileWriteNoPermission)
+                }
+                let base = String(data: baseVersion.contentVersion, encoding: .utf8) ?? "unproven"
+                let id = UUID(), target = try SharedContainer.uploadInbox(id)
+                let input = try ReadOnlyFile(url: contents, allowMaterialization: true)
+                guard Int128(try DownloadSpace.available(at: target.deletingLastPathComponent()))
+                    >= Int128(DownloadSpace.reserveBytes) + Int128(input.snapshot.size) * 2 else {
+                    throw CocoaError(.fileWriteOutOfSpace)
+                }
+                try FileManager.default.copyItem(at: contents, to: target)
+                staged = target
+                let message = try EditRequest(item: row.id, parent: item.parentItemIdentifier.rawValue,
+                                               name: item.filename, baseVersion: base, staging: id,
+                                               failOnConflict: options.contains(.failOnConflict))
+                let receipt = try sourceReader.edit(message, progress: progress)
+                let current = try catalog.liveRow(deletionConflict ? receipt.item : row.id)
+                progress.completedUnitCount = progress.totalUnitCount
+                completion(CatalogItem(current), changedFields.subtracting([.contents, .filename, .parentItemIdentifier]),
+                           (receipt.conflict && !deletionConflict) || current.contentVersion != receipt.contentVersion, nil)
+            } catch {
+                completion(nil, [], false, providerError(error))
             }
         }
         return progress

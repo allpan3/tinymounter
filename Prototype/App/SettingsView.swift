@@ -160,15 +160,21 @@ private struct LocationPane: View {
 
     private func writeSection(_ record: LocationRecord) -> some View {
         Section {
-            LabeledContent(UIText.access, value: record.writeBookmark == nil ? UIText.readOnly : UIText.newFilesAndFolders)
+            LabeledContent(UIText.access, value: record.writeBookmark == nil ? UIText.readOnly
+                           : record.smbOnlyEditing == true ? UIText.editingAccess : UIText.newFilesAndFolders)
             Button(record.writeBookmark == nil ? UIText.enableChangesMenu : UIText.disableChanges) {
                 model.setWriteAccess(record.id, enabled: record.writeBookmark == nil)
+            }
+            if record.writeBookmark != nil {
+                Button(record.smbOnlyEditing == true ? UIText.disableEditing : UIText.enableEditing) {
+                    model.setEditing(record.id, enabled: record.smbOnlyEditing != true)
+                }
             }
             UploadStatus(record: record, model: model)
         } header: {
             Text(UIText.changes)
         } footer: {
-            Text(UIText.writeAccessHint).foregroundStyle(.secondary)
+            Text(record.smbOnlyEditing == true ? UIText.editingHint : UIText.writeAccessHint).foregroundStyle(.secondary)
         }
     }
 
@@ -576,17 +582,32 @@ private struct UploadStatus: View {
     let record: LocationRecord
     @Bindable var model: AppModel
     @State private var count: Int?
+    @State private var edits: [PendingEdit] = []
 
     var body: some View {
         Group {
             if let count, count > 0 {
                 Label(UIText.pendingUploads(count), systemImage: "arrow.up.circle")
                 Text(UIText.pendingUploadHint).font(.callout).foregroundStyle(.secondary)
+                if edits.contains(where: \.isPending) {
+                    Button(UIText.retryEdits) { model.retryEdits(record) }
+                }
+            }
+            ForEach(edits.filter { $0.isPending || $0.conflict }, id: \.id) { edit in
+                VStack(alignment: .leading) {
+                    Text((edit.path as NSString).lastPathComponent)
+                    Text(edit.state == .completed && edit.conflict ? UIText.conflictSaved : UIText.editNeedsRecovery)
+                        .font(.callout).foregroundStyle(.secondary)
+                    if edit.isPending {
+                        Button(UIText.exportEdit) { model.exportEdit(edit, record: record) }
+                    }
+                }
             }
         }
         .task(id: record.domainID) {
             while !Task.isCancelled {
                 count = await model.pendingUploads(record)
+                edits = await model.editRecords(record)
                 try? await Task.sleep(for: .seconds(2))
             }
         }

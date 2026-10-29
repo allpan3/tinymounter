@@ -35,6 +35,7 @@ core_paths = ["Sources/TransferCore/ByteRange.swift", "Sources/TransferCore/Cata
 app_paths = ["Sources/TransferCore/Upload.swift", "Sources/TransferCore/FolderNaming.swift",
              "Sources/TransferCore/EditOutbox.swift",
              "Sources/TransferCore/EditTransaction.swift", "Prototype/App/SMBEdit.swift",
+             "Prototype/App/LocationEdits.swift", "Prototype/App/EditNamespace.swift",
              "Sources/TransferCore/CatalogEdits.swift",
              "Sources/TransferCore/FolderCreation.swift",
              "Prototype/App/LocationUploads.swift", "Prototype/App/LocationFolderNaming.swift",

@@ -16,6 +16,7 @@
         <key>NSExtensionPointIdentifier</key><string>com.apple.fileprovider-nonui</string>
         <key>NSExtensionPrincipalClass</key><string>$(PRODUCT_MODULE_NAME).FileProviderExtension</string>
         <key>NSExtensionFileProviderDocumentGroup</key><string>$(TINYMOUNTER_APP_GROUP)</string>
+        <key>NSExtensionFileProviderSupportsFailingUploadOnConflict</key><true/>
         <key>NSExtensionFileProviderSupportsEnumeration</key><true/>
         <key>NSExtensionFileProviderDownloadPipelineDepth</key><integer>2</integer>
         <key>NSExtensionFileProviderUploadPipelineDepth</key><integer>1</integer>

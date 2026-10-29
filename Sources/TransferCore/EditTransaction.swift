@@ -88,6 +88,12 @@ public enum EditTransaction {
             throw UploadError.unresolved
         }
         if let final = try remote.inspect(path: record.destination, original: !record.conflict) {
+            if !record.conflict, let previous = record.previous, final.hasSameContents(as: previous),
+               !matchesEdit(final, record), record.state != .published {
+                record.state = .backedUp
+                try outbox.save(record)
+                throw UploadError.unresolved
+            }
             guard final.identity == record.publishedIdentity, matchesEdit(final, record) else {
                 throw UploadError.unresolved
             }

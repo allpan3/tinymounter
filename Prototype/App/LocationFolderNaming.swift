@@ -44,7 +44,10 @@ extension LocationSource {
                     reply: @escaping @Sendable (Result<CreateReceipt, Error>) -> Void) {
         access.enqueue { [self] in
             started()
-            let result = Result { try nameFolderOnLane(request, progress: progress) }
+            let result = Result { try editNamespace.perform {
+                try editNamespace.requireSettled()
+                return try nameFolderOnLane(request, progress: progress)
+            } }
             if case .failure(let error) = result, error as? UploadError == .collision {
                 _ = try? listOnLane(request.parent, requestID: request.id)
                 scheduleSignal()
