@@ -146,8 +146,9 @@ decisions are delegated. The user subsequently accepted restricting editing to f
 writers all use SMB. Programs accessing the server filesystem directly, including other
 protocols, are outside this safety boundary. Enabling editing must explicitly confirm this
 requirement; existing write-enabled locations do not acquire editing permission automatically.
-The protocol gate and normal signed TextEdit saves pass; interruption and lifecycle checks
-await resuming the suspended VM.
+The protocol gate and signed checks of TextEdit, conflicts, retention after interruption,
+export and lifecycle guards pass. Partial work remains unresolved. The fixture is removed and
+original settings are verified; the results log records compatibility limits and connection delays.
 
 The replacement sequence below failed its metadata-preservation gate. The user reaffirmed
 Mac-only operation: use the server's existing SMB service, with no tinymounter server component.
@@ -367,9 +368,9 @@ alone would not make the tested server serialize those operations.
 
 Proposed 2026-10-27; accepted 2026-10-28, including the disposable VM fixture and its temporary
 installation. The [CLI protocol gate](results/2026-10-28-same-object-save.md) passed on the
-disposable Samba fixture. Normal signed TextEdit saves and a concurrent-edit conflict pass;
-interruption and lifecycle checks await resuming the suspended VM. Keep normal Save as
-the goal. Save Edited
+disposable Samba fixture. Signed TextEdit saves, conflict preservation, recovery retention and
+local export pass, with item IDs, keep requests and an independent download retained. The
+fixture and temporary dependencies are removed. Keep normal Save as the goal. Save Edited
 Copy was not accepted and is not a substitute for this milestone.
 
 Keep the original remote file object, including its permissions and unrelated streams, and
@@ -461,5 +462,6 @@ competing SMB access and names, six process-crash boundaries, ancestor protectio
 cleanup. Directory guards need directory-list access; metadata-only opens do not enforce the
 required exclusion. Actual remote space exhaustion produced an uncertain copy result; fresh
 SMB reads verified the complete backup, stage and local input while retaining partial work.
-The existing cached-credential client also connected without acquiring a password. These checks
-permit app integration, but do not establish signed TextEdit behavior or a working M19 app.
+The existing cached-credential client also connected without acquiring a password. These CLI
+checks permitted app integration. The subsequent signed checks establish TextEdit saves, conflict
+preservation and retained recovery data; the results log records their exact coverage and limits.

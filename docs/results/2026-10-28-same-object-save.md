@@ -1,9 +1,11 @@
 # Same-object save protocol
 
 Date: 2026-10-28. Decision status: the revised Mac-only M19 design and disposable VM fixture
-are accepted. The CLI protocol gate and normal signed TextEdit saves pass, including a
-concurrent-edit conflict. VM 1 became suspended during the final recovery check. Its remaining
-checks and fixture cleanup await permission to resume; the agent did not suspend the VM.
+are accepted. The CLI protocol gate, normal signed TextEdit saves, conflicts and recovery
+retention checks pass. Partial work remains unresolved, with complete versions retained and
+the local edit exportable. All 264 tests and required VM checks pass, with one optional fixture
+skip. The disposable fixture is removed, original settings are verified and task windows are
+closed. M18 remains installed on the physical Mac.
 
 Basic saves preserve the original remote object, its live permissions and attached stream on
 the disposable Samba fixture. Empty, growing and shrinking files, a competing destination and
@@ -82,10 +84,9 @@ The work file remains the user's original object and is never a cleanup candidat
 backup are new transaction files covered by the accepted requirement that other programs leave
 them alone. The tests do not establish application-exclusive ownership for a shared SMB account.
 
-The fixture remains active. Its temporary Homebrew/Samba installation, isolated server state,
-disposable Keychain and synthetic files must be removed, and saved system state verified,
-before handoff. No shared daemon, VM or network restart, physical-Mac installation or publication
-is part of this experiment.
+The temporary fixture, Homebrew/Samba installation, isolated server state, disposable Keychain
+and synthetic files are removed. Cleanup verification is recorded below. No shared daemon, VM
+or network restart, physical-Mac installation or publication was performed.
 
 ## Evidence and next step
 
@@ -161,42 +162,95 @@ Swift warnings.
 A separate source archive adds fixture-only stop points; production sources contain none.
 The helper is restricted to the disposable domain and synthetic test names. It uses the app's
 real outbox, protected transport and recovery paths. Each check stops and kills only that app,
-then launches the normal signed candidate.
+then launches the normal signed candidate. Matching-input replay checks use the same source
+method in the signed fixture helper, with stop points disabled.
 
-| Stop point | Normal signed recovery |
+| Stop point | Recovery result |
 | --- | --- |
+| Before the local metadata snapshot | Intent survives; matching input completes the same generation |
 | Complete local preparation | Completes; local export matches and all three source lifecycle guards refuse changes |
+| After 1 MiB of a 4 MiB native stage upload | Original remains unchanged; incomplete stage and complete local edit stay pending |
 | Complete remote stage | Completes with no retained artifact |
 | Verified old-content backup | Completes with no retained artifact |
 | Original renamed, contents still old | First launch restores the old original and retains the edit; a second launch completes |
+| After the first 1 MiB copied into the hidden original | Signed replay refuses partial work; full old backup, full stage and complete local edit survive |
 | Complete new contents before publication | Completes with no retained artifact |
-| Verified publication before acknowledgement | Stop is verified; recovery result was not collected before VM suspension |
+| Verified publication before acknowledgement | Fresh normal launch acknowledges and cleans up without another content write |
 
-Each stopped generation retained valid complete local content. The helper seeded Keep Downloaded
-requests for identity checks. A separate downloaded file was hashed with hydration forbidden;
-its after comparison and final ID/keep audit remain. Partial upload/copy and further conflict
-variants remain unverified in the signed app, although the CLI and unit checks above cover
-partial-copy retention. No VM or shared daemon was restarted.
+The partial-copy case leaves the original name absent. Its 2 MiB work file contains 1 MiB of
+edited bytes and 1 MiB of old bytes. Repeated readback confirms that recovery leaves it untouched.
+Normal launch and Retry Pending Saves sometimes defer before inspection because of the fixture
+connection delay described below. A targeted signed replay reaches recovery and returns
+unresolved. The normal app's Export Local Copy save panel exports the complete 4 MiB edit,
+with an exact byte match. Automatic repair of partial work is not claimed.
+
+The final audit confirms valid complete content and matching exports for all three retained
+generations, and refusal by all three source lifecycle guards. Nine completed test generations
+retain their original catalog IDs and Keep Downloaded requests, including the tombstone for a
+deleted original. An independent downloaded file retains its inode, size and digest with
+hydration forbidden before and after the tests.
+
+The VM became suspended during the checks and was resumed with the user's approval, preserving
+its session. The after-publication case initially retained its artifacts after EPERM; a fresh
+normal launch completed it. No VM or shared daemon was restarted.
 
 The three old diagnostic `.preparing` records predate the metadata fixes. A signed fixture helper
 verified each synthetic payload against complete remote conflict copies, exported the payloads,
 and removed only those three test records. This is test-state cleanup, not product recovery.
 
-### Recordings and remaining checks
+### Additional conflict checks
+
+Signed probes of the source's edit method also pass these cases:
+
+- A competing SMB edit changes the bytes while preserving size and modification time. The
+  competing original survives, and exactly one conflict copy contains the local edit.
+- A deleted original stays absent, and exactly one conflict copy contains the edit.
+- With failOnConflict, the competing original survives, no conflict copy appears, and the
+  complete local edit stays pending and exportable.
+- Disabling editing rejects an edit request and leaves the original unchanged.
+
+These use the real signed source/edit path. The specific File Provider deletionConflicted
+callback was not separately invoked. Broader editor compatibility and physical-Mac writes
+remain unverified.
+
+### Recordings and fixture limitations
 
 The baseline shows M18 TextEdit reporting the file as locked. The candidate uses the same
 initial synthetic contents and select-all, type `Edited test document.`, Save sequence. Its
 remote bytes match after completion. Caches are uncontrolled and these clips make no timing
-claim. Both clips are encoded with current AVFoundation APIs. The capture scale changed between
-runs, so framing review remains. Interruption/conflict variants, lifecycle preservation and
-complete fixture cleanup await VM resumption.
+claim. Both clips are encoded with current AVFoundation APIs, and their first and last frames
+were inspected. The before clip uses note.txt and the after clip uses recording.txt with the
+same starting contents. VMPal's capture scale changed, so the framing differs. These are matched
+workflow recordings, not a timing comparison.
 
 Cached-credential connections take about 20 seconds on this fixture, also in the earlier unsigned
 CLI control. This exceeds the existing 15-second share-health stall threshold and can transiently
 mark the test share unresponsive. Authentication succeeds; the cause is not established. The
 stall threshold is unchanged, and no physical-Mac latency claim follows from this fixture.
 
+### Cleanup and evidence
 
-Before handoff, 11 obsolete host signing copies were removed. The normal verified candidate,
-current fixture-test build and recording baseline remain. Guest storage and window cleanup
-cannot proceed while the VM is suspended; the temporary fixture and dependencies still exist.
+After the retention checks, a fixture-only helper verified and exported all three remaining
+synthetic generations before removing their test records. The normal app removed the test
+location with Save the Keep Downloaded list off, then removed its server and ejected its SMB
+connection. Final diagnostics show no locations, catalogs, keeps or staging files, and retain
+the original share and session. This maintenance does not provide a product discard action.
+
+Only the task-owned Samba processes were stopped. The disposable credential, private server
+state, socket, 128 MiB disk image, synthetic files and all 20 temporary Homebrew formulas were
+removed. The Homebrew prefix did not exist before the fixture and is gone again. Apple's
+sharing records, SMB launch override, guest settings and Keychain search/default settings match
+their original snapshots. Apple SMB remains unloaded. The original NAS stays read-only.
+
+TextEdit and tinymounter are closed, Finder has no windows, and the user's Terminal process is
+retained. The current verified app and useful evidence remain. On this VM, October 28 `du`
+inventories account for about 1.8 GiB of removed test data and build output; they do not measure
+host disk-image compaction or physical space reclaimed. The remaining repository build output
+is about 12 MiB. Obsolete host signing copies and temporary recording/build files are also
+removed.
+
+Selected local evidence is in results/m19-same-object-20261028 and the VM evidence directory
+above. It includes signed stop/recovery receipts, signed-final-audit.json,
+signed-partial-retention.json, signed-ui-export.json, retained-download-after.json,
+final-checks.json, final-cleanup.json, runtime-hooks.diff and both editor recordings. Private
+settings snapshots remain only in the VM and are excluded from copied evidence.

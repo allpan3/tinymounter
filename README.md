@@ -127,11 +127,11 @@ The existing catalog ID and diagnostic counts are retained; the location stays r
 Downloaded bytes were not independently checked. Creation and Keep Both await the user's run.
 See the [installation results](docs/results/2026-10-25-keep-both.md#physical-mac-installation-2026-10-27).
 
-Online editing (M19), 2026-10-28: VM 1 became suspended during the final recovery checks.
-Verification and fixture cleanup await permission to resume it. Normal and repeated TextEdit
-saves pass in the signed VM app. A concurrent SMB edit preserves the other client's file and
-saves the local edit as a separate conflict copy. Successful saves retain the original file object and clean up their
-verified temporary copies. The product runs on the Mac and uses the server's existing SMB service.
+Online editing (M19), 2026-10-28: normal and repeated TextEdit saves pass in the signed VM app.
+A concurrent SMB edit preserves the other client's file and saves the local edit as a separate
+conflict copy, including when size and modification time are unchanged. Successful saves retain
+the original file object and clean up their verified temporary copies. The product runs on the
+Mac and uses the server's existing SMB service.
 
 Editing requires a separate opt-in for folders whose writers all use SMB. Programs must leave
 tinymounter's temporary save files alone. A save keeps complete local content and a verified
@@ -142,9 +142,12 @@ packages, databases and VM images remain unsupported. TextEdit's local metadata 
 but explicit dates and attached data are not synchronized to the server.
 
 Required VM checks pass: 264 tests, one optional fixture skip, no failures or Swift warnings.
-Signed crash recovery passes after local preparation, staging, backup, the first rename and
-complete content copying. The after-publication result and partial-copy checks remain. M18
-remains installed on the physical Mac; physical-Mac writes are the user's checks. See the
+Signed recovery checks cover preparation through publication. Partial uploads and content copies
+retain the complete versions; partial work remains unresolved and the normal Export Local Copy
+action works. Item IDs, keep requests and an independent download are preserved. Fixture
+connection delays can defer retries. The temporary server, dependencies, files and task windows
+are cleaned up, with original settings verified. M18 remains installed on the physical Mac;
+physical-Mac writes are the user's checks. See the
 [October 28 results](docs/results/2026-10-28-same-object-save.md) and the
 [accepted design](docs/phase4-plan.md#revised-mac-only-save-proposal).
 
