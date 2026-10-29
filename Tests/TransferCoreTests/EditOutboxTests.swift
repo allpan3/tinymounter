@@ -125,6 +125,20 @@ final class EditOutboxTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: path), Data("corrupt".utf8))
     }
 
+    func testArtifactQuarantineReceiptIsBoundedAndDistinctFromMainContents() throws {
+        let base = try version(for: prepare())
+        let artifact = try EditFileVersion(identity: base.identity, size: base.size, digest: base.digest,
+            modifiedMicroseconds: base.modifiedMicroseconds, changedMicroseconds: base.changedMicroseconds,
+            attributes: base.attributes, security: base.security, artifactQuarantine: Data("retained".utf8))
+        XCTAssertTrue(base.hasSameContents(as: artifact))
+        XCTAssertNotEqual(base, artifact)
+        XCTAssertEqual(try JSONDecoder().decode(EditFileVersion.self, from: JSONEncoder().encode(artifact)), artifact)
+        var values = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(base)) as? [String: Any])
+        values["artifactQuarantine"] = Data(repeating: 0, count: 65_537).base64EncodedString()
+        XCTAssertThrowsError(try JSONDecoder().decode(EditFileVersion.self,
+            from: JSONSerialization.data(withJSONObject: values)))
+    }
+
     func testOrphanPayloadBlocksRemoval() throws {
         let orphan = directory.appending(path: "Edits/Contents/\(UUID().uuidString).data")
         try Data("retained".utf8).write(to: orphan)
@@ -153,6 +167,54 @@ final class EditOutboxTests: XCTestCase {
         try outbox.validateContents(first)
         try outbox.validateContents(second)
         XCTAssertEqual(getxattr(outbox.contentURL(second).path, "dev.tinymounter.test", nil, 0, 0, 0), attribute.count)
+    }
+
+    func testSystemAssignedSecurityMetadataDoesNotDuplicateACompletedSave() throws {
+        var first = try prepare()
+        first.state = .published
+        first.previous = try version(for: first)
+        first.published = try EditBaseReceipt(item: item, version: version(for: first))
+        try outbox.complete(&first, item: item)
+        let value = Data("0081;12345678;Test;".utf8)
+        XCTAssertEqual(value.withUnsafeBytes {
+            setxattr(input.path, "com.apple.quarantine", $0.baseAddress, $0.count, 0, 0)
+        }, 0)
+        let replay = try prepare()
+        XCTAssertEqual(replay.id, first.id)
+        XCTAssertEqual(replay.state, .completed)
+        XCTAssertEqual(try outbox.pendingCount, 0)
+    }
+
+    func testOlderPendingRecordWithoutDocumentMetadataDigestStillReplays() throws {
+        var first = try prepare()
+        first.documentMetadataDigest = nil
+        try outbox.save(first)
+        let value = Data("0081;12345678;Test;".utf8)
+        XCTAssertEqual(value.withUnsafeBytes {
+            setxattr(input.path, "com.apple.quarantine", $0.baseAddress, $0.count, 0, 0)
+        }, 0)
+        XCTAssertEqual(try prepare().id, first.id)
+        try outbox.validateContents(first)
+    }
+
+    func testInterruptedBeforeMetadataSnapshotCanReplaySystemAssignedAttributes() throws {
+        var first = try prepare()
+        first.state = .preparing
+        try outbox.save(first)
+        let edits = directory.appending(path: "Edits")
+        for suffix in [first.id.uuidString + ".metadata", "Contents/\(first.id.uuidString).data",
+                       "Contents/\(first.id.uuidString).json"] {
+            try FileManager.default.removeItem(at: edits.appending(path: suffix))
+        }
+        let value = Data("0081;12345678;Test;".utf8)
+        XCTAssertEqual(value.withUnsafeBytes {
+            setxattr(input.path, "com.apple.quarantine", $0.baseAddress, $0.count, 0, 0)
+        }, 0)
+        let replay = try prepare()
+        XCTAssertEqual(replay.id, first.id)
+        XCTAssertEqual(replay.state, .prepared)
+        XCTAssertNotEqual(replay.localMetadataDigest, first.localMetadataDigest)
+        try outbox.validateContents(replay)
     }
 
     func testInterruptedLocalStagingRemainsVisibleAndMatchingReplayFinishesIt() throws {

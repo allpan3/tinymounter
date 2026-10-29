@@ -6,6 +6,7 @@ void *tm_edit_connect(const char *server, const char *share, const char *account
 void tm_edit_disconnect(void *opaque);
 int tm_edit_open(void *opaque, const char *path, uint32_t access, uint32_t sharing,
                uint8_t *file);
+int tm_edit_open_quarantine(void *opaque, const char *path, uint8_t *file);
 int tm_edit_close(void *opaque, uint8_t *file);
 int tm_edit_open_directory(void *opaque, const char *path, uint32_t access, uint32_t sharing,
                          uint8_t *file);

@@ -24,7 +24,7 @@ extension LocationSource {
 
     func establishUploadedEditBase(_ upload: PendingUpload, row: CatalogRow, bookmark: Data,
                                    progress: Progress) throws {
-        try withWriteSession(bookmark) { session, root in
+        try withWriteSession(bookmark, progress: progress) { session, root in
             guard let endpoint = ShareAddress(session.identity.mountFrom),
                   let path = RelativePath(upload.path) else { throw UploadError.unresolved }
             let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: root, progress: progress)
@@ -104,15 +104,25 @@ extension LocationSource {
 
     func retryEdits() {
         access.enqueue { [self] in
-            try? editNamespace.perform {
+            let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
+            let result = Result { try editNamespace.perform {
                 try uploadLock.withLock {
                     guard !mutationsSuspended, writeBookmark != nil,
                           try withCatalog({ try $0.item(id: Catalog.rootItemID)?.allowsEditing }) == true else { return }
                     let outbox = try Self.editOutbox(domainID: domainID)
-                    for var record in try outbox.records() where record.isPending {
-                        try? finishEdit(&record, outbox: outbox, progress: Progress())
+                    let pending = try outbox.records().filter(\.isPending).sorted {
+                        $0.state == .completed && $1.state != .completed
+                    }
+                    for var record in pending {
+                        do { try finishEdit(&record, outbox: outbox, progress: Progress()) }
+                        catch {
+                            logger.error("edit_retry id=\(record.id.uuidString, privacy: .public) failed \(logFields(error), privacy: .public)")
+                        }
                     }
                 }
+            } }
+            if case .failure(let error) = result {
+                logger.error("edit_retry failed \(logFields(error), privacy: .public)")
             }
             scheduleSignal()
         }
@@ -122,21 +132,32 @@ extension LocationSource {
         let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
         defer {
             let id = record.id.uuidString, state = record.state.rawValue, conflict = record.conflict ? 1 : 0
-            logger.info("edit_transaction id=\(id, privacy: .public) state=\(state, privacy: .public) conflict=\(conflict)")
+            let recovery = record.recoveryRetained
+            logger.info("edit_transaction id=\(id, privacy: .public) state=\(state, privacy: .public) conflict=\(conflict) recovery=\(recovery)")
         }
         guard let bookmark = writeBookmark, let relative = RelativePath(record.path),
               let path = folder.appending(relative) else { throw UploadError.readOnly }
         if record.state == .completed, !record.recoveryRetained { return }
+        guard record.state != .preparing else { throw UploadError.unresolved }
+        try outbox.validateContents(record)
         guard try !outbox.hasResourceFork(record) else {
             throw CocoaError(.featureUnsupported)
         }
         try editNamespace.requireUncontested(path: path, excluding: record.id)
-        try withWriteSession(bookmark) { session, root in
+        try withWriteSession(bookmark, progress: progress) { session, root in
             guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
             let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: root, progress: progress)
             try remote.protectAncestors(of: record.path)
             try EditTransaction.publish(&record, outbox: outbox, remote: remote)
             if record.state != .completed {
+                guard let published = record.published else { throw UploadError.unresolved }
+                try remote.allowPublishedReads(path: record.destination, expected: published.version)
+                guard let destination = RelativePath(record.destination),
+                      let parent = RelativePath(destination.components.dropLast().joined(separator: "/")) else {
+                    throw UploadError.unresolved
+                }
+                // Refresh native name caches after the direct SMB rename, without reconciling artifacts.
+                _ = try DirectoryListing.list(locationRoot: root, relativePath: parent, expected: session.identity)
                 let native = try nativeEditSnapshot(record, root: root)
                 let item = try withCatalog {
                     try $0.commitEdit(record, fingerprint: native.fingerprint, nativeID: native.inode)
@@ -144,7 +165,11 @@ extension LocationSource {
                 try outbox.complete(&record, item: item)
             }
             // A failed cleanup remains visible and keeps the local recovery data.
-            try? EditTransaction.cleanup(&record, outbox: outbox, remote: remote)
+            do { try EditTransaction.cleanup(&record, outbox: outbox, remote: remote) }
+            catch {
+                let id = record.id.uuidString
+                logger.error("edit_cleanup id=\(id, privacy: .public) failed \(logFields(error), privacy: .public)")
+            }
         }
     }
 

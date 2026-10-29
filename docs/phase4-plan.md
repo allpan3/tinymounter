@@ -145,12 +145,15 @@ normal save, conflict, recovery and temporary missing-file behavior. Ordinary im
 decisions are delegated. The user subsequently accepted restricting editing to folders whose
 writers all use SMB. Programs accessing the server filesystem directly, including other
 protocols, are outside this safety boundary. Enabling editing must explicitly confirm this
-requirement; existing write-enabled locations do not acquire editing permission automatically. The protocol gate passed; app integration is implemented for verification, with signed editor checks pending.
+requirement; existing write-enabled locations do not acquire editing permission automatically.
+The protocol gate and normal signed TextEdit saves pass; interruption and lifecycle checks
+await resuming the suspended VM.
 
 The replacement sequence below failed its metadata-preservation gate. The user reaffirmed
 Mac-only operation: use the server's existing SMB service, with no tinymounter server component.
 The user approved the [revised design](#revised-mac-only-save-proposal) on 2026-10-28;
-its protocol gate must pass before app integration.
+its protocol gate passed before app integration. The replacement sequence below is superseded
+by that same-object transaction.
 
 Implement whole-file content updates to ordinary existing files in explicitly write-enabled
 locations. Preserve the old remote file under a recovery name, then publish the complete edit
@@ -364,7 +367,8 @@ alone would not make the tested server serialize those operations.
 
 Proposed 2026-10-27; accepted 2026-10-28, including the disposable VM fixture and its temporary
 installation. The [CLI protocol gate](results/2026-10-28-same-object-save.md) passed on the
-disposable Samba fixture; app integration and signed editor checks remain. Keep normal Save as
+disposable Samba fixture. Normal signed TextEdit saves and a concurrent-edit conflict pass;
+interruption and lifecycle checks await resuming the suspended VM. Keep normal Save as
 the goal. Save Edited
 Copy was not accepted and is not a substitute for this milestone.
 

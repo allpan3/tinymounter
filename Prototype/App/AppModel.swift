@@ -564,7 +564,7 @@ final class AppModel {
         }
     }
 
-    func editRecords(_ record: LocationRecord) async -> [PendingEdit] { (try? await controller.editRecords(record)) ?? [] }
+    func editRecords(_ record: LocationRecord) async throws -> [PendingEdit] { try await controller.editRecords(record) }
 
     func retryEdits(_ record: LocationRecord) { controller.retryEdits(record) }
 
@@ -581,7 +581,7 @@ final class AppModel {
         }
     }
 
-    func pendingUploads(_ record: LocationRecord) async -> Int? { try? await controller.pendingUploads(record) }
+    func pendingUploads(_ record: LocationRecord) async throws -> Int { try await controller.pendingUploads(record) }
 
     func showInFinder(_ recordID: UUID) {
         guard let record = record(recordID), let manager = controller.manager(for: record) else {

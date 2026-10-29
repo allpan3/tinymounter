@@ -77,7 +77,7 @@ extension LocationSource {
                try liveChild(of: request.parent, named: request.name) != nil { throw UploadError.collision }
             var record = try outbox.prepare(request, path: path, contents: contents, progress: progress, checkSpace: checkSpace)
             if record.state == .completed, let item = record.item { return CreateReceipt(item: item) }
-            try withWriteSession(bookmark) { session, root in
+            try withWriteSession(bookmark, progress: progress) { session, root in
                 if record.kind == .folder {
                     try createFolder(&record, outbox: outbox, session: session, root: root, progress: progress)
                 } else {
@@ -99,13 +99,16 @@ extension LocationSource {
         }
     }
 
-    func withWriteSession<Result>(_ bookmark: Data, _ body: (ShareSession, Int32) throws -> Result) throws -> Result {
+    func withWriteSession<Result>(_ bookmark: Data, progress: Progress? = nil,
+                                  _ body: (ShareSession, Int32) throws -> Result) throws -> Result {
         var stale = false
         let url = try URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope, .withoutUI, .withoutMounting],
                           relativeTo: nil, bookmarkDataIsStale: &stale)
         guard url.startAccessingSecurityScopedResource() else { throw UploadError.readOnly }
         defer { url.stopAccessingSecurityScopedResource() }
-        return try access.withSession { session, _ in
+        return try access.withSession { session, progressed in
+            let observation = progress?.observe(\.completedUnitCount) { _, _ in progressed() }
+            defer { observation?.invalidate() }
             let mount = try ShareAccess.connectedShares().first { $0.path == ShareAccess.filePath(url) }
             guard mount?.identity == session.identity else { throw UploadError.readOnly }
             let root = try session.locationRoot(folder)

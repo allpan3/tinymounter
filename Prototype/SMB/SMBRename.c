@@ -3,6 +3,7 @@
 #include <GSS/GSS.h>
 #include <dispatch/dispatch.h>
 #include <errno.h>
+#include <os/log.h>
 #include <poll.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -228,6 +229,9 @@ static struct smb2_context *connect_folder_share(const char *server, const char 
 {
     struct smb2_context *smb = smb2_init_context();
     char *principal = cached_principal(server, account);
+    os_log_t log = os_log_create("dev.tinymounter.prototype", "smb");
+    os_log_info(log, "smb_connect cached_credential=%d", principal != NULL);
+    os_release(log);
     *error = EAUTH;
     if (!smb) { free(principal); *error = ENOMEM; return NULL; }
     smb2_set_timeout(smb, 10);
@@ -242,6 +246,9 @@ static struct smb2_context *connect_folder_share(const char *server, const char 
         smb2_set_password(smb, "");
     } else goto done;
     int connected = smb2_connect_share(smb, server, share, NULL);
+    log = os_log_create("dev.tinymounter.prototype", "smb");
+    os_log_info(log, "smb_connect result=%d", connected);
+    os_release(log);
     if (connected) { *error = connected < 0 ? -connected : EIO; goto done; }
     free(principal);
     return smb;

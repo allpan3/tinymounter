@@ -427,15 +427,19 @@ while a write is pending. Completed receipts deduplicate system replay and are r
 finished location. Pending records and content stay in private app storage; the extension sends authenticated create and initial-name requests.
 See the accepted [phase 4 plan](phase4-plan.md).
 
-Normal Save integration is implemented for VM verification, with a separate editing opt-in.
+Normal and repeated TextEdit Save pass in the signed VM app, including a concurrent-edit
+conflict. Editing has a separate opt-in.
 Interrupted local staging remains visible. New uploads establish a verified editing base, and
 changed strong revisions advance even when native timestamps are unchanged.
 Pending edits retain bounded original attributes separately, because macOS can change metadata
 when a sandboxed app copies the file. Export restores user attributes while macOS controls the
 new local file's access and quarantine attributes.
-The previously verified build still supports M18 only. M19's replacement design failed its
+TextEdit's encoding attribute, last-used date and explicit modification date are not uploaded.
+Metadata-only retries return those fields as unsupported through File Provider's documented
+contract, preserving their local values without claiming remote synchronization.
+The physical-Mac build still supports M18 only. M19's replacement design failed its
 concurrent metadata-preservation gate. The user reaffirmed Mac-only operation; a
 [revised save design](phase4-plan.md#revised-mac-only-save-proposal) was approved on 2026-10-28
 and passed its [CLI protocol gate](results/2026-10-28-same-object-save.md) on the disposable
-Samba fixture. App integration is now present; signed editor checks remain. No server component is required
-by the product contract.
+Samba fixture. Signed interruption and lifecycle verification await VM resumption; see the same
+results log for completed checks and remaining limits. No server component is required.

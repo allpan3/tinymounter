@@ -1,6 +1,7 @@
 import CryptoKit
 import Darwin
 import Foundation
+import OSLog
 
 /// One protected transaction, with the existing cached credential and native payload upload.
 final class SMBEdit: EditRemote {
@@ -58,6 +59,18 @@ final class SMBEdit: EditRemote {
         return try version(handle)
     }
 
+    func allowPublishedReads(path: String, expected: EditFileVersion) throws {
+        guard let previous = handles[path] else { throw UploadError.unresolved }
+        // Revalidate after releasing the exclusive guard so native SMB can inspect the saved file.
+        try previous.use { try check(tm_edit_close(client, $0)) }
+        handles[path] = nil
+        let current = try readVersion(path: path)
+        guard current.hasSameContents(as: expected),
+              current.modifiedMicroseconds == expected.modifiedMicroseconds else {
+            throw UploadError.unresolved
+        }
+    }
+
     func stage(path: String, contents: URL, created: (EditFileIdentity) throws -> Void) throws -> EditFileVersion {
         let handle = try makePrivate(path: path, uploading: true, created: created)
         let expected = try info(handle)
@@ -100,26 +113,27 @@ final class SMBEdit: EditRemote {
         let verifier = try open(path: path, access: Self.read, sharing: 5)
         extraHandles.append(verifier)
         guard try info(verifier)[0...1] == expected[0...1] else { throw UploadError.unresolved }
-        return try version(handle)
+        return try version(handle, artifactPath: path)
     }
 
     func inspect(path: String, original: Bool) throws -> EditFileVersion? {
-        if let handle = handles[path] { return try version(handle) }
+        if let handle = handles[path] { return try version(handle, artifactPath: original ? nil : path) }
+        let handle: Handle
         do {
-            let handle = try open(path: path, access: Self.read | Self.delete | (original ? Self.write : 0), sharing: 0)
-            handles[path] = handle
-            if original { originals.insert(path) }
-            return try version(handle)
+            handle = try open(path: path, access: Self.read | Self.delete | (original ? Self.write : 0), sharing: 0)
         } catch let error as NSError where error.domain == NSPOSIXErrorDomain && error.code == Int(ENOENT) {
             return nil
         }
+        handles[path] = handle
+        if original { originals.insert(path) }
+        return try version(handle, artifactPath: original ? nil : path)
     }
 
     func backup(original: String, path: String, created: (EditFileIdentity) throws -> Void) throws -> EditFileVersion {
         guard let source = handles[original], originals.contains(original) else { throw UploadError.unresolved }
         let backup = try makePrivate(path: path, uploading: false, created: created)
         try copy(source: source, target: backup, size: Int64(try info(source)[2]))
-        return try version(backup)
+        return try version(backup, artifactPath: path)
     }
 
     func move(source: String, destination: String) throws {
@@ -147,7 +161,12 @@ final class SMBEdit: EditRemote {
         guard !originals.contains(path), !hiddenOriginals.contains(path),
               path.hasSuffix(".stage") || path.hasSuffix(".recovery") else { throw UploadError.unresolved }
         guard let actual = try inspect(path: path, original: false) else { return }
-        guard actual == expected, let handle = handles[path], try onlyMainStream(handle, size: expected.size) else {
+        guard actual == expected else {
+            Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
+                .error("edit_cleanup_version contents=\(actual.hasSameContents(as: expected)) modified=\(actual.modifiedMicroseconds == expected.modifiedMicroseconds) changed=\(actual.changedMicroseconds == expected.changedMicroseconds) attributes=\(actual.attributes == expected.attributes) security=\(actual.security == expected.security)")
+            throw UploadError.unresolved
+        }
+        guard let handle = handles[path] else {
             throw UploadError.unresolved
         }
         try handle.use { try check(tm_edit_delete(client, $0)) }
@@ -210,7 +229,7 @@ final class SMBEdit: EditRemote {
         try target.use { try check(tm_edit_flush(client, $0)) }
     }
 
-    private func version(_ handle: Handle) throws -> EditFileVersion {
+    private func version(_ handle: Handle, artifactPath: String? = nil) throws -> EditFileVersion {
         let before = try info(handle)
         guard before[2] <= Int64.max, before[3] == 1, before[4] & 0x410 == 0 else {
             throw UploadError.unresolved
@@ -231,32 +250,58 @@ final class SMBEdit: EditRemote {
             progress.completedUnitCount += Int64(count)
         }
         let security = try metadata(handle, security: true)
+        let quarantine = try artifactPath.flatMap { try artifactQuarantine(handle, path: $0, size: Int64(before[2])) }
         let after = try info(handle)
         guard before[0...3] == after[0...3], before[5] == after[5] else { throw UploadError.unresolved }
         return try EditFileVersion(identity: EditFileIdentity(fileID: after[0], birthMicroseconds: after[1]),
                                    size: Int64(after[2]), digest: hash.finalize().map { String(format: "%02x", $0) }.joined(),
                                    modifiedMicroseconds: after[5], changedMicroseconds: after[6],
-                                   attributes: UInt32(after[4]), security: Data(security))
+                                   attributes: UInt32(after[4]), security: Data(security), artifactQuarantine: quarantine)
     }
 
-    private func onlyMainStream(_ handle: Handle, size: Int64) throws -> Bool {
+    private func artifactQuarantine(_ handle: Handle, path: String, size: Int64) throws -> Data? {
         let data = try metadata(handle, security: false)
-        if data.isEmpty { return size == 0 }
+        if data.isEmpty {
+            guard size == 0 else { throw UploadError.unresolved }
+            return nil
+        }
         var offset = 0
+        var streams: [String: UInt64] = [:]
         while offset < data.count {
             let next = Int(try Self.integer(data, at: offset, bytes: 4))
             let length = Int(try Self.integer(data, at: offset + 4, bytes: 4))
-            guard length % 2 == 0, offset + 24 + length <= data.count else { return false }
+            guard length % 2 == 0, offset + 24 + length <= data.count else { throw UploadError.unresolved }
             let units = stride(from: offset + 24, to: offset + 24 + length, by: 2).map {
                 UInt16(data[$0]) | UInt16(data[$0 + 1]) << 8
             }
-            guard String(decoding: units, as: UTF16.self) == "::$DATA",
-                  try Self.integer(data, at: offset + 8, bytes: 8) == UInt64(size) else { return false }
-            if next == 0 { return true }
-            guard next >= 24 + length, next <= data.count - offset else { return false }
+            let name = String(decoding: units, as: UTF16.self)
+            guard streams[name] == nil else { throw UploadError.unresolved }
+            streams[name] = try Self.integer(data, at: offset + 8, bytes: 8)
+            if next == 0 { break }
+            guard next >= 24 + length, next < data.count - offset else { throw UploadError.unresolved }
             offset += next
         }
-        return false
+        let quarantineName = ":com.apple.quarantine:$DATA"
+        guard streams["::$DATA"] == UInt64(size),
+              Set(streams.keys).isSubset(of: ["::$DATA", quarantineName]) else { throw UploadError.unresolved }
+        guard let length = streams[quarantineName] else { return nil }
+        guard length <= 65_536 else { throw UploadError.unresolved }
+        let stream = Handle(), full = try remotePath(path)
+        try stream.use { try check(tm_edit_open_quarantine(client, full, $0)) }
+        defer { stream.use { _ = tm_edit_close(client, $0) } }
+        var bytes = [UInt8](repeating: 0, count: Int(max(1, length))), offsetRead: UInt64 = 0
+        while offsetRead < length {
+            var count: UInt32 = 0
+            try stream.use { file in
+                try bytes.withUnsafeMutableBufferPointer { buffer in
+                    try check(tm_edit_read(client, file, offsetRead, buffer.baseAddress!.advanced(by: Int(offsetRead)),
+                                           UInt32(length - offsetRead), &count))
+                }
+            }
+            guard count > 0, UInt64(count) <= length - offsetRead else { throw UploadError.unresolved }
+            offsetRead += UInt64(count)
+        }
+        return Data(bytes.prefix(Int(length)))
     }
 
     private func info(_ handle: Handle) throws -> [UInt64] {

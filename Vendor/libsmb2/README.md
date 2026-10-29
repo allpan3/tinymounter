@@ -1,11 +1,16 @@
-# libsmb2 for folder creation and initial naming
+# libsmb2 for protected SMB operations
 
 Source: [libsmb2-6.3](https://github.com/sahlberg/libsmb2/tree/libsmb2-6.3).
 The core library and headers are LGPL-2.1-or-later. COPYING and LICENCE-LGPL-2.1.txt contain
 the upstream terms. Copyright notices remain in each source file.
 
 TinyMounter builds a separate dynamic library and embeds it in Contents/Frameworks. It uses
-this library only for exclusive folder creation and initial naming. Reads, file uploads and mount management remain native.
+this library for exclusive folder creation, initial naming and M19's protected save transaction.
+Normal reads, file payload uploads and mount management remain native. M19 adds protected
+identity/content verification, private stage and backup permissions, server-side COPYCHUNK,
+exclusive renames, exact length, flush and cleanup of proved disposable copies. Verification
+also reads the quarantine stream that macOS can add to a private native upload stage; it does
+not write attached data on the user's original file.
 The checked-in source builds without network access. Release packaging must preserve the
 licence notices, source availability and the user's ability to rebuild and relink the library.
 Signed distribution remains a separate release gate.
