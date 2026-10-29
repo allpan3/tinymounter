@@ -259,9 +259,21 @@ forms. Check Reduce Transparency and Increase Contrast.
 
 ## M18 creation access, accepted 2026-10-23
 
-A location has a Changes section with Read only or New files and folders access. Enable Changes
-asks the user to select the same share root again for write access. Disable Changes is refused
-while uploads are pending. The section explains remote visibility during upload and shows a
-pending count. Existing locations start read-only. Finder exposes adding items only for enabled
-folders; editing, replacing, moving and deleting existing items remain unavailable. A pending
-upload keeps its full local copy and prevents location removal or source changes.
+Creation access requires a location's scoped write grant. Pending uploads retain their full
+local copies and prevent location removal or source changes. Other devices can see a new file
+before its upload finishes. The controls are now defined by the unified write mode below.
+
+## Unified write mode, accepted 2026-10-29
+
+M20 replaces separate creation and editing controls with one Read only toggle. It defaults off
+for a new location; a duplicate retains the original's mode. Writable setup obtains the macOS
+share grant and confirms the SMB-only writer and transaction-file requirements once. All
+supported write operations use that mode, including M20 file renaming. Unsupported operations
+remain unavailable. Existing read-only locations keep their setting during an upgrade.
+
+Legacy creation-only access requires one confirmation to complete write setup. Show that setup
+status while retaining its existing permissions and pending data. Do not add another feature
+switch. Once confirmed, enabling Read only blocks new remote changes but retains the grant for
+later reuse. Refuse that change while writes are pending. Changing the source needs a fresh
+scoped grant and confirmation. The current installed M19 build still has the old controls;
+the new UI and its migration are being implemented and require signed VM verification.

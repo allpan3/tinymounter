@@ -65,6 +65,10 @@ Never break these without an explicit task to do so.
   agreed isolated scope.
   M19 permits existing-file content updates only through its accepted recovery transaction;
   it does not authorize overwrites at the ordinary pathname or general rename, move or delete.
+  M20's accepted scope adds protected no-replace renaming of verified ordinary files within
+  their folder. Its single write mode defaults on for new locations after scoped access and
+  safety confirmation; existing read-only locations remain read-only. Agent tests still use
+  only the approved disposable VM fixture. Moves, general deletion and replacement stay denied.
 - **Never present incomplete data as complete.** An uncached range fails clearly and is never filled
   with zeroes. A requested pin is not "available offline" until the download is verified.
 - **No secrets in the repo, logs or chat.** Credentials go through Keychain or the user's own Finder

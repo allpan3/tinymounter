@@ -1,6 +1,27 @@
 import Foundation
 
 extension Catalog {
+    public func setWriteAccess(creation: Bool, editing: Bool) throws {
+        guard !editing || creation else { throw UploadError.readOnly }
+        try write { seq in
+            guard let root = try item(id: Self.rootItemID) else { throw UploadError.unresolved }
+            guard root.allowsCreation != creation || root.allowsEditing != editing else { return }
+            try database.prepare("UPDATE meta SET allows_creation = ?, allows_editing = ? WHERE id = 1") {
+                try $0.bind(1, creation)
+                try $0.bind(2, editing)
+                try $0.run()
+            }
+            for row in try items("SELECT \(CatalogRow.columns) FROM items WHERE deleted = 0") {
+                seq += 1
+                try database.prepare("UPDATE items SET change_seq = ? WHERE id = ?") {
+                    try $0.bind(1, seq)
+                    try $0.bind(2, row.id)
+                    try $0.run()
+                }
+            }
+        }
+    }
+
     public func refreshEditBase(_ receipt: EditBaseReceipt, expectedVersion: String,
                                 fingerprint: ContentFingerprint, nativeID: UInt64) throws {
         try write { seq in

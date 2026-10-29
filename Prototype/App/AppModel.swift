@@ -21,6 +21,7 @@ final class AppModel {
         var grantID: UUID?
         var folder: String
         var name: String
+        var readOnly = false
         /// The name follows the folder until the user types one.
         var nameEdited = false
         /// The location that it copies, or nil for New Location.
@@ -383,7 +384,8 @@ final class AppModel {
         guard let record = record(recordID) else { return }
         let taken = records.map(\.name) + drafts.map(\.name)
         let draft = Draft(serverID: grant(record.serverID)?.serverID, grantID: record.serverID, folder: record.folder,
-                          name: LocationRecord.copyName(record.name, among: taken), original: record.id)
+                          name: LocationRecord.copyName(record.name, among: taken), readOnly: record.readOnly,
+                          original: record.id)
         drafts.insert(draft, at: 0)
         select(draft.id)
     }
@@ -423,9 +425,14 @@ final class AppModel {
         Task {
             defer { busy.remove(draftID) }
             do {
+                var bookmark: Data?
+                if !draft.readOnly {
+                    guard let granted = try await writeGrant(grantID: grantID) else { return }
+                    bookmark = granted
+                }
                 // The record keeps the draft's ID, and its selection, from the moment it is saved.
                 _ = try await controller.add(id: draftID, name: name, folder: folder, grantID: grantID,
-                                             after: draft.original)
+                                             after: draft.original, writeBookmark: bookmark)
                 notifier.requestPermission()
                 await controller.restorePendingKeeps(draftID)
             } catch {
@@ -471,7 +478,13 @@ final class AppModel {
             busy.insert(recordID)
             defer { busy.remove(recordID) }
             do {
-                _ = try await controller.apply(recordID, grantID: edit.grantID, folder: folder)
+                var bookmark: Data?
+                if !record.readOnly {
+                    guard let granted = try await writeGrant(grantID: edit.grantID) else { return }
+                    bookmark = granted
+                }
+                _ = try await controller.apply(recordID, grantID: edit.grantID, folder: folder,
+                                               writeBookmark: bookmark)
                 edits[recordID] = nil
                 await controller.restorePendingKeeps(recordID)
             } catch {
@@ -514,54 +527,56 @@ final class AppModel {
         }
     }
 
-    func setWriteAccess(_ recordID: UUID, enabled: Bool) {
-        guard let record = record(recordID), !busy.contains(recordID),
-              let grant = grant(record.serverID) else { return }
+    func setReadOnly(_ id: UUID, _ readOnly: Bool) {
+        guard !busy.contains(id) else { return }
+        if let index = drafts.firstIndex(where: { $0.id == id }) {
+            drafts[index].readOnly = readOnly
+            return
+        }
+        guard let record = record(id) else { return }
+        busy.insert(id)
         Task {
-            busy.insert(recordID)
-            defer { busy.remove(recordID) }
+            defer { busy.remove(id) }
             do {
-                var bookmark: Data?
-                if enabled {
-                    let panel = NSOpenPanel()
-                    panel.canChooseDirectories = true
-                    panel.canChooseFiles = false
-                    panel.allowsMultipleSelection = false
-                    panel.message = UIText.writeGrantMessage
-                    panel.prompt = UIText.enableChanges
-                    if let path = controller.mountPath(record.serverID) { panel.directoryURL = URL(filePath: path) }
-                    guard await run(panel), let url = panel.url else { return }
-                    let scoped = url.startAccessingSecurityScopedResource()
-                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                    guard let mount = try ShareAccess.connectedShares().first(where: {
-                        $0.path == ShareAccess.filePath(url)
-                    }), mount.identity.mountFrom == grant.mountFrom else {
-                        throw UploadError.readOnly
-                    }
-                    bookmark = try url.bookmarkData(options: [.withSecurityScope],
-                                                    includingResourceValuesForKeys: nil, relativeTo: nil)
+                var bookmark = record.writeBookmark
+                if !readOnly {
+                    guard let granted = try await writeGrant(grantID: record.serverID, existing: bookmark,
+                                                             confirmed: record.smbOnlyEditing == true) else { return }
+                    bookmark = granted
                 }
-                try await controller.setWriteAccess(recordID, bookmark: bookmark)
+                try await controller.setWriteMode(id, readOnly: readOnly, bookmark: bookmark, confirmed: !readOnly)
             } catch { show(error, grantID: record.serverID) }
         }
     }
 
-    func setEditing(_ recordID: UUID, enabled: Bool) {
-        guard let record = record(recordID), !busy.contains(recordID) else { return }
-        Task {
-            if enabled {
+    private func writeGrant(grantID: UUID, existing: Data? = nil, confirmed: Bool = false) async throws -> Data? {
+        guard let grant = grant(grantID) else { throw UploadError.readOnly }
+        if let existing {
+            if !confirmed {
                 let alert = NSAlert()
-                alert.messageText = UIText.enableEditing
-                alert.informativeText = UIText.editingRequirements
-                alert.addButton(withTitle: UIText.confirmEditing)
+                alert.messageText = UIText.completeWriteSetup
+                alert.informativeText = UIText.writeRequirements
+                alert.addButton(withTitle: UIText.confirmWriteSetup)
                 alert.addButton(withTitle: UIText.cancel)
-                guard await present(alert) == .alertFirstButtonReturn else { return }
+                guard await present(alert) == .alertFirstButtonReturn else { return nil }
             }
-            busy.insert(recordID)
-            defer { busy.remove(recordID) }
-            do { try await controller.setEditing(recordID, enabled: enabled) }
-            catch { show(error, grantID: record.serverID) }
+            return existing
         }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.message = UIText.writeGrantMessage + "\n\n" + UIText.writeRequirements
+        panel.prompt = UIText.confirmWriteSetup
+        if let path = controller.mountPath(grantID) { panel.directoryURL = URL(filePath: path) }
+        guard await run(panel), let url = panel.url else { return nil }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard let mount = try ShareAccess.connectedShares().first(where: {
+            $0.path == ShareAccess.filePath(url)
+        }), mount.identity.mountFrom == grant.mountFrom else { throw UploadError.readOnly }
+        return try url.bookmarkData(options: [.withSecurityScope],
+                                    includingResourceValuesForKeys: nil, relativeTo: nil)
     }
 
     func editRecords(_ record: LocationRecord) async throws -> [PendingEdit] { try await controller.editRecords(record) }

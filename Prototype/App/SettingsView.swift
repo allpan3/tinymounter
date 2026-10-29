@@ -140,8 +140,8 @@ private struct LocationPane: View {
             if let record { header(record) }
             sourceSection
             connectionSection
+            writeSection(record: record, draft: draft)
             if let record {
-                writeSection(record)
                 keepSection(record)
                 Section {
                     Button(UIText.removeLocationMenu, role: .destructive) { model.confirmRemove(record.id) }
@@ -158,23 +158,23 @@ private struct LocationPane: View {
         .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar(record: record) }
     }
 
-    private func writeSection(_ record: LocationRecord) -> some View {
+    private func writeSection(record: LocationRecord?, draft: AppModel.Draft?) -> some View {
         Section {
-            LabeledContent(UIText.access, value: record.writeBookmark == nil ? UIText.readOnly
-                           : record.smbOnlyEditing == true ? UIText.editingAccess : UIText.newFilesAndFolders)
-            Button(record.writeBookmark == nil ? UIText.enableChangesMenu : UIText.disableChanges) {
-                model.setWriteAccess(record.id, enabled: record.writeBookmark == nil)
-            }
-            if record.writeBookmark != nil {
-                Button(record.smbOnlyEditing == true ? UIText.disableEditing : UIText.enableEditing) {
-                    model.setEditing(record.id, enabled: record.smbOnlyEditing != true)
+            Toggle(UIText.readOnly, isOn: Binding(
+                get: { record?.readOnly ?? draft?.readOnly ?? true },
+                set: { model.setReadOnly(id, $0) }
+            ))
+            if let record {
+                if record.needsWriteConfirmation {
+                    Text(UIText.incompleteWriteSetup).foregroundStyle(.secondary)
+                    Button(UIText.completeWriteSetup) { model.setReadOnly(id, false) }
                 }
+                UploadStatus(record: record, model: model)
             }
-            UploadStatus(record: record, model: model)
         } header: {
-            Text(UIText.changes)
+            Text(UIText.access)
         } footer: {
-            Text(record.smbOnlyEditing == true ? UIText.editingHint : UIText.writeAccessHint).foregroundStyle(.secondary)
+            Text(UIText.writeModeHint).foregroundStyle(.secondary)
         }
     }
 

@@ -43,7 +43,7 @@ File Provider, cache ownership, and metadata architecture are selected. The ship
 are separate records. The app owns read-only grants; macOS owns passwords and SMB mounts. An
 existing connection can be associated with a saved server by explicit selection, with confirmation
 for another address. Disconnect ejects that OS volume. Remove ejects all associated connections
-before deleting the server; failure retains the records. Settings version 5 migrates versions 1 through 4
+before deleting the server; failure retains the records. Settings version 6 migrates versions 1 through 5
 atomically, preserving location and domain identity, bookmarks and Keep Downloaded lists, with
 typed file and folder requests ([M14 results](results/2026-10-19-folder-keeps.md)). The
 [connection-management results](results/2026-10-18-connection-management.md) record VM checks and
@@ -221,12 +221,14 @@ it waits for the transport decision.
 
 ## 11. Open decisions for the first experiment
 
-- **M20 file renaming, proposed 2026-10-28.** After M19 installation, the next recommended feature
+- **M20 file renaming, accepted 2026-10-29.** After M19 installation, the next feature
   is renaming an ordinary file within its folder, using an existing M19 verified revision.
   Preserve the original object and item ID; refuse collisions, changed sources and uncertain
   identity. Folder renaming, moves and unverified files remain outside the first scope. The
-  [proposal](phase4-plan.md#m20-file-renaming) covers separate opt-in, protected no-replace rename,
-  recovery and a fresh disposable VM fixture. Approval is pending; no M20 code exists.
+  [design](phase4-plan.md#m20-file-renaming) covers protected no-replace rename, recovery and a
+  fresh disposable VM fixture. The user approved one write mode for all supported mutations,
+  with a Read only toggle that defaults off for new locations. Existing read-only locations
+  remain read-only. Implementation and verification are in progress.
 - **M19 online editing, accepted 2026-10-27.** The [safety design](phase4-plan.md#m19-online-editing)
   uses protected, no-replace renames through a recovery name, complete local pending copies,
   proven base revisions and conflict copies. The user accepted the temporary absence of
