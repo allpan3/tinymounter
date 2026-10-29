@@ -149,7 +149,8 @@ requirement; existing write-enabled locations do not acquire editing permission 
 
 The replacement sequence below failed its metadata-preservation gate. The user reaffirmed
 Mac-only operation: use the server's existing SMB service, with no tinymounter server component.
-The [revised proposal](#revised-mac-only-save-proposal) needs approval before implementation.
+The user approved the [revised design](#revised-mac-only-save-proposal) on 2026-10-28;
+its protocol gate must pass before app integration.
 
 Implement whole-file content updates to ordinary existing files in explicitly write-enabled
 locations. Preserve the old remote file under a recovery name, then publish the complete edit
@@ -361,8 +362,11 @@ alone would not make the tested server serialize those operations.
 
 ### Revised Mac-only save proposal
 
-Date: 2026-10-27. Decision status: proposed, not accepted or tested. Keep normal Save as the
-goal. Save Edited Copy was not accepted and is not a substitute for this milestone.
+Proposed 2026-10-27; accepted 2026-10-28, including the disposable VM fixture and its temporary
+installation. The [CLI protocol gate](results/2026-10-28-same-object-save.md) passed on the
+disposable Samba fixture; app integration and signed editor checks remain. Keep normal Save as
+the goal. Save Edited
+Copy was not accepted and is not a substitute for this milestone.
 
 Keep the original remote file object, including its permissions and unrelated streams, and
 change only its main contents while it is away from its normal name. First preserve the old
@@ -370,16 +374,16 @@ contents in a separate remote recovery copy. This avoids copying stale access ru
 replacement and later deleting the original object with another client's attached data.
 The protocol sources support investigating this route; they do not prove it safe at runtime.
 
-**Changes requiring approval:** the original object is modified under a temporary name;
+**Accepted changes:** the original object is modified under a temporary name;
 the old contents survive in a separate file rather than in the untouched original object.
 Other readers must close the file before the update can start. It stays unavailable during
 backup, copying and verification, potentially much longer than the previous two-rename gap.
 New staging and backup files are disposable transaction storage: other programs, including
-programs using the same SMB account, must not change, rename or delete them. SMB cannot enforce ownership by
-one application. This additional boundary does not prohibit permission or stream changes to
+programs using the same SMB account, must not change, rename or delete them. SMB cannot enforce
+ownership by one application. This additional boundary does not prohibit permission or stream changes to
 the user's original file, even while that file has its temporary name.
 
-The experiment would use this sequence:
+The approved experiment uses this sequence:
 
 1. Retain the complete immutable edit locally. Create a separate remote stage with private
    access rules, verified before putting content in it, and upload through native SMB.
@@ -429,7 +433,7 @@ fallback to direct payload uploads. A server that cannot demonstrate private sta
 copy, flush and recovery must refuse editing. No new app dependency is proposed; the existing
 LGPL distribution requirements still apply.
 
-The first gate is a CLI experiment in macOS VM 1, after fresh fixture approval. Recreate the
+The first gate is a CLI experiment in macOS VM 1, with fresh fixture approval on 2026-10-28. Recreate the
 previous standalone, loopback-only Samba fixture and its temporary dependencies, private
 account database and Keychain credential. Do not create a macOS account, register a service
 or change Apple's sharing settings. Use only synthetic files, bounded to 16 MiB each. Check
@@ -447,3 +451,11 @@ credential and newly installed dependencies; close task-owned apps/windows and r
 test artifacts before handoff. No VM/shared-daemon restart, network cut, physical-Mac install
 or publication is part of this proposal. Source findings and rejected leads are in
 [research W11–W13](research.md#m19-mac-only-revision-review-2026-10-27).
+
+The October 28 CLI gate passed private staging, different original ownership, size changes,
+competing SMB access and names, six process-crash boundaries, ancestor protection and protected
+cleanup. Directory guards need directory-list access; metadata-only opens do not enforce the
+required exclusion. Actual remote space exhaustion produced an uncertain copy result; fresh
+SMB reads verified the complete backup, stage and local input while retaining partial work.
+The existing cached-credential client also connected without acquiring a password. These checks
+permit app integration, but do not establish signed TextEdit behavior or a working M19 app.

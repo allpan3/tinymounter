@@ -139,9 +139,15 @@ is held, even with all sharing denied. This blocks the accepted save design; edi
 remain unsupported. The temporary server, installation, fixture and credential are removed.
 Apple's sharing settings are unchanged. An additional native-create fixture check failed during
 directory setup, before reaching its upload assertions. The user reaffirmed Mac-only operation.
-A [revised save proposal](docs/phase4-plan.md#revised-mac-only-save-proposal) would retain the
-original file object and a separate recovery copy; it needs approval and runtime verification.
-See the [gate status](docs/results/2026-10-27-edit-publication.md).
+The user approved the [revised save design](docs/phase4-plan.md#revised-mac-only-save-proposal)
+on 2026-10-28, including a new disposable VM fixture session. It retains the original file
+object and a separate recovery copy. Initial tests preserve live permissions and attached data,
+including when another account owns the original; empty-file and competing-name checks pass.
+The October 28 CLI protocol gate passes, including six crash boundaries, ancestor protection,
+guarded cleanup and retained data after actual space exhaustion. App integration and signed
+TextEdit checks remain; editing stays off.
+See the [October 28 protocol results](docs/results/2026-10-28-same-object-save.md) and
+[earlier replacement gate](docs/results/2026-10-27-edit-publication.md).
 
 ## Run the prototype
 

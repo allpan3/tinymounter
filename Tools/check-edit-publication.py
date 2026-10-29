@@ -104,14 +104,15 @@ class Client:
         return handle
 
 
-def load(path, authenticated=False):
+def load(path, authenticated=False, keychain=None):
     library = C.CDLL(str(path))
     library.fixture_password = None
+    library.fixture_keychain = keychain
     if authenticated:
         credential = subprocess.run([
             "/usr/bin/security", "find-internet-password", "-s", "127.0.0.1",
             "-a", "_tinymounter_m19", "-r", "smb ", "-p", "/tinymounter-m19-edit-test", "-w",
-        ], capture_output=True)
+        ] + ([str(keychain)] if keychain else []), capture_output=True)
         if credential.returncode:
             raise OSError(errno.EACCES, "test credential unavailable")
         library.fixture_password = credential.stdout.rstrip(b"\n")
@@ -119,8 +120,11 @@ def load(path, authenticated=False):
     byte_pointer = C.POINTER(C.c_ubyte)
     declarations = {
         "connect": ([C.c_char_p, C.POINTER(C.c_int)], pointer),
+        "connect_observer": ([C.c_char_p, C.POINTER(C.c_int)], pointer),
         "disconnect": ([pointer], None),
         "open": ([pointer, C.c_char_p, C.c_uint32, C.c_uint32, C.c_int, byte_pointer], C.c_int),
+        "open_directory": ([pointer, C.c_char_p, C.c_uint32, C.c_uint32, C.c_int, byte_pointer], C.c_int),
+        "open_private": ([pointer, C.c_char_p, C.c_uint32, C.c_uint32, byte_pointer, C.c_uint32, byte_pointer], C.c_int),
         "close": ([pointer, byte_pointer], C.c_int),
         "info": ([pointer, byte_pointer, C.POINTER(C.c_uint64)], C.c_int),
         "read": ([pointer, byte_pointer, C.c_uint64, byte_pointer, C.c_uint32, C.POINTER(C.c_uint32)], C.c_int),
@@ -130,7 +134,11 @@ def load(path, authenticated=False):
         "metadata": ([pointer, byte_pointer, C.c_int, byte_pointer, C.c_uint32, C.POINTER(C.c_uint32)], C.c_int),
         "set_metadata": ([pointer, byte_pointer, C.c_int, byte_pointer, C.c_uint32], C.c_int),
         "open_stream": ([pointer, C.c_char_p, byte_pointer], C.c_int),
+        "open_read_stream": ([pointer, C.c_char_p, byte_pointer], C.c_int),
         "write_stream": ([pointer, byte_pointer], C.c_int),
+        "resume_key": ([pointer, byte_pointer, byte_pointer], C.c_int),
+        "copy_chunk": ([pointer, byte_pointer, byte_pointer, C.c_uint64, C.c_uint64, C.c_uint32, byte_pointer], C.c_int),
+        "set_size": ([pointer, byte_pointer, C.c_uint64], C.c_int),
         "status": ([], C.c_uint32),
     }
     for name, (arguments, result) in declarations.items():

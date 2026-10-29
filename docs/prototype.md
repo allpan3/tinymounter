@@ -429,5 +429,7 @@ See the accepted [phase 4 plan](phase4-plan.md).
 
 Normal Save to existing files remains unsupported. M19's replacement design failed its
 concurrent metadata-preservation gate. The user reaffirmed Mac-only operation; a
-[revised save proposal](phase4-plan.md#revised-mac-only-save-proposal) needs approval and a new
-protocol check before app integration. No server component is required by the product contract.
+[revised save design](phase4-plan.md#revised-mac-only-save-proposal) was approved on 2026-10-28
+and passed its [CLI protocol gate](results/2026-10-28-same-object-save.md) on the disposable
+Samba fixture. App integration and signed editor checks remain. No server component is required
+by the product contract.

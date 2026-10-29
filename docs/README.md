@@ -15,7 +15,7 @@ it wrong.
 | [research.md](research.md) | External findings, competitors and the source register | you start relying on a new external fact |
 | [phase2-plan.md](phase2-plan.md) | Phase 2, the read-only vertical slice: decisions, data model, errors, UI scope and milestones | a phase 2 decision, milestone or design choice changes |
 | [phase3-plan.md](phase3-plan.md) | Phase 3, offline and NAS changes you can trust: reconnection, restart after a crash, connecting in the app, verified offline status, folder keeps, live change discovery and disk-space protection and location lifecycle checks (M11 to M17 checked in the VM; limits in results) | a phase 3 decision, milestone or design choice changes |
-| [phase4-plan.md](phase4-plan.md) | Accepted M18 creation, initial folder naming and Keep Both; M19's failed replacement gate and proposed Mac-only revision | write scope, permissions or recovery behavior changes |
+| [phase4-plan.md](phase4-plan.md) | Accepted M18 creation, initial folder naming and Keep Both; M19's failed replacement gate and accepted Mac-only revision | write scope, permissions or recovery behavior changes |
 | [synchronization.md](synchronization.md) | How File Provider locations stay consistent with server volumes and other writers (proposed) | the sync model, its guarantees or its tests change |
 | [ui-design.md](ui-design.md) and [ui-mockup.html](ui-mockup.html) | App and Finder interface, accepted for prototyping: its terms, its ASD-STE100 text and an interactive mockup | the interface or its copy changes |
 | [architecture-overview.html](architecture-overview.html) | The interactive data-path overview | the architecture changes visibly |
@@ -66,5 +66,8 @@ The fixture is removed and sharing is restored. The physical-Mac app remains M16
 M19's [publication gate](results/2026-10-27-edit-publication.md) passed competing SMB checks
 but found that server-local access bypasses protection. The user accepted an explicit SMB-only
 writer requirement for editing. Later competing SMB metadata changes defeated the replacement
-design. A [Mac-only revision](phase4-plan.md#revised-mac-only-save-proposal) is proposed; normal
-Save remains unsupported. The test fixture and its temporary installation are removed.
+design. The [Mac-only revision](phase4-plan.md#revised-mac-only-save-proposal) and a new disposable
+VM test session were approved on 2026-10-28. Its CLI protocol gate passed on the disposable
+Samba fixture; normal Save remains unsupported pending app integration and signed checks.
+The [October 28 protocol results](results/2026-10-28-same-object-save.md) record the current
+same-object save and crash checks; the fixture session remains active.

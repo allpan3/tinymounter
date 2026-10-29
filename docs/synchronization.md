@@ -104,8 +104,9 @@ them:
   [M19 design](phase4-plan.md#m19-online-editing) with an accepted SMB-only writer boundary
   after the exclusion [gate](results/2026-10-27-edit-publication.md). That replacement route
   subsequently failed concurrent metadata preservation. A
-  [Mac-only revision](phase4-plan.md#revised-mac-only-save-proposal) is proposed, not approved
-  or implemented; M18 does not authorize partial overwrites.
+  [Mac-only revision](phase4-plan.md#revised-mac-only-save-proposal) was approved on 2026-10-28;
+  its [CLI protocol gate](results/2026-10-28-same-object-save.md) passed on the disposable Samba
+  fixture, while app integration remains pending. M18 does not authorize partial overwrites.
 - If the NAS fingerprint differs from the base, the edit becomes a conflict copy, for example
   `Report (conflict, Mac, 2026-10-12 14.03).docx`. Both versions survive.
 - Delete-versus-edit: if the NAS deleted a file this Mac edited, the edit is uploaded as a new file.

@@ -64,7 +64,7 @@ Never break these without an explicit task to do so.
   disposable VM fixture; the original NAS stays read-only. Run disruptive tests only within an
   agreed isolated scope.
   M19 permits existing-file content updates only through its accepted recovery transaction;
-  it does not authorize in-place overwrites or general rename, move or delete operations.
+  it does not authorize overwrites at the ordinary pathname or general rename, move or delete.
 - **Never present incomplete data as complete.** An uncached range fails clearly and is never filled
   with zeroes. A requested pin is not "available offline" until the download is verified.
 - **No secrets in the repo, logs or chat.** Credentials go through Keychain or the user's own Finder
