@@ -127,6 +127,8 @@ def load(path, authenticated=False, keychain=None):
         "open_private": ([pointer, C.c_char_p, C.c_uint32, C.c_uint32, byte_pointer, C.c_uint32, byte_pointer], C.c_int),
         "close": ([pointer, byte_pointer], C.c_int),
         "info": ([pointer, byte_pointer, C.POINTER(C.c_uint64)], C.c_int),
+        "name": ([pointer, byte_pointer, byte_pointer, C.c_uint32, C.POINTER(C.c_uint32)], C.c_int),
+        "entry": ([pointer, byte_pointer, C.c_char_p, byte_pointer, C.c_uint32, C.POINTER(C.c_uint32)], C.c_int),
         "read": ([pointer, byte_pointer, C.c_uint64, byte_pointer, C.c_uint32, C.POINTER(C.c_uint32)], C.c_int),
         "rename": ([pointer, byte_pointer, C.c_char_p], C.c_int),
         "delete": ([pointer, byte_pointer], C.c_int),
