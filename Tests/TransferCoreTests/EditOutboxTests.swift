@@ -80,6 +80,8 @@ final class EditOutboxTests: XCTestCase {
         try outbox.complete(&record, item: item)
         XCTAssertEqual(try outbox.pendingCount, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: outbox.contentURL(record).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath:
+            directory.appending(path: "Edits/\(record.id.uuidString).metadata").path))
         XCTAssertEqual(try outbox.base(item: item, contentVersion: XCTUnwrap(record.published?.contentVersion)), record.published)
         try outbox.complete(&record, item: item)
     }
@@ -151,5 +153,57 @@ final class EditOutboxTests: XCTestCase {
         try outbox.validateContents(first)
         try outbox.validateContents(second)
         XCTAssertEqual(getxattr(outbox.contentURL(second).path, "dev.tinymounter.test", nil, 0, 0, 0), attribute.count)
+    }
+
+    func testInterruptedLocalStagingRemainsVisibleAndMatchingReplayFinishesIt() throws {
+        XCTAssertThrowsError(try outbox.prepare(item: item, parent: Catalog.rootItemID,
+            path: XCTUnwrap(RelativePath("document.txt")), baseVersion: "legacy", failOnConflict: false,
+            contents: input, progress: Progress(), checkSpace: { _ in throw CocoaError(.fileWriteOutOfSpace) }))
+        let interrupted = try XCTUnwrap(outbox.records().first)
+        XCTAssertEqual(interrupted.state, .preparing)
+        XCTAssertEqual(try outbox.pendingCount, 1)
+        XCTAssertThrowsError(try outbox.removeIfCompleted())
+        let recovered = try prepare()
+        XCTAssertEqual(recovered.id, interrupted.id)
+        XCTAssertEqual(recovered.state, .prepared)
+        try outbox.validateContents(recovered)
+    }
+
+    func testOnlyEquivalentUnpublishedGenerationCanResolveFromLaterCompletion() throws {
+        var earlier = try prepare(base: "old", failOnConflict: true)
+        var completed = try prepare(base: "new")
+        completed.state = .published
+        completed.previous = try version(for: completed)
+        completed.published = try EditBaseReceipt(item: item, version: version(for: completed))
+        try outbox.complete(&completed, item: item)
+        earlier.state = .copying
+        XCTAssertThrowsError(try outbox.resolveEquivalent(&earlier, with: completed))
+        try outbox.validateContents(earlier)
+        earlier.state = .prepared
+        try outbox.resolveEquivalent(&earlier, with: completed)
+        XCTAssertEqual(try outbox.pendingCount, 0)
+        XCTAssertEqual(earlier.published, completed.published)
+    }
+
+    func testRetainedMetadataRemainsVerifiableWhenSystemChangesPayloadAttributes() throws {
+        let value = Data("original metadata".utf8)
+        XCTAssertEqual(value.withUnsafeBytes {
+            setxattr(input.path, "dev.tinymounter.test", $0.baseAddress, $0.count, 0, 0)
+        }, 0)
+        let record = try prepare()
+        let content = outbox.contentURL(record)
+        XCTAssertEqual(chmod(content.path, 0o600), 0)
+        XCTAssertEqual(removexattr(content.path, "dev.tinymounter.test", 0), 0)
+        try outbox.validateContents(record)
+        let metadata = directory.appending(path: "Edits/\(record.id.uuidString).metadata")
+        let retained = try JSONDecoder().decode([String: Data].self, from: Data(contentsOf: metadata))
+        XCTAssertEqual(retained["dev.tinymounter.test"], value)
+        let destination = directory.appending(path: "exported.txt")
+        try outbox.export(record, to: destination)
+        XCTAssertEqual(try Data(contentsOf: destination), try Data(contentsOf: input))
+        XCTAssertEqual(getxattr(destination.path, "dev.tinymounter.test", nil, 0, 0, 0), value.count)
+        try Data("{}".utf8).write(to: metadata)
+        XCTAssertThrowsError(try outbox.validateContents(record))
+        XCTAssertEqual(try outbox.pendingCount, 1)
     }
 }

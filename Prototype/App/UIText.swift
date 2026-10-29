@@ -31,7 +31,7 @@ enum UIText {
     static let disableEditing = "Disable Editing"
     static let confirmEditing = "Confirm and Enable"
     static let editingAccess = "New items and file editing"
-    static let editingRequirements = "Use editing only in folders where every program changes files through SMB. Programs must leave tinymounter’s temporary save files alone. During a save, the original file is briefly unavailable. An interrupted save can leave it unavailable until recovery."
+    static let editingRequirements = "Use editing only in folders where every program changes files through SMB. Programs must leave tinymounter’s temporary save files alone. The original file is unavailable during a save. An interrupted save can leave it unavailable until recovery."
     static let editingHint = "Edits keep a complete local recovery copy until the server copy is verified. Conflicting edits are saved as separate files. Renaming, moving and deleting existing items remain unavailable."
     static let exportEdit = "Export Local Copy…"
     static let retryEdits = "Retry Pending Saves"

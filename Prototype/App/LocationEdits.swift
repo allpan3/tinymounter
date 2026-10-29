@@ -22,6 +22,25 @@ extension LocationSource {
         scheduleSignal()
     }
 
+    func establishUploadedEditBase(_ upload: PendingUpload, row: CatalogRow, bookmark: Data,
+                                   progress: Progress) throws {
+        try withWriteSession(bookmark) { session, root in
+            guard let endpoint = ShareAddress(session.identity.mountFrom),
+                  let path = RelativePath(upload.path) else { throw UploadError.unresolved }
+            let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: root, progress: progress)
+            try remote.protectAncestors(of: upload.path)
+            let version = try remote.readVersion(path: upload.path)
+            let file = try ReadOnlyFile(directoryFD: root, relativePath: path, expected: session.identity)
+            guard version.size == upload.size, version.digest == upload.digest,
+                  file.snapshot.inode == upload.remoteID,
+                  file.snapshot.fingerprint == ContentFingerprint(size: row.size, mtimeNs: row.mtimeNs, ctimeNs: row.ctimeNs)
+            else { throw UploadError.unresolved }
+            let receipt = try EditBaseReceipt(item: row.id, version: version)
+            try Self.editOutbox(domainID: domainID).storeBase(receipt)
+            try withCatalog { try $0.rememberEditBase(receipt, expectedVersion: row.contentVersion) }
+        }
+    }
+
     func editRecords() throws -> [PendingEdit] {
         try uploadLock.withLock { try Self.editOutbox(domainID: domainID).records() }
     }
@@ -32,8 +51,7 @@ extension LocationSource {
             guard let record = try outbox.records().first(where: { $0.id == id && $0.isPending }) else {
                 throw UploadError.invalidRequest
             }
-            try outbox.validateContents(record)
-            try FileManager.default.copyItem(at: outbox.contentURL(record), to: destination)
+            try outbox.export(record, to: destination)
         }
     }
 
@@ -60,12 +78,22 @@ extension LocationSource {
                                                     baseVersion: request.baseVersion, failOnConflict: request.failOnConflict,
                                                     contents: contents, progress: progress, checkSpace: checkSpace)
                     try finishEdit(&record, outbox: outbox, progress: progress)
+                    if record.state == .completed, !record.recoveryRetained, !record.conflict {
+                        for var previous in try outbox.records() where previous.id != record.id && previous.isPending {
+                            if (try? outbox.resolveEquivalent(&previous, with: record)) != nil {
+                                try? finishEdit(&previous, outbox: outbox, progress: progress)
+                            }
+                        }
+                    }
                     return EditReceipt(item: record.completedItem ?? record.item, conflict: record.conflict,
                                        contentVersion: record.published?.contentVersion ?? "")
                 }
             } }
             let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
             logger.info("edit request=\(request.id.uuidString, privacy: .public) ok=\((try? result.get()) != nil ? 1 : 0)")
+            if case .failure(let error) = result {
+                logger.error("edit request=\(request.id.uuidString, privacy: .public) failed \(logFields(error), privacy: .public)")
+            }
             if case .success(let receipt) = result, receipt.conflict {
                 _ = try? listOnLane(request.parent, requestID: request.id)
             }
@@ -91,11 +119,15 @@ extension LocationSource {
     }
 
     private func finishEdit(_ record: inout PendingEdit, outbox: EditOutbox, progress: Progress) throws {
+        let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
+        defer {
+            let id = record.id.uuidString, state = record.state.rawValue, conflict = record.conflict ? 1 : 0
+            logger.info("edit_transaction id=\(id, privacy: .public) state=\(state, privacy: .public) conflict=\(conflict)")
+        }
         guard let bookmark = writeBookmark, let relative = RelativePath(record.path),
               let path = folder.appending(relative) else { throw UploadError.readOnly }
         if record.state == .completed, !record.recoveryRetained { return }
-        let pending = try ReadOnlyFile(url: outbox.contentURL(record))
-        guard fgetxattr(pending.descriptor, "com.apple.ResourceFork", nil, 0, 0, 0) <= 0 else {
+        guard try !outbox.hasResourceFork(record) else {
             throw CocoaError(.featureUnsupported)
         }
         try editNamespace.requireUncontested(path: path, excluding: record.id)
@@ -137,8 +169,11 @@ extension LocationSource {
                            checkSpace: ((Int64) throws -> Void)?) throws -> TransferOutput {
         try editNamespace.perform {
             try uploadLock.withLock {
-                try editNamespace.requireSettled()
+                guard let fullPath = folder.appending(path) else { throw UploadError.invalidRequest }
+                try editNamespace.requireUncontested(path: fullPath, excluding: UUID())
                 return try access.withSession { session, progressed in
+                    let observation = progress.observe(\.completedUnitCount) { _, _ in progressed() }
+                    defer { observation.invalidate() }
                     guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
                     let root = try session.locationRoot(folder)
                     let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: root, progress: progress)
@@ -146,14 +181,32 @@ extension LocationSource {
                     let version = try remote.readVersion(path: path.string)
                     let outbox = try Self.editOutbox(domainID: domainID)
                     let base = try outbox.base(item: row.id, contentVersion: request.version)
-                    if let base, !version.hasSameContents(as: base.version) { throw SourceFailure.versionChanged }
                     let file = try ReadOnlyFile(directoryFD: root, relativePath: path, expected: session.identity, noCache: true)
-                    guard file.snapshot.fingerprint == ContentFingerprint(size: row.size, mtimeNs: row.mtimeNs, ctimeNs: row.ctimeNs)
-                    else { throw SourceFailure.versionChanged }
-                    let observation = progress.observe(\.completedUnitCount) { _, _ in progressed() }
-                    defer { observation.invalidate() }
+                    let fingerprintChanged = file.snapshot.fingerprint
+                        != ContentFingerprint(size: row.size, mtimeNs: row.mtimeNs, ctimeNs: row.ctimeNs)
+                    let receiptChanged = request.version.hasPrefix("e1:")
+                        && base.map({ version.hasSameContents(as: $0.version) }) != true
+                    if fingerprintChanged || receiptChanged {
+                        guard file.snapshot.size == version.size else { throw SourceFailure.versionChanged }
+                        let receipt = try EditBaseReceipt(item: row.id, version: version)
+                        try outbox.storeBase(receipt)
+                        try withCatalog {
+                            try $0.refreshEditBase(receipt, expectedVersion: row.contentVersion,
+                                                   fingerprint: file.snapshot.fingerprint, nativeID: file.snapshot.inode)
+                        }
+                        scheduleSignal()
+                        throw SourceFailure.versionChanged
+                    }
+                    let nativeProgress = Progress()
+                    let verified = progress.completedUnitCount
+                    let nativeObservation = nativeProgress.observe(\.completedUnitCount) { value, _ in
+                        progress.completedUnitCount = verified + value.completedUnitCount
+                        if progress.isCancelled { value.cancel() }
+                    }
+                    defer { nativeObservation.invalidate() }
+                    if progress.isCancelled { nativeProgress.cancel() }
                     var output = try Transfer.run(source: file, range: request.range, stagingDirectory: stagingDirectory,
-                                                  progress: progress, checkSpace: checkSpace)
+                                                  progress: nativeProgress, checkSpace: checkSpace)
                     do {
                         if request.establishEditBase, row.allowsEditing, let url = output.stagingURL {
                             let staged = try ReadOnlyFile(url: url)

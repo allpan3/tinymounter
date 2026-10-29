@@ -465,8 +465,8 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                                 changedFields: NSFileProviderItemFields, contents: URL,
                                 options: NSFileProviderModifyItemOptions, deletionConflict: Bool = false,
                                 completion: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void) -> Progress {
-        countMutation("modify", "result=contents fields=\(changedFields.rawValue)")
-        let progress = Progress(totalUnitCount: 1)
+        countMutation("modify", "result=contents fields=\(changedFields.rawValue) fail_on_conflict=\(options.contains(.failOnConflict) ? 1 : 0)")
+        let progress = Progress(totalUnitCount: Int64.max)
         DispatchQueue.global(qos: .userInitiated).async { [self] in
             var staged: URL?
             defer { if let staged { try? FileManager.default.removeItem(at: staged) } }

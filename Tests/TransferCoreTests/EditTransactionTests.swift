@@ -105,8 +105,30 @@ final class EditTransactionTests: XCTestCase {
         XCTAssertNotNil(remote.files[edit.recoveryPath])
     }
 
+    func testConflictNameCollisionChoosesAnotherPersistedNameAndKeepsWinner() throws {
+        remote.files[edit.path] = nil
+        remote.failure = .conflictName
+        try EditTransaction.publish(&edit, outbox: outbox, remote: remote)
+        XCTAssertEqual(edit.state, .published)
+        XCTAssertEqual(try outbox.records().first?.destination, edit.destination)
+        XCTAssertEqual(remote.files[edit.destination]?.digest, edit.digest)
+        XCTAssertEqual(remote.files.values.filter { $0.identity.fileID == 99 }.count, 1)
+        XCTAssertEqual(remote.updates, 0)
+    }
+
+    func testLostConflictReplyIsProvedWithoutPublishingAnotherCopy() throws {
+        remote.files[edit.path] = nil
+        remote.failure = .conflictReply
+        XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))
+        let destination = edit.destination
+        try EditTransaction.publish(&edit, outbox: outbox, remote: remote)
+        XCTAssertEqual(edit.destination, destination)
+        XCTAssertEqual(remote.moves, 1)
+        XCTAssertEqual(edit.state, .published)
+    }
+
     private final class Remote: EditRemote {
-        enum Failure { case partialCopy, completeCopy, publication, collision }
+        enum Failure { case partialCopy, completeCopy, publication, collision, conflictName, conflictReply }
         var failure: Failure?
         var files: [String: EditFileVersion]
         let edited: EditFileVersion
@@ -141,6 +163,10 @@ final class EditTransactionTests: XCTestCase {
         }
 
         func move(source: String, destination: String) throws {
+            if failure == .conflictName {
+                files[destination] = try Self.version(identity: 99, size: 4, digest: String(repeating: "d", count: 64))
+                failure = nil
+            }
             if failure == .collision, destination == "file.txt" {
                 files[destination] = try Self.version(identity: 99, size: 4, digest: String(repeating: "d", count: 64))
                 failure = nil
@@ -148,7 +174,7 @@ final class EditTransactionTests: XCTestCase {
             guard files[destination] == nil else { throw UploadError.collision }
             files[destination] = files.removeValue(forKey: source)
             moves += 1
-            if failure == .publication, destination == "file.txt" {
+            if (failure == .publication && destination == "file.txt") || failure == .conflictReply {
                 failure = nil
                 throw UploadError.unresolved
             }

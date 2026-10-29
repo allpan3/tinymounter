@@ -1,7 +1,8 @@
 # Same-object save protocol
 
 Date: 2026-10-28. Decision status: the revised Mac-only M19 design and disposable VM fixture
-are accepted. The CLI protocol gate passed; normal Save remains disabled pending app integration.
+are accepted. The CLI protocol gate passed. App integration is present; signed Save verification
+is still in progress.
 
 Basic saves preserve the original remote object, its live permissions and attached stream on
 the disposable Samba fixture. Empty, growing and shrinking files, a competing destination and
@@ -115,9 +116,8 @@ remain necessary under the [accepted design](../phase4-plan.md#revised-mac-only-
 
 ## App transaction integration
 
-The first integration adds the durable same-object transaction and a protected SMB adapter.
-Normal Save is still disabled: provider callbacks, opt-in and signed editor verification are
-pending. Recovery checks fresh identity and complete contents, restores only a complete original
+The integration adds the durable same-object transaction and a protected SMB adapter.
+Recovery checks fresh identity and complete contents, restores only a complete original
 through an exclusive rename, and retains partial work without repeating the write. Cleanup can
 remove proved stage and backup objects, never the original work object. Retained recovery data
 continues to block location removal. Nested receipt decoding and local metadata allocation are
@@ -132,3 +132,22 @@ retry controls. Listings from overlapping locations on the same SMB source defer
 is unresolved, preventing the temporary namespace gap from deleting catalog items. Metadata
 fields outside the content update remain pending; resource-fork edits are refused. Normal
 TextEdit behavior, signed authentication and these controls still need VM verification.
+
+The integration review also records local intent before staging, so an interrupted copy remains
+visible and can resume from matching input. Missing or changed strong receipts fail the old
+fetch and publish a new revision, including when native size and timestamps have not changed.
+Uploads in editing-enabled locations establish protected base receipts. Definite conflict-name
+collisions choose another persisted name; uncertain replies are reconciled first. A later verified
+save can retire an identical earlier generation only if that generation never changed the original.
+The baseline recording shows TextEdit refusing an edit because the file is locked. Candidate
+runtime checks remain pending. All 259 VM tests passed, with one optional fixture skip, and
+Tools/run-checks.sh and the personalized build passed without Swift warnings. The first signed
+TextEdit Save reached the content callback with fields 649 but returned cannotSynchronize;
+the remote original remained unchanged. Added path-free transaction-state and error diagnostics
+to identify the failing operation. It stopped in local staging: the sandboxed metadata copy
+changed one attribute, while an unsandboxed copy of the visible test file preserved both
+attributes. The outbox now preserves the bounded original attributes in a durable sidecar,
+independent of attributes assigned to its payload by macOS. Export restores user metadata;
+macOS retains control of per-file access and quarantine metadata on the exported file.
+The sidecar is removed with the payload only after verified completion. This is not yet a
+successful editor-save result.

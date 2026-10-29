@@ -32,7 +32,7 @@ final class EditNamespace: @unchecked Sendable {
     func requireUncontested(path: RelativePath, excluding id: UUID) throws {
         for (domain, folder) in domains {
             for record in try LocationSource.editOutbox(domainID: domain).records()
-                where record.id != id && record.isPending && record.state != .prepared {
+                where record.id != id && record.mayHaveChangedOriginal {
                 guard let relative = RelativePath(record.path), folder.appending(relative) != path else {
                     throw UploadError.pendingWrites
                 }

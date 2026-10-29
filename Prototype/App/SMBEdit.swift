@@ -100,7 +100,6 @@ final class SMBEdit: EditRemote {
         let verifier = try open(path: path, access: Self.read, sharing: 5)
         extraHandles.append(verifier)
         guard try info(verifier)[0...1] == expected[0...1] else { throw UploadError.unresolved }
-        try handle.use { try check(tm_edit_flush(client, $0)) }
         return try version(handle)
     }
 
@@ -229,6 +228,7 @@ final class SMBEdit: EditRemote {
             }
             hash.update(data: buffer.prefix(Int(count)))
             offset += UInt64(count)
+            progress.completedUnitCount += Int64(count)
         }
         let security = try metadata(handle, security: true)
         let after = try info(handle)

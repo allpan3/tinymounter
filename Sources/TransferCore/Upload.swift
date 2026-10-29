@@ -63,7 +63,8 @@ public final class UploadOutbox {
     }
 
     public func prepare(_ request: CreateRequest, path: RelativePath, contents: URL?,
-                        progress: Progress, checkSpace: ((Int64) throws -> Void)? = nil) throws -> PendingUpload {
+                        progress: Progress, checkSpace: ((Int64) throws -> Void)? = nil,
+                        id: UUID = UUID()) throws -> PendingUpload {
         if var previous = try records().first(where: { $0.template == request.template }) {
             let renamedCollision = previous.state == .collision && !previous.name.utf8.elementsEqual(request.name.utf8)
             let createdName = previous.initialName.flatMap { RelativePath($0.source)?.components.last }
@@ -99,7 +100,7 @@ public final class UploadOutbox {
         let digest = try file.map { try $0.checksum(range: ByteRange(offset: 0, length: size, fileSize: size)) }
             ?? Self.emptyDigest
         try file?.validateUnchanged()
-        var record = PendingUpload(id: UUID(), template: request.template, parent: request.parent, name: request.name,
+        var record = PendingUpload(id: id, template: request.template, parent: request.parent, name: request.name,
                                    path: path.string, kind: request.kind, size: size, digest: digest,
                                    state: request.kind == .file ? .staging : .prepared)
         try save(record)

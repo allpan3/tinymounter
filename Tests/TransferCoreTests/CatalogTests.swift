@@ -116,6 +116,32 @@ final class CatalogTests: XCTestCase {
         XCTAssertEqual(try child(catalog, "data"), updated)
     }
 
+    func testChangedStrongContentsAdvanceRevisionEvenWithIdenticalNativeFingerprint() throws {
+        let catalog = try makeCatalog()
+        try reconcile(catalog, [file("data")])
+        let row = try child(catalog, "data")
+        try catalog.setKeep(ids: [row.id], value: true)
+        try catalog.setAllowsCreation(true)
+        try catalog.setAllowsEditing(true)
+        func receipt(_ digest: String) throws -> EditBaseReceipt {
+            try EditBaseReceipt(item: row.id, version: EditFileVersion(
+                identity: EditFileIdentity(fileID: 17, birthMicroseconds: 18), size: row.size,
+                digest: String(repeating: digest, count: 64), modifiedMicroseconds: 19,
+                changedMicroseconds: 20, attributes: 32, security: Data([1])))
+        }
+        let old = try receipt("a"), fresh = try receipt("b")
+        try catalog.rememberEditBase(old, expectedVersion: row.contentVersion)
+        let fingerprint = ContentFingerprint(size: row.size, mtimeNs: row.mtimeNs, ctimeNs: row.ctimeNs)
+        try catalog.refreshEditBase(fresh, expectedVersion: old.contentVersion, fingerprint: fingerprint, nativeID: 17)
+        let updated = try child(catalog, "data")
+        XCTAssertEqual(updated.contentVersion, fresh.contentVersion)
+        XCTAssertEqual(updated.id, row.id)
+        XCTAssertTrue(updated.keepRequested)
+        XCTAssertThrowsError(try catalog.refreshEditBase(old, expectedVersion: old.contentVersion,
+                                                         fingerprint: fingerprint, nativeID: 17))
+        XCTAssertEqual(try child(catalog, "data").contentVersion, fresh.contentVersion)
+    }
+
     func testInitialFolderNameKeepsIdentityChildrenAndPageOrder() throws {
         let catalog = try makeCatalog()
         try catalog.reconcile(folder: root, listing: DirectoryListing([
