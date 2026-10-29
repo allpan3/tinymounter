@@ -12,6 +12,9 @@ final class CatalogItem: NSObject, NSFileProviderItem {
     }
 
     private var isFolder: Bool { row.kind == .folder }
+    private var allowsEditing: Bool {
+        row.allowsEditing && EditRequest.supportsName(row.name) && !contentType.conforms(to: .package)
+    }
 
     // The root row's ID is the root container's raw value.
     var itemIdentifier: NSFileProviderItemIdentifier { NSFileProviderItemIdentifier(row.id) }
@@ -30,14 +33,14 @@ final class CatalogItem: NSObject, NSFileProviderItem {
             return row.allowsCreation ? [.allowsContentEnumerating, .allowsAddingSubItems, .allowsRenaming]
                 : .allowsContentEnumerating
         }
-        if row.allowsEditing, EditRequest.supportsName(row.name), !contentType.conforms(to: .package) {
+        if allowsEditing {
             return [.allowsReading, .allowsRenaming, .allowsWriting]
         }
         return row.allowsCreation ? [.allowsReading, .allowsRenaming] : .allowsReading
     }
     var fileSystemFlags: NSFileProviderFileSystemFlags {
         if isFolder { return row.allowsCreation ? [.userReadable, .userWritable, .userExecutable] : [.userReadable, .userExecutable] }
-        return row.allowsEditing ? [.userReadable, .userWritable] : .userReadable
+        return allowsEditing ? [.userReadable, .userWritable] : .userReadable
     }
     /// While paused, kept files are lazy, so the system starts no eager downloads (plan §6).
     var contentPolicy: NSFileProviderContentPolicy {

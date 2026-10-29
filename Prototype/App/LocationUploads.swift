@@ -24,7 +24,13 @@ extension LocationSource {
         scheduleSignal()
     }
 
-    func pendingUploads() throws -> Int { try uploadLock.withLock { try Self.pendingWrites(domainID: domainID) } }
+    func pendingUploads() throws -> Int {
+        do { return try uploadLock.withLock { try Self.pendingWrites(domainID: domainID) } }
+        catch {
+            Self.uploadLog.error("pending_writes failed \(logFields(error), privacy: .public)")
+            throw error
+        }
+    }
 
     func suspendMutations() throws {
         try uploadLock.withLock {
@@ -83,6 +89,9 @@ extension LocationSource {
                   row.size == record.size || record.kind == .folder,
                   try withCatalog({ try $0.remoteIdentity(row.id) }) == record.remoteID else {
                 throw UploadError.unresolved
+            }
+            if row.kind == .file, row.allowsEditing {
+                try establishUploadedEditBase(record, row: row, bookmark: bookmark, progress: progress)
             }
             try outbox.complete(&record, item: row.id)
             scheduleSignal()

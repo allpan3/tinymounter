@@ -1,6 +1,30 @@
 import Foundation
 
 extension Catalog {
+    public func refreshEditBase(_ receipt: EditBaseReceipt, expectedVersion: String,
+                                fingerprint: ContentFingerprint, nativeID: UInt64) throws {
+        try write { seq in
+            guard let row = try item(id: receipt.item), row.kind == .file, !row.deleted,
+                  row.contentVersion == expectedVersion, fingerprint.size == receipt.version.size else {
+                throw UploadError.unresolved
+            }
+            seq += 1
+            try database.prepare("""
+                UPDATE items SET size = ?, mtime_ns = ?, ctime_ns = ?, file_id = ?, edit_version = ?, change_seq = ?
+                WHERE id = ?
+                """) {
+                try $0.bind(1, fingerprint.size)
+                try $0.bind(2, fingerprint.mtimeNs)
+                try $0.bind(3, fingerprint.ctimeNs)
+                try $0.bind(4, Int64(bitPattern: nativeID))
+                try $0.bind(5, receipt.contentVersion)
+                try $0.bind(6, seq)
+                try $0.bind(7, row.id)
+                try $0.run()
+            }
+        }
+    }
+
     public func setAllowsEditing(_ enabled: Bool) throws {
         try write { seq in
             guard let root = try item(id: Self.rootItemID), !enabled || root.allowsCreation else {

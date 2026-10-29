@@ -144,11 +144,14 @@ on 2026-10-28, including a new disposable VM fixture session. It retains the ori
 object and a separate recovery copy. Initial tests preserve live permissions and attached data,
 including when another account owns the original; empty-file and competing-name checks pass.
 The October 28 CLI protocol gate passes, including six crash boundaries, ancestor protection,
-guarded cleanup and retained data after actual space exhaustion. App integration and signed
-TextEdit checks remain; editing stays off.
+guarded cleanup and retained data after actual space exhaustion. App integration is present;
+signed TextEdit checks remain.
 The durable transaction passed 253 VM unit tests and the corrected unsigned app build.
 Provider Save callbacks, explicit editing opt-in, retained-copy export and lifecycle guards are
-now integrated for verification. Signed editor checks and final checks remain pending.
+now integrated for verification. The integration review adds visible interrupted staging,
+strong upload receipts and conflict-name retries. The first signed Save stopped in local metadata
+staging without changing the server file; the recovery copy now retains original attributes
+separately. Signed editor checks and final checks remain pending.
 See the [October 28 protocol results](docs/results/2026-10-28-same-object-save.md) and
 [earlier replacement gate](docs/results/2026-10-27-edit-publication.md).
 

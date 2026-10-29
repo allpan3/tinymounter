@@ -87,7 +87,17 @@ public enum EditTransaction {
         guard [.movingOriginal, .copying, .restoring, .publishing, .published].contains(record.state) else {
             throw UploadError.unresolved
         }
+        if record.conflict, record.failOnConflict { throw UploadError.editConflict }
         if let final = try remote.inspect(path: record.destination, original: !record.conflict) {
+            if record.conflict, final.identity != record.stageIdentity {
+                guard let stage = try remote.inspect(path: record.stagePath, original: false),
+                      stage.identity == record.stageIdentity, matchesEdit(stage, record) else {
+                    throw UploadError.unresolved
+                }
+                try chooseConflictName(&record, outbox: outbox)
+                try moveConflict(&record, outbox: outbox, remote: remote)
+                return
+            }
             if !record.conflict, let previous = record.previous, final.hasSameContents(as: previous),
                !matchesEdit(final, record), record.state != .published {
                 record.state = .backedUp
@@ -105,8 +115,7 @@ public enum EditTransaction {
                   stage.identity == record.stageIdentity, matchesEdit(stage, record) else {
                 throw UploadError.unresolved
             }
-            try remote.move(source: record.stagePath, destination: record.destination)
-            try verifyPublication(&record, outbox: outbox, remote: remote)
+            try moveConflict(&record, outbox: outbox, remote: remote)
             return
         }
         guard let old = record.previous, let work = try remote.inspect(path: record.workPath, original: true),
@@ -141,17 +150,34 @@ public enum EditTransaction {
         record.conflict = true
         try outbox.save(record)
         guard !record.failOnConflict else { throw UploadError.editConflict }
+        try chooseConflictName(&record, outbox: outbox)
+        try moveConflict(&record, outbox: outbox, remote: remote)
+    }
+
+    private static func chooseConflictName(_ record: inout PendingEdit, outbox: EditOutbox) throws {
         let path = URL(fileURLWithPath: record.path)
         let suffix = path.pathExtension.isEmpty ? "" : "." + path.pathExtension
-        let stem = path.deletingPathExtension().lastPathComponent
+        var stem = path.deletingPathExtension().lastPathComponent
+        while stem.utf8.count > 160 { stem.removeLast() }
         let parent = RelativePath(record.path)!.components.dropLast().joined(separator: "/")
-        // The durable random suffix also bounds conflict-name retries without overwriting a winner.
-        let name = String(stem.prefix(80)) + " (conflict " + record.id.uuidString + ")" + String(suffix.prefix(20))
+        let name = stem + " (conflict " + UUID().uuidString.prefix(8) + ")" + String(suffix.prefix(12))
         record.destination = (parent.isEmpty ? "" : parent + "/") + name
         record.state = .publishing
         try outbox.save(record)
-        try remote.move(source: record.stagePath, destination: record.destination)
-        try verifyPublication(&record, outbox: outbox, remote: remote)
+    }
+
+    private static func moveConflict(_ record: inout PendingEdit, outbox: EditOutbox, remote: EditRemote) throws {
+        for _ in 0..<8 {
+            do {
+                try remote.move(source: record.stagePath, destination: record.destination)
+            } catch UploadError.collision {
+                try chooseConflictName(&record, outbox: outbox)
+                continue
+            }
+            try verifyPublication(&record, outbox: outbox, remote: remote)
+            return
+        }
+        throw UploadError.collision
     }
 
     private static func verifyPublication(_ record: inout PendingEdit, outbox: EditOutbox,
