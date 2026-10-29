@@ -221,6 +221,12 @@ it waits for the transport decision.
 
 ## 11. Open decisions for the first experiment
 
+- **M20 file renaming, proposed 2026-10-28.** After M19 installation, the next recommended feature
+  is renaming an ordinary file within its folder, using an existing M19 verified revision.
+  Preserve the original object and item ID; refuse collisions, changed sources and uncertain
+  identity. Folder renaming, moves and unverified files remain outside the first scope. The
+  [proposal](phase4-plan.md#m20-file-renaming) covers separate opt-in, protected no-replace rename,
+  recovery and a fresh disposable VM fixture. Approval is pending; no M20 code exists.
 - **M19 online editing, accepted 2026-10-27.** The [safety design](phase4-plan.md#m19-online-editing)
   uses protected, no-replace renames through a recovery name, complete local pending copies,
   proven base revisions and conflict copies. The user accepted the temporary absence of
