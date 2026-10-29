@@ -441,5 +441,8 @@ The physical-Mac build still supports M18 only. M19's replacement design failed 
 concurrent metadata-preservation gate. The user reaffirmed Mac-only operation; a
 [revised save design](phase4-plan.md#revised-mac-only-save-proposal) was approved on 2026-10-28
 and passed its [CLI protocol gate](results/2026-10-28-same-object-save.md) on the disposable
-Samba fixture. Signed interruption and lifecycle verification await VM resumption; see the same
-results log for completed checks and remaining limits. No server component is required.
+Samba fixture. Signed interruption checks retain complete versions, and the normal export panel
+recovers pending content. Item IDs, keep requests and an independent download survive. Partial
+work stays unresolved, and fixture connection delays can defer retries. The fixture, temporary
+dependencies and task windows are cleaned up. See the same results log for the exact coverage
+and limits. No server component is required.

@@ -106,7 +106,9 @@ them:
   subsequently failed concurrent metadata preservation. A
   [Mac-only revision](phase4-plan.md#revised-mac-only-save-proposal) was approved on 2026-10-28;
   its [CLI protocol gate](results/2026-10-28-same-object-save.md) passed on the disposable Samba
-  fixture. App integration is now present; signed editor verification remains pending. M18 does not authorize partial overwrites.
+  fixture. Signed checks of editor saves, conflicts, recovery retention and local export pass.
+  Partial work stays unresolved. The fixture is removed and original settings are verified.
+  M18 does not authorize partial overwrites.
 - If the NAS fingerprint differs from the base, the edit becomes a conflict copy, for example
   `Report (conflict, Mac, 2026-10-12 14.03).docx`. Both versions survive.
 - Delete-versus-edit: if the NAS deleted a file this Mac edited, the edit is uploaded as a new file.
@@ -177,7 +179,8 @@ Phase 3 extends that subset with verified offline status, folder keeps and chang
   [signed VM results](results/2026-10-19-nas-change-discovery.md).
 - **Writes:** M18 adds new files/folders and receipt-backed initial folder naming. M19 adds
   separately enabled content editing with complete pending copies, verified base receipts and
-  conflict copies; remaining signed verification awaits VM resumption. General remote rename
+  conflict copies. Signed VM checks preserve item IDs, keep requests and an independent download.
+  Uncertain partial work remains pending and exportable. General remote rename
   matching and local FSEvents integration remain unimplemented. An externally renamed item is
   still a delete plus a create; its keep request does not follow.
 
