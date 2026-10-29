@@ -146,8 +146,10 @@ Signed recovery checks cover preparation through publication. Partial uploads an
 retain the complete versions; partial work remains unresolved and the normal Export Local Copy
 action works. Item IDs, keep requests and an independent download are preserved. Fixture
 connection delays can defer retries. The temporary server, dependencies, files and task windows
-are cleaned up, with original settings verified. M18 remains installed on the physical Mac;
-physical-Mac writes are the user's checks. See the
+are cleaned up, with original settings verified. The verified M19 build is installed on the
+physical Mac. Background launch checks retain one location and matching catalog counts, with
+no failed migration; downloaded bytes were not independently checked there. Editing still
+requires its separate opt-in, and physical-Mac writes are the user's checks. See the
 [October 28 results](docs/results/2026-10-28-same-object-save.md) and the
 [accepted design](docs/phase4-plan.md#revised-mac-only-save-proposal).
 

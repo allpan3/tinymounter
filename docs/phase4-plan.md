@@ -149,6 +149,9 @@ requirement; existing write-enabled locations do not acquire editing permission 
 The protocol gate and signed checks of TextEdit, conflicts, retention after interruption,
 export and lifecycle guards pass. Partial work remains unresolved. The fixture is removed and
 original settings are verified; the results log records compatibility limits and connection delays.
+The user approved physical-Mac installation on 2026-10-28. The verified build is installed,
+with matching background startup counts. Physical-Mac saves remain the user's checks; see the
+[installation results](results/2026-10-28-same-object-save.md#physical-mac-installation-2026-10-28).
 
 The replacement sequence below failed its metadata-preservation gate. The user reaffirmed
 Mac-only operation: use the server's existing SMB service, with no tinymounter server component.
