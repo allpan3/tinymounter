@@ -176,7 +176,7 @@ static int open_folder(struct smb2_context *smb, const char *path, int writable,
 {
     struct smb2_create_request create = {0};
     create.impersonation_level = SMB2_IMPERSONATION_IMPERSONATION;
-    create.desired_access = SMB2_FILE_READ_ATTRIBUTES | (writable ? SMB2_DELETE : 0);
+    create.desired_access = SMB2_FILE_LIST_DIRECTORY | SMB2_FILE_READ_ATTRIBUTES | (writable ? SMB2_DELETE : 0);
     create.share_access = SMB2_FILE_SHARE_READ | SMB2_FILE_SHARE_WRITE;
     create.create_disposition = exclusive ? SMB2_FILE_CREATE : SMB2_FILE_OPEN;
     create.create_options = SMB2_FILE_DIRECTORY_FILE | SMB2_FILE_OPEN_REPARSE_POINT;
@@ -360,4 +360,22 @@ done:
     smb2_destroy_context(smb);
     pthread_mutex_unlock(&client_lock);
     return error;
+}
+
+void *tm_smb_begin_edit(const char *server, const char *share, const char *account, int *error)
+{
+    if (!server || !*server || !share || !*share || !account || !*account || !strcasecmp(account, "guest")) {
+        *error = EACCES;
+        return NULL;
+    }
+    pthread_mutex_lock(&client_lock);
+    struct smb2_context *smb = connect_folder_share(server, share, account, error);
+    if (!smb) pthread_mutex_unlock(&client_lock);
+    return smb;
+}
+
+void tm_smb_end_edit(void *smb)
+{
+    if (smb) smb2_destroy_context(smb);
+    pthread_mutex_unlock(&client_lock);
 }

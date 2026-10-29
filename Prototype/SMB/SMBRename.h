@@ -1,6 +1,7 @@
 #ifndef TINYMOUNTER_SMB_RENAME_H
 #define TINYMOUNTER_SMB_RENAME_H
 #include <stdint.h>
+#include "SMBEdit.h"
 
 typedef int (*tm_smb_folder_callback)(void *context, uint64_t file_id, uint64_t birth_us);
 

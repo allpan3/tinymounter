@@ -233,4 +233,5 @@ public enum UploadError: Error, Equatable, Sendable {
     case unresolved
     case pendingWrites
     case readOnly
+    case editConflict
 }

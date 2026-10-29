@@ -34,6 +34,7 @@ core_paths = ["Sources/TransferCore/ByteRange.swift", "Sources/TransferCore/Cata
 # Share access and catalog creation and writes are app only; the extension only reads catalogs.
 app_paths = ["Sources/TransferCore/Upload.swift", "Sources/TransferCore/FolderNaming.swift",
              "Sources/TransferCore/EditOutbox.swift",
+             "Sources/TransferCore/EditTransaction.swift", "Prototype/App/SMBEdit.swift",
              "Sources/TransferCore/CatalogEdits.swift",
              "Sources/TransferCore/FolderCreation.swift",
              "Prototype/App/LocationUploads.swift", "Prototype/App/LocationFolderNaming.swift",
@@ -58,6 +59,7 @@ smb_makefile = (ROOT / "Vendor/libsmb2/lib/Makefile.am").read_text()
 smb_sources = smb_makefile.split("libsmb2_la_SOURCES =", 1)[1].split("SOCURRENT", 1)[0]
 smb_paths = ["Vendor/libsmb2/lib/" + name for name in re.findall(r"[\w-]+\.c", smb_sources)]
 smb_paths.append("Prototype/SMB/SMBRename.c")
+smb_paths.append("Prototype/SMB/SMBEdit.c")
 files.update({path: ref(path, "sourcecode.c.c") for path in smb_paths})
 
 config_path = "Prototype/Config/Prototype.xcconfig"
