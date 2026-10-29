@@ -583,6 +583,7 @@ private struct UploadStatus: View {
     @Bindable var model: AppModel
     @State private var count: Int?
     @State private var edits: [PendingEdit] = []
+    @State private var renames: [PendingFileRename] = []
     @State private var statusUnavailable = false
 
     var body: some View {
@@ -593,8 +594,14 @@ private struct UploadStatus: View {
             if let count, count > 0 {
                 Label(UIText.pendingUploads(count), systemImage: "arrow.up.circle")
                 Text(UIText.pendingUploadHint).font(.callout).foregroundStyle(.secondary)
-                if edits.contains(where: \.isPending) {
+                if edits.contains(where: \.isPending) || !renames.isEmpty {
                     Button(UIText.retryEdits) { model.retryEdits(record) }
+                }
+            }
+            ForEach(renames, id: \.id) { rename in
+                VStack(alignment: .leading) {
+                    Text(UIText.pendingRename(from: rename.oldName, to: rename.name))
+                    Text(UIText.renameNeedsRecovery).font(.callout).foregroundStyle(.secondary)
                 }
             }
             ForEach(edits.filter { $0.isPending || $0.conflict }, id: \.id) { edit in
@@ -613,6 +620,7 @@ private struct UploadStatus: View {
                 do {
                     count = try await model.pendingUploads(record)
                     edits = try await model.editRecords(record)
+                    renames = try await model.renameRecords(record)
                     statusUnavailable = false
                 } catch {
                     statusUnavailable = true

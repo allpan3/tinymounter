@@ -15,12 +15,12 @@ extension LocationSource {
     private func outbox() throws -> UploadOutbox { try Self.outbox(domainID: domainID) }
 
     func configureWriteMode(_ bookmark: Data?, confirmed: Bool) throws {
-        try uploadLock.withLock {
+        try editNamespace.perform { try uploadLock.withLock {
             guard !mutationsSuspended else { throw UploadError.readOnly }
             if bookmark == nil, try Self.pendingWrites(domainID: domainID) > 0 { throw UploadError.pendingWrites }
             try withCatalog { try $0.setWriteAccess(creation: bookmark != nil, editing: bookmark != nil && confirmed) }
             writeBookmark = bookmark
-        }
+        } }
         scheduleSignal()
     }
 
@@ -33,10 +33,10 @@ extension LocationSource {
     }
 
     func suspendMutations() throws {
-        try uploadLock.withLock {
+        try editNamespace.perform { try uploadLock.withLock {
             guard try Self.pendingWrites(domainID: domainID) == 0 else { throw UploadError.pendingWrites }
             mutationsSuspended = true
-        }
+        } }
     }
 
     func resumeMutations() { uploadLock.withLock { mutationsSuspended = false } }

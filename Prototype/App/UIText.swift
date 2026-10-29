@@ -28,14 +28,16 @@ enum UIText {
     static let incompleteWriteSetup = "Complete setup to edit and rename files. Existing creation access stays available."
     static let writeModeHint = "Read only prevents changes to files on the server. Turn it off to create items, edit files and rename supported files. Moving, deleting and replacing items remain unavailable."
     static let exportEdit = "Export Local Copy…"
-    static let retryEdits = "Retry Pending Saves"
+    static let retryEdits = "Retry Pending Changes"
     static let editNeedsRecovery = "Save pending or needs recovery"
-    static let pendingStatusUnavailable = "Cannot read pending save status. Local copies are retained."
+    static let pendingStatusUnavailable = "Cannot read pending change status. Local copies are retained."
+    static let renameNeedsRecovery = "Rename pending or needs recovery. Keep this location until it finishes."
+    static func pendingRename(from: String, to: String) -> String { "Rename \(from) to \(to)" }
     static let conflictSaved = "Saved as a conflict copy"
     static let writeGrantMessage = "Select the root of this share to confirm write access."
-    static let pendingUploadHint = "The complete local copies stay on this Mac. Keep this location and its source until the uploads finish. An interrupted upload may need recovery."
+    static let pendingUploadHint = "Keep this location and its source until the changes finish. Pending content stays on this Mac. An interrupted change may need recovery."
     static let uploadAccessError = "Select this share again. Read only cannot be enabled while changes are pending."
-    static func pendingUploads(_ count: Int) -> String { "Pending uploads: \(count)" }
+    static func pendingUploads(_ count: Int) -> String { "Pending changes: \(count)" }
     static let source = "Source"
     static let server = "Server"
     static let share = "Share"

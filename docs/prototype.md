@@ -324,13 +324,15 @@ Build again with a new certificate before it expires: what an expired one does i
 **Update.** Quit tinymounter, build the new version, and open it. After Quit, the app stays
 stopped: only a crash makes the extension start it again. The locations, their downloads
 and their Keep Downloaded requests stay. Keep the same team and bundle identifier, because the
-settings and catalogs are in containers named after them. Settings version 6 adds the Read only mode while retaining scoped write bookmarks and the
+settings and catalogs are in containers named after them. Settings version 6 adds the Read only
+mode while retaining scoped write bookmarks and the
 SMB-only write confirmation. Versions 1 through 5 migrate atomically: existing read-only
 locations stay read-only, confirmed writable locations keep their access, and creation-only
 locations retain creation access until Complete Write Setup. An inactive grant is retained
 when Read only is enabled. Older builds must refuse version 6 so they cannot mistake that
 retained grant for active write permission. IDs, domains, bookmarks and keep lists remain.
-Catalog versions 1 through 4 migrate to version 5 without replacing item IDs or the epoch.
+Catalog versions 1 through 5 migrate to version 6 without replacing item IDs or the epoch.
+Version 6 makes older writers refuse catalogs whose pending renames they cannot honor.
 Version 5 stores the editing permission and optional strong content-revision token; existing
 rows retain their f1 versions until a verified full handoff establishes an immutable receipt. The
 immutable enumeration key keeps existing folder-page cursors valid when initial naming changes
@@ -368,7 +370,7 @@ the removal.
   cannot prevent other processes from filling the disk, and OS eviction under pressure remains
   unverified. If the retry file cannot be saved, an unsaved request is lost on app relaunch.
 
-- Read-only by default, on a macOS mount: one grant per share, and locations that are folders on it. The app asks macOS to mount the address that the user types, with macOS's own dialogs, and hides the mount from Finder's sidebar, so that Finder shows only the locations (M12). When macOS drops a share that has locations, the app asks macOS to mount it again with the password that the user saved in the Keychain; after an eject, it waits until the share is mounted again, or until the user clicks Connect in Servers (M11, M12). The user can't eject a hidden share in Finder, so Servers has Disconnect. The app creates new files and folders only in locations with a fresh explicit write grant. It never replaces, renames or deletes existing remote content.
+- One macOS mount grant per share, and locations that are folders on it. The app asks macOS to mount the address that the user types, with macOS's own dialogs, and hides the mount from Finder's sidebar, so that Finder shows only the locations (M12). When macOS drops a share that has locations, the app asks macOS to mount it again with the password that the user saved in the Keychain; after an eject, it waits until the share is mounted again, or until the user clicks Connect in Servers (M11, M12). The user can't eject a hidden share in Finder, so Servers has Disconnect. New locations default to writable setup with a scoped grant and safety confirmation. Existing read-only locations stay read-only. Supported writes are new files/folders, protected content saves and same-folder renames of verified ordinary files. Moves, deletion and Finder Replace remain unavailable.
 - Keep Downloaded is a request for a file or folder, not proof of a download (phase 2 decision 3). M14 adds recursive folder requests, verified in the signed VM app ([results](results/2026-10-19-folder-keeps.md)). The system eagerly enumerates kept folders, and newly listed descendants inherit retention. Allow Removal cancels a request while preserving independent child requests. A folder is Available offline only if every descendant folder has an unskipped complete listing and is materialized, and every file passes the local-copy check. The system downloads an independently kept file only when its parent folder is materialized: a kept file in a folder that the system never enumerated waits until the folder is enumerated. Evicting a kept file fails; evicting its folder evicts it, and the system downloads it again at once. The location pane shows Requested, Update in progress or Available offline. It signals the working set and waits for macOS to apply provider changes, then reads fresh local metadata and rechecks catalog versions. Available offline requires current content with matching catalog size and modification date; this covers the source version last observed by the app, not live NAS freshness. The wait covers the location. Before waiting, the app rechecks previously synchronized content versions against fresh local metadata and materialization, so unrelated downloads do not reset their status. New or changed versions still need the wait; folder status uses current membership and listing completeness. Provider disablement or replacement clears remembered verification ([status-refresh results](results/2026-10-19-keep-status-refresh.md)). Signed VM checks passed, including source edits that preserved size/date ([results](results/2026-10-19-offline-versions.md)). Remove Location can save them, and a later location on the same share takes the ones inside its folder; for independently kept files outside a folder request, the app asks whether to download them now if their parent folders are not materialized (M7).
 - Pause Downloads sets `paused` in every catalog. Kept files then report `.downloadLazily`, kept folders use lazy namespace policy, and read-ahead stops. The extension cancels its running system and speculative fetches and refuses those that start while paused. A background fetch that is still waiting for the first reader connection is cancelled when the reader connects. Files that apps open, and Finder's Download Now, still download. Resume and each app launch clear Pause. Changes run one at a time, in order. A failed change shows a message, and while a catalog may still be paused, the menu bar item offers Resume Downloads. While paused, the user can also remove a kept file's download; Resume downloads it again. Whether kept files stay on disk while paused when the system needs the space is untested.
 - NAS changes in listed materialized and kept folders are discovered while the app runs. M15 uses at most 64 native SMB directory watches per mount session plus periodic reconciliation, due 60 s after a successful listing. One automatic listing runs at a time, with a one-second gap and failure backoff, so this is not a fixed latency guarantee. Unvisited unkept trees are not scanned. Launch, wake, recovery and access checks also refresh listings. A downloaded copy can stay stale between refreshes. A NAS rename is a delete plus a create, and its keep request does not follow. Signed isolated VM checks passed. The signed M15 update is installed and running on the physical Mac with the existing location retained; the user confirmed live changes work there ([results](results/2026-10-19-nas-change-discovery.md)).
@@ -405,8 +407,9 @@ See the [results](results/2026-10-23-create-items.md). In the development UI, a 
 section has one Read only toggle. It defaults off for a new location; a duplicate inherits
 the original's mode. Writable setup selects the same share root and confirms the SMB-only
 write requirements. The grant belongs to this location. Existing read-only locations stay
-read-only. Complete Write Setup finishes confirmation for older creation-only grants. Editing, replacement, general
-rename, move, delete, packages and symbolic links remain outside this milestone.
+read-only. Complete Write Setup finishes confirmation for older creation-only grants. Replacement,
+move, delete, packages and symbolic links remain unsupported. Editing and file renaming use the
+protected transactions described below.
 
 Finder's New Folder creates an untitled folder on the server, then sends a separate rename when
 the user types a name. The app's restricted SMB client now creates and names that folder using
@@ -414,8 +417,8 @@ its retained server identity and creation time. A folder's initial name must pre
 creation; child requests first finish any already pending parent naming. Copying a folder that
 already has its final name works, including its children. File uploads and reads stay native.
 Finder's Keep Both needs rename capability to select an alternative name before creation.
-Enabled locations advertise it, while ordinary remote renames remain denied. Finder therefore
-also offers Rename for existing items, which still returns a permission error. Definite server
+Enabled locations advertise it. M20 also handles Rename for verified ordinary files in the
+same folder; unverified files and existing folders still refuse it. Definite server
 collisions return the existing item through Apple's collision-error factory. All 232 tests and
 required checks passed, and the final signed VM app passed repeated file collisions with matching
 bytes. Finder offered no Keep Both action for the tested folder collision. The fixture is
@@ -432,8 +435,11 @@ finished location. Pending records and content stay in private app storage; the 
 See the accepted [phase 4 plan](phase4-plan.md).
 
 Normal and repeated TextEdit Save pass in the signed VM app, including a concurrent-edit
-conflict. The installed M19 build has a separate editing opt-in; the development UI combines
-creation and editing under the confirmed write mode. M20 renaming remains under implementation.
+conflict. The installed M19 build has a separate editing opt-in; M20 combines creation, editing
+and supported renaming under the confirmed write mode. Filename-only renaming uses the
+app-owned protected transaction. Rename intents retain every affected catalog ID and block lifecycle
+changes and reconciliation until publication is resolved. Directory enumeration verifies the
+actual stored spelling, including case-only changes.
 Interrupted local staging remains visible. New uploads establish a verified editing base, and
 changed strong revisions advance even when native timestamps are unchanged.
 Pending edits retain bounded original attributes separately, because macOS can change metadata

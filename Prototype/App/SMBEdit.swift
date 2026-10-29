@@ -4,7 +4,7 @@ import Foundation
 import OSLog
 
 /// One protected transaction, with the existing cached credential and native payload upload.
-final class SMBEdit: EditRemote {
+final class SMBEdit: EditRemote, FileRenameRemote {
     private final class Handle {
         var bytes = [UInt8](repeating: 0, count: 16)
         func use<T>(_ body: (UnsafeMutablePointer<UInt8>) throws -> T) rethrows -> T {
@@ -18,6 +18,7 @@ final class SMBEdit: EditRemote {
     private let progress: Progress
     private var handles: [String: Handle] = [:]
     private var extraHandles: [Handle] = []
+    private var directories: [String: Handle] = [:]
     private var originals: Set<String> = []
     private var hiddenOriginals: Set<String> = []
     private static let read: UInt32 = 0x20081
@@ -43,13 +44,63 @@ final class SMBEdit: EditRemote {
         var parent = ""
         for component in [""] + components.map(String.init) {
             if !component.isEmpty { parent += (parent.isEmpty ? "" : "/") + component }
+            if directories[parent] != nil { continue }
             let handle = Handle()
             try handle.use { try check(tm_edit_open_directory(client, parent, 0x81, 3, $0)) }
             let values = try info(handle)
             guard values[0] != 0, values[1] != 0, values[4] & 0x410 == 0x10 else {
                 throw UploadError.unresolved
             }
-            extraHandles.append(handle)
+            directories[parent] = handle
+        }
+    }
+
+    func inspectRename(path: String) throws -> FileRenameEvidence? {
+        try protectAncestors(of: path)
+        let full = try remotePath(path)
+        let parent = RelativePath(full)!.components.dropLast().joined(separator: "/")
+        let name = RelativePath(path)!.components.last!
+        if handles[path] == nil {
+            guard let entry = try renameEntry(parent: parent, name: name) else { return nil }
+            let components = RelativePath(path)!.components.dropLast() + [entry.name]
+            handles[path] = try open(path: components.joined(separator: "/"),
+                                     access: Self.read | Self.delete, sharing: 1)
+        }
+        let current = try version(handles[path]!)
+        guard let entry = try renameEntry(parent: parent, name: name), entry.identity == current.identity else {
+            throw UploadError.unresolved
+        }
+        return FileRenameEvidence(version: current, name: entry.name)
+    }
+
+    func releaseRename(path: String) throws {
+        guard let handle = handles[path] else { return }
+        try handle.use { try check(tm_edit_close(client, $0)) }
+        handles[path] = nil
+    }
+
+    private func renameEntry(parent: String, name: String) throws -> RenameDirectoryEntry? {
+        guard let directory = directories[parent] else { throw UploadError.unresolved }
+        var result: RenameDirectoryEntry?, seen = 0, pages = 0, restart = true
+        while true {
+            try cancellation()
+            var buffer = [UInt8](repeating: 0, count: 65_536), count: UInt32 = 0, finished: Int32 = 0
+            try directory.use {
+                try check(tm_edit_list(client, $0, restart ? 1 : 0, &buffer, UInt32(buffer.count), &count, &finished))
+            }
+            if finished != 0 { return result }
+            pages += 1
+            let entries = try RenameDirectoryEntry.parse(Array(buffer.prefix(Int(count))))
+            seen += entries.count
+            guard seen <= DirectoryListing.defaultLimit, pages <= DirectoryListing.defaultLimit else {
+                throw SourceFailure.tooManyEntries
+            }
+            for entry in entries where NameKey(entry.name) == NameKey(name) {
+                guard result == nil else { throw UploadError.collision }
+                result = entry
+            }
+            progress.completedUnitCount += 1
+            restart = false
         }
     }
 

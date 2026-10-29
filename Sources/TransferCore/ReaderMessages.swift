@@ -290,3 +290,41 @@ public struct EditReceipt: Codable, Sendable {
         self.contentVersion = contentVersion
     }
 }
+
+public struct FileRenameRequest: Codable, Sendable {
+    public let id: UUID
+    public let item: String
+    public let parent: String
+    public let name: String
+    public let contentVersion: String
+    public let metadataVersion: String
+
+    public init(id: UUID = UUID(), item: String, parent: String, name: String,
+                contentVersion: String, metadataVersion: String) throws {
+        guard ReaderMessage.isItemID(item), item != Catalog.rootItemID, ReaderMessage.isItemID(parent),
+              Self.supportsName(name), contentVersion.hasPrefix("e1:"),
+              UUID(uuidString: String(contentVersion.dropFirst(3)))?.uuidString == String(contentVersion.dropFirst(3)),
+              metadataVersion.utf8.count <= 20, Int64(metadataVersion).map({ $0 >= 0 }) == true else {
+            throw UploadError.invalidRequest
+        }
+        self.id = id
+        self.item = item
+        self.parent = parent
+        self.name = name
+        self.contentVersion = contentVersion
+        self.metadataVersion = metadataVersion
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(id: values.decode(UUID.self, forKey: .id), item: values.decode(String.self, forKey: .item),
+                      parent: values.decode(String.self, forKey: .parent), name: values.decode(String.self, forKey: .name),
+                      contentVersion: values.decode(String.self, forKey: .contentVersion),
+                      metadataVersion: values.decode(String.self, forKey: .metadataVersion))
+    }
+
+    public static func supportsName(_ name: String) -> Bool {
+        RelativePath.isValidComponent(name) && !name.utf8.contains(where: { "\\:*?\"<>|".utf8.contains($0) })
+            && !name.hasPrefix(".tinymounter-") && EditRequest.supportsName(name)
+    }
+}

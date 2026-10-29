@@ -276,4 +276,4 @@ status while retaining its existing permissions and pending data. Do not add ano
 switch. Once confirmed, enabling Read only blocks new remote changes but retains the grant for
 later reuse. Refuse that change while writes are pending. Changing the source needs a fresh
 scoped grant and confirmation. The current installed M19 build still has the old controls;
-the new UI and its migration are being implemented and require signed VM verification.
+the unified control, migration and retained authorization pass signed VM checks.

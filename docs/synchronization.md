@@ -178,7 +178,7 @@ Phase 3 extends that subset with verified offline status, folder keeps and chang
   [M15 plan](phase3-plan.md#m15-discover-nas-changes-while-the-app-runs) and
   [signed VM results](results/2026-10-19-nas-change-discovery.md).
 - **Writes:** M18 adds new files/folders and receipt-backed initial folder naming. M19 adds
-  separately enabled content editing with complete pending copies, verified base receipts and
+  content editing with complete pending copies, verified base receipts and
   conflict copies. Signed VM checks preserve item IDs, keep requests and an independent download.
   Uncertain partial work remains pending and exportable. General remote rename
   matching and local FSEvents integration remain unimplemented. An externally renamed item is
@@ -199,3 +199,14 @@ of NAS freshness. The broader latency targets in section 4 remain proposed.
 - Conflict-copy naming, for the later write phase.
 - Overlapping File Provider locations: warn or block.
 - A scratch folder on the NAS for these tests: which path, and permission to write there.
+
+## M20 known renames (accepted 2026-10-29)
+
+A protected same-folder rename keeps each affected location's item ID, content version and
+keep request. The app records those views before publication and updates them under the shared
+namespace lock. This applies across saved accounts on the same server/share. Pending renames
+block reconciliation and source removal for every recorded view until fresh evidence resolves
+them. Unavailable overlapping catalogs or mismatched path spellings refuse a new rename.
+External renames still follow the existing discovery rules. Signed VM interruption checks
+preserve both overlapping catalogs and their downloaded copies; uncertain recovery blocks both
+participants until evidence resolves it. See the [M20 results](results/2026-10-29-file-renaming.md).

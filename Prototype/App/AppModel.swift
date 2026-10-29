@@ -583,6 +583,10 @@ final class AppModel {
 
     func retryEdits(_ record: LocationRecord) { controller.retryEdits(record) }
 
+    func renameRecords(_ record: LocationRecord) async throws -> [PendingFileRename] {
+        try await controller.renameRecords(record)
+    }
+
     func exportEdit(_ edit: PendingEdit, record: LocationRecord) {
         Task {
             let panel = NSSavePanel()

@@ -18,6 +18,24 @@ final class CatalogTests: XCTestCase {
         try FileManager.default.removeItem(at: directory)
     }
 
+    func testRenameMigrationPreservesRowsVersionsKeepsAndAnchors() throws {
+        var catalog: Catalog? = try makeCatalog()
+        try reconcile(catalog!, [file("data")])
+        let row = try child(catalog!, "data")
+        _ = try catalog!.setKeep(ids: [row.id], value: true)
+        try catalog!.setWriteAccess(creation: true, editing: true)
+        let before = try XCTUnwrap(catalog!.item(id: row.id))
+        let anchor = try catalog!.currentAnchor(), epoch = catalog!.epoch
+        try catalog!.database.execute("PRAGMA user_version = 5", operation: "test")
+        catalog = nil
+        XCTAssertThrowsError(try Catalog.open(at: url(), domainID: "domain-A"))
+        let upgraded = try Catalog.openWriter(at: url(), domainID: "domain-A")
+        XCTAssertEqual(try upgraded.item(id: row.id), before)
+        XCTAssertEqual(try upgraded.currentAnchor(), anchor)
+        XCTAssertEqual(upgraded.epoch, epoch)
+        XCTAssertThrowsError(try Catalog.checkedEpoch(upgraded.database, domainID: "domain-A", version: 5))
+    }
+
     func testEditingMigrationPreservesExistingVersionsIDsKeepsAndAnchors() throws {
         var catalog: Catalog? = try makeCatalog()
         try reconcile(catalog!, [file("data")])
@@ -235,7 +253,7 @@ final class CatalogTests: XCTestCase {
 
     func testCreateWritesSchemaPragmasMetaAndRoot() throws {
         let catalog = try makeCatalog()
-        XCTAssertEqual(try scalar(catalog, "PRAGMA user_version"), "5")
+        XCTAssertEqual(try scalar(catalog, "PRAGMA user_version"), "6")
         XCTAssertEqual(try scalar(catalog, "PRAGMA journal_mode"), "wal")
         XCTAssertEqual(try scalar(catalog, "PRAGMA synchronous"), "2") // FULL
         XCTAssertEqual(try scalar(catalog, "PRAGMA fullfsync"), "1")
@@ -303,7 +321,7 @@ final class CatalogTests: XCTestCase {
         XCTAssertEqual(try fileNames(), ["catalog.sqlite", "catalog.sqlite-shm", "catalog.sqlite-wal", "empty.sqlite"])
         XCTAssertEqual(try Data(contentsOf: url("empty")).count, 0)
 
-        try catalog.database.execute("PRAGMA user_version = 6", operation: "test")
+        try catalog.database.execute("PRAGMA user_version = 7", operation: "test")
         for open in openers {
             XCTAssertThrowsError(try open(url(), "domain-A")) {
                 XCTAssertEqual($0 as? CatalogError, .unsupportedSchema)

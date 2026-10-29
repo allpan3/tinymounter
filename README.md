@@ -117,10 +117,10 @@ below resolves file collisions. See the
 [checks](docs/results/2026-10-23-folder-naming-fix.md).
 
 Keep Both follow-up, 2026-10-25: signed VM isolation trials found that Finder needs rename
-capability to select an alternative name before creation. Enabled locations now advertise it;
-general remote renaming remains denied. The final signed app passed repeated file collisions, original-byte preservation, folder copying and read-only
-Finder paste. All 232 VM tests and required checks passed. The fixture is removed and sharing
-is restored. See the [results](docs/results/2026-10-25-keep-both.md).
+capability to select an alternative name before creation. Enabled locations advertise it.
+General remote renaming remained unavailable in M18. Its final signed app passed repeated file
+collisions, original-byte preservation, folder copying and read-only Finder paste. All 232 VM
+tests and required checks passed. The fixture is removed and sharing is restored. See the [results](docs/results/2026-10-25-keep-both.md).
 
 Physical-Mac M18 installation, 2026-10-27: the signed app and provider run from Applications.
 The existing catalog ID and diagnostic counts are retained; the location stays read-only.
@@ -133,7 +133,7 @@ conflict copy, including when size and modification time are unchanged. Successf
 the original file object and clean up their verified temporary copies. The product runs on the
 Mac and uses the server's existing SMB service.
 
-Editing requires a separate opt-in for folders whose writers all use SMB. Programs must leave
+In M19, editing requires a separate opt-in for folders whose writers all use SMB. Programs must leave
 tinymounter's temporary save files alone. A save keeps complete local content and a verified
 remote backup, then changes the original while it is temporarily away from its normal name.
 Other readers must close it first; an interrupted save can prolong its unavailability.
@@ -153,14 +153,20 @@ requires its separate opt-in, and physical-Mac writes are the user's checks. See
 [October 28 results](docs/results/2026-10-28-same-object-save.md) and the
 [accepted design](docs/phase4-plan.md#revised-mac-only-save-proposal).
 
-M20 accepted, 2026-10-29: Finder will rename an ordinary file within its
-current folder, preserving the file and refusing name collisions. The first scope uses files
-with an M19 verified revision; older or unverified copies remain unsupported. The
-[scope and safety design](docs/phase4-plan.md#m20-file-renaming) and disposable VM fixture are
-approved. The user also chose one write mode with a Read only toggle, off by default for new
-locations. Existing read-only locations keep their setting. The unified UI and migration are
-implemented, with VM verification pending; file renaming still awaits its protocol gate and
-implementation. The installed M19 build is unchanged. See the [work log](docs/results/2026-10-29-file-renaming.md).
+File renaming and one write mode (M20), 2026-10-29: signed VM Finder checks pass same-folder
+renaming of verified ordinary files, including repeated and case-only changes. Contents, IDs,
+downloads and Keep Downloaded requests survive. Conflicts refuse replacement, and interrupted
+renames recover from evidence. Uncertain operations remain pending and protect every affected
+location. Unverified files, folder renaming, moves, deletion and Replace remain unsupported.
+
+One Read only toggle now controls supported writes. It defaults off for new locations, with
+scoped access and safety confirmation during setup. Existing read-only locations stay read-only.
+Required VM checks pass: 281 tests, one optional fixture skip and no Swift warnings.
+The fixture and obsolete VM builds are removed. Slow fixture authentication can still show a
+temporary Unresponsive status. The installed M19 build is unchanged; physical-Mac M20 behavior
+is unverified. See the
+[results and matched recordings](docs/results/2026-10-29-file-renaming.md) and the
+[accepted scope](docs/phase4-plan.md#m20-file-renaming).
 
 ## Run the prototype
 

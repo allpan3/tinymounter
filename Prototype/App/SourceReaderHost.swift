@@ -268,6 +268,29 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
             }
         } catch { reply(nil, Self.mutationError(error)) }
     }
+    func renameFile(_ data: Data, reply: @escaping (Data?, NSError?) -> Void) {
+        do {
+            let request = try ReaderMessage.decode(FileRenameRequest.self, from: data)
+            guard let source else { throw LocationError.catalogClosed }
+            let job = Job()
+            job.progress.totalUnitCount = Int64.max
+            let accepted = lock.withLock {
+                guard !closed, jobs.count < Self.maxJobs, jobs[request.id] == nil else { return false }
+                jobs[request.id] = job
+                return true
+            }
+            guard accepted else { throw CocoaError(.fileReadUnknown) }
+            let timer = progressTimer(request.id, job)
+            source.renameFile(request, progress: job.progress, started: { [weak self] in
+                try? self?.registration()?.started(ReaderMessage.encode(SourceReadStarted(id: request.id)))
+            }) { [self] result in
+                timer.cancel()
+                lock.withLock { jobs[request.id] = nil }
+                do { reply(try ReaderMessage.encode(result.get()), nil) }
+                catch { reply(nil, Self.mutationError(error)) }
+            }
+        } catch { reply(nil, Self.mutationError(error)) }
+    }
 
     private static func mutationError(_ error: Error) -> NSError {
         if let failure = error as? FolderMutationFailure {

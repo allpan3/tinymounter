@@ -142,6 +142,12 @@ extension Catalog {
                     """, operation: "migrate editing permission and revisions")
             }
         }
+        if (1...5).contains(version) {
+            _ = try checkedEpoch(database, domainID: domainID, version: 5)
+            try configureWriter(database)
+            // Older writers cannot honor pending file renames outside this catalog.
+            try database.write { try database.execute("PRAGMA user_version = 6", operation: "migrate rename support") }
+        }
         let epoch = try checkedEpoch(database, domainID: domainID)
         try configureWriter(database)
         return Catalog(database: database, domainID: domainID, epoch: epoch)

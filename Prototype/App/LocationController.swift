@@ -342,7 +342,16 @@ final class LocationController {
         try await Self.offMain { try source.exportEdit(id, destination: destination) }
     }
 
-    func retryEdits(_ record: LocationRecord) { sources[record.domainID]?.retryEdits() }
+    func retryEdits(_ record: LocationRecord) {
+        sources[record.domainID]?.retryEdits()
+        guard let source = sources[record.domainID] else { return }
+        for candidate in sources.values where candidate.editNamespace === source.editNamespace { candidate.retryRenames() }
+    }
+
+    func renameRecords(_ record: LocationRecord) async throws -> [PendingFileRename] {
+        guard let source = sources[record.domainID] else { throw LocationError.catalogClosed }
+        return try await Self.offMain { try source.renameRecords() }
+    }
 
     func pendingUploads(_ record: LocationRecord) async throws -> Int {
         guard let source = sources[record.domainID] else { throw LocationError.catalogClosed }
@@ -424,6 +433,8 @@ final class LocationController {
         try Catalog.delete(at: SharedContainer.catalogURL(domainID: record.domainID))
         try LocationSource.outbox(domainID: record.domainID).removeIfCompleted()
         try LocationSource.editOutbox(domainID: record.domainID).removeIfCompleted()
+        try LocationSource.renameOutbox().removeCompleted(owner: record.domainID)
+        previousSource?.editNamespace.unregister(record.domainID)
         try store.update { settings in
             guard let index = settings.locations.firstIndex(where: { $0.id == recordID }) else { return }
             settings.locations[index].retiredDomainID = nil
@@ -466,6 +477,8 @@ final class LocationController {
         try Catalog.delete(at: SharedContainer.catalogURL(domainID: record.domainID))
         try LocationSource.outbox(domainID: record.domainID).removeIfCompleted()
         try LocationSource.editOutbox(domainID: record.domainID).removeIfCompleted()
+        try LocationSource.renameOutbox().removeCompleted(owner: record.domainID)
+        previousSource?.editNamespace.unregister(record.domainID)
         try store.update { $0.locations.removeAll { $0.id == recordID } }
         Self.catalogLog.info("""
             location_removed domain=\(record.domainID, privacy: .public) saved_keeps=\(paths.count)
@@ -892,6 +905,7 @@ final class LocationController {
             try Catalog.delete(at: SharedContainer.catalogURL(domainID: id))
             try LocationSource.outbox(domainID: id).removeIfCompleted()
             try LocationSource.editOutbox(domainID: id).removeIfCompleted()
+            try LocationSource.renameOutbox().removeCompleted(owner: id)
         case .deleteRecord(let id):
             try store.update { $0.locations.removeAll { $0.id == id } }
         case .clearRetiredDomain(let id):
@@ -935,6 +949,7 @@ final class LocationController {
                     """)
             }
         }
+        for source in sources.values { source.retryRenames() }
     }
 
     private func makeSource(_ record: LocationRecord, folder: RelativePath, grant: ServerGrant,
@@ -1088,7 +1103,9 @@ final class LocationController {
             Task { @MainActor in await self?.recovered(grantID, failures) }
         }
         if let settings = store.settings {
-            let related = Set(settings.shares.filter { $0.mountFrom.lowercased() == grant.mountFrom.lowercased() }.map(\.id))
+            let related = Set(settings.shares.filter {
+                EditNamespace.key($0.mountFrom) == EditNamespace.key(grant.mountFrom)
+            }.map(\.id))
             for record in settings.locations where related.contains(record.serverID) {
                 if let folder = RelativePath(record.folder) {
                     share.editNamespace.register(domain: record.domainID, folder: folder)
@@ -1169,7 +1186,10 @@ final class LocationController {
             share=\(grantID.uuidString, privacy: .public) recovery domains=\(affected.count) \
             resolved=\(failures.map { "\($0)" }.joined(separator: ","), privacy: .public)
             """)
-        for domainID in affected { await signalResolved(domainID, failures) }
+        for domainID in affected {
+            sources[domainID]?.retryRenames()
+            await signalResolved(domainID, failures)
+        }
         relist(grantID)
         for record in store.settings?.locations ?? [] where record.serverID == grantID && !record.pendingKeeps.isEmpty {
             await restorePendingKeeps(record.id)
@@ -1295,6 +1315,7 @@ final class LocationController {
 
     private func discard(_ source: LocationSource, _ domainID: String) {
         source.close()
+        source.editNamespace.unregister(domainID)
         domains[domainID] = nil
         // A catalog left here has no record, so the next launch deletes it.
         do { try Catalog.delete(at: SharedContainer.catalogURL(domainID: domainID)) } catch {

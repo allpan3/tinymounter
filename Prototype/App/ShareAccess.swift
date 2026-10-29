@@ -744,12 +744,15 @@ final class LocationSource: @unchecked Sendable {
         self.catalog = catalog
         self.access = access
         self.signal = signal
-        editNamespace.register(domain: domainID, folder: folder)
+        editNamespace.register(self)
     }
 
     /// Closes the writer connection; later calls fail with `catalogClosed`.
     func close() {
-        catalogLock.withLock { catalog = nil }
+        editNamespace.perform {
+            catalogLock.withLock { catalog = nil }
+            editNamespace.detach(domainID)
+        }
         setDiscoveryFolders([])
     }
 
@@ -883,10 +886,8 @@ final class LocationSource: @unchecked Sendable {
         }
     }
 
-    /// Plan §6 step 4: the version, the share state, the catalog path, the file, its fingerprint.
-    func transfer(_ request: SourceReadRequest, progress: Progress, stagingDirectory: URL,
-                  checkSpace: ((Int64) throws -> Void)? = nil) throws -> TransferOutput {
-        let (row, path) = try withCatalog { catalog -> (CatalogRow, RelativePath) in
+    func readTarget(_ request: SourceReadRequest) throws -> (CatalogRow, RelativePath) {
+        try withCatalog { catalog -> (CatalogRow, RelativePath) in
             guard let row = try catalog.item(id: request.item) else { throw CocoaError(.fileReadUnknown) }
             guard !row.deleted else { throw SourceFailure.missing }
             guard row.kind == .file else { throw CocoaError(.fileReadUnknown) }
@@ -894,8 +895,14 @@ final class LocationSource: @unchecked Sendable {
             guard let path = try catalog.relativePath(of: row.id) else { throw SourceFailure.missing }
             return (row, path)
         }
+    }
+
+    /// Plan §6 step 4: the version, the share state, the catalog path, the file, its fingerprint.
+    func transfer(_ request: SourceReadRequest, progress: Progress, stagingDirectory: URL,
+                  checkSpace: ((Int64) throws -> Void)? = nil) throws -> TransferOutput {
+        let (row, _) = try editNamespace.perform { try readTarget(request) }
         if request.version.hasPrefix("e1:") || (row.allowsEditing && request.establishEditBase) {
-            return try protectedTransfer(request, row: row, path: path, progress: progress,
+            return try protectedTransfer(request, progress: progress,
                                          stagingDirectory: stagingDirectory, checkSpace: checkSpace)
         }
         let range: ByteRange
@@ -906,13 +913,19 @@ final class LocationSource: @unchecked Sendable {
         }
         return try access.withSession { session, progressed in
             let root = try session.locationRoot(folder)
-            let file = try shareCall(request.id, parent: row.parentID, context: .fetch) {
-                try ReadOnlyFile(directoryFD: root, relativePath: path, expected: session.identity, noCache: true)
-            }
-            let expected = ContentFingerprint(size: row.size, mtimeNs: row.mtimeNs, ctimeNs: row.ctimeNs)
-            guard file.snapshot.fingerprint == expected else {
-                fileChanged(request.id, row, file.snapshot)
-                throw SourceFailure.versionChanged
+            let (row, file) = try editNamespace.perform {
+                let (current, path) = try readTarget(request)
+                guard let fullPath = folder.appending(path) else { throw UploadError.invalidRequest }
+                try editNamespace.requireUncontested(path: fullPath, excluding: request.id)
+                let file = try shareCall(request.id, parent: current.parentID, context: .fetch) {
+                    try ReadOnlyFile(directoryFD: root, relativePath: path, expected: session.identity, noCache: true)
+                }
+                let expected = ContentFingerprint(size: current.size, mtimeNs: current.mtimeNs, ctimeNs: current.ctimeNs)
+                guard file.snapshot.fingerprint == expected else {
+                    fileChanged(request.id, current, file.snapshot)
+                    throw SourceFailure.versionChanged
+                }
+                return (current, file)
             }
             // Each block read is progress, so only a transfer that stops reading counts as a stall.
             let observation = progress.observe(\.completedUnitCount) { _, _ in progressed() }
@@ -1101,7 +1114,9 @@ final class LocationSource: @unchecked Sendable {
             let updated = try editNamespace.perform {
                 try editNamespace.requireSettled()
                 return try withCatalog { catalog in
-                    guard try catalog.item(id: row.id)?.contentVersion == row.contentVersion else { return false }
+                    guard let current = try catalog.item(id: row.id), current.contentVersion == row.contentVersion,
+                          current.name.utf8.elementsEqual(row.name.utf8), current.parentID == row.parentID,
+                          current.changeSeq == row.changeSeq else { return false }
                     return try catalog.updateFingerprint(item: row.id, fingerprint: snapshot.fingerprint, fileID: snapshot.inode)
                 }
             }
