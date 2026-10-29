@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <poll.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -37,22 +38,31 @@ static int wait_reply(struct smb2_context *smb, struct smb2_pdu *pdu, struct pro
     while (!reply->done) {
         struct pollfd fd = {.fd = smb2_get_fd(smb), .events = smb2_which_events(smb)};
         /* Queued callbacks retain stack storage; an uncertain connection cannot be reused. */
-        if (poll(&fd, 1, 100) < 0 && errno != EINTR) _Exit(70);
-        if (smb2_service(smb, fd.revents) < 0) _Exit(70);
+        if (poll(&fd, 1, 100) < 0 && errno != EINTR) {
+            fputs("fixture transport poll failed\n", stderr);
+            _Exit(70);
+        }
+        if (smb2_service(smb, fd.revents) < 0) {
+            fputs("fixture transport connection failed\n", stderr);
+            _Exit(70);
+        }
         clock_gettime(CLOCK_MONOTONIC, &now);
-        if (now.tv_sec - start.tv_sec > 12) _Exit(70);
+        if (now.tv_sec - start.tv_sec > 12) {
+            fputs("fixture transport request timed out\n", stderr);
+            _Exit(70);
+        }
     }
     return reply->error;
 }
 
-void *probe_connect(const char *password, int *error)
+static void *connect_fixture(const char *password, int observer, int *error)
 {
     struct smb2_context *smb = smb2_init_context();
     *error = ENOMEM;
     if (!smb) return NULL;
     smb2_set_timeout(smb, 45);
     smb2_set_authentication(smb, 1);
-    smb2_set_user(smb, password ? "_tinymounter_m19" : "guest");
+    smb2_set_user(smb, observer ? "_tinymounter_m19_observer" : password ? "_tinymounter_m19" : "guest");
     smb2_set_password(smb, password ? password : "");
     if (password) {
         smb2_set_sign(smb, 1);
@@ -68,12 +78,25 @@ void *probe_connect(const char *password, int *error)
     return smb;
 }
 
+void *probe_connect(const char *password, int *error) { return connect_fixture(password, 0, error); }
+void *probe_connect_observer(const char *password, int *error) { return connect_fixture(password, 1, error); }
+
 void probe_disconnect(void *smb) { smb2_destroy_context(smb); }
 
 static int fixture_path(const char *path)
 {
-    return path && !strncmp(path, "probe-", 6) && strlen(path) < 240 &&
-        !strchr(path, '/') && !strchr(path, '\\') && !strchr(path, ':');
+    if (!path || !*path || strlen(path) >= 480 || strchr(path, '\\') || strchr(path, ':')) return 0;
+    for (const char *part = path; part; ) {
+        if (strncmp(part, "probe-", 6)) return 0;
+        const char *end = strchr(part, '/');
+        size_t length = end ? (size_t)(end - part) : strlen(part);
+        if (length < 7 || length >= 240) return 0;
+        for (size_t i = 6; i < length; ++i) {
+            if ((part[i] < 'a' || part[i] > 'z') && (part[i] < '0' || part[i] > '9') && part[i] != '-') return 0;
+        }
+        part = end ? end + 1 : NULL;
+    }
+    return 1;
 }
 
 static void opened(struct smb2_context *smb, int status, void *data, void *context)
@@ -107,6 +130,124 @@ int probe_close(void *smb, uint8_t *file)
     memcpy(request.file_id, file, SMB2_FD_SIZE);
     struct probe_reply reply = {0};
     return wait_reply(smb, smb2_cmd_close_async(smb, &request, done, &reply), &reply);
+}
+
+int probe_open_directory(void *smb, const char *path, uint32_t access, uint32_t sharing,
+                         int create_new, uint8_t *file)
+{
+    if (!path || (*path && !fixture_path(path))) return EINVAL;
+    struct smb2_create_request request = {0};
+    request.impersonation_level = SMB2_IMPERSONATION_IMPERSONATION;
+    request.desired_access = access;
+    request.share_access = sharing;
+    request.create_disposition = create_new ? SMB2_FILE_CREATE : SMB2_FILE_OPEN;
+    request.create_options = SMB2_FILE_DIRECTORY_FILE | SMB2_FILE_OPEN_REPARSE_POINT;
+    request.name = path;
+    struct probe_reply reply = {0};
+    int error = wait_reply(smb, smb2_cmd_create_async(smb, &request, opened, &reply), &reply);
+    if (!error) memcpy(file, reply.file, SMB2_FD_SIZE);
+    return error;
+}
+
+static void little16(uint8_t *out, uint16_t value)
+{
+    for (int i = 0; i < 2; ++i) out[i] = (uint8_t)(value >> (8 * i));
+}
+
+static void little32(uint8_t *out, uint32_t value)
+{
+    for (int i = 0; i < 4; ++i) out[i] = (uint8_t)(value >> (8 * i));
+}
+
+static void little64(uint8_t *out, uint64_t value)
+{
+    for (int i = 0; i < 8; ++i) out[i] = (uint8_t)(value >> (8 * i));
+}
+
+int probe_open_private(void *smb, const char *path, uint32_t access, uint32_t sharing,
+                       const uint8_t *security, uint32_t length, uint8_t *file)
+{
+    if (!fixture_path(path) || !security || length < 20 || length > 4096) return EINVAL;
+    uint32_t context_length = (24 + length + 7) & ~7;
+    uint8_t *context = calloc(1, context_length);
+    if (!context) return ENOMEM;
+    little16(context + 4, 16);
+    little16(context + 6, 4);
+    little16(context + 10, 24);
+    little32(context + 12, length);
+    memcpy(context + 16, "SecD", 4);
+    memcpy(context + 24, security, length);
+    struct smb2_create_request request = {0};
+    request.impersonation_level = SMB2_IMPERSONATION_IMPERSONATION;
+    request.desired_access = access;
+    request.share_access = sharing;
+    request.create_disposition = SMB2_FILE_CREATE;
+    request.create_options = SMB2_FILE_NON_DIRECTORY_FILE | SMB2_FILE_OPEN_REPARSE_POINT;
+    request.name = path;
+    request.create_context_length = context_length;
+    request.create_context = context;
+    struct probe_reply reply = {0};
+    int error = wait_reply(smb, smb2_cmd_create_async(smb, &request, opened, &reply), &reply);
+    free(context);
+    if (!error) memcpy(file, reply.file, SMB2_FD_SIZE);
+    return error;
+}
+
+static void ioctl_done(struct smb2_context *smb, int status, void *data, void *context)
+{
+    struct probe_reply *reply = context;
+    struct smb2_ioctl_reply *info = data;
+    done(smb, status, data, context);
+    if (!status && info && info->output && info->output_count <= reply->capacity) {
+        memcpy(reply->buffer, info->output, info->output_count);
+        reply->count = info->output_count;
+    } else if (!status) reply->error = EOVERFLOW;
+    if (!status && info && info->output) smb2_free_data(smb, info->output);
+}
+
+int probe_resume_key(void *smb, uint8_t *file, uint8_t *key)
+{
+    uint8_t buffer[64];
+    struct smb2_ioctl_request request = {.ctl_code = SMB2_FSCTL_SRV_REQUEST_RESUME_KEY, .flags = 1};
+    memcpy(request.file_id, file, SMB2_FD_SIZE);
+    struct probe_reply reply = {.buffer = buffer, .capacity = sizeof(buffer)};
+    int error = wait_reply(smb, smb2_cmd_ioctl_async(smb, &request, ioctl_done, &reply), &reply);
+    if (!error && reply.count < 28) return EIO;
+    if (!error) memcpy(key, buffer, 24);
+    return error;
+}
+
+int probe_copy_chunk(void *smb, uint8_t *target, const uint8_t *key, uint64_t source_offset,
+                     uint64_t target_offset, uint32_t length, uint8_t *result)
+{
+    const uint64_t limit = 16 * 1024 * 1024;
+    if (!length || length > 1024 * 1024 || source_offset > limit || target_offset > limit ||
+        length > limit - source_offset || length > limit - target_offset) return EINVAL;
+    uint8_t input[56] = {0};
+    memcpy(input, key, 24);
+    little32(input + 24, 1);
+    little64(input + 32, source_offset);
+    little64(input + 40, target_offset);
+    little32(input + 48, length);
+    struct smb2_ioctl_request request = {.ctl_code = SMB2_FSCTL_SRV_COPYCHUNK, .flags = 1,
+                                         .input = input, .input_count = sizeof(input)};
+    memcpy(request.file_id, target, SMB2_FD_SIZE);
+    struct probe_reply reply = {.buffer = result, .capacity = 12};
+    int error = wait_reply(smb, smb2_cmd_ioctl_async(smb, &request, ioctl_done, &reply), &reply);
+    return !error && reply.count != 12 ? EIO : error;
+}
+
+int probe_set_size(void *smb, uint8_t *file, uint64_t size)
+{
+    if (size > 16 * 1024 * 1024) return EINVAL;
+    struct smb2_file_end_of_file_info length = {.end_of_file = size};
+    struct smb2_set_info_request request = {0};
+    request.info_type = SMB2_0_INFO_FILE;
+    request.file_info_class = SMB2_FILE_END_OF_FILE_INFORMATION;
+    request.input_data = &length;
+    memcpy(request.file_id, file, SMB2_FD_SIZE);
+    struct probe_reply reply = {0};
+    return wait_reply(smb, smb2_cmd_set_info_async(smb, &request, done, &reply), &reply);
 }
 
 static uint64_t microseconds(struct smb2_timeval value)
@@ -248,18 +389,18 @@ int probe_set_metadata(void *smb, uint8_t *file, int security,
     return error;
 }
 
-int probe_open_stream(void *smb, const char *path, uint8_t *file)
+static int open_stream(void *smb, const char *path, int create, uint8_t *file)
 {
     if (!fixture_path(path)) return EINVAL;
-    char name[280];
+    char name[512];
     size_t length = strlen(path);
     memcpy(name, path, length);
     strcpy(name + length, ":m19-probe:$DATA");
     struct smb2_create_request request = {0};
     request.impersonation_level = SMB2_IMPERSONATION_IMPERSONATION;
-    request.desired_access = SMB2_FILE_WRITE_DATA | SMB2_FILE_READ_ATTRIBUTES;
+    request.desired_access = (create ? SMB2_FILE_WRITE_DATA : SMB2_FILE_READ_DATA) | SMB2_FILE_READ_ATTRIBUTES;
     request.share_access = SMB2_FILE_SHARE_READ | SMB2_FILE_SHARE_WRITE | SMB2_FILE_SHARE_DELETE;
-    request.create_disposition = SMB2_FILE_CREATE;
+    request.create_disposition = create ? SMB2_FILE_CREATE : SMB2_FILE_OPEN;
     request.create_options = SMB2_FILE_NON_DIRECTORY_FILE | SMB2_FILE_OPEN_REPARSE_POINT;
     request.name = name;
     struct probe_reply reply = {0};
@@ -267,6 +408,9 @@ int probe_open_stream(void *smb, const char *path, uint8_t *file)
     if (!error) memcpy(file, reply.file, SMB2_FD_SIZE);
     return error;
 }
+
+int probe_open_stream(void *smb, const char *path, uint8_t *file) { return open_stream(smb, path, 1, file); }
+int probe_open_read_stream(void *smb, const char *path, uint8_t *file) { return open_stream(smb, path, 0, file); }
 
 int probe_write_stream(void *smb, uint8_t *file)
 {

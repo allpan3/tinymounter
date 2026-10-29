@@ -234,16 +234,20 @@ it waits for the transport decision.
   The user approved a standalone Samba fixture and its test dependencies in VM 1.
   It exposes security descriptors, but competing SMB permission and named-stream changes
   bypass the proposed guard. The accepted SMB-only boundary does not cover this gap.
-  Denying all sharing also permits those changes. A revised publication design needs approval;
-  no further safety restriction or separate-copy save behavior is accepted. The temporary
-  server, installation and test data are removed, with Apple's sharing settings unchanged.
+  Denying all sharing also permits those changes. That replacement route is rejected.
+  The revised design below preserves the original object instead. The earlier temporary
+  server, installation and test data were removed, with Apple's sharing settings unchanged.
   No M19 editing behavior is implemented.
   The user reaffirmed Mac-only operation through the server's existing SMB service. The
-  [revised proposal](phase4-plan.md#revised-mac-only-save-proposal) keeps the original object,
-  backs up its contents and updates it while temporarily renamed. It requires a new decision
-  on hidden content writes, longer unavailability, disposable transaction files and additional
-  SMB operations. No server component or Save Edited Copy workflow is approved.
-  See the [protocol results](results/2026-10-27-edit-publication.md).
+  [revised design](phase4-plan.md#revised-mac-only-save-proposal), approved on 2026-10-28,
+  keeps the original object, backs up its contents and updates it while temporarily renamed.
+  Approval covers hidden content writes, longer unavailability, disposable transaction files,
+  additional SMB operations and a fresh disposable VM fixture session. The
+  [CLI protocol gate](results/2026-10-28-same-object-save.md) passed on the disposable Samba
+  fixture, including private copies, ancestor protection, crashes and actual space exhaustion.
+  App integration and signed editor checks remain. No server component or Save Edited Copy
+  workflow is approved. See the [earlier gate](results/2026-10-27-edit-publication.md) for the
+  rejected replacement sequence.
 - **Safe upload publication, accepted for M18.** Use native exclusive creation, preserve complete local pending copies, and verify before acknowledging upload. Other devices can see partial new content. Never open an existing remote destination for writing. An uncertain interrupted attempt remains pending unless remote identity and complete contents prove success. See the [API results](results/2026-10-23-upload-publication.md).
 - **Initial folder naming, accepted for M18 on 2026-10-23.** Finder creates an untitled folder, then sends a rename for the typed name. The callback and signed Finder checks pass. Native exclusive folder rename failed, and create/delete is unsafe under replacement races. An isolated direct SMB client passed no-overwrite rename checks. A limited `libsmb2` prototype is accepted for exclusive folder creation and initial naming, retaining server identity separately from native inodes. Corrected credential checks connected without a password, and signed naming and interrupted recovery passed on the disposable VM fixture. General renaming stays deferred. See the [naming investigation](results/2026-10-23-initial-folder-naming.md). File Keep Both now passes the [signed follow-up](results/2026-10-25-keep-both.md). General remote rename remains denied, although enabled locations advertise rename capability so Finder can choose a new copy name.
 

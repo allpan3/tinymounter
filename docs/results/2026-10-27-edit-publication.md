@@ -276,3 +276,29 @@ Private staging must also pass before any payload is written; no new compatibili
 This follow-up changed documentation only. No fixture was reopened, no app code changed and no
 new runtime checks ran. The earlier 244-test required-check result remains the evidence for
 the unchanged app sources; it does not validate the revised save proposal.
+
+On 2026-10-28 the user approved the revised design and reopening the disposable standalone VM
+fixture, including its temporary installation. The protocol checks are in progress; no app
+editing behavior has been enabled. Tools/check-edit-in-place.py exercises private staging,
+server-side copying, preservation of concurrent permission/stream changes and reconnection.
+It uses the fixture-only C library and the authenticated native fixture mount. An independent
+test identity in the private Samba database checks access denial without adding a macOS account.
+
+The first revised protocol run passed native upload into private staging, a complete old-content
+backup, same-object copying, preserved concurrent permissions and attached stream, exclusive
+publication and complete old/new copies after reconnect. A subsequent check stopped because
+native macOS reads returned EAGAIN under protection; the probe had accepted only other sharing
+errors. A focused repeat confirmed EAGAIN for both an empty and a nonempty protected original.
+The probe now records that refusal explicitly. Further size, collision, interruption and private
+ownership checks are still pending; these observations do not establish the full gate.
+
+The follow-up verifies private temporary copies for an original owned by the independent test
+account. The stage starts empty with a verified empty DACL; its server-assigned owner supplies
+the private access rule before native upload. Its owner differs from the original's owner,
+and the independent account remains unable to read the copies. Empty-base, empty-edit and
+competing-name checks also pass. The fixture remains active for further checks.
+
+Tools/check-edit-recovery.py adds a test-process SIGKILL check at stage, backup, first rename,
+partial copy, complete copy and publication boundaries, with a complete local input retained
+on disk. It checks fresh identity/content evidence before any exclusive restoration, and retains
+partial work. Its ancestor check uses protected directory handles. These checks are pending.
