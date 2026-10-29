@@ -583,9 +583,13 @@ private struct UploadStatus: View {
     @Bindable var model: AppModel
     @State private var count: Int?
     @State private var edits: [PendingEdit] = []
+    @State private var statusUnavailable = false
 
     var body: some View {
-        Group {
+        VStack(alignment: .leading) {
+            if statusUnavailable {
+                Label(UIText.pendingStatusUnavailable, systemImage: "exclamationmark.triangle")
+            }
             if let count, count > 0 {
                 Label(UIText.pendingUploads(count), systemImage: "arrow.up.circle")
                 Text(UIText.pendingUploadHint).font(.callout).foregroundStyle(.secondary)
@@ -606,8 +610,13 @@ private struct UploadStatus: View {
         }
         .task(id: record.domainID) {
             while !Task.isCancelled {
-                count = await model.pendingUploads(record)
-                edits = await model.editRecords(record)
+                do {
+                    count = try await model.pendingUploads(record)
+                    edits = try await model.editRecords(record)
+                    statusUnavailable = false
+                } catch {
+                    statusUnavailable = true
+                }
                 try? await Task.sleep(for: .seconds(2))
             }
         }

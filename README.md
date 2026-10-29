@@ -127,33 +127,26 @@ The existing catalog ID and diagnostic counts are retained; the location stays r
 Downloaded bytes were not independently checked. Creation and Keep Both await the user's run.
 See the [installation results](docs/results/2026-10-25-keep-both.md#physical-mac-installation-2026-10-27).
 
-Online editing (M19), 2026-10-27: the approved VM protocol probe passed native upload,
-exclusive publication, competing SMB access and reconnect checks. Server-local writes,
-renames and deletion bypassed SMB protection. The user accepted restricting editing to folders
-whose writers all use SMB. Local pending-edit storage passes its eight focused VM tests.
-Format migrations preserve existing identities and leave editing off. Required VM checks pass
-with 244 tests, one optional fixture skip and no failures. The authenticated Apple SMB fixture
-cannot expose access rules needed for safe replacement. The approved Samba fixture exposes
-them, but competing SMB clients can change permissions and add streams while the proposed guard
-is held, even with all sharing denied. This blocks the accepted save design; editor saves
-remain unsupported. The temporary server, installation, fixture and credential are removed.
-Apple's sharing settings are unchanged. An additional native-create fixture check failed during
-directory setup, before reaching its upload assertions. The user reaffirmed Mac-only operation.
-The user approved the [revised save design](docs/phase4-plan.md#revised-mac-only-save-proposal)
-on 2026-10-28, including a new disposable VM fixture session. It retains the original file
-object and a separate recovery copy. Initial tests preserve live permissions and attached data,
-including when another account owns the original; empty-file and competing-name checks pass.
-The October 28 CLI protocol gate passes, including six crash boundaries, ancestor protection,
-guarded cleanup and retained data after actual space exhaustion. App integration is present;
-signed TextEdit checks remain.
-The durable transaction passed 253 VM unit tests and the corrected unsigned app build.
-Provider Save callbacks, explicit editing opt-in, retained-copy export and lifecycle guards are
-now integrated for verification. The integration review adds visible interrupted staging,
-strong upload receipts and conflict-name retries. The first signed Save stopped in local metadata
-staging without changing the server file; the recovery copy now retains original attributes
-separately. Signed editor checks and final checks remain pending.
-See the [October 28 protocol results](docs/results/2026-10-28-same-object-save.md) and
-[earlier replacement gate](docs/results/2026-10-27-edit-publication.md).
+Online editing (M19), 2026-10-28: VM 1 became suspended during the final recovery checks.
+Verification and fixture cleanup await permission to resume it. Normal and repeated TextEdit
+saves pass in the signed VM app. A concurrent SMB edit preserves the other client's file and
+saves the local edit as a separate conflict copy. Successful saves retain the original file object and clean up their
+verified temporary copies. The product runs on the Mac and uses the server's existing SMB service.
+
+Editing requires a separate opt-in for folders whose writers all use SMB. Programs must leave
+tinymounter's temporary save files alone. A save keeps complete local content and a verified
+remote backup, then changes the original while it is temporarily away from its normal name.
+Other readers must close it first; an interrupted save can prolong its unavailability.
+Uncertain recovery retains the complete versions. General rename, move, deletion, Finder Replace,
+packages, databases and VM images remain unsupported. TextEdit's local metadata is preserved,
+but explicit dates and attached data are not synchronized to the server.
+
+Required VM checks pass: 264 tests, one optional fixture skip, no failures or Swift warnings.
+Signed crash recovery passes after local preparation, staging, backup, the first rename and
+complete content copying. The after-publication result and partial-copy checks remain. M18
+remains installed on the physical Mac; physical-Mac writes are the user's checks. See the
+[October 28 results](docs/results/2026-10-28-same-object-save.md) and the
+[accepted design](docs/phase4-plan.md#revised-mac-only-save-proposal).
 
 ## Run the prototype
 

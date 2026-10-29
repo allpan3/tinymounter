@@ -1,8 +1,9 @@
 # Same-object save protocol
 
 Date: 2026-10-28. Decision status: the revised Mac-only M19 design and disposable VM fixture
-are accepted. The CLI protocol gate passed. App integration is present; signed Save verification
-is still in progress.
+are accepted. The CLI protocol gate and normal signed TextEdit saves pass, including a
+concurrent-edit conflict. VM 1 became suspended during the final recovery check. Its remaining
+checks and fixture cleanup await permission to resume; the agent did not suspend the VM.
 
 Basic saves preserve the original remote object, its live permissions and attached stream on
 the disposable Samba fixture. Empty, growing and shrinking files, a competing destination and
@@ -108,46 +109,94 @@ Earlier 244-test required checks cover the unchanged app foundations, not this n
 The existing production credential code also connected to the fixture using macOS-cached GSS
 credentials, with no password acquisition or mutation. Its callback returned the expected
 existing-directory identity. Evidence: cached-auth.json. This is an unsigned CLI authentication
-check; the signed app route remains unverified on this fixture.
+check; signed app authentication is established by the saves below.
 
-Proceed to app integration. Signed TextEdit saves, conflict
-and app-crash recovery, lifecycle preservation, matched recordings and final required checks
-remain necessary under the [accepted design](../phase4-plan.md#revised-mac-only-save-proposal).
+The CLI gate allowed app integration. Signed checks below cover the subsequent implementation
+under the [accepted design](../phase4-plan.md#revised-mac-only-save-proposal).
 
-## App transaction integration
+## Signed app integration
 
-The integration adds the durable same-object transaction and a protected SMB adapter.
-Recovery checks fresh identity and complete contents, restores only a complete original
-through an exclusive rename, and retains partial work without repeating the write. Cleanup can
-remove proved stage and backup objects, never the original work object. Retained recovery data
-continues to block location removal. Nested receipt decoding and local metadata allocation are
-validated before use. All 253 VM unit tests passed, with one optional fixture skip.
-Project generation, release CLI and benchmark validation passed. The corrected unsigned app
-build passed without Swift warnings. Signed app checks remain.
+The normal signed app completes a first recovered save, a fresh repeated TextEdit save and a
+concurrent-edit conflict. Exact remote contents match. The repeated save updates the original
+without a conflict or leftover stage/backup. For the conflict, a native SMB client changes the
+original after the editor receives its base. The app preserves those competing bytes and
+publishes exactly one new copy containing the local edit, then acknowledges completion.
+Three earlier diagnostic conflict copies are separate from that test.
 
-The provider integration now routes same-item content saves through the app and its explicit
-editing permission. Full handoffs can establish strong base receipts; strict fetches retain
-the requested version. Conflicts and pending edits appear in Settings, with local export and
-retry controls. Listings from overlapping locations on the same SMB source defer while an edit
-is unresolved, preventing the temporary namespace gap from deleting catalog items. Metadata
-fields outside the content update remain pending; resource-fork edits are refused. Normal
-TextEdit behavior, signed authentication and these controls still need VM verification.
+`fileproviderctl evaluate` reports uploaded after the recovered save. The local text-encoding
+and last-used attributes remain present. TextEdit sends contents with date and extended-attribute
+fields. Metadata-only retries return those fields as unsupported using the SDK's documented
+contract. No remote date or attached-data synchronization is claimed.
 
-The integration review also records local intent before staging, so an interrupted copy remains
-visible and can resume from matching input. Missing or changed strong receipts fail the old
-fetch and publish a new revision, including when native size and timestamps have not changed.
-Uploads in editing-enabled locations establish protected base receipts. Definite conflict-name
-collisions choose another persisted name; uncertain replies are reconciled first. A later verified
-save can retire an identical earlier generation only if that generation never changed the original.
-The baseline recording shows TextEdit refusing an edit because the file is locked. Candidate
-runtime checks remain pending. All 259 VM tests passed, with one optional fixture skip, and
-Tools/run-checks.sh and the personalized build passed without Swift warnings. The first signed
-TextEdit Save reached the content callback with fields 649 but returned cannotSynchronize;
-the remote original remained unchanged. Added path-free transaction-state and error diagnostics
-to identify the failing operation. It stopped in local staging: the sandboxed metadata copy
-changed one attribute, while an unsandboxed copy of the visible test file preserved both
-attributes. The outbox now preserves the bounded original attributes in a durable sidecar,
-independent of attributes assigned to its payload by macOS. Export restores user metadata;
-macOS retains control of per-file access and quarantine metadata on the exported file.
-The sidecar is removed with the payload only after verified completion. This is not yet a
-successful editor-save result.
+The integrated transaction retains immutable generations, strong base receipts and original
+catalog IDs. A changed strong receipt invalidates a fetch even when native size and times match.
+Uncertain namespace changes defer overlapping-location reconciliation. Complete old or new
+originals can recover through an exclusive rename; partial work stays retained. Cleanup never
+removes the original work object. Pending edits block disabling writes/editing and changing or
+removing the location, and can be exported locally.
+
+Signed checks exposed three integration problems that are now corrected:
+
+- macOS changes security attributes when it copies callback input. A durable sidecar retains
+  the exact original metadata; generation matching excludes per-copy access, quarantine and
+  provenance attributes. Existing snapshots remain authoritative. A crash before the snapshot
+  exists can replay matching document contents with the new callback's security attributes.
+- The exclusive publication handle blocks native final inspection. After durable publication,
+  the adapter reacquires read-compatible protection and rechecks identity, complete contents
+  and modification time. A change in that gap retains the transaction. Native directory
+  enumeration refreshes name caches without reconciling transaction artifacts.
+- Native staging adds quarantine. Verification records its complete bounded stream and cleanup
+  compares it. Unknown or changed attached data retains the artifact; original-file streams
+  remain untouched. An old test stage without this evidence required verified fixture
+  maintenance. That removal is not counted as automatic cleanup; the fresh save cleans itself.
+
+All 26 focused outbox/transaction tests pass, and the personalized app builds without Swift
+warnings. These include replay after interruption before the metadata snapshot. Final
+Tools/run-checks.sh passes: 264 tests, one optional fixture skip and no failures. Project
+generation, release CLI/benchmark validation and the unsigned app build also pass, without
+Swift warnings.
+
+### Signed interruption checks
+
+A separate source archive adds fixture-only stop points; production sources contain none.
+The helper is restricted to the disposable domain and synthetic test names. It uses the app's
+real outbox, protected transport and recovery paths. Each check stops and kills only that app,
+then launches the normal signed candidate.
+
+| Stop point | Normal signed recovery |
+| --- | --- |
+| Complete local preparation | Completes; local export matches and all three source lifecycle guards refuse changes |
+| Complete remote stage | Completes with no retained artifact |
+| Verified old-content backup | Completes with no retained artifact |
+| Original renamed, contents still old | First launch restores the old original and retains the edit; a second launch completes |
+| Complete new contents before publication | Completes with no retained artifact |
+| Verified publication before acknowledgement | Stop is verified; recovery result was not collected before VM suspension |
+
+Each stopped generation retained valid complete local content. The helper seeded Keep Downloaded
+requests for identity checks. A separate downloaded file was hashed with hydration forbidden;
+its after comparison and final ID/keep audit remain. Partial upload/copy and further conflict
+variants remain unverified in the signed app, although the CLI and unit checks above cover
+partial-copy retention. No VM or shared daemon was restarted.
+
+The three old diagnostic `.preparing` records predate the metadata fixes. A signed fixture helper
+verified each synthetic payload against complete remote conflict copies, exported the payloads,
+and removed only those three test records. This is test-state cleanup, not product recovery.
+
+### Recordings and remaining checks
+
+The baseline shows M18 TextEdit reporting the file as locked. The candidate uses the same
+initial synthetic contents and select-all, type `Edited test document.`, Save sequence. Its
+remote bytes match after completion. Caches are uncontrolled and these clips make no timing
+claim. Both clips are encoded with current AVFoundation APIs. The capture scale changed between
+runs, so framing review remains. Interruption/conflict variants, lifecycle preservation and
+complete fixture cleanup await VM resumption.
+
+Cached-credential connections take about 20 seconds on this fixture, also in the earlier unsigned
+CLI control. This exceeds the existing 15-second share-health stall threshold and can transiently
+mark the test share unresponsive. Authentication succeeds; the cause is not established. The
+stall threshold is unchanged, and no physical-Mac latency claim follows from this fixture.
+
+
+Before handoff, 11 obsolete host signing copies were removed. The normal verified candidate,
+current fixture-test build and recording baseline remain. Guest storage and window cleanup
+cannot proceed while the VM is suspended; the temporary fixture and dependencies still exist.

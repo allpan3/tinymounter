@@ -28,10 +28,13 @@ public struct EditFileVersion: Codable, Equatable, Sendable {
     public let changedMicroseconds: UInt64
     public let attributes: UInt32
     public let security: Data
+    public let artifactQuarantine: Data?
 
     public init(identity: EditFileIdentity, size: Int64, digest: String, modifiedMicroseconds: UInt64,
-                changedMicroseconds: UInt64, attributes: UInt32, security: Data) throws {
-        guard size >= 0, Self.validDigest(digest), !security.isEmpty, security.count <= 65_536 else {
+                changedMicroseconds: UInt64, attributes: UInt32, security: Data,
+                artifactQuarantine: Data? = nil) throws {
+        guard size >= 0, Self.validDigest(digest), !security.isEmpty, security.count <= 65_536,
+              artifactQuarantine.map({ $0.count <= 65_536 }) != false else {
             throw UploadError.unresolved
         }
         self.identity = identity
@@ -41,6 +44,7 @@ public struct EditFileVersion: Codable, Equatable, Sendable {
         self.changedMicroseconds = changedMicroseconds
         self.attributes = attributes
         self.security = security
+        self.artifactQuarantine = artifactQuarantine
     }
 
     public init(from decoder: Decoder) throws {
@@ -51,7 +55,8 @@ public struct EditFileVersion: Codable, Equatable, Sendable {
                       modifiedMicroseconds: values.decode(UInt64.self, forKey: .modifiedMicroseconds),
                       changedMicroseconds: values.decode(UInt64.self, forKey: .changedMicroseconds),
                       attributes: values.decode(UInt32.self, forKey: .attributes),
-                      security: values.decode(Data.self, forKey: .security))
+                      security: values.decode(Data.self, forKey: .security),
+                      artifactQuarantine: values.decodeIfPresent(Data.self, forKey: .artifactQuarantine))
     }
 
     public func hasSameContents(as other: EditFileVersion) -> Bool {
@@ -98,6 +103,7 @@ public struct PendingEdit: Codable, Equatable, Sendable {
     public let digest: String
     public let failOnConflict: Bool
     public let localMetadataDigest: String
+    public var documentMetadataDigest: String? = nil
     public let stagePath: String
     public let recoveryPath: String
     public var state: State = .prepared
@@ -137,6 +143,7 @@ public final class EditOutbox {
                   ReaderMessage.isItemID(record.item), record.item != Catalog.rootItemID,
                   ReaderMessage.isItemID(record.parent), record.size >= 0,
                   EditFileVersion.validDigest(record.digest), EditFileVersion.validDigest(record.localMetadataDigest),
+                  record.documentMetadataDigest.map(EditFileVersion.validDigest) != false,
                   record.baseVersion.utf8.count <= 128,
                   let path = RelativePath(record.path), !path.isRoot,
                   let stage = RelativePath(record.stagePath), let recovery = RelativePath(record.recoveryPath),
@@ -172,30 +179,41 @@ public final class EditOutbox {
         let digest = try input.checksum(range: ByteRange(offset: 0, length: input.snapshot.size, fileSize: input.snapshot.size))
         let attributes = try Self.metadata(input.descriptor)
         let metadata = try Self.metadataDigest(attributes)
+        let documentMetadata = try Self.documentMetadataDigest(attributes)
         try input.validateUnchanged()
-        let existing = try records().first {
+        let existing = try records().sorted { !$0.isPending && $1.isPending }.first {
             $0.item == item && $0.parent == parent && $0.path == path.string && $0.baseVersion == baseVersion
-                && $0.digest == digest && $0.localMetadataDigest == metadata
+                && $0.digest == digest && ($0.localMetadataDigest == metadata
+                    || (try? retainedDocumentMetadataDigest($0)) == documentMetadata)
                 && $0.size == input.snapshot.size && $0.failOnConflict == failOnConflict
         }
         if let existing, existing.state != .preparing {
             if existing.isPending { try validateContents(existing) }
             return existing
         }
-        let request = try CreateRequest(template: item + ":" + baseVersion + ":" + digest + ":" + metadata + ":" + String(failOnConflict),
+        let storedPayload = try existing.flatMap { existing in try payloads.records().first { $0.id == existing.id } }
+        let template = storedPayload?.template
+            ?? item + ":" + baseVersion + ":" + digest + ":" + documentMetadata + ":" + String(failOnConflict)
+        let request = try CreateRequest(template: template,
                                         parent: parent, name: name, kind: .file, staging: nil)
         let orphan = try payloads.records().first { $0.template == request.template }
         let id = existing?.id ?? orphan?.id ?? UUID()
+        let metadataURL = directory.appending(path: id.uuidString + ".metadata")
+        let hasMetadata = FileManager.default.fileExists(atPath: metadataURL.path)
         let prefix = path.components.dropLast().joined(separator: "/")
         func artifact(_ suffix: String) -> String {
             (prefix.isEmpty ? "" : prefix + "/") + ".tinymounter-\(id.uuidString)." + suffix
         }
         var record = PendingEdit(id: id, item: item, parent: parent, path: path.string,
                                  baseVersion: baseVersion, size: input.snapshot.size, digest: digest,
-                                 failOnConflict: failOnConflict, localMetadataDigest: metadata, stagePath: artifact("stage"),
+                                 failOnConflict: failOnConflict,
+                                 localMetadataDigest: hasMetadata ? existing?.localMetadataDigest ?? metadata : metadata,
+                                 documentMetadataDigest: documentMetadata, stagePath: artifact("stage"),
                                  recoveryPath: artifact("recovery"), state: .preparing, destination: path.string)
         try save(record)
-        try persist(attributes, id: id, extension: "metadata", exclusive: true)
+        if !hasMetadata {
+            try persist(attributes, id: id, extension: "metadata", exclusive: true)
+        }
         let payload = try payloads.prepare(request, path: path, contents: contents, progress: progress,
                                           checkSpace: checkSpace, id: id)
         guard payload.id == id, payload.digest == digest, payload.size == input.snapshot.size else {
@@ -224,6 +242,7 @@ public final class EditOutbox {
                 .info("edit_metadata_copy missing=\(missing) changed=\(changed) extra=\(extra) encoding=\(encoding) last_used=\(lastUsed) security=\(security)")
         }
         guard fchmod(fd, 0o400) == 0, fcntl(fd, F_FULLFSYNC) == 0 else { throw posixError("sync pending edit") }
+        try validateContents(record)
         record.state = .prepared
         try save(record)
         return record
@@ -305,6 +324,9 @@ public final class EditOutbox {
               receipt.version.size == record.size, receipt.version.digest == record.digest else {
             throw UploadError.unresolved
         }
+        if record.documentMetadataDigest == nil {
+            record.documentMetadataDigest = try retainedDocumentMetadataDigest(record)
+        }
         try storeBase(receipt)
         record.completedItem = item
         record.state = .completed
@@ -325,7 +347,9 @@ public final class EditOutbox {
               let receipt = completed.published, completed.item == record.item,
               completed.parent == record.parent, completed.path == record.path,
               completed.size == record.size, completed.digest == record.digest,
-              completed.localMetadataDigest == record.localMetadataDigest else { throw UploadError.unresolved }
+              try retainedDocumentMetadataDigest(completed) == retainedDocumentMetadataDigest(record) else {
+            throw UploadError.unresolved
+        }
         try validateContents(record)
         record.previous = receipt.version
         record.published = receipt
@@ -350,6 +374,20 @@ public final class EditOutbox {
 
     private static func metadataDigest(_ fd: Int32) throws -> String {
         try metadataDigest(metadata(fd))
+    }
+
+    private func retainedDocumentMetadataDigest(_ record: PendingEdit) throws -> String {
+        if let digest = record.documentMetadataDigest { return digest }
+        let file = try ReadOnlyFile(url: contentURL(record))
+        let attributes = try retainedMetadata(record, descriptor: file.descriptor)
+        guard try Self.metadataDigest(attributes) == record.localMetadataDigest else { throw UploadError.unresolved }
+        return try Self.documentMetadataDigest(attributes)
+    }
+
+    private static func documentMetadataDigest(_ attributes: [String: Data]) throws -> String {
+        // macOS assigns these attributes per copy; they do not identify a document edit.
+        let local = Set(["com.apple.macl", "com.apple.quarantine", "com.apple.provenance"])
+        return try metadataDigest(attributes.filter { !local.contains($0.key) })
     }
 
     private static func metadataDigest(_ attributes: [String: Data]) throws -> String {

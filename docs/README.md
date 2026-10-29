@@ -68,6 +68,8 @@ but found that server-local access bypasses protection. The user accepted an exp
 writer requirement for editing. Later competing SMB metadata changes defeated the replacement
 design. The [Mac-only revision](phase4-plan.md#revised-mac-only-save-proposal) and a new disposable
 VM test session were approved on 2026-10-28. Its CLI protocol gate passed on the disposable
-Samba fixture; normal Save remains unsupported pending app integration and signed checks.
+Samba fixture. Normal and repeated TextEdit saves and a concurrent-edit conflict now pass in
+the signed VM app. VM 1 became suspended during recovery checks; further verification and
+fixture cleanup await permission to resume.
 The [October 28 protocol results](results/2026-10-28-same-object-save.md) record the current
 same-object save and crash checks; the fixture session remains active.

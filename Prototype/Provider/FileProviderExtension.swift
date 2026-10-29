@@ -436,6 +436,20 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             return modifyContents(item, baseVersion: version, changedFields: changedFields, contents: newContents,
                                   options: options, completion: completionHandler)
         }
+        let metadata: NSFileProviderItemFields = [.lastUsedDate, .contentModificationDate, .extendedAttributes]
+        if newContents == nil, !changedFields.isEmpty, changedFields.subtracting(metadata).isEmpty {
+            do {
+                let row = try catalog.liveRow(item.itemIdentifier.rawValue)
+                guard row.allowsEditing, row.name == item.filename,
+                      row.parentID == item.parentItemIdentifier.rawValue else { throw CocoaError(.fileWriteNoPermission) }
+                countMutation("modify", "result=unsupported_metadata fields=\(changedFields.rawValue)")
+                // Returning every field pending declares it unsupported and preserves its local value.
+                completionHandler(CatalogItem(row), changedFields, false, nil)
+            } catch {
+                completionHandler(nil, [], false, providerError(error))
+            }
+            return Progress()
+        }
         guard changedFields == .filename, newContents == nil, Self.kind(of: item) == .folder else {
             countMutation("modify", "result=rejected fields=\(changedFields.rawValue)")
             completionHandler(nil, [], false, CocoaError(.fileWriteNoPermission))
@@ -466,6 +480,8 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                                 options: NSFileProviderModifyItemOptions, deletionConflict: Bool = false,
                                 completion: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void) -> Progress {
         countMutation("modify", "result=contents fields=\(changedFields.rawValue) fail_on_conflict=\(options.contains(.failOnConflict) ? 1 : 0)")
+        let attributes = item.extendedAttributes ?? [:]
+        catalogLogger.info("edit_attributes count=\(attributes.count) encoding=\(attributes["com.apple.TextEncoding"] != nil) last_used=\(item.lastUsedDate != nil)")
         let progress = Progress(totalUnitCount: Int64.max)
         DispatchQueue.global(qos: .userInitiated).async { [self] in
             var staged: URL?

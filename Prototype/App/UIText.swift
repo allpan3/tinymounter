@@ -36,6 +36,7 @@ enum UIText {
     static let exportEdit = "Export Local Copy…"
     static let retryEdits = "Retry Pending Saves"
     static let editNeedsRecovery = "Save pending or needs recovery"
+    static let pendingStatusUnavailable = "Cannot read pending save status. Local copies are retained."
     static let conflictSaved = "Saved as a conflict copy"
     static let writeGrantMessage = "Select the root of this share to allow new files and folders."
     static let writeAccessHint = "New files can be visible on other devices before upload completes. Editing, replacing, moving and deleting existing items are not available."

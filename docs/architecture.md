@@ -229,7 +229,7 @@ it waits for the transport decision.
   editing requires explicit confirmation that every writer accesses the folder through SMB.
   Existing write grants retain creation-only permission. A different client transport does
   not fix server-local exclusion. Editor callbacks, metadata
-  preservation and interrupted recovery remain unverified. The authenticated Apple SMB fixture
+  preservation and interrupted recovery were the next gates. The authenticated Apple SMB fixture
   does not expose security descriptors, and native SMB also misses an explicit backing ACL.
   The user approved a standalone Samba fixture and its test dependencies in VM 1.
   It exposes security descriptors, but competing SMB permission and named-stream changes
@@ -245,7 +245,8 @@ it waits for the transport decision.
   additional SMB operations and a fresh disposable VM fixture session. The
   [CLI protocol gate](results/2026-10-28-same-object-save.md) passed on the disposable Samba
   fixture, including private copies, ancestor protection, crashes and actual space exhaustion.
-  The transaction unit tests and unsigned app build pass; signed editor checks remain. No server component or Save Edited Copy
+  Normal signed TextEdit saves and a concurrent-edit conflict pass. Signed interruption and
+  lifecycle verification await resuming the suspended VM. No server component or Save Edited Copy
   workflow is approved. See the [earlier gate](results/2026-10-27-edit-publication.md) for the
   rejected replacement sequence.
 - **Safe upload publication, accepted for M18.** Use native exclusive creation, preserve complete local pending copies, and verify before acknowledging upload. Other devices can see partial new content. Never open an existing remote destination for writing. An uncertain interrupted attempt remains pending unless remote identity and complete contents prove success. See the [API results](results/2026-10-23-upload-publication.md).

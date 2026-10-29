@@ -24,8 +24,13 @@ final class EditNamespace: @unchecked Sendable {
     func perform<T>(_ operation: () throws -> T) rethrows -> T { try lock.withLock(operation) }
 
     func requireSettled() throws {
-        for domain in domains.keys where try LocationSource.editOutbox(domainID: domain).pendingCount > 0 {
-            throw UploadError.pendingWrites
+        for domain in domains.keys {
+            let outbox = try LocationSource.editOutbox(domainID: domain)
+            let pending = try outbox.records().filter(\.isPending)
+            guard try outbox.pendingCount == pending.count,
+                  pending.allSatisfy({ [.preparing, .prepared].contains($0.state) }) else {
+                throw UploadError.pendingWrites
+            }
         }
     }
 

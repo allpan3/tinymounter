@@ -175,9 +175,11 @@ Phase 3 extends that subset with verified offline status, folder keeps and chang
   scheduling policies, not the latency targets proposed in section 4. See the
   [M15 plan](phase3-plan.md#m15-discover-nas-changes-while-the-app-runs) and
   [signed VM results](results/2026-10-19-nas-change-discovery.md).
-- **Not built:** local FSEvents integration, general remote rename matching and existing-file
-  editing. M18 adds new files/folders and receipt-backed initial folder naming. An externally
-  renamed item is still a delete plus a create; its keep request does not follow.
+- **Writes:** M18 adds new files/folders and receipt-backed initial folder naming. M19 adds
+  separately enabled content editing with complete pending copies, verified base receipts and
+  conflict copies; remaining signed verification awaits VM resumption. General remote rename
+  matching and local FSEvents integration remain unimplemented. An externally renamed item is
+  still a delete plus a create; its keep request does not follow.
 
 **The gap between relistings.** A downloaded copy can stay stale until the next successful
 refresh, because the system opens it without asking the extension. Directory events can be

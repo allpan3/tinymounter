@@ -110,6 +110,27 @@ int tm_edit_open(void *opaque, const char *path, uint32_t access, uint32_t shari
     return error;
 }
 
+int tm_edit_open_quarantine(void *opaque, const char *path, uint8_t *file)
+{
+    struct edit_client *client = opaque;
+    struct smb2_context *smb = client->smb;
+    if (!smb) return EIO;
+    if (!valid_path(path)) return EINVAL;
+    char name[1088];
+    snprintf(name, sizeof(name), "%s:com.apple.quarantine:$DATA", path);
+    struct smb2_create_request request = {0};
+    request.impersonation_level = SMB2_IMPERSONATION_IMPERSONATION;
+    request.desired_access = SMB2_FILE_READ_DATA | SMB2_FILE_READ_ATTRIBUTES;
+    request.share_access = SMB2_FILE_SHARE_READ | SMB2_FILE_SHARE_DELETE;
+    request.create_disposition = SMB2_FILE_OPEN;
+    request.create_options = SMB2_FILE_NON_DIRECTORY_FILE | SMB2_FILE_OPEN_REPARSE_POINT;
+    request.name = name;
+    struct tm_edit_reply reply = {0};
+    int error = wait_reply(client, smb2_cmd_create_async(smb, &request, opened, &reply), &reply);
+    if (!error) memcpy(file, reply.file, SMB2_FD_SIZE);
+    return error;
+}
+
 int tm_edit_close(void *opaque, uint8_t *file)
 {
     struct edit_client *client = opaque;
