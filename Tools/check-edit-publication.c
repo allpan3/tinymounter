@@ -92,7 +92,9 @@ static int fixture_path(const char *path)
         size_t length = end ? (size_t)(end - part) : strlen(part);
         if (length < 7 || length >= 240) return 0;
         for (size_t i = 6; i < length; ++i) {
-            if ((part[i] < 'a' || part[i] > 'z') && (part[i] < '0' || part[i] > '9') && part[i] != '-') return 0;
+            unsigned char c = (unsigned char)part[i];
+            if ((c < 'a' || c > 'z') && (c < 'A' || c > 'Z') &&
+                (c < '0' || c > '9') && c != '-' && c < 0x80) return 0;
         }
         part = end ? end + 1 : NULL;
     }
@@ -283,6 +285,59 @@ int probe_info(void *smb, uint8_t *file, uint64_t *values)
     struct probe_reply reply = {0};
     int error = wait_reply(smb, smb2_cmd_query_info_async(smb, &request, inspected, &reply), &reply);
     if (!error) memcpy(values, reply.values, sizeof(reply.values));
+    return error;
+}
+
+static void named(struct smb2_context *smb, int status, void *data, void *context)
+{
+    struct probe_reply *reply = context;
+    struct smb2_file_all_info *info = data ? ((struct smb2_query_info_reply *)data)->output_buffer : NULL;
+    done(smb, status, data, context);
+    if (!status && info && info->name) {
+        size_t length = strlen((const char *)info->name);
+        if (length >= reply->capacity) reply->error = ENAMETOOLONG;
+        else { memcpy(reply->buffer, info->name, length + 1); reply->count = (uint32_t)length; }
+    } else if (!status) reply->error = EIO;
+    if (info) smb2_free_data(smb, info);
+}
+
+int probe_name(void *smb, uint8_t *file, uint8_t *buffer, uint32_t capacity, uint32_t *count)
+{
+    struct smb2_query_info_request request = {0};
+    request.info_type = SMB2_0_INFO_FILE;
+    request.file_info_class = SMB2_FILE_ALL_INFORMATION;
+    request.output_buffer_length = 4096;
+    memcpy(request.file_id, file, SMB2_FD_SIZE);
+    struct probe_reply reply = {.buffer = buffer, .capacity = capacity};
+    int error = wait_reply(smb, smb2_cmd_query_info_async(smb, &request, named, &reply), &reply);
+    *count = reply.count;
+    return error;
+}
+
+static void listed(struct smb2_context *smb, int status, void *data, void *context)
+{
+    struct probe_reply *reply = context;
+    struct smb2_query_directory_reply *info = data;
+    done(smb, status, data, context);
+    if (!status && info && info->output_buffer && info->output_buffer_length <= reply->capacity) {
+        memcpy(reply->buffer, info->output_buffer, info->output_buffer_length);
+        reply->count = info->output_buffer_length;
+    } else if (!status) reply->error = EOVERFLOW;
+}
+
+int probe_entry(void *smb, uint8_t *directory, const char *name,
+                uint8_t *buffer, uint32_t capacity, uint32_t *count)
+{
+    if (!fixture_path(name) || strchr(name, '/')) return EINVAL;
+    struct smb2_query_directory_request request = {0};
+    request.file_information_class = SMB2_FILE_ID_FULL_DIRECTORY_INFORMATION;
+    request.flags = SMB2_RESTART_SCANS | SMB2_REOPEN;
+    request.name = "*";
+    request.output_buffer_length = capacity;
+    memcpy(request.file_id, directory, SMB2_FD_SIZE);
+    struct probe_reply reply = {.buffer = buffer, .capacity = capacity};
+    int error = wait_reply(smb, smb2_cmd_query_directory_async(smb, &request, listed, &reply), &reply);
+    *count = reply.count;
     return error;
 }
 
