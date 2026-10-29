@@ -468,3 +468,84 @@ SMB reads verified the complete backup, stage and local input while retaining pa
 The existing cached-credential client also connected without acquiring a password. These CLI
 checks permitted app integration. The subsequent signed checks establish TextEdit saves, conflict
 preservation and retained recovery data; the results log records their exact coverage and limits.
+
+## M20: file renaming
+
+Date: 2026-10-28. Decision status: proposed. The user requested the next implementation milestone
+after installing M19. This proposal needs approval because general renaming remains explicitly
+outside the accepted write scope. No implementation or new fixture session has started.
+
+### What the user gets
+
+Rename an ordinary file in Finder, for example Notes.txt to Meeting notes.txt, in the same folder.
+Keep its contents, permissions, attached data, item ID, downloads and Keep Downloaded request.
+If another file already has the requested name, refuse the rename and leave both files alone.
+This addresses the current Finder Rename action, which is advertised for Keep Both but fails
+for existing files.
+
+Start with files whose current revision M19 has already verified through a complete download
+or upload. A downloaded legacy copy alone is insufficient. Refuse an unproven revision without
+evicting it, silently downloading it again, or assigning its identity from a pathname. This is
+a deliberate first-step limit; folder renaming and renaming never-verified files need later
+identity work. General moves, deletion, Finder Replace and combined rename/content saves remain
+outside this scope. Existing M18 initial folder naming continues unchanged.
+
+Renaming requires its own explicit per-location permission and the existing SMB-only writer
+confirmation. Existing locations and creation/editing permissions do not gain it automatically.
+The first milestone is online only. A pending rename is visible, prevents source/location removal
+or permission revocation, and does not claim completion until verified. Existing pending content
+edits or uploads must settle before the file can be renamed.
+
+### Publication and recovery
+
+Use the existing M19 verified revision to identify the selected original. Hold its ancestor
+directories and a source handle that prevents competing main-content writes, deletion and
+renaming. Check the source's server identity and complete contents against that revision. A
+changed or replaced source stops the operation without mutating either pathname. Unsupported
+identity or protection is a refusal, not permission for a weaker route.
+
+Durably record the item, parent, exact old/new names and source evidence before sending one
+handle-based SMB rename with replacement disabled. This changes the name of the original object;
+it copies no payload and writes no file contents or access rules. A destination collision never
+falls back to replacement or copy/delete. Case-only changes must work through the same protected
+operation and exact-name verification, or fail clearly. No temporary-name sequence is proposed.
+
+Verify the resulting object's identity and complete contents before acknowledging completion.
+Commit the new name under the original catalog ID, keep its enumeration key and keep requests,
+and preserve content revisions when their bytes are unchanged. Refresh native metadata without
+turning a name change into an unnecessary download. Reconciliation must defer during uncertainty
+and apply the known rename to affected overlapping locations while preserving their own IDs.
+
+After a lost reply or crash, inspect both names with fresh protected SMB evidence. Complete only
+when the requested name holds the recorded object and contents. Retry the old-to-new rename only
+when the old name still proves the original and the exclusive destination is available. If the
+source changed, disappeared or moved elsewhere, retain the operation and report the uncertainty.
+Never rename a competing object back, infer success from a missing old name, or search the share
+and guess. Local pending content from other operations remains untouched.
+
+### Transport and verification gates
+
+This expands the approved use of libsmb2 from initial naming and internal save transactions to
+user-requested file rename. Reuse its existing protected opens, identity/readback queries and
+no-replace rename. Native downloads/uploads, macOS credentials, encryption requirements, dynamic
+linkage and licence obligations stay the same. No new dependency or server component is proposed.
+
+Approval is also requested for a fresh disposable loopback-only Samba session in macOS VM 1,
+with the same bounded synthetic files, temporary dependencies and private Keychain credential
+used for M19. Do not create a macOS account, register a service or change Apple's sharing settings.
+Snapshot the affected state, then remove the fixture, credential and temporary dependencies and
+restore that state at the end. Stop only task-owned processes, close task-owned apps/windows and
+remove obsolete test artifacts. Keep the original NAS read-only. No VM/shared-daemon restart,
+network cut, physical-Mac installation or publication is included.
+
+Before app integration, verify that the existing protocol preserves object identity, complete
+contents, live permissions and attached data for a user-selected destination. Check competing
+source changes and destination creates, existing open handles, case and Unicode collisions,
+ancestor changes, and interruption before the request and after remote completion. Any failed
+safety gate needs a design decision before proceeding.
+
+Then test the signed Finder workflow, repeated renames, refusal of unverified files, read-only
+and opt-in enforcement, interaction with pending saves, overlapping locations, restart recovery,
+and preserved IDs, keeps, downloads and pagination. Include migrations if persistent formats
+change. Record matched before/after Finder actions, run Tools/run-checks.sh in the VM, and update
+the affected docs, results log and README in the implementation commits.

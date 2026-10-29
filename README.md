@@ -153,6 +153,12 @@ requires its separate opt-in, and physical-Mac writes are the user's checks. See
 [October 28 results](docs/results/2026-10-28-same-object-save.md) and the
 [accepted design](docs/phase4-plan.md#revised-mac-only-save-proposal).
 
+Next feature proposed, 2026-10-28: M20 would let Finder rename an ordinary file within its
+current folder, preserving the file and refusing name collisions. The first scope uses files
+with an M19 verified revision; older or unverified copies remain unsupported. The
+[scope and safety design](docs/phase4-plan.md#m20-file-renaming) await approval. No M20 code or
+new writable fixture is in place.
+
 ## Run the prototype
 
 See [prototype setup and validation](docs/prototype.md). Build the benchmark with `swift build -c release`; run `.build/release/transfer-bench --help`. Open `TinyMounter.xcodeproj` to configure signing for the Finder prototype.
