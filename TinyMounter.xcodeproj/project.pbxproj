@@ -89,6 +89,30 @@
 			"path" = "Prototype/Shared/SourceReaderProtocol.swift";
 			"sourceTree" = "<group>";
 		};
+		"131287710C43CF4024EC51D3" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Sources/TransferCore/FileRename.swift";
+			"sourceTree" = "<group>";
+		};
+		"2158AA19223E1BC5C1D820BB" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Sources/TransferCore/CatalogFileRename.swift";
+			"sourceTree" = "<group>";
+		};
+		"7315F8D872BB3CBE6112147E" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Sources/TransferCore/RenameDirectoryEntry.swift";
+			"sourceTree" = "<group>";
+		};
+		"CC48D1BA4BAC12EB5A3212D7" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Prototype/App/LocationRenames.swift";
+			"sourceTree" = "<group>";
+		};
 		"32D8E9D5406EE4B1A3E4342E" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
@@ -748,6 +772,10 @@
 			"isa" = "PBXGroup";
 			"name" = "App";
 			"children" = (
+				"131287710C43CF4024EC51D3",
+				"2158AA19223E1BC5C1D820BB",
+				"7315F8D872BB3CBE6112147E",
+				"CC48D1BA4BAC12EB5A3212D7",
 				"32D8E9D5406EE4B1A3E4342E",
 				"0523D3A43604D8C7886B49BE",
 				"FB31C9BF543DAED959588D7C",
@@ -1514,6 +1542,22 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "0C5C32B1676592F5220BF2DC";
 		};
+		"32B9F1475FA1C94C4A7E448C" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "131287710C43CF4024EC51D3";
+		};
+		"93FA619ED02D491926321E09" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "2158AA19223E1BC5C1D820BB";
+		};
+		"CF94BB6AC03AC4F96E20B9B9" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "7315F8D872BB3CBE6112147E";
+		};
+		"7D45DB29E525F477CA515C21" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "CC48D1BA4BAC12EB5A3212D7";
+		};
 		"8F2E7B119543D20ECF860E62" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "32D8E9D5406EE4B1A3E4342E";
@@ -1664,6 +1708,10 @@
 				"98BE8CF67ADE90B1C12AC306",
 				"64F9FF8D0AA5DFE9116D5ACE",
 				"3BCD6E15AC4C59136756A78B",
+				"32B9F1475FA1C94C4A7E448C",
+				"93FA619ED02D491926321E09",
+				"CF94BB6AC03AC4F96E20B9B9",
+				"7D45DB29E525F477CA515C21",
 				"8F2E7B119543D20ECF860E62",
 				"44A7E63479978016D0D1D884",
 				"5AB3E74E2E5EFF127C3EA27C",

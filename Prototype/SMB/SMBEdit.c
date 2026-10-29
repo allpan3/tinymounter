@@ -7,6 +7,7 @@
 #include <string.h>
 #include <time.h>
 #include <smb2/smb2.h>
+#include <smb2/smb2-errors.h>
 #include <smb2/libsmb2.h>
 #include <smb2/libsmb2-raw.h>
 
@@ -159,6 +160,39 @@ int tm_edit_open_directory(void *opaque, const char *path, uint32_t access, uint
     struct tm_edit_reply reply = {0};
     int error = wait_reply(client, smb2_cmd_create_async(smb, &request, opened, &reply), &reply);
     if (!error) memcpy(file, reply.file, SMB2_FD_SIZE);
+    return error;
+}
+
+static void listed(struct smb2_context *smb, int status, void *data, void *context)
+{
+    struct tm_edit_reply *reply = context;
+    struct smb2_query_directory_reply *info = data;
+    done(smb, status, data, context);
+    if ((uint32_t)status == SMB2_STATUS_NO_MORE_FILES) {
+        reply->error = 0;
+        reply->values[0] = 1;
+    } else if (!status && info && info->output_buffer && info->output_buffer_length <= reply->capacity) {
+        memcpy(reply->buffer, info->output_buffer, info->output_buffer_length);
+        reply->count = info->output_buffer_length;
+    } else if (!status) reply->error = EOVERFLOW;
+}
+
+int tm_edit_list(void *opaque, uint8_t *directory, int restart, uint8_t *buffer,
+                 uint32_t capacity, uint32_t *count, int *finished)
+{
+    struct edit_client *client = opaque;
+    if (!client->smb) return EIO;
+    if (!buffer || capacity < 80 || capacity > 65536) return EINVAL;
+    struct smb2_query_directory_request request = {0};
+    request.file_information_class = SMB2_FILE_ID_FULL_DIRECTORY_INFORMATION;
+    request.flags = restart ? SMB2_RESTART_SCANS | SMB2_REOPEN : 0;
+    request.name = "*";
+    request.output_buffer_length = capacity;
+    memcpy(request.file_id, directory, SMB2_FD_SIZE);
+    struct tm_edit_reply reply = {.buffer = buffer, .capacity = capacity};
+    int error = wait_reply(client, smb2_cmd_query_directory_async(client->smb, &request, listed, &reply), &reply);
+    *count = reply.count;
+    *finished = reply.values[0] != 0;
     return error;
 }
 

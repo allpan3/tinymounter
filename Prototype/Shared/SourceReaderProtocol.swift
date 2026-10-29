@@ -11,6 +11,7 @@ import FileProvider
     func create(_ request: Data, reply: @escaping (Data?, NSError?) -> Void)
     func edit(_ request: Data, reply: @escaping (Data?, NSError?) -> Void)
     func nameFolder(_ request: Data, reply: @escaping (Data?, NSError?) -> Void)
+    func renameFile(_ request: Data, reply: @escaping (Data?, NSError?) -> Void)
     func release(_ requestID: String)
 }
 

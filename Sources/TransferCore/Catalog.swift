@@ -128,7 +128,7 @@ public final class Catalog {
     /// `NSFileProviderItemIdentifier.rootContainer.rawValue`; core doesn't import FileProvider.
     public static let rootItemID = "NSFileProviderRootContainerItemIdentifier"
     static let maxDepth = 256
-    static let schemaVersion: Int64 = 5
+    static let schemaVersion: Int64 = 6
     // No real number of writes reaches it, so a writer's `seq += 1` can't overflow.
     static let maxLastSeq = Int64.max / 2
     private static let busyTimeoutMilliseconds = 2000
@@ -166,7 +166,7 @@ public final class Catalog {
         CREATE UNIQUE INDEX items_live_name ON items(parent_id, name_key) WHERE deleted = 0;
         CREATE INDEX items_kept ON items(row) WHERE keep = 1 AND deleted = 0;
         CREATE INDEX items_listing ON items(parent_id, enumeration_key, row) WHERE deleted = 0;
-        PRAGMA user_version = 5;
+        PRAGMA user_version = 6;
         """
 
     public let domainID: String

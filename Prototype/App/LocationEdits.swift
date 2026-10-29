@@ -11,6 +11,7 @@ extension LocationSource {
 
     static func pendingWrites(domainID: String) throws -> Int {
         try outbox(domainID: domainID).pendingCount + editOutbox(domainID: domainID).pendingCount
+            + renameOutbox().pendingCount(domain: domainID)
     }
 
     func establishUploadedEditBase(_ upload: PendingUpload, row: CatalogRow, bookmark: Data,
@@ -64,6 +65,8 @@ extension LocationSource {
                         }
                         return path
                     }
+                    guard let fullPath = folder.appending(path) else { throw UploadError.invalidRequest }
+                    try editNamespace.requireUncontested(path: fullPath, excluding: request.id)
                     let outbox = try Self.editOutbox(domainID: domainID)
                     var record = try outbox.prepare(item: request.item, parent: request.parent, path: path,
                                                     baseVersion: request.baseVersion, failOnConflict: request.failOnConflict,
@@ -180,11 +183,11 @@ extension LocationSource {
         return try FileSnapshot(fd: fd)
     }
 
-    func protectedTransfer(_ request: SourceReadRequest, row: CatalogRow, path: RelativePath,
-                           progress: Progress, stagingDirectory: URL,
+    func protectedTransfer(_ request: SourceReadRequest, progress: Progress, stagingDirectory: URL,
                            checkSpace: ((Int64) throws -> Void)?) throws -> TransferOutput {
         try editNamespace.perform {
             try uploadLock.withLock {
+                let (row, path) = try readTarget(request)
                 guard let fullPath = folder.appending(path) else { throw UploadError.invalidRequest }
                 try editNamespace.requireUncontested(path: fullPath, excluding: UUID())
                 return try access.withSession { session, progressed in

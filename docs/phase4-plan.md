@@ -473,7 +473,9 @@ preservation and retained recovery data; the results log records their exact cov
 
 Proposed 2026-10-28; accepted 2026-10-29, including the disposable VM fixture. The user also
 approved replacing the separate creation and editing controls with one Read only toggle.
-Implementation and verification are in progress; no M20 runtime result is claimed yet.
+Implementation and signed VM verification are complete. The [results](results/2026-10-29-file-renaming.md)
+record Finder behavior, recovery, preservation checks and remaining limits. The physical Mac
+still runs M19.
 
 ### What the user gets
 

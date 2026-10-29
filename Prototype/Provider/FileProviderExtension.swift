@@ -436,6 +436,9 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             return modifyContents(item, baseVersion: version, changedFields: changedFields, contents: newContents,
                                   options: options, completion: completionHandler)
         }
+        if changedFields == .filename, newContents == nil, Self.kind(of: item) == .file {
+            return renameFile(item, baseVersion: version, completion: completionHandler)
+        }
         let metadata: NSFileProviderItemFields = [.lastUsedDate, .contentModificationDate, .extendedAttributes]
         if newContents == nil, !changedFields.isEmpty, changedFields.subtracting(metadata).isEmpty {
             do {
@@ -475,6 +478,39 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         return progress
     }
 
+    private func renameFile(_ item: NSFileProviderItem, baseVersion: NSFileProviderItemVersion,
+                            completion: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void) -> Progress {
+        countMutation("modify", "result=file_rename")
+        let progress = Progress(totalUnitCount: Int64.max)
+        let once = Once()
+        let finish = { (item: NSFileProviderItem?, error: Error?) in
+            if once.claim() { completion(item, [], false, error) }
+        }
+        progress.cancellationHandler = { finish(nil, CocoaError(.userCancelled)) }
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            do {
+                let row = try catalog.liveRow(item.itemIdentifier.rawValue)
+                let content = String(data: baseVersion.contentVersion, encoding: .utf8)
+                let metadata = String(data: baseVersion.metadataVersion, encoding: .utf8)
+                catalogLogger.info("rename_base verified=\(content?.hasPrefix("e1:") == true) metadata=\(metadata.flatMap(Int64.init) != nil) editing=\(row.allowsEditing) parent=\(row.parentID == item.parentItemIdentifier.rawValue)")
+                guard row.allowsEditing, row.kind == .file, row.parentID == item.parentItemIdentifier.rawValue,
+                      item.contentType?.conforms(to: .package) != true,
+                      let content, content.hasPrefix("e1:"), let metadata else {
+                    throw CocoaError(.fileWriteNoPermission)
+                }
+                let message = try FileRenameRequest(item: row.id, parent: item.parentItemIdentifier.rawValue,
+                                                    name: item.filename, contentVersion: content, metadataVersion: metadata)
+                let receipt = try sourceReader.renameFile(message, progress: progress)
+                progress.completedUnitCount = progress.totalUnitCount
+                finish(CatalogItem(try catalog.liveRow(receipt.item)), nil)
+            } catch {
+                catalogLogger.error("file_rename failed domain=\((error as NSError).domain, privacy: .public) code=\((error as NSError).code)")
+                finish(nil, mutationError(error, parent: item.parentItemIdentifier.rawValue, name: item.filename))
+            }
+        }
+        return progress
+    }
+
     private func modifyContents(_ item: NSFileProviderItem, baseVersion: NSFileProviderItemVersion,
                                 changedFields: NSFileProviderItemFields, contents: URL,
                                 options: NSFileProviderModifyItemOptions, deletionConflict: Bool = false,
@@ -490,7 +526,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 guard let row = try catalog.read({ try $0.item(id: item.itemIdentifier.rawValue) }) else {
                     throw CocoaError(.fileReadUnknown)
                 }
-                guard row.allowsEditing, row.name == item.filename,
+                guard row.allowsEditing, row.name.utf8.elementsEqual(item.filename.utf8),
                       row.parentID == item.parentItemIdentifier.rawValue,
                       item.contentType?.conforms(to: .package) != true else {
                     throw CocoaError(.fileWriteNoPermission)
