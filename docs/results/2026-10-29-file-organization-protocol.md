@@ -2,10 +2,11 @@
 
 Date: 2026-10-29. Within the approved M21–M26 disposable VM session.
 
-All nine organization protocol cases pass on the disposable Samba server. Protected moves
-preserve the original object, complete contents, permissions and attached streams. This does
-not complete M21. Older catalog rows have no historical server identity, so admitting them
-still needs a decision. No new Finder operation is enabled.
+All nine organization protocol cases pass on the disposable Samba server. Signed Finder moves
+also preserve item IDs, content versions and downloaded copies, including across overlapping
+locations and app interruption. The user accepted current-object admission for unverified files.
+M21 remains incomplete: the remaining signed refusal cases, matched recordings and limits below
+still need evidence.
 
 ## Setup and evidence
 
@@ -63,8 +64,8 @@ timestamps come from an integer stat helper. Missing observations remain missing
 
 The production library is the source already covered by 294 VM tests, the required builds and
 six packet-encoding cases. Only probe setup and evidence collection changed for this run.
-Signed Finder moves, departure notifications, preserved downloads, name-derived native IDs,
-cross-filesystem refusal and large-file cost still need verification.
+The signed integration checks below followed this protocol run. Pathname-derived native IDs,
+cross-filesystem refusal and large-file cost still need runtime verification.
 
 ## Admission decision
 
@@ -106,13 +107,53 @@ m21-case-checks.log and m21-case-guard-before.json / m21-case-guard-after.json.
 
 An isolated app-owned audit confirmed that the never-downloaded file retained its item ID and
 f1 content version through the rename and move, and still had a dataless local placeholder.
-The audit forbids hydration on its thread. Legacy downloaded and verified kept comparison files
-have complete matching local bytes before their moves, respectively f1 and e1 versions. Their
-move, retention and overlapping-view checks are still in progress.
+The audit forbids hydration on its thread. After their moves into a kept folder, the legacy
+downloaded and verified kept files retain their item IDs, f1/e1 content versions, local inodes
+and full local digests. The legacy file inherits the destination's keep without gaining an
+explicit request; the verified file keeps its explicit request. Local verification succeeds
+with hydration forbidden.
+Evidence is in m21-downloaded-moves-comparison.json and its before/after app-owned audits.
+Overlapping-view and interruption checks are recorded below.
 
 Moving two files together then exposed a stale health state: the first move completed, but the
 second callback arrived before the periodic probe cleared Unresponsive and was refused. A
 successful operation on the current mount session now resolves that timeout before returning.
 The 15 s stall threshold stays unchanged. Success cannot restore a missing mount or denied
-grant, and an old session cannot restore a replacement session. Core and signed verification of
-this correction are pending.
+grant, and an old session cannot restore a replacement session. Required checks pass with
+349 tests, one optional skip and no Swift warnings in m21-health-checks.log. The previously
+refused move completed after the update. A fresh two-file Move Item Here back to Inbox completed
+both callbacks successfully without the stale-timeout refusal. Evidence:
+m21-paired-move-health-after.json. This is functional evidence, not a move-speed claim.
+After moving out of the kept folder, the legacy file loses inherited retention and the verified
+file retains its explicit keep. Both still have their original f1/e1 versions.
+
+## Overlapping views and interrupted moves
+
+Two writable locations exposed the same synthetic folder. Moving the verified file through
+Finder in one location removed it from the other location's already-open Inbox. Both catalogs
+recorded Archive as its parent. Each view preserved its own item ID, e1 version, explicit keep,
+local inode and complete local digest. The app-owned audit forbade hydration. Evidence:
+m21-overlap-before.json, m21-overlap-after.json and m21-overlap-comparison.json.
+
+The isolated signed test build then stopped before sending a move and, in a separate case,
+immediately after the server completed it. Killing that stopped app and restarting recovered
+both operations. Before publication, every server file was unchanged. After publication, the
+selected file had its original server inode and full digest at the destination, and the old
+name was absent. Neighbors were unchanged. Both views retained their item IDs, versions, keeps,
+local inodes and complete local digests after recovery; all move intents reached completed.
+Evidence: m21-interrupt-before-* and m21-interrupt-after-* in the same VM session. Stop and audit
+hooks remain confined to the test archive.
+
+Recovery also exposed redundant verification: queued retries and replayed callbacks reopened
+the same verified intent while its settings update and completion were pending. Each fixture
+authentication took roughly 20 s, so these repeated connections delayed completion and produced
+temporary Unresponsive notifications. Completion now keeps one set of waiting callbacks per
+intent on the share's serial queue. Recovery skips that intent while settings finish, and
+replayed callbacks wait for the same result. Failure releases the waiters for a later retry;
+restart still requires normal durable recovery. Required VM checks pass: 356 tests, one optional
+skip, no failures or Swift warnings, and six encoder cases in m21-completion-checks.log. A signed
+repeat of the post-move interruption used one recovery connection and completed the replayed
+callback. Both views retained their IDs, versions, keeps, local inodes and full digests, and the
+intent completed. Evidence: m21-completion-recovery-log.json, m21-completion-connection-count.json
+and m21-completion-comparison.json. Neither interruption lost data. These are correctness
+observations with uncontrolled cache state, not performance results.

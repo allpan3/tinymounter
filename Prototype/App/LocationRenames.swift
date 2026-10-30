@@ -30,7 +30,9 @@ extension LocationSource {
                 _ = try renameAccess()
                 let outbox = try Self.renameOutbox()
                 if var record = try outbox.replay(owner: domainID, request: request) {
-                    try finishRename(&record, outbox: outbox, progress: progress)
+                    if renameCompletions[record.id] == nil {
+                        try finishRename(&record, outbox: outbox, progress: progress)
+                    }
                     return record
                 }
                 return try startRename(request, outbox: outbox, progress: progress)
@@ -122,7 +124,8 @@ extension LocationSource {
                 let ready = try editNamespace.perform { () -> [PendingFileRename] in
                     let outbox = try Self.renameOutbox()
                     var ready: [PendingFileRename] = []
-                    for var record in try outbox.records() where record.isPending && record.owner == domainID {
+                    for var record in try outbox.records() where record.isPending && record.owner == domainID
+                        && renameCompletions[record.id] == nil {
                         do {
                             try finishRename(&record, outbox: outbox, progress: Progress())
                             ready.append(record)
@@ -335,25 +338,39 @@ extension LocationSource {
     private func completeRename(_ record: PendingFileRename,
                                 reply: @escaping @Sendable (Result<CreateReceipt, Error>) -> Void) {
         if record.state == .completed { reply(.success(CreateReceipt(item: record.base.item))); return }
+        if renameCompletions[record.id] != nil {
+            renameCompletions[record.id]?.append(reply)
+            return
+        }
+        renameCompletions[record.id] = [reply]
         Task { [self] in
-            do { try await renameSettings(record) }
-            catch { reply(.failure(error)); return }
+            let settingsResult: Result<Void, Error>
+            do {
+                try await renameSettings(record)
+                settingsResult = .success(())
+            } catch {
+                settingsResult = .failure(error)
+            }
             access.enqueue { [self] in
-                let result = Result { try editNamespace.perform {
-                    let outbox = try Self.renameOutbox()
-                    guard var current = try outbox.records().first(where: { $0.id == record.id }),
-                          [.verified, .completed].contains(current.state) else { throw UploadError.unresolved }
-                    if current.state == .completed { return CreateReceipt(item: current.base.item) }
-                    current.state = .completed
-                    try outbox.save(current)
-                    for view in current.views {
-                        let source = try editNamespace.source(view.domain)
-                        source.signalFolders([view.parent, view.targetParent])
-                        source.scheduleSignal()
+                let result = Result {
+                    try settingsResult.get()
+                    return try editNamespace.perform {
+                        let outbox = try Self.renameOutbox()
+                        guard var current = try outbox.records().first(where: { $0.id == record.id }),
+                              [.verified, .completed].contains(current.state) else { throw UploadError.unresolved }
+                        if current.state == .completed { return CreateReceipt(item: current.base.item) }
+                        current.state = .completed
+                        try outbox.save(current)
+                        for view in current.views {
+                            let source = try editNamespace.source(view.domain)
+                            source.signalFolders([view.parent, view.targetParent])
+                            source.scheduleSignal()
+                        }
+                        return CreateReceipt(item: current.base.item)
                     }
-                    return CreateReceipt(item: current.base.item)
-                } }
-                reply(result)
+                }
+                let replies = renameCompletions.removeValue(forKey: record.id) ?? []
+                for reply in replies { reply(result) }
             }
         }
     }

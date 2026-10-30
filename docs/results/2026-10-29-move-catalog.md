@@ -4,8 +4,9 @@ Date: 2026-10-29. Within the accepted M21 scope.
 
 The catalog can now record a caller-proven file move while keeping the item's ID, content
 version, enumeration key and explicit Keep Downloaded request. Core checks pass in macOS VM 1.
-No app or provider path calls this API yet. Ordinary-file admission, SMB publication and signed
-Finder moves remain unverified, so this does not complete M21 or enable a new Finder operation.
+This core-only run predates app integration. The later
+[organization checks](2026-10-29-file-organization-protocol.md) cover protected admission and
+signed Finder moves. Neither result alone completes M21.
 
 ## Behavior and compatibility
 
@@ -17,8 +18,8 @@ move back.
 
 The old parent's change enumeration now includes the moved item with its new parent. The new
 parent and working set receive the same item ID. A move produces no global deletion. Folder
-page cursors remain valid when their last item moves away. Signed Finder verification must still
-establish that these updates remove the item from the old view without losing its download.
+page cursors remain valid when their last item moves away. The later signed overlapping-view
+check confirms departure from the old Finder folder while preserving both views' downloads.
 
 Catalog version 7 adds departure history. Versions 1 through 6 migrate without changing rows,
 epochs or anchors. Older readers refuse version 7 because they cannot deliver departures.

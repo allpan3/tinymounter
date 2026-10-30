@@ -711,6 +711,7 @@ enum LocationError: Error {
 /// One per added location: its writer catalog, listings and reads on the share (plan §5, §6).
 final class LocationSource: @unchecked Sendable {
     typealias Reply = @Sendable (Result<ListReceipt, Error>) -> Void
+    typealias RenameReply = @Sendable (Result<CreateReceipt, Error>) -> Void
 
     static let maxPendingListings = 16
     static let signalDelay = DispatchTimeInterval.milliseconds(200)
@@ -721,6 +722,8 @@ final class LocationSource: @unchecked Sendable {
     /// Signals the domain's working set; `scheduleSignal` debounces it.
     private let signal: @Sendable ([String]) -> Void
     let renameSettings: @Sendable (PendingFileRename) async throws -> Void
+    // The share lane owns these replies while settings completion awaits the main actor.
+    var renameCompletions: [UUID: [RenameReply]] = [:]
     // The system SQLite can't share a connection between threads, so every use takes this lock.
     private let catalogLock = NSLock()
     private var catalog: Catalog?
