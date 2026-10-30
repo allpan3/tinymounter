@@ -183,5 +183,18 @@ It resumed after the completed move without replaying it; the original failure e
 The pending-upload callback also returned pendingWrites, but the next audit was refused by the
 temporary unresponsive state after a roughly 20-second fixture authentication. Admission now
 checks local pending data in every affected view before opening that protected SMB session.
-The namespace lock still excludes concurrent mutations through publication. Required checks
-and the signed repeat of this admission change are pending; this run is not a completed suite.
+The namespace lock still excludes concurrent mutations through publication. Required VM checks
+pass with 414 tests, one optional skip, no failures or Swift warnings, and six encoder cases in
+m21-admission-checks.log. The signed repeat returned pendingWrites with no protected SMB
+connection or Unresponsive transition during the callback. Its fresh remote comparison passed.
+
+All five app-API cases now pass. The app removed both temporary boundary-test locations and
+their exact prepared upload; the synthetic remote subtree remains for fixture teardown.
+The final M21Boundary/run.json and cleanup.json were copied through Finder to the session
+evidence directory. Earlier failed reports remain alongside them. Connection evidence is in
+m21-boundary-finish-log.jsonl and m21-boundary-early-refusal-result.json.
+
+This covers a pending upload, not a pending edit. Finder drag and stale-field callbacks,
+applicable pagination checks and matched baseline recordings remain. The fixture also does
+not establish pathname-derived native-ID behavior, cross-device refusal or large-file cost.
+M21 and the overall disposable-fixture session remain open.

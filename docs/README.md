@@ -26,7 +26,7 @@ it wrong.
 
 - [Permanent-deletion protocol checks](results/2026-10-29-deletion-protocol.md) — protocol and initial transaction-core checks pass; whole-object deletion is accepted and lost replies remain unconfirmed. App deletion is unavailable.
 - [Pending-save ordering](results/2026-10-29-pending-save-order.md) — baseline bug reproduced and core fix passes 332 VM tests; signed workflows and remaining M23 work are open.
-- [SMB file organization checks](results/2026-10-29-file-organization-protocol.md) — nine protocol cases pass; admission of older catalog rows and signed Finder integration remain open.
+- [SMB file organization checks](results/2026-10-29-file-organization-protocol.md) — protocol, signed Finder moves, overlapping-view recovery and five app-API boundary cases pass; remaining M21 checks are open.
 - [SMB rename request encoding](results/2026-10-29-smb-rename-encoding.md) — handle corruption reproduced and fixed; six packet checks and required VM checks pass.
 - [Catalog preparation for file moves](results/2026-10-29-move-catalog.md) — migration and core checks pass; app integration and signed Finder moves remain unverified.
 - [File renaming and one write mode](results/2026-10-29-file-renaming.md) — M20 signed Finder renames, recovery and preservation checks pass; one Read only toggle.
