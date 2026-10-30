@@ -226,6 +226,13 @@ and first disposable VM test session. Each implementation still has to pass its 
 
 ## 11. Open decisions for the first experiment
 
+- **M21 admission for ordinary catalog rows.** Source review on 2026-10-29 found that legacy
+  downloaded and never-downloaded rows lack historical server identity. Name-derived native IDs
+  and matching timestamps cannot distinguish an earlier replacement. The organization probe
+  tests protected operations and recovery, but cannot supply that missing history. Binding a
+  move to the object currently at the path would be a weaker boundary and needs a user decision;
+  it is not approved or implemented. Existing verified-file admission remains unchanged.
+
 - **Remaining milestones, accepted 2026-10-29.** The user requested one forward plan and
   approved parallel agents/worktrees. The [roadmap](roadmap.md) defines M21 to M28, completion
   criteria and shared integration ownership. Accepted scopes include explicit permanent deletion
