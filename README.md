@@ -210,8 +210,9 @@ and app restart pass with unchanged item identity and keeps; M23 remains incompl
 Deletion protocol (M24), 2026-10-29: the disposable VM probe completed deletion, competing-access
 and eleven crash scenarios, then cleaned up its test subtree. The user accepted deleting the
 whole selected file, including concurrent attached data; lost replies remain visibly unconfirmed.
-No app deletion capability is
-enabled. See the [deletion results](docs/results/2026-10-29-deletion-protocol.md).
+The initial transaction core passed required VM checks on 2026-10-30: 441 tests, one optional
+skip and no failures or Swift warnings. No app deletion capability is enabled. See the
+[deletion results](docs/results/2026-10-29-deletion-protocol.md).
 
 Folder catalog preparation (M22), 2026-10-30: subtree commits preserve item identity and file
 versions and require fresh directory listings before reporting offline availability. Atomic
