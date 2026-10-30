@@ -119,6 +119,10 @@ public struct PendingEdit: Codable, Equatable, Sendable {
     public var recoveryRetained = false
     /// Arrival order in this outbox; nil for a record written before saves were ordered.
     public var sequence: UInt64?
+    public var retiredStageRemoved: Bool?
+    public var retiredBackupRemoved: Bool?
+    public var retiredCleanupStarted: Bool?
+    public var conflictNoticeDismissed: Bool?
 
     public var isPending: Bool { state != .completed || recoveryRetained }
     public var publishedIdentity: EditFileIdentity? { conflict ? stageIdentity : previous?.identity }
@@ -128,6 +132,25 @@ public struct PendingEdit: Codable, Equatable, Sendable {
     }
     public var mayHaveChangedOriginal: Bool { !conflict && hasStartedPublication }
     public var isLocalOnly: Bool { [.preparing, .prepared].contains(state) }
+    var retiredNeedsBackup: Bool { previous != nil || backupIdentity != nil || backupVersion != nil }
+    var retiredArtifactsRemoved: Bool {
+        retiredStageRemoved == true && (!retiredNeedsBackup || retiredBackupRemoved == true)
+    }
+
+    var validRetiredProgress: Bool {
+        if retiredStageRemoved == nil, retiredBackupRemoved == nil, retiredCleanupStarted == nil { return true }
+        guard state == .retired, recoveryRetained, published == nil, completedItem == nil else { return false }
+        if retiredStageRemoved == true {
+            guard stageVersion.map({ $0.identity == stageIdentity && $0.size == size && $0.digest == digest }) == true
+            else { return false }
+        }
+        if retiredBackupRemoved == true {
+            guard let previous, backupVersion.map({
+                $0.identity == backupIdentity && $0.size == previous.size && $0.digest == previous.digest
+            }) == true else { return false }
+        }
+        return retiredCleanupStarted != true || retiredArtifactsRemoved
+    }
 }
 
 /// One file's unfinished generations, ordered only as far as evidence allows.
@@ -169,7 +192,9 @@ public final class EditOutbox {
                   destination.components.dropLast() == path.components.dropLast(),
                   stage.components.last == ".tinymounter-\(record.id.uuidString).stage",
                   recovery.components.last == ".tinymounter-\(record.id.uuidString).recovery",
-                  !destination.isRoot, record.sequence != 0 else { throw UploadError.invalidRequest }
+                  !destination.isRoot, record.sequence != 0, record.validRetiredProgress else {
+                throw UploadError.invalidRequest
+            }
             return record
         }.sorted(by: Self.arrival)
     }
@@ -311,6 +336,80 @@ public final class EditOutbox {
         record = stored
     }
 
+    func retiredRecord(_ record: PendingEdit) throws -> PendingEdit {
+        let all = try records()
+        try requireOrderingEvidence(all)
+        guard record.state == .retired,
+              let stored = all.first(where: { $0.id == record.id && $0.item == record.item }),
+              stored.state == .retired, stored.recoveryRetained,
+              stored.published == nil, stored.completedItem == nil else { throw UploadError.unresolved }
+        return stored
+    }
+
+    // Legacy retired saves need an active successor; completed receipts cannot prove their order.
+    func requireRetiredSuccessor(_ record: PendingEdit) throws {
+        let order = try order(item: record.item)
+        guard order.predecessors.isEmpty, order.unordered.isEmpty else { throw UploadError.unresolved }
+        if let head = order.head, let sequence = head.sequence {
+            guard record.sequence.map({ $0 < sequence }) ?? true,
+                  head.parent == record.parent, head.path == record.path else { throw UploadError.unresolved }
+            try validateContents(head)
+            return
+        }
+        guard let sequence = record.sequence,
+              let completed = try records().last(where: {
+                  $0.item == record.item && $0.state == .completed && $0.sequence.map({ $0 > sequence }) == true
+              }), completed.parent == record.parent, completed.path == record.path,
+              let receipt = completed.published, receipt.item == completed.completedItem,
+              receipt.version.identity == completed.publishedIdentity,
+              receipt.version.size == completed.size, receipt.version.digest == completed.digest,
+              try base(item: receipt.item, contentVersion: receipt.contentVersion) == receipt else {
+            throw UploadError.unresolved
+        }
+    }
+
+    // Retired progress can add proof and acknowledgements, but never reactivate publication.
+    func saveRetiredProgress(_ record: PendingEdit) throws {
+        let stored = try retiredRecord(record)
+        guard record.validRetiredProgress,
+              stored.stageVersion.map({ $0 == record.stageVersion }) != false,
+              stored.backupVersion.map({ $0 == record.backupVersion }) != false,
+              stored.retiredStageRemoved != true || record.retiredStageRemoved == true,
+              stored.retiredBackupRemoved != true || record.retiredBackupRemoved == true,
+              stored.retiredCleanupStarted != true || record.retiredCleanupStarted == true else {
+            throw UploadError.unresolved
+        }
+        if let stage = record.stageVersion {
+            guard stage.identity == stored.stageIdentity, stage.size == stored.size, stage.digest == stored.digest else {
+                throw UploadError.unresolved
+            }
+        }
+        if let backup = record.backupVersion {
+            guard let previous = stored.previous, backup.identity == stored.backupIdentity,
+                  backup.size == previous.size, backup.digest == previous.digest else { throw UploadError.unresolved }
+        }
+        var permitted = stored
+        permitted.stageVersion = record.stageVersion
+        permitted.backupVersion = record.backupVersion
+        permitted.retiredStageRemoved = record.retiredStageRemoved
+        permitted.retiredBackupRemoved = record.retiredBackupRemoved
+        permitted.retiredCleanupStarted = record.retiredCleanupStarted
+        guard permitted == record else { throw UploadError.unresolved }
+        if record.retiredCleanupStarted == true {
+            try requireRetiredSuccessor(stored)
+            if stored.retiredCleanupStarted != true { try validateContents(stored) }
+        }
+        try persist(record, id: record.id, extension: "edit", exclusive: false)
+    }
+
+    func discardRetired(_ record: PendingEdit) throws {
+        let stored = try retiredRecord(record)
+        guard stored.retiredCleanupStarted == true else { throw UploadError.unresolved }
+        try requireRetiredSuccessor(stored)
+        try payloads.discardUnpublishedPayload(stored.id)
+        try removeLocalRecord(stored)
+    }
+
     static let orderingGuardName = "Ordering.edit"
     private var orderingGuard: URL { directory.appending(path: Self.orderingGuardName) }
     private var hasOrderingGuard: Bool { FileManager.default.fileExists(atPath: orderingGuard.path) }
@@ -353,6 +452,17 @@ public final class EditOutbox {
             let orphaned = try payloads.pendingCount - linked
             return records.filter(\.isPending).count + orphaned
         }
+    }
+
+    public var contentBytes: Int64 { get throws { try payloads.contentBytes } }
+
+    public func dismissConflictNotice(id: UUID) throws {
+        guard var record = try records().first(where: { $0.id == id }),
+              record.state == .completed, record.conflict, !record.recoveryRetained else {
+            throw UploadError.unresolved
+        }
+        record.conflictNoticeDismissed = true
+        try save(record)
     }
 
     // Callers must deliver current contents in order; no callback identity can detect stale replay.

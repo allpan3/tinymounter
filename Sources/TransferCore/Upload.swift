@@ -62,6 +62,22 @@ public final class UploadOutbox {
         }
     }
 
+    public var contentBytes: Int64 {
+        get throws {
+            var total: Int64 = 0
+            for url in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+                where url.pathExtension == "data" {
+                var info = stat()
+                guard lstat(url.path, &info) == 0 else { throw posixError("inspect retained contents") }
+                guard info.st_mode & S_IFMT == S_IFREG, info.st_size >= 0 else { throw UploadError.unresolved }
+                let (sum, overflow) = total.addingReportingOverflow(info.st_size)
+                guard !overflow else { throw UploadError.unresolved }
+                total = sum
+            }
+            return total
+        }
+    }
+
     public func prepare(_ request: CreateRequest, path: RelativePath, contents: URL?,
                         progress: Progress, checkSpace: ((Int64) throws -> Void)? = nil,
                         id: UUID = UUID()) throws -> PendingUpload {

@@ -196,8 +196,50 @@ final class EditOutboxTests: XCTestCase {
         let orphan = directory.appending(path: "Edits/Contents/\(UUID().uuidString).data")
         try Data("retained".utf8).write(to: orphan)
         XCTAssertEqual(try outbox.pendingCount, 1)
+        XCTAssertEqual(try outbox.contentBytes, Int64("retained".utf8.count))
         XCTAssertThrowsError(try outbox.removeIfCompleted())
         XCTAssertTrue(FileManager.default.fileExists(atPath: orphan.path))
+    }
+
+    func testDismissedConflictNoticeKeepsItsReceiptAndCompletedReplay() throws {
+        var conflict = try prepare()
+        conflict.conflict = true
+        conflict.destination = "document conflict.txt"
+        conflict.stageIdentity = try version(for: conflict).identity
+        conflict.published = try EditBaseReceipt(item: conflict.id.uuidString, version: version(for: conflict))
+        conflict.state = .published
+        try outbox.complete(&conflict, item: conflict.id.uuidString)
+        let receipt = try XCTUnwrap(conflict.published)
+        try outbox.dismissConflictNotice(id: conflict.id)
+        var expected = conflict
+        expected.conflictNoticeDismissed = true
+        XCTAssertEqual(try stored(conflict), expected)
+        XCTAssertEqual(try outbox.base(item: receipt.item, contentVersion: receipt.contentVersion), receipt)
+        XCTAssertEqual(try prepare(), expected)
+        XCTAssertEqual(try outbox.pendingCount, 0)
+        try outbox.dismissConflictNotice(id: conflict.id)
+        XCTAssertEqual(try stored(conflict), expected)
+    }
+
+    func testConflictNoticeCannotBeDismissedForPendingOrRetainedWork() throws {
+        var conflict = try prepare()
+        conflict.conflict = true
+        conflict.stageIdentity = try version(for: conflict).identity
+        try outbox.save(conflict)
+        XCTAssertThrowsError(try outbox.dismissConflictNotice(id: conflict.id))
+        XCTAssertEqual(try stored(conflict), conflict)
+        conflict.state = .published
+        conflict.published = try EditBaseReceipt(item: conflict.id.uuidString, version: version(for: conflict))
+        conflict.recoveryRetained = true
+        try outbox.complete(&conflict, item: conflict.id.uuidString)
+        XCTAssertThrowsError(try outbox.dismissConflictNotice(id: conflict.id))
+        XCTAssertEqual(try stored(conflict), conflict)
+        try outbox.validateContents(conflict)
+        var ordinary = try prepare("ordinary completed save")
+        try completeAsPublished(&ordinary)
+        XCTAssertThrowsError(try outbox.dismissConflictNotice(id: ordinary.id))
+        XCTAssertEqual(try stored(ordinary), ordinary)
+        XCTAssertThrowsError(try outbox.dismissConflictNotice(id: UUID()))
     }
 
     func testConflictPolicyDoesNotReuseDifferentCallbackOutcome() throws {
@@ -554,6 +596,48 @@ final class EditOutboxTests: XCTestCase {
         try FileManager.default.removeItem(at: directory.appending(path: "Edits/" + EditOutbox.orderingGuardName))
         XCTAssertThrowsError(try outbox.retainSuperseded(&old))
         XCTAssertEqual(try stored(old).state, .creatingStage)
+        try outbox.validateContents(old)
+    }
+
+    func testRetiredCleanupProgressCannotRegressOrReactivatePublication() throws {
+        var old = try prepare("older save")
+        old.state = .staged
+        old.stageVersion = try version(for: old)
+        old.stageIdentity = old.stageVersion?.identity
+        try outbox.save(old)
+        _ = try prepare("latest save")
+        try outbox.retainSuperseded(&old)
+        var changed = old
+        changed.stageVersion = try EditFileVersion(identity: XCTUnwrap(old.stageIdentity), size: old.size,
+            digest: old.digest, modifiedMicroseconds: 99, changedMicroseconds: 78,
+            attributes: 32, security: Data([1, 2, 3]))
+        XCTAssertThrowsError(try outbox.saveRetiredProgress(changed))
+        changed = old
+        changed.retiredCleanupStarted = true
+        XCTAssertThrowsError(try outbox.saveRetiredProgress(changed))
+        changed = old
+        changed.retiredBackupRemoved = true
+        XCTAssertThrowsError(try outbox.saveRetiredProgress(changed))
+        old.retiredStageRemoved = true
+        try outbox.saveRetiredProgress(old)
+        changed = old
+        changed.retiredStageRemoved = false
+        XCTAssertThrowsError(try outbox.saveRetiredProgress(changed))
+        changed = old
+        changed.state = .prepared
+        XCTAssertThrowsError(try outbox.saveRetiredProgress(changed))
+        XCTAssertThrowsError(try outbox.save(changed))
+        changed = old
+        changed.published = try EditBaseReceipt(item: item, version: version(for: old))
+        XCTAssertThrowsError(try outbox.saveRetiredProgress(changed))
+        old.retiredCleanupStarted = true
+        try outbox.saveRetiredProgress(old)
+        changed = old
+        changed.retiredCleanupStarted = false
+        XCTAssertThrowsError(try outbox.saveRetiredProgress(changed))
+        XCTAssertEqual(try stored(old), old)
+        XCTAssertEqual(try outbox.pendingCount, 2)
+        XCTAssertThrowsError(try olderBuildRecords())
         try outbox.validateContents(old)
     }
 

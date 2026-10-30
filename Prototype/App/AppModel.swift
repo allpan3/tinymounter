@@ -581,7 +581,16 @@ final class AppModel {
 
     func editRecords(_ record: LocationRecord) async throws -> [PendingEdit] { try await controller.editRecords(record) }
 
+    func savedChangeBytes(_ record: LocationRecord) async throws -> Int64 { try await controller.savedChangeBytes(record) }
+
     func retryEdits(_ record: LocationRecord) { controller.retryEdits(record) }
+
+    func dismissEditNotice(_ edit: PendingEdit, record: LocationRecord) {
+        Task {
+            do { try await controller.dismissEditNotice(record, id: edit.id) }
+            catch { show(error, grantID: record.serverID) }
+        }
+    }
 
     func renameRecords(_ record: LocationRecord) async throws -> [PendingFileRename] {
         try await controller.renameRecords(record)

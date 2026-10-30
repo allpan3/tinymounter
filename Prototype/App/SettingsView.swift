@@ -584,6 +584,7 @@ private struct UploadStatus: View {
     @State private var count: Int?
     @State private var edits: [PendingEdit] = []
     @State private var renames: [PendingFileRename] = []
+    @State private var savedBytes: Int64 = 0
     @State private var statusUnavailable = false
 
     var body: some View {
@@ -598,6 +599,10 @@ private struct UploadStatus: View {
                     Button(UIText.retryEdits) { model.retryEdits(record) }
                 }
             }
+            if savedBytes > 0 {
+                Text(UIText.savedChangeBytes(savedBytes))
+                Text(UIText.savedChangeSpace).font(.callout).foregroundStyle(.secondary)
+            }
             ForEach(renames, id: \.id) { rename in
                 VStack(alignment: .leading) {
                     Text(rename.views.contains(where: { $0.targetParent != $0.parent })
@@ -606,14 +611,15 @@ private struct UploadStatus: View {
                     Text(UIText.renameNeedsRecovery).font(.callout).foregroundStyle(.secondary)
                 }
             }
-            ForEach(edits.filter { $0.isPending || $0.conflict }, id: \.id) { edit in
+            ForEach(edits.filter { $0.isPending || ($0.conflict && $0.conflictNoticeDismissed != true) }, id: \.id) { edit in
                 VStack(alignment: .leading) {
                     Text((edit.path as NSString).lastPathComponent)
-                    Text(edit.state == .retired ? UIText.retiredEdit
-                         : edit.state == .completed && edit.conflict ? UIText.conflictSaved : UIText.editNeedsRecovery)
+                    Text(status(edit))
                         .font(.callout).foregroundStyle(.secondary)
                     if edit.isPending {
                         Button(UIText.exportEdit) { model.exportEdit(edit, record: record) }
+                    } else if edit.state == .completed, edit.conflict {
+                        Button(UIText.dismissEditNotice) { model.dismissEditNotice(edit, record: record) }
                     }
                 }
             }
@@ -624,6 +630,7 @@ private struct UploadStatus: View {
                     count = try await model.pendingUploads(record)
                     edits = try await model.editRecords(record)
                     renames = try await model.renameRecords(record)
+                    savedBytes = try await model.savedChangeBytes(record)
                     statusUnavailable = false
                 } catch {
                     statusUnavailable = true
@@ -631,5 +638,13 @@ private struct UploadStatus: View {
                 try? await Task.sleep(for: .seconds(2))
             }
         }
+    }
+
+    private func status(_ edit: PendingEdit) -> String {
+        if edit.state == .retired { return UIText.retiredEdit }
+        if edit.state == .preparing { return UIText.editPreparing }
+        if edit.conflict { return edit.state == .completed ? UIText.conflictSaved : UIText.editConflict }
+        if edit.state == .prepared, edit.sequence != nil { return UIText.editWaiting }
+        return UIText.editNeedsRecovery
     }
 }

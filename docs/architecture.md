@@ -230,8 +230,8 @@ and first disposable VM test session. Each implementation still has to pass its 
   and retirement change pass the required VM checks. The user permits a newer save after durably
   preventing an older save from publishing, provided it has not started changing the original.
   Retain its uncertain artifacts and local copy, visible and exportable. Signed update recovery
-  published the latest save and preserved the older export. Broader signed workflows, bounded
-  storage and evidence-based recovery cleanup remain.
+  published the latest save and preserved the older export. Recovery cleanup and status reporting
+  pass required VM checks. Broader signed workflows and storage admission checks remain.
 - **M24 attached data during deletion, accepted 2026-10-29.** The [VM probe](results/2026-10-29-deletion-protocol.md)
   completed file/folder deletion and eleven crash scenarios. SMB permits adding streams under
   a deny-all main-file handle. Deleting all attached data present at removal, including such

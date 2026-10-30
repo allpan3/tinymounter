@@ -162,7 +162,8 @@ Current protocol evidence: [file organization](results/2026-10-29-file-organizat
 and [permanent deletion](results/2026-10-29-deletion-protocol.md). Their operation checks pass,
 with current-object admission and whole-file deletion boundaries accepted on 2026-10-29. These probes
 enable no Finder capability. The [M23 ordering core](results/2026-10-29-pending-save-order.md)
-and retirement change pass required VM checks; signed workflows and recovery cleanup remain.
+and retirement change pass required VM checks. Recovery cleanup and status reporting also pass
+those checks; their signed workflows remain.
 
 M18 creation, M19 same-object editing and M20 verified-file renaming have signed VM evidence.
 M20 is the development baseline; the physical Mac runs M19. Existing read-only locations stay

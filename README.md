@@ -198,8 +198,9 @@ signed refusal cases and matched recordings are open. The approved fixture sessi
 Pending saves (M23), 2026-10-29: a focused VM regression reproduces an older save publishing
 while a newer complete copy waits. The core fix and retirement pass required checks. A signed
 app update recovered an interrupted upload, published the latest TextEdit save and kept the
-older copy exportable. Broader signed workflows, storage bounds and recovery cleanup remain
-incomplete. See the
+older copy exportable. Recovery cleanup and clearer status reporting pass all required VM
+checks, including 373 tests with one optional skip and no failures or Swift warnings. Their
+signed workflows and storage checks remain. See the
 [ordering results](docs/results/2026-10-29-pending-save-order.md).
 
 Deletion protocol (M24), 2026-10-29: the disposable VM probe completed deletion, competing-access
