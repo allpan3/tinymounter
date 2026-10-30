@@ -16,16 +16,7 @@ public struct FolderMoveView: Codable, Equatable, Sendable {
     }
 
     public func destinationPath(for entry: CatalogFolderMoveEntry) -> RelativePath? {
-        guard let root = move.entries.first(where: { $0.item == move.item }),
-              let source = RelativePath(root.path), let path = RelativePath(entry.path),
-              let target = RelativePath(move.destinationParentPath)?.appending(move.destinationName),
-              path.components.count >= source.components.count,
-              path.components.prefix(source.components.count).joined(separator: "/")
-                .utf8.elementsEqual(source.string.utf8),
-              let suffix = RelativePath(path.components.dropFirst(source.components.count).joined(separator: "/")) else {
-            return nil
-        }
-        return target.appending(suffix)
+        move.destinationPath(for: entry)
     }
 
     func validate(source: RelativePath, destination: RelativePath, identity: EditFileIdentity) throws {
@@ -88,9 +79,49 @@ public struct FolderMoveSettlement: Codable, Equatable, Sendable {
     }
 }
 
+public enum FolderMoveObservation: Sendable {
+    case directory(CatalogFolderMoveObservation, identity: EditFileIdentity)
+    case file(CatalogFolderMoveObservation, version: EditFileVersion)
+    case removed(item: String)
+
+    public var item: String {
+        switch self {
+        case .directory(let observation, _), .file(let observation, _): observation.item
+        case .removed(let item): item
+        }
+    }
+}
+
+public struct FolderMoveRefresh: Sendable {
+    public let domain: String
+    public let observations: [FolderMoveObservation]
+    public let listings: [CatalogFolderMoveListing]
+
+    public init(domain: String, observations: [FolderMoveObservation], listings: [CatalogFolderMoveListing]) {
+        self.domain = domain
+        self.observations = observations
+        self.listings = listings
+    }
+}
+
+public struct FolderMoveRecoveryView: Codable, Equatable, Sendable {
+    public let domain: String
+    public let expected: CatalogFolderMoveState
+    public let target: CatalogFolderMoveState
+    public let listings: [CatalogFolderMoveListing]
+
+    public init(domain: String, expected: CatalogFolderMoveState, target: CatalogFolderMoveState,
+                listings: [CatalogFolderMoveListing]) {
+        self.domain = domain
+        self.expected = expected
+        self.target = target
+        self.listings = listings
+    }
+}
+
 public struct PendingFolderMove: Codable, Equatable, Sendable {
     public enum Kind: String, Codable, Sendable { case folder }
-    public enum State: String, Codable, Sendable { case prepared, attempting, moved, verified, completed, refused }
+    public enum State: String, Codable, Sendable { case prepared, attempting, moved, verified, recovering, completed, refused }
 
     public let kind: Kind
     public let id: UUID
@@ -104,6 +135,7 @@ public struct PendingFolderMove: Codable, Equatable, Sendable {
     public var state: State = .prepared
     public var refusal: PendingFileRename.Refusal?
     public var settlements: [FolderMoveSettlement]?
+    public var recovery: [FolderMoveRecoveryView]?
     public var finishedDomains: [String] = []
     public var removedDomains: [String] = []
 
@@ -125,10 +157,12 @@ public struct PendingFolderMove: Codable, Equatable, Sendable {
               ownerView.move.entries.first(where: { $0.item == ownerView.move.item })
                 .map({ String($0.changeSeq) == metadataVersion }) == true,
               (state == .refused) == (refusal != nil),
-              (state == .verified || state == .completed) == (settlements != nil),
+              [.verified, .recovering, .completed].contains(state) == (settlements != nil),
+              recovery == nil || state == .recovering || state == .completed,
+              state != .recovering || recovery != nil,
               Set(finishedDomains).count == finishedDomains.count,
               Set(finishedDomains).isSubset(of: Set(views.map(\.domain))),
-              finishedDomains.isEmpty || state == .verified || state == .completed,
+              finishedDomains.isEmpty || [.verified, .recovering, .completed].contains(state),
               state != .completed || Set(finishedDomains) == Set(views.map(\.domain)),
               Set(removedDomains).count == removedDomains.count,
               Set(removedDomains).isSubset(of: Set(views.map(\.domain))),
@@ -170,6 +204,7 @@ public struct PendingFolderMove: Codable, Equatable, Sendable {
             }
         }
         if let settlements { try validateSettlements(settlements) }
+        if let recovery { try validateRecovery(recovery) }
     }
 
     func validateUpdate(from previous: Self) throws {
@@ -178,16 +213,22 @@ public struct PendingFolderMove: Codable, Equatable, Sendable {
         encoder.outputFormatting = .sortedKeys
         let settlementUnchanged = try previous.settlements == nil
             || encoder.encode(previous.settlements) == encoder.encode(settlements)
+        let replanned = try encoder.encode(previous.recovery) != encoder.encode(recovery)
         guard settlementUnchanged,
-              Set(previous.finishedDomains).isSubset(of: Set(finishedDomains)),
+              replanned ? finishedDomains.isEmpty : Set(previous.finishedDomains).isSubset(of: Set(finishedDomains)),
               Set(previous.removedDomains).isSubset(of: Set(removedDomains)) else { throw UploadError.invalidRequest }
         let allowed: [State: Set<State>] = [
             .prepared: [.prepared, .attempting, .moved, .refused],
             .attempting: [.attempting, .moved, .refused], .moved: [.moved, .verified],
-            .verified: [.verified, .completed], .completed: [.completed], .refused: [.refused]
+            .verified: [.verified, .recovering, .completed], .recovering: [.recovering, .completed],
+            .completed: [.completed], .refused: [.refused]
         ]
         guard allowed[previous.state]?.contains(state) == true,
               previous.refusal == nil || previous.refusal == refusal else { throw UploadError.invalidRequest }
+        if replanned {
+            guard state == .recovering, let recovery else { throw UploadError.invalidRequest }
+            try validateRecoveryTransition(recovery, from: previous)
+        }
     }
 
     func validateAdmissionMatches(_ previous: Self) throws {
@@ -195,6 +236,7 @@ public struct PendingFolderMove: Codable, Equatable, Sendable {
         immutable.state = state
         immutable.refusal = refusal
         immutable.settlements = settlements
+        immutable.recovery = recovery
         immutable.finishedDomains = finishedDomains
         immutable.removedDomains = removedDomains
         let encoder = JSONEncoder()
@@ -260,12 +302,20 @@ public struct PendingFolderMove: Codable, Equatable, Sendable {
                     guard entry.kind != .file || (after.preservesContents && after.size == entry.size) else {
                         throw UploadError.invalidRequest
                     }
+                    if case .file(let receipt) = proofs[entry.item]! {
+                        guard after.mtimeNs >= 0,
+                              UInt64(after.mtimeNs / 1_000) == receipt.version.modifiedMicroseconds else {
+                            throw UploadError.invalidRequest
+                        }
+                    }
                     observation = after
                 case .changed(let after, let receipt):
                     guard case .file(let original) = proofs[entry.item]!, entry.kind == .file,
                           receipt.item == entry.item, receipt.version.identity == original.version.identity,
-                          !receipt.version.hasSameContents(as: original.version),
-                          versions.insert(receipt.contentVersion).inserted, !after.preservesContents,
+                          !receipt.version.hasSameContents(as: original.version)
+                            || receipt.version.modifiedMicroseconds != original.version.modifiedMicroseconds,
+                          versions.insert(receipt.contentVersion).inserted,
+                          after.preservesContents == receipt.version.hasSameContents(as: original.version),
                           after.size == receipt.version.size, after.mtimeNs >= 0, after.ctimeNs >= 0,
                           UInt64(after.mtimeNs / 1_000) == receipt.version.modifiedMicroseconds,
                           UInt64(after.ctimeNs / 1_000) == receipt.version.changedMicroseconds else {
@@ -340,6 +390,257 @@ public struct PendingFolderMove: Codable, Equatable, Sendable {
     }
 }
 
+extension PendingFolderMove {
+    public func allowedCatalogStates(domain: String) throws -> [CatalogFolderMoveState] {
+        guard let view = views.first(where: { $0.domain == domain }) else { throw UploadError.invalidRequest }
+        var states = [try CatalogFolderMoveState.admission(view.move, proofs: view.proofs)]
+        if let current = recovery?.first(where: { $0.domain == domain }) {
+            for state in [current.expected, current.target] where !states.contains(state) { states.append(state) }
+        } else {
+            states.append(try latestTarget(domain: domain))
+        }
+        return states
+    }
+
+    public func latestTarget(domain: String) throws -> CatalogFolderMoveState {
+        if let current = recovery?.first(where: { $0.domain == domain }) { return current.target }
+        guard let view = views.first(where: { $0.domain == domain }),
+              let settlement = settlements?.first(where: { $0.domain == domain }) else { throw UploadError.unresolved }
+        return try CatalogFolderMoveState.settled(view.move, settlement: settlement.settlement)
+    }
+
+    private func validateRecovery(_ recovery: [FolderMoveRecoveryView]) throws {
+        guard recovery.count == views.count, Set(recovery.map(\.domain)) == Set(views.map(\.domain)) else {
+            throw UploadError.invalidRequest
+        }
+        for current in recovery {
+            let view = views.first { $0.domain == current.domain }!
+            let admission = try CatalogFolderMoveState.admission(view.move, proofs: view.proofs)
+            try current.expected.validate(view.move, admission: admission)
+            try current.target.validate(view.move, admission: admission)
+            guard current.target.moved else { throw UploadError.invalidRequest }
+        }
+        try validateRecoveryEvidence(recovery, previousTargets: nil)
+    }
+
+    private func validateRecoveryTransition(_ recovery: [FolderMoveRecoveryView], from previous: Self) throws {
+        var usedVersions = Set(views.flatMap { $0.move.entries.map(\.contentVersion) })
+        var previousTargets: [String: CatalogFolderMoveState] = [:]
+        for view in views {
+            previousTargets[view.domain] = try previous.latestTarget(domain: view.domain)
+            for state in try previous.allowedCatalogStates(domain: view.domain) {
+                for entry in state.entries {
+                    usedVersions.insert(entry.contentVersion)
+                    if case .file(let receipt) = entry.proof { usedVersions.insert(receipt.contentVersion) }
+                }
+            }
+        }
+        for current in recovery {
+            guard try previous.allowedCatalogStates(domain: current.domain).contains(current.expected),
+                  let prior = previousTargets[current.domain] else { throw UploadError.unresolved }
+            let before = Dictionary(uniqueKeysWithValues: prior.entries.map { ($0.item, $0) })
+            for after in current.target.entries {
+                let old = before[after.item]!
+                if old.retired {
+                    guard after == old else { throw UploadError.unresolved }
+                } else if after.retired {
+                    guard let witness = after.retirement, after == old.retiring(witness) else { throw UploadError.unresolved }
+                } else {
+                    switch (old.proof, after.proof) {
+                    case (.directory, .directory):
+                        guard old.proof == after.proof, old.contentVersion == after.contentVersion else {
+                            throw UploadError.unresolved
+                        }
+                    case (.file(let original), .file(let receipt)):
+                        let unchanged = receipt.version.hasSameContents(as: original.version)
+                            && receipt.version.modifiedMicroseconds == original.version.modifiedMicroseconds
+                        if unchanged {
+                            guard receipt == original, after.contentVersion == old.contentVersion else {
+                                throw UploadError.unresolved
+                            }
+                        } else {
+                            guard receipt.version.identity == original.version.identity,
+                                  after.contentVersion == receipt.contentVersion,
+                                  usedVersions.insert(receipt.contentVersion).inserted else { throw UploadError.unresolved }
+                        }
+                    default: throw UploadError.unresolved
+                    }
+                }
+            }
+        }
+        try validateRecoveryEvidence(recovery, previousTargets: previousTargets)
+    }
+
+    private func validateRecoveryEvidence(_ recovery: [FolderMoveRecoveryView],
+                                          previousTargets: [String: CatalogFolderMoveState]?) throws {
+        struct Known {
+            let name: String
+            let kind: CatalogRow.Kind
+            let entry: CatalogFolderMoveState.Entry
+            let newlyRetired: Bool
+        }
+        var known: [[NameKey]: Known] = [:]
+        var listed: [[NameKey]: [NameKey: CatalogFolderMoveListing.Child]] = [:]
+        var remaining = DirectoryListing.defaultLimit
+        for current in recovery {
+            let view = views.first { $0.domain == current.domain }!
+            let original = Dictionary(uniqueKeysWithValues: view.move.entries.map { ($0.item, $0) })
+            let target = Dictionary(uniqueKeysWithValues: current.target.entries.map { ($0.item, $0) })
+            let previous = Dictionary(uniqueKeysWithValues: (previousTargets?[current.domain]?.entries ?? [])
+                .map { ($0.item, $0) })
+            for entry in current.target.entries where entry.retired && previous[entry.item]?.retired == false {
+                let snapshot = original[entry.item]!, parent = target[snapshot.parent]!
+                let witness: CatalogFolderMoveRetirement
+                if parent.retired { witness = .parent(item: parent.item) }
+                else {
+                    guard let listing = current.listings.first(where: { $0.parent == parent.item }),
+                          let path = view.destinationPath(for: original[parent.item]!) else { throw UploadError.unresolved }
+                    witness = try .proved(snapshot, identity: entry.proof.identity,
+                                          parentIdentity: parent.proof.identity, parentPath: path, listing: listing)
+                }
+                guard entry.retirement == witness else { throw UploadError.unresolved }
+            }
+            for entry in current.target.entries {
+                let snapshot = original[entry.item]!
+                let path = RelativePath(view.folder)!.appending(RelativePath(snapshot.path)!)!
+                let key = path.components.map(NameKey.init)
+                let value = Known(name: snapshot.name, kind: snapshot.kind, entry: entry,
+                                  newlyRetired: entry.retired && previous[entry.item]?.retired == false)
+                if let other = known[key] {
+                    guard other.entry.retired == entry.retired, other.entry.proof.identity == entry.proof.identity,
+                          other.newlyRetired == value.newlyRetired, other.kind == snapshot.kind,
+                          other.name.utf8.elementsEqual(snapshot.name.utf8) else { throw UploadError.unresolved }
+                    if !entry.retired {
+                        guard other.entry.nativeID == entry.nativeID, other.entry.fingerprint == entry.fingerprint else {
+                            throw UploadError.unresolved
+                        }
+                        if case .file(let lhs) = other.entry.proof, case .file(let rhs) = entry.proof {
+                            guard lhs.version.hasSameContents(as: rhs.version),
+                                  lhs.version.modifiedMicroseconds == rhs.version.modifiedMicroseconds else {
+                                throw UploadError.unresolved
+                            }
+                        }
+                    }
+                }
+                known[key] = value
+            }
+            guard Set(current.listings.map(\.parent)).count == current.listings.count else { throw UploadError.unresolved }
+            for listing in current.listings {
+                guard let before = original[listing.parent], before.kind == .folder,
+                      let parent = target[listing.parent], !parent.retired, listing.complete,
+                      listing.identity == parent.proof.identity,
+                      view.destinationPath(for: before)?.string.utf8.elementsEqual(listing.path.utf8) == true,
+                      listing.children.count <= remaining,
+                      listing.children.allSatisfy({ RelativePath.isValidComponent($0.name) }),
+                      Set(listing.children.map { NameKey($0.name) }).count == listing.children.count else {
+                    throw UploadError.unresolved
+                }
+                remaining -= listing.children.count
+                let path = RelativePath(view.folder)!.appending(RelativePath(before.path)!)!
+                let key = path.components.map(NameKey.init)
+                let children = Dictionary(uniqueKeysWithValues: listing.children.map { (NameKey($0.name), $0) })
+                if let earlier = listed[key] {
+                    guard earlier.count == children.count, children.allSatisfy({ name, child in
+                        guard let old = earlier[name] else { return false }
+                        return old.identity == child.identity && old.kind == child.kind
+                            && old.name.utf8.elementsEqual(child.name.utf8)
+                    }) else { throw UploadError.unresolved }
+                }
+                listed[key] = children
+            }
+        }
+        for (path, child) in known {
+            let parentPath = Array(path.dropLast()), key = path.last!
+            if child.newlyRetired, known[parentPath]?.entry.retired == false {
+                guard listed[parentPath] != nil else { throw UploadError.unresolved }
+            }
+            guard let listing = listed[parentPath] else { continue }
+            let found = listing[key]
+            if child.newlyRetired {
+                guard found?.identity != child.entry.proof.identity else { throw UploadError.unresolved }
+            } else if !child.entry.retired {
+                guard let found, found.identity == child.entry.proof.identity, found.kind == child.kind,
+                      found.name.utf8.elementsEqual(child.name.utf8) else { throw UploadError.unresolved }
+            }
+        }
+    }
+
+    func makeRecovery(expected: [String: CatalogFolderMoveState], refreshes: [FolderMoveRefresh]) throws
+        -> [FolderMoveRecoveryView] {
+        guard Set(expected.keys) == Set(views.map(\.domain)), refreshes.count == views.count,
+              Set(refreshes.map(\.domain)) == Set(views.map(\.domain)) else { throw UploadError.unresolved }
+        return try views.map { view in
+            let prior = try latestTarget(domain: view.domain), refresh = refreshes.first { $0.domain == view.domain }!
+            guard try allowedCatalogStates(domain: view.domain).contains(expected[view.domain]!),
+                  refresh.observations.count == view.move.entries.count,
+                  Set(refresh.observations.map(\.item)) == Set(view.move.entries.map(\.item)) else {
+                throw UploadError.unresolved
+            }
+            let observations = Dictionary(uniqueKeysWithValues: refresh.observations.map { ($0.item, $0) })
+            let original = Dictionary(uniqueKeysWithValues: view.move.entries.map { ($0.item, $0) })
+            let priorEntries = Dictionary(uniqueKeysWithValues: prior.entries.map { ($0.item, $0) })
+            let entries = try prior.entries.map { before -> CatalogFolderMoveState.Entry in
+                let observed = observations[before.item]!
+                if before.retired {
+                    guard case .removed = observed else { throw UploadError.unresolved }
+                    return before
+                }
+                let after: CatalogFolderMoveObservation, proof: CatalogFolderMoveProof, version: String
+                switch observed {
+                case .removed:
+                    let entry = original[before.item]!
+                    guard entry.item != view.move.item, let parent = priorEntries[entry.parent] else {
+                        throw UploadError.unresolved
+                    }
+                    if case .removed = observations[parent.item]! {
+                        return before.retiring(.parent(item: parent.item))
+                    }
+                    guard let listing = refresh.listings.first(where: { $0.parent == parent.item }),
+                          let path = view.destinationPath(for: original[parent.item]!) else { throw UploadError.unresolved }
+                    return before.retiring(try .proved(entry, identity: before.proof.identity,
+                        parentIdentity: parent.proof.identity, parentPath: path, listing: listing))
+                case .directory(let value, let identity):
+                    guard original[before.item]!.kind == .folder, identity == before.proof.identity else {
+                        throw UploadError.unresolved
+                    }
+                    after = value
+                    proof = before.proof
+                    version = before.contentVersion
+                case .file(let value, let fresh):
+                    guard case .file(let base) = before.proof, original[before.item]!.kind == .file,
+                          fresh.identity == base.version.identity, value.size == fresh.size,
+                          value.mtimeNs >= 0, value.ctimeNs >= 0,
+                          UInt64(value.mtimeNs / 1_000) == fresh.modifiedMicroseconds,
+                          UInt64(value.ctimeNs / 1_000) == fresh.changedMicroseconds,
+                          value.preservesContents == fresh.hasSameContents(as: base.version) else {
+                        throw UploadError.unresolved
+                    }
+                    after = value
+                    if fresh.hasSameContents(as: base.version)
+                        && fresh.modifiedMicroseconds == base.version.modifiedMicroseconds {
+                        proof = before.proof
+                        version = before.contentVersion
+                    } else {
+                        let receipt = try EditBaseReceipt(item: before.item, version: fresh)
+                        proof = .file(receipt)
+                        version = receipt.contentVersion
+                    }
+                }
+                guard after.kind == original[before.item]!.kind, after.nativeID != 0, after.size >= 0,
+                      after.preservesIdentity,
+                      view.destinationPath(for: original[before.item]!)?.string.utf8.elementsEqual(after.path.utf8) == true else {
+                    throw UploadError.unresolved
+                }
+                return CatalogFolderMoveState.Entry(item: before.item, nativeID: after.nativeID,
+                    fingerprint: ContentFingerprint(size: after.size, mtimeNs: after.mtimeNs, ctimeNs: after.ctimeNs),
+                    contentVersion: version, proof: proof)
+            }
+            return FolderMoveRecoveryView(domain: view.domain, expected: expected[view.domain]!,
+                target: CatalogFolderMoveState(moved: true, entries: entries), listings: refresh.listings)
+        }
+    }
+}
+
 extension FileRenameOutbox {
     func reloadFolder(_ record: PendingFolderMove) throws -> PendingFolderMove {
         guard let intent = try intents().first(where: { $0.id == record.id }),
@@ -404,7 +705,7 @@ public struct FolderMoveEvidence: Sendable {
 
 public protocol FolderMoveRemote {
     func protectFolderMoveParents(source: String, destination: String) throws -> [FileRenameParent]
-    // Fresh exact spelling and directory identity; nil requires definitive name absence.
+    // Nil requires definitive absence; a non-directory destination throws collision.
     func inspectFolderMoveRoot(path: String) throws -> FolderMoveEvidence?
     func releaseFolderMoveRoot(path: String) throws
     // Recheck every admission proof under protection, including complete file contents.
@@ -416,9 +717,12 @@ public protocol FolderMoveRemote {
     func settleFolderMove(_ record: PendingFolderMove) throws -> [FolderMoveSettlement]
     // Lost protection requires fresh full proof of the immutable settlement before local replay.
     func verifyFolderMoveSettlement(_ record: PendingFolderMove) throws
+    func refreshFolderMove(_ record: PendingFolderMove) throws -> [FolderMoveRefresh]
+    func verifyFolderMoveRecovery(_ record: PendingFolderMove) throws
 }
 
 public enum FolderMoveTransaction {
+    // Completed replay is a no-op; callers must never reapply its original settlement.
     public static func publish(_ record: inout PendingFolderMove, outbox: FileRenameOutbox,
                                remote: FolderMoveRemote,
                                checkpoint: (PendingFolderMove.State) throws -> Void = { _ in }) throws {
@@ -428,7 +732,8 @@ public enum FolderMoveTransaction {
         if record.state == .refused { throw refusalError(record.refusal) }
         guard try remote.protectFolderMoveParents(source: record.source, destination: record.destination)
             == record.parents else { throw UploadError.unresolved }
-        let target = try remote.inspectFolderMoveRoot(path: record.destination)
+        let destination = try inspectDestination(record.destination, remote: remote)
+        let target = destination.evidence
         if let target, target.identity == record.identity, target.name.utf8.elementsEqual(record.name.utf8) {
             try settle(&record, outbox: outbox, remote: remote, checkpoint: checkpoint)
             return
@@ -440,7 +745,9 @@ public enum FolderMoveTransaction {
             if record.state == .prepared { try refuse(&record, .changed, outbox: outbox) }
             throw UploadError.unresolved
         }
-        if let target, target.identity != record.identity { try refuse(&record, .collision, outbox: outbox) }
+        if destination.collision || target.map({ $0.identity != record.identity }) == true {
+            try refuse(&record, .collision, outbox: outbox)
+        }
         do { try remote.verifyFolderMoveSource(record) }
         catch SourceFailure.versionChanged {
             if record.state == .prepared { try refuse(&record, .changed, outbox: outbox) }
@@ -453,14 +760,15 @@ public enum FolderMoveTransaction {
         do { try remote.moveFolder(source: record.source, destination: record.destination) }
         catch {
             // Even an error reply is not a refusal until fresh evidence excludes remote success.
-            if let after = try remote.inspectFolderMoveRoot(path: record.destination),
+            let destination = try inspectDestination(record.destination, remote: remote)
+            if let after = destination.evidence,
                after.identity == record.identity, after.name.utf8.elementsEqual(record.name.utf8) {
                 try settle(&record, outbox: outbox, remote: remote, checkpoint: checkpoint)
                 return
             }
             let reason: PendingFileRename.Refusal?
             let failure = error as NSError
-            if error as? UploadError == .collision
+            if destination.collision || error as? UploadError == .collision
                 || (failure.domain == NSPOSIXErrorDomain && failure.code == Int(EEXIST)) { reason = .collision }
             else if failure.domain == NSPOSIXErrorDomain
                 && [Int(EACCES), Int(EPERM), Int(ENOTSUP), Int(EINVAL), Int(EXDEV)].contains(failure.code) {
@@ -487,6 +795,10 @@ public enum FolderMoveTransaction {
             try remote.verifyFolderMoveSettlement(record)
             return
         }
+        if record.state == .recovering {
+            try remote.verifyFolderMoveRecovery(record)
+            return
+        }
         record.state = .moved
         try outbox.save(record)
         try checkpoint(.moved)
@@ -498,11 +810,37 @@ public enum FolderMoveTransaction {
         try checkpoint(.verified)
     }
 
+    private static func inspectDestination(_ path: String, remote: FolderMoveRemote) throws
+        -> (evidence: FolderMoveEvidence?, collision: Bool) {
+        do { return (try remote.inspectFolderMoveRoot(path: path), false) }
+        catch UploadError.collision { return (nil, true) }
+    }
+
+    public static func replan(_ record: inout PendingFolderMove, outbox: FileRenameOutbox,
+                              expected: [String: CatalogFolderMoveState], remote: FolderMoveRemote,
+                              checkpoint: (PendingFolderMove.State) throws -> Void = { _ in }) throws {
+        record = try outbox.reloadFolder(record)
+        guard record.state == .verified || record.state == .recovering,
+              try remote.protectFolderMoveParents(source: record.source, destination: record.destination)
+                == record.parents,
+              let root = try remote.inspectFolderMoveRoot(path: record.destination), root.identity == record.identity,
+              root.name.utf8.elementsEqual(record.name.utf8) else { throw UploadError.unresolved }
+        var planned = record
+        planned.recovery = try record.makeRecovery(expected: expected, refreshes: remote.refreshFolderMove(record))
+        planned.state = .recovering
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        if try encoder.encode(planned.recovery) != encoder.encode(record.recovery) { planned.finishedDomains = [] }
+        try outbox.save(planned)
+        record = planned
+        try checkpoint(.recovering)
+    }
+
     // Catalog, keeps and replay bookkeeping for this domain must all be durable first.
     public static func finishDomain(_ domain: String, record: inout PendingFolderMove,
                                     outbox: FileRenameOutbox) throws {
         record = try outbox.reloadFolder(record)
-        guard record.state == .verified || record.state == .completed,
+        guard [.verified, .recovering, .completed].contains(record.state),
               record.views.contains(where: { $0.domain == domain }) else { throw UploadError.invalidRequest }
         var updated = record
         if !updated.finishedDomains.contains(domain) { updated.finishedDomains.append(domain) }

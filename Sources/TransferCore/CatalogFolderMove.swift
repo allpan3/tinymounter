@@ -53,6 +53,19 @@ public struct CatalogFolderMove: Codable, Equatable, Sendable {
         self.destinationParentPath = destinationParentPath.string
         self.entries = entries
     }
+
+    public func destinationPath(for entry: CatalogFolderMoveEntry) -> RelativePath? {
+        guard let root = entries.first(where: { $0.item == item }),
+              let source = RelativePath(root.path), let path = RelativePath(entry.path),
+              let target = RelativePath(destinationParentPath)?.appending(destinationName),
+              path.components.count >= source.components.count,
+              path.components.prefix(source.components.count).joined(separator: "/")
+                .utf8.elementsEqual(source.string.utf8),
+              let suffix = RelativePath(path.components.dropFirst(source.components.count).joined(separator: "/")) else {
+            return nil
+        }
+        return target.appending(suffix)
+    }
 }
 
 public struct CatalogFolderMoveObservation: Codable, Equatable, Sendable {
@@ -157,12 +170,323 @@ public struct CatalogFolderMoveSettlement: Codable, Equatable, Sendable {
     }
 }
 
+public enum CatalogFolderMoveRetirement: Codable, Equatable, Sendable {
+    case listed(parent: String, identity: EditFileIdentity, name: String, occupant: CatalogFolderMoveListing.Child?)
+    case parent(item: String)
+
+    static func proved(_ entry: CatalogFolderMoveEntry, identity: EditFileIdentity,
+                       parentIdentity: EditFileIdentity, parentPath: RelativePath,
+                       listing: CatalogFolderMoveListing) throws -> Self {
+        guard listing.parent == entry.parent, listing.identity == parentIdentity, listing.complete,
+              listing.path.utf8.elementsEqual(parentPath.string.utf8),
+              listing.children.count <= DirectoryListing.defaultLimit,
+              listing.children.allSatisfy({ RelativePath.isValidComponent($0.name) }),
+              Set(listing.children.map { NameKey($0.name) }).count == listing.children.count else {
+            throw UploadError.unresolved
+        }
+        let occupant = listing.children.first { NameKey($0.name) == NameKey(entry.name) }
+        guard occupant?.identity != identity else { throw UploadError.unresolved }
+        return .listed(parent: entry.parent, identity: parentIdentity, name: entry.name, occupant: occupant)
+    }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        switch (lhs, rhs) {
+        case (.parent(let lhs), .parent(let rhs)): return lhs == rhs
+        case (.listed(let lp, let li, let ln, let lo), .listed(let rp, let ri, let rn, let ro)):
+            guard lp == rp, li == ri, ln.utf8.elementsEqual(rn.utf8), lo?.identity == ro?.identity,
+                  lo?.kind == ro?.kind else { return false }
+            if let lo, let ro { return lo.name.utf8.elementsEqual(ro.name.utf8) }
+            return lo == nil && ro == nil
+        default: return false
+        }
+    }
+}
+
+public struct CatalogFolderMoveState: Codable, Equatable, Sendable {
+    public struct Entry: Codable, Equatable, Sendable {
+        public let item: String
+        public let nativeID: UInt64
+        public let size: Int64
+        public let mtimeNs: Int64
+        public let ctimeNs: Int64
+        public let contentVersion: String
+        public let proof: CatalogFolderMoveProof
+        public let retirement: CatalogFolderMoveRetirement?
+        public var retired: Bool { retirement != nil }
+
+        public init(item: String, nativeID: UInt64, fingerprint: ContentFingerprint,
+                    contentVersion: String, proof: CatalogFolderMoveProof,
+                    retirement: CatalogFolderMoveRetirement? = nil) {
+            self.item = item
+            self.nativeID = nativeID
+            size = fingerprint.size
+            mtimeNs = fingerprint.mtimeNs
+            ctimeNs = fingerprint.ctimeNs
+            self.contentVersion = contentVersion
+            self.proof = proof
+            self.retirement = retirement
+        }
+
+        public var fingerprint: ContentFingerprint {
+            ContentFingerprint(size: size, mtimeNs: mtimeNs, ctimeNs: ctimeNs)
+        }
+
+        func retiring(_ evidence: CatalogFolderMoveRetirement) -> Self {
+            Self(item: item, nativeID: nativeID, fingerprint: fingerprint,
+                 contentVersion: contentVersion, proof: proof, retirement: evidence)
+        }
+    }
+
+    public let moved: Bool
+    public let entries: [Entry]
+
+    public init(moved: Bool, entries: [Entry]) {
+        self.moved = moved
+        self.entries = entries
+    }
+
+    static func admission(_ move: CatalogFolderMove, proofs: [CatalogFolderMoveProof]) throws -> Self {
+        guard proofs.count == move.entries.count, Set(proofs.map(\.item)) == Set(move.entries.map(\.item)),
+              Set(move.entries.map(\.item)).count == move.entries.count else { throw UploadError.unresolved }
+        let indexed = Dictionary(uniqueKeysWithValues: proofs.map { ($0.item, $0) })
+        let state = Self(moved: false, entries: move.entries.map {
+            Entry(item: $0.item, nativeID: $0.nativeID,
+                  fingerprint: ContentFingerprint(size: $0.size, mtimeNs: $0.mtimeNs, ctimeNs: $0.ctimeNs),
+                  contentVersion: $0.contentVersion, proof: indexed[$0.item]!)
+        })
+        try state.validate(move, admission: state)
+        return state
+    }
+
+    static func settled(_ move: CatalogFolderMove, settlement: CatalogFolderMoveSettlement) throws -> Self {
+        let admission = try admission(move, proofs: settlement.proofs)
+        guard settlement.resolutions.count == move.entries.count,
+              Set(settlement.resolutions.map(\.item)) == Set(move.entries.map(\.item)) else {
+            throw UploadError.unresolved
+        }
+        let results = Dictionary(uniqueKeysWithValues: settlement.resolutions.map { ($0.item, $0) })
+        let original = Dictionary(uniqueKeysWithValues: move.entries.map { ($0.item, $0) })
+        let admitted = Dictionary(uniqueKeysWithValues: admission.entries.map { ($0.item, $0) })
+        let entries = try admission.entries.map { before -> Entry in
+            let after: CatalogFolderMoveObservation, proof: CatalogFolderMoveProof, version: String
+            switch results[before.item]! {
+            case .removed:
+                let entry = original[before.item]!
+                guard entry.item != move.item, let parent = admitted[entry.parent] else { throw UploadError.unresolved }
+                if case .removed = results[entry.parent]! { return before.retiring(.parent(item: entry.parent)) }
+                guard let listing = settlement.listings.first(where: { $0.parent == entry.parent }),
+                      let path = move.destinationPath(for: original[entry.parent]!) else { throw UploadError.unresolved }
+                return before.retiring(try CatalogFolderMoveRetirement.proved(entry, identity: before.proof.identity,
+                    parentIdentity: parent.proof.identity, parentPath: path, listing: listing))
+            case .preserved(let observed):
+                after = observed
+                proof = before.proof
+                version = before.contentVersion
+            case .changed(let observed, let receipt):
+                after = observed
+                proof = .file(receipt)
+                version = receipt.contentVersion
+            }
+            return Entry(item: before.item, nativeID: after.nativeID,
+                         fingerprint: ContentFingerprint(size: after.size, mtimeNs: after.mtimeNs, ctimeNs: after.ctimeNs),
+                         contentVersion: version, proof: proof)
+        }
+        let state = Self(moved: true, entries: entries)
+        try state.validate(move, admission: admission)
+        return state
+    }
+
+    func validate(_ move: CatalogFolderMove, admission: Self) throws {
+        guard entries.count == move.entries.count, Set(entries.map(\.item)) == Set(move.entries.map(\.item)),
+              Set(move.entries.map(\.item)).count == move.entries.count,
+              admission.entries.count == entries.count,
+              Set(admission.entries.map(\.item)) == Set(entries.map(\.item)),
+              moved || self == admission else { throw UploadError.unresolved }
+        let original = Dictionary(uniqueKeysWithValues: move.entries.map { ($0.item, $0) })
+        let admitted = Dictionary(uniqueKeysWithValues: admission.entries.map { ($0.item, $0) })
+        let current = Dictionary(uniqueKeysWithValues: entries.map { ($0.item, $0) })
+        for entry in entries {
+            let before = original[entry.item]!, first = admitted[entry.item]!
+            guard entry.proof.item == entry.item, entry.proof.identity == first.proof.identity,
+                  entry.nativeID != 0, entry.size >= 0,
+                  !entry.contentVersion.isEmpty, entry.contentVersion.utf8.count <= 128,
+                  entry.item != move.item || !entry.retired else { throw UploadError.unresolved }
+            if entry.item != move.item {
+                guard let parent = current[before.parent], !parent.retired || entry.retired else {
+                    throw UploadError.unresolved
+                }
+            }
+            if let retirement = entry.retirement {
+                switch retirement {
+                case .listed(let parent, let identity, let name, let occupant):
+                    guard parent == before.parent, identity == admitted[parent]?.proof.identity,
+                          name.utf8.elementsEqual(before.name.utf8),
+                          occupant?.identity != entry.proof.identity else { throw UploadError.unresolved }
+                    if let occupant {
+                        guard RelativePath.isValidComponent(occupant.name), NameKey(occupant.name) == NameKey(name) else {
+                            throw UploadError.unresolved
+                        }
+                    }
+                case .parent(let parent):
+                    guard parent == before.parent, current[parent]?.retired == true else { throw UploadError.unresolved }
+                }
+            }
+            switch entry.proof {
+            case .directory:
+                guard before.kind == .folder, entry.contentVersion == before.contentVersion else {
+                    throw UploadError.unresolved
+                }
+            case .file(let receipt):
+                guard before.kind == .file, receipt.version.size == entry.size, entry.mtimeNs >= 0,
+                      UInt64(entry.mtimeNs / 1_000) == receipt.version.modifiedMicroseconds,
+                      entry.contentVersion == receipt.contentVersion
+                        || (entry.contentVersion == before.contentVersion && entry.proof == first.proof),
+                      !entry.contentVersion.hasPrefix("e1:") || entry.contentVersion == receipt.contentVersion else {
+                    throw UploadError.unresolved
+                }
+                if entry.contentVersion == first.contentVersion || receipt.contentVersion == first.contentVersion {
+                    guard entry.proof == first.proof else { throw UploadError.unresolved }
+                }
+                if case .file(let original) = first.proof, receipt.id == original.id {
+                    guard receipt == original else { throw UploadError.unresolved }
+                }
+            }
+        }
+        for entry in entries where entry.retired {
+            var seen: Set<String> = [entry.item], witness = entry.retirement!
+            while case .parent(let parent) = witness {
+                guard seen.insert(parent).inserted, let next = current[parent]?.retirement else {
+                    throw UploadError.unresolved
+                }
+                witness = next
+            }
+        }
+    }
+}
+
 private struct FolderMoveResult {
     let observation: CatalogFolderMoveObservation?
     let contentVersion: String
 }
 
 extension Catalog {
+    public func classifyFolderMove(_ move: CatalogFolderMove, proofs: [CatalogFolderMoveProof],
+                                   allowed: [CatalogFolderMoveState]) throws -> CatalogFolderMoveState {
+        let paths = try folderMovePaths(move), admission = try CatalogFolderMoveState.admission(move, proofs: proofs)
+        guard !allowed.isEmpty, allowed.count <= 3 else { throw UploadError.unresolved }
+        for state in allowed { try state.validate(move, admission: admission) }
+        return try database.read {
+            for state in allowed where try matchesFolderMoveState(move, state: state, paths: paths) { return state }
+            throw UploadError.unresolved
+        }
+    }
+
+    // The durable recovery plan supplies the freshly proved target; this commit compares local state.
+    public func applyFolderMoveRecovery(_ move: CatalogFolderMove, proofs: [CatalogFolderMoveProof],
+                                       expected: CatalogFolderMoveState, target: CatalogFolderMoveState) throws {
+        let paths = try folderMovePaths(move), admission = try CatalogFolderMoveState.admission(move, proofs: proofs)
+        try expected.validate(move, admission: admission)
+        try target.validate(move, admission: admission)
+        let after = Dictionary(uniqueKeysWithValues: target.entries.map { ($0.item, $0) })
+        guard target.moved, expected.entries.allSatisfy({ entry in
+            let result = after[entry.item]!
+            return (!entry.retired || result == entry)
+                && (entry.contentVersion != result.contentVersion || entry.proof == result.proof)
+        }) else {
+            throw UploadError.unresolved
+        }
+        try write { seq in
+            guard let destination = try item(id: move.destinationParent), !destination.deleted,
+                  destination.kind == .folder, destination.listGen != nil,
+                  try relativePath(of: destination.id)?.string.utf8
+                    .elementsEqual(move.destinationParentPath.utf8) == true else { throw UploadError.unresolved }
+            if let collision = try liveChild(parent: destination.id, nameKey: NameKey(move.destinationName)),
+               collision.id != move.item { throw UploadError.collision }
+            if try matchesFolderMoveState(move, state: target, paths: paths) { return }
+            guard try matchesFolderMoveState(move, state: expected, paths: paths) else { throw UploadError.unresolved }
+            let ordered = move.entries.sorted { paths[$0.item]!.components.count < paths[$1.item]!.components.count }
+            var keeps: [String: Bool] = [:]
+            var departure: Int64 = 0
+            for before in ordered {
+                let result = after[before.item]!, row = try item(id: before.item)!
+                let parent = before.item == move.item ? destination.id : before.parent
+                let name = before.item == move.item ? move.destinationName : before.name
+                let inherited = before.item == move.item ? destination.keep : keeps[before.parent]
+                guard result.retired || inherited != nil else { throw UploadError.unresolved }
+                let keep = result.retired ? row.keep : row.keepRequested || inherited!
+                keeps[before.item] = keep
+                let nativeID = try folderMoveNativeID(row.id)
+                guard row.deleted != result.retired || row.parentID != parent || !row.name.utf8.elementsEqual(name.utf8)
+                    || row.contentVersion != result.contentVersion || row.size != result.size
+                    || row.mtimeNs != result.mtimeNs || row.ctimeNs != result.ctimeNs
+                    || nativeID != result.nativeID || row.keep != keep
+                    || (row.kind == .folder && row.listingComplete) else { continue }
+                seq += 1
+                if before.item == move.item { departure = seq }
+                try database.prepare("""
+                    UPDATE items SET parent_id = ?, name = ?, name_key = ?, size = ?, mtime_ns = ?,
+                        ctime_ns = ?, file_id = ?, edit_version = CASE WHEN kind = 2 THEN ? ELSE edit_version END,
+                        deleted = ?, keep = ?, change_seq = ?,
+                        listing_complete = CASE WHEN kind = 1 THEN 0 ELSE listing_complete END WHERE id = ?
+                    """) {
+                    try $0.bind(1, parent)
+                    try $0.bind(2, name)
+                    try $0.bind(3, NameKey(name).value)
+                    try $0.bind(4, result.size)
+                    try $0.bind(5, result.mtimeNs)
+                    try $0.bind(6, result.ctimeNs)
+                    try $0.bind(7, Int64(bitPattern: result.nativeID))
+                    try $0.bind(8, result.contentVersion)
+                    try $0.bind(9, result.retired)
+                    try $0.bind(10, keep)
+                    try $0.bind(11, seq)
+                    try $0.bind(12, row.id)
+                    try $0.run()
+                }
+            }
+            let root = move.entries.first { $0.item == move.item }!
+            if !expected.moved, root.parent != destination.id {
+                guard departure != 0 else { throw UploadError.unresolved }
+                try database.prepare("INSERT OR REPLACE INTO departures (item, parent, seq) VALUES (?, ?, ?)") {
+                    try $0.bind(1, root.item)
+                    try $0.bind(2, root.parent)
+                    try $0.bind(3, departure)
+                    try $0.run()
+                }
+                try database.prepare("DELETE FROM departures WHERE item = ? AND parent = ?") {
+                    try $0.bind(1, root.item)
+                    try $0.bind(2, destination.id)
+                    try $0.run()
+                }
+            }
+        }
+    }
+
+    private func matchesFolderMoveState(_ move: CatalogFolderMove, state: CatalogFolderMoveState,
+                                       paths: [String: RelativePath]) throws -> Bool {
+        let expected = Dictionary(uniqueKeysWithValues: state.entries.map { ($0.item, $0) })
+        guard Set(try folderMoveRows(move.item).map(\.id)) == Set(state.entries.filter { !$0.retired }.map(\.item)) else {
+            return false
+        }
+        for original in move.entries {
+            let entry = expected[original.item]!
+            guard let row = try item(id: original.item), row.deleted == entry.retired, row.kind == original.kind,
+                  row.parentID == (state.moved && row.id == move.item ? move.destinationParent : original.parent),
+                  row.name.utf8.elementsEqual((state.moved && row.id == move.item ? move.destinationName : original.name).utf8),
+                  row.contentVersion == entry.contentVersion, row.size == entry.size,
+                  row.mtimeNs == entry.mtimeNs, row.ctimeNs == entry.ctimeNs,
+                  try folderMoveNativeID(row.id) == entry.nativeID, row.listGen == original.listGen,
+                  row.listingComplete == (state.moved && row.kind == .folder ? false : original.listingComplete) else {
+                return false
+            }
+            if !row.deleted {
+                let path = state.moved ? paths[row.id]!.string : original.path
+                guard try relativePath(of: row.id)?.string.utf8.elementsEqual(path.utf8) == true else { return false }
+            }
+        }
+        return true
+    }
+
     public func prepareFolderMove(item id: String, destinationParent: String,
                                   destinationName: String) throws -> CatalogFolderMove {
         try database.read {
@@ -376,13 +700,21 @@ extension Catalog {
                 guard entry.kind != .file || (after.preservesContents && after.size == entry.size) else {
                     throw UploadError.unresolved
                 }
+                if case .file(let receipt) = proofs[entry.item]! {
+                    guard after.mtimeNs >= 0,
+                          UInt64(after.mtimeNs / 1_000) == receipt.version.modifiedMicroseconds else {
+                        throw UploadError.unresolved
+                    }
+                }
                 results[entry.item] = FolderMoveResult(observation: after, contentVersion: entry.contentVersion)
             case .changed(let after, let receipt):
                 guard entry.kind == .file, case .file(let original) = proofs[entry.item]!,
                       receipt.item == entry.item, receipt.version.identity == original.version.identity,
-                      !receipt.version.hasSameContents(as: original.version),
+                      !receipt.version.hasSameContents(as: original.version)
+                        || receipt.version.modifiedMicroseconds != original.version.modifiedMicroseconds,
                       usedVersions.insert(receipt.contentVersion).inserted,
-                      !after.preservesContents, after.size == receipt.version.size,
+                      after.preservesContents == receipt.version.hasSameContents(as: original.version),
+                      after.size == receipt.version.size,
                       after.mtimeNs >= 0, after.ctimeNs >= 0,
                       UInt64(after.mtimeNs / 1_000) == receipt.version.modifiedMicroseconds,
                       UInt64(after.ctimeNs / 1_000) == receipt.version.changedMicroseconds else {
