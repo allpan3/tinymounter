@@ -2,7 +2,7 @@
 
 A macOS app that brings a network disk, such as a NAS, into Apple's file system: browse it from Finder or another file manager such as QSpace, download on demand, and keep selected files available offline. Finder is the first file manager and SMB the first protocol it will support. A later mode will mount server volumes, the ordinary macOS SMB mounts, automatically.
 
-Validation interruption, 2026-10-30: the VM graphical session froze before the first M23 callback checkpoint. The task app stopped and all five synthetic server files remain unchanged. [Evidence is preserved](docs/results/2026-10-30-vm-graphics-interruption.md); callback behavior remains unverified, and graphical checks await recovery.
+Validation interruption, 2026-10-30: the VM graphical session froze before the first M23 callback checkpoint. An approved restart restored the display. The disposable SMB fixture is blocked by macOS's built-in listener; source and core checks can continue. [Evidence is preserved](docs/results/2026-10-30-vm-graphics-interruption.md); callback behavior remains unverified.
 
 Status, 2026-10-11: verified NAS-cold full downloads reached **183.3 MB/s versus 192.7 MB/s native SMB (95.1%)**; with the file in NAS RAM, **229.0 versus 247.2 MB/s (92.6%)**. Each condition has five matched pairs, server cache/disk-read evidence, and representative complete-file checksum verification. Fully downloaded local reads also pass, though an unexplained speed gap to a local APFS control remains. See [verified cache results](docs/results/2026-10-11-cache-states.md), [full-download attribution](docs/results/2026-10-11-full-download.md), and [range-delay diagnosis](docs/results/2026-10-11-provider-delay.md).
 
