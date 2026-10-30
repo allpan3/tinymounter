@@ -167,8 +167,9 @@ and retirement change pass required VM checks; signed workflows and recovery cle
 M18 creation, M19 same-object editing and M20 verified-file renaming have signed VM evidence.
 M20 is the development baseline; the physical Mac runs M19. Existing read-only locations stay
 read-only. Folder organization, deletion, Finder Replace and deliberate offline editing are
-not implemented. The M20 rename restriction to previously verified files is a remaining product
-gap, not the intended final behavior.
+not implemented. M21 now handles ordinary files in signed VM checks, including unverified files,
+preserved downloads, overlapping views and interrupted moves. Its remaining acceptance checks
+are recorded in the organization results; this does not complete the milestone.
 
 The supported write boundary remains folders whose writers use SMB and leave tinymounter's
 transaction files alone. All milestones preserve complete pending content, refuse silent

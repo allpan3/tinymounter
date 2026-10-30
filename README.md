@@ -177,7 +177,7 @@ M23; their safety gates and runtime checks are not yet passed. Installation is d
 File-move catalog preparation, 2026-10-29: the catalog preserves item identity, versions and keeps
 across a proven move, and records departures for the old folder. Migration and core checks pass
 in VM 1: 294 tests, one optional skip, no failures or Swift warnings, and all required builds.
-The app does not call the move API yet; SMB safety and signed Finder checks remain. See the
+This core-only result precedes the protocol and signed integration checks below. See the
 [catalog results](docs/results/2026-10-29-move-catalog.md).
 
 SMB rename encoding, 2026-10-29: a VM packet regression reproduced a vendor bug that could
@@ -189,8 +189,10 @@ write operation; signed SMB runtime checks and installation remain pending. See 
 File organization protocol, 2026-10-29: all nine disposable VM cases pass, including protected
 moves, collisions, permission/stream preservation and crash recovery. File-organization
 integration uses the accepted current-object admission rule for unverified rows and passes all
-required VM checks: 346 tests, one optional skip and no Swift warnings. Signed Finder checks
-remain. The approved fixture session is still open. See the
+required VM checks: 356 tests, one optional skip and no Swift warnings. Signed Finder moves
+preserve unverified, legacy downloaded and verified files, their versions and downloaded copies.
+Overlapping-view and before/after-move interruption checks also preserve those copies. Remaining
+signed refusal cases and matched recordings are open. The approved fixture session is still open. See the
 [protocol results](docs/results/2026-10-29-file-organization-protocol.md).
 
 Pending saves (M23), 2026-10-29: a focused VM regression reproduces an older save publishing
