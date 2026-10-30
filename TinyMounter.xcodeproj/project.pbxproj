@@ -101,6 +101,12 @@
 			"path" = "Sources/TransferCore/CatalogFileRename.swift";
 			"sourceTree" = "<group>";
 		};
+		"12DC8A6ACC89F5CBC7739395" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Sources/TransferCore/FolderMove.swift";
+			"sourceTree" = "<group>";
+		};
 		"A5B2E314FCBA20E67E34BCD1" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
@@ -792,6 +798,7 @@
 			"children" = (
 				"131287710C43CF4024EC51D3",
 				"2158AA19223E1BC5C1D820BB",
+				"12DC8A6ACC89F5CBC7739395",
 				"A5B2E314FCBA20E67E34BCD1",
 				"2D8C420B242EB5D4E1130411",
 				"9F926D035053FFA356E8379E",
@@ -1571,6 +1578,10 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "2158AA19223E1BC5C1D820BB";
 		};
+		"9DDCE267B5AC99BBE66611B9" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "12DC8A6ACC89F5CBC7739395";
+		};
 		"C641F0EC3DF748AF20DC8413" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "A5B2E314FCBA20E67E34BCD1";
@@ -1743,6 +1754,7 @@
 				"3BCD6E15AC4C59136756A78B",
 				"32B9F1475FA1C94C4A7E448C",
 				"93FA619ED02D491926321E09",
+				"9DDCE267B5AC99BBE66611B9",
 				"C641F0EC3DF748AF20DC8413",
 				"2EA9590C6C7CEAF08116C494",
 				"B54BF8F6CF1513580E8649E4",

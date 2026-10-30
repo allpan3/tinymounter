@@ -208,14 +208,13 @@ final class FileRenameTests: XCTestCase {
     }
 
     func testPendingIntentGuardsEveryAffectedLocation() throws {
-        var record = try prepare()
         let otherDomain = UUID().uuidString
-        let view = try FileRenameView(domain: otherDomain, folder: .root, row: row,
+        let views = try [domain, otherDomain].map { domain in
+            try FileRenameView(domain: domain, folder: .root, row: row,
                                       path: XCTUnwrap(RelativePath(row.name)), nativeID: 7)
-        record = PendingFileRename(id: record.id, owner: record.owner, base: record.base,
-            metadataVersion: record.metadataVersion, source: record.source, destination: record.destination,
-            views: record.views + [view])
-        try outbox.save(record)
+        }
+        let record = try outbox.prepare(owner: domain, request: request(), base: base,
+                                        source: XCTUnwrap(RelativePath(row.name)), views: views)
         XCTAssertEqual(try outbox.pendingCount(domain: otherDomain), 1)
         XCTAssertThrowsError(try outbox.removeCompleted(owner: otherDomain))
         XCTAssertEqual(try outbox.records(), [record])

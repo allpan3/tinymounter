@@ -119,9 +119,17 @@ public struct PendingFileRename: Codable, Equatable, Sendable {
 /// One intent includes every affected catalog, so none can be removed during uncertain publication.
 public final class FileRenameOutbox {
     private let directory: URL
+    private let directorySync: (Int32) throws -> Void
 
-    public init(directory: URL) throws {
+    public convenience init(directory: URL) throws {
+        try self.init(directory: directory, directorySync: { fd in
+            guard fsync(fd) == 0 else { throw posixError("sync rename directory") }
+        })
+    }
+
+    init(directory: URL, directorySync: @escaping (Int32) throws -> Void) throws {
         self.directory = directory
+        self.directorySync = directorySync
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
                                                  attributes: [.posixPermissions: 0o700])
         let fd = open(directory.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
@@ -131,10 +139,16 @@ public final class FileRenameOutbox {
     }
 
     public func records() throws -> [PendingFileRename] {
+        try intents().map {
+            guard case .file(let record) = $0 else { throw UploadError.pendingWrites }
+            return record
+        }
+    }
+
+    public func intents() throws -> [RenameIntent] {
         try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == "rename" }.map { url in
-                let record = try JSONDecoder().decode(PendingFileRename.self, from: Data(contentsOf: url))
-                try record.validate()
+                let record = try decode(Data(contentsOf: url))
                 guard url.deletingPathExtension().lastPathComponent == record.id.uuidString else {
                     throw UploadError.invalidRequest
                 }
@@ -181,9 +195,56 @@ public final class FileRenameOutbox {
 
     public func save(_ record: PendingFileRename) throws {
         try record.validate()
-        let final = directory.appending(path: record.id.uuidString + ".rename")
+        if let existing = try existing(record.id) {
+            guard case .file(let previous) = existing,
+                  previous.owner == record.owner, previous.base == record.base,
+                  previous.metadataVersion == record.metadataVersion, previous.views == record.views,
+                  previous.source.utf8.elementsEqual(record.source.utf8),
+                  previous.destination.utf8.elementsEqual(record.destination.utf8),
+                  previous.parents == record.parents else { throw UploadError.invalidRequest }
+        }
+        try persist(try JSONEncoder().encode(record), id: record.id)
+    }
+
+    public func save(_ record: PendingFolderMove) throws {
+        try record.validate()
+        if let existing = try existing(record.id) {
+            guard case .folder(let previous) = existing else { throw UploadError.invalidRequest }
+            try record.validateUpdate(from: previous)
+        } else {
+            guard record.state == .prepared, record.removedDomains.isEmpty else { throw UploadError.invalidRequest }
+        }
+        try persist(try JSONEncoder().encode(record), id: record.id)
+    }
+
+    private func existing(_ id: UUID) throws -> RenameIntent? {
+        let url = directory.appending(path: id.uuidString + ".rename")
+        do {
+            let record = try decode(Data(contentsOf: url))
+            guard record.id == id else { throw UploadError.invalidRequest }
+            return record
+        }
+        catch let error as NSError where error.domain == NSCocoaErrorDomain
+            && error.code == CocoaError.fileReadNoSuchFile.rawValue { return nil }
+    }
+
+    private func decode(_ data: Data) throws -> RenameIntent {
+        struct Header: Decodable { let kind: String? }
+        let decoder = JSONDecoder()
+        if let kind = try decoder.decode(Header.self, from: data).kind {
+            guard kind == "folder" else { throw UploadError.invalidRequest }
+            let record = try decoder.decode(PendingFolderMove.self, from: data)
+            try record.validate()
+            return .folder(record)
+        }
+        let record = try decoder.decode(PendingFileRename.self, from: data)
+        try record.validate()
+        return .file(record)
+    }
+
+    private func persist(_ data: Data, id: UUID) throws {
+        let final = directory.appending(path: id.uuidString + ".rename")
         let temporary = directory.appending(path: UUID().uuidString + ".new")
-        let data = try JSONEncoder().encode(record)
         let fd = open(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
         guard fd >= 0 else { throw posixError("create rename intent") }
         defer { close(fd); unlink(temporary.path) }
@@ -198,10 +259,14 @@ public final class FileRenameOutbox {
         }
         guard fcntl(fd, F_FULLFSYNC) == 0 else { throw posixError("sync rename intent") }
         guard rename(temporary.path, final.path) == 0 else { throw posixError("publish rename intent") }
+        try syncDirectory()
+    }
+
+    func syncDirectory() throws {
         let parent = open(directory.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         guard parent >= 0 else { throw posixError("open rename directory") }
         defer { close(parent) }
-        guard fsync(parent) == 0 else { throw posixError("sync rename directory") }
+        try directorySync(parent)
     }
 
     public func removeCompleted(owner: String) throws {
@@ -211,6 +276,66 @@ public final class FileRenameOutbox {
         }
         for record in records where record.owner == owner {
             try FileManager.default.removeItem(at: directory.appending(path: record.id.uuidString + ".rename"))
+        }
+    }
+
+    public func pendingIntentCount(domain: String) throws -> Int {
+        try intents().filter { $0.isPending && $0.domains.contains(domain) }.count
+    }
+
+    // Call after domain removal succeeds; pendingIntentCount supplies the earlier preflight.
+    public func removeCompletedIntents(removedDomain domain: String) throws {
+        let records = try intents()
+        guard !records.contains(where: { $0.isPending && $0.domains.contains(domain) }) else {
+            throw UploadError.pendingWrites
+        }
+        for intent in records {
+            switch intent {
+            case .file(let record) where record.owner == domain:
+                try FileManager.default.removeItem(at: directory.appending(path: record.id.uuidString + ".rename"))
+            case .folder(var record) where intent.domains.contains(domain):
+                if !record.removedDomains.contains(domain) { record.removedDomains.append(domain) }
+                if Set(record.removedDomains) == Set(intent.domains) {
+                    try FileManager.default.removeItem(at: directory.appending(path: record.id.uuidString + ".rename"))
+                } else {
+                    try save(record)
+                }
+            default: break
+            }
+        }
+        try syncDirectory()
+    }
+}
+
+public enum RenameIntent: Equatable, Sendable {
+    case file(PendingFileRename)
+    case folder(PendingFolderMove)
+
+    public var id: UUID {
+        switch self {
+        case .file(let record): record.id
+        case .folder(let record): record.id
+        }
+    }
+
+    public var owner: String {
+        switch self {
+        case .file(let record): record.owner
+        case .folder(let record): record.owner
+        }
+    }
+
+    public var domains: [String] {
+        switch self {
+        case .file(let record): record.views.map(\.domain)
+        case .folder(let record): record.views.map(\.domain)
+        }
+    }
+
+    public var isPending: Bool {
+        switch self {
+        case .file(let record): record.isPending
+        case .folder(let record): record.isPending
         }
     }
 }
