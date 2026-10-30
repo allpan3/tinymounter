@@ -104,7 +104,24 @@ must never apply the original settlement again. Runtime integration must store n
 durably before exposing their versions and retain protection through local completion.
 Source review found no blocking defect. Tests cover repeated recovery, partial commits,
 mtime-only changes, permanent retirement, root replacement, collisions and interruption.
-VM compilation and checks are pending. There is no catalog or Settings format change.
+The integrated core and adapter pass the required VM checks below. There is no catalog or
+Settings format change.
+
+## Protected SMB adapter preparation
+
+The production SMB adapter now implements folder admission, guarded no-replace rename and
+fresh settlement/recovery observations. It holds the original directory handle through the
+rename and releases descendant handles only after the transaction's durable checkpoint.
+Directory parsing retains unsupported entries so a complete listing cannot mistake them for
+absence. Native lookup checks compare full metadata and mount identity with the protected SMB
+objects. Historical e1 receipt selection remains the admission caller's responsibility.
+
+This adapter has no app or provider caller yet. Its native metadata queries while the root
+DELETE handle stays open require a signed VM check. No transport or dependency was added;
+the existing deletion adapter is unchanged. Required VM checks pass with 490 tests, one optional
+skip, no failures or Swift warnings, six encoder cases and 57 SMB-status cases. Evidence:
+`.local/phase4/m21-20261029/m22-recovery-adapter-checks.log`. This compiles the real adapter but
+does not exercise it against SMB; signed adapter and app checks remain.
 
 ## Saved keep paths
 

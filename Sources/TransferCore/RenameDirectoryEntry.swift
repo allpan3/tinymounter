@@ -3,6 +3,12 @@ import Foundation
 public struct RenameDirectoryEntry: Sendable {
     public let name: String
     public let identity: EditFileIdentity
+    public let attributes: UInt32
+
+    public var kind: CatalogRow.Kind? {
+        guard attributes & 0x440 == 0 else { return nil }
+        return attributes & 0x10 == 0 ? .file : .folder
+    }
 
     public static func parse(_ bytes: [UInt8]) throws -> [RenameDirectoryEntry] {
         func integer(_ offset: Int, _ count: Int) throws -> UInt64 {
@@ -22,7 +28,8 @@ public struct RenameDirectoryEntry: Sendable {
                 guard ticks / 10 > 11_644_473_600_000_000 else { throw UploadError.unresolved }
                 let identity = try EditFileIdentity(fileID: integer(offset + 72, 8),
                                                     birthMicroseconds: ticks / 10 - 11_644_473_600_000_000)
-                result.append(RenameDirectoryEntry(name: name, identity: identity))
+                result.append(RenameDirectoryEntry(name: name, identity: identity,
+                                                   attributes: UInt32(try integer(offset + 56, 4))))
             }
             if next == 0 { return result }
             guard next >= 80 + length, next % 8 == 0, next < bytes.count - offset else {
