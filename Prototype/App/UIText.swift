@@ -33,6 +33,8 @@ enum UIText {
     static let editPreparing = "Local save not yet confirmed. Keep the document open."
     static let editNeedsRecovery = "Recovery needed. The local save is retained."
     static let editConflict = "Conflict. The local save is retained."
+    static let publishedRecovery = "Saved on the server. Recovery files still need attention."
+    static let conflictRecovery = "Saved as a conflict copy. Recovery files still need attention."
     static func savedChangeBytes(_ bytes: Int64) -> String {
         "Local saved copies: " + ByteCountFormatter.string(fromByteCount: bytes, countStyle: .binary)
     }

@@ -57,6 +57,23 @@ final class EditOutboxTests: XCTestCase {
         try outbox.complete(&record, item: item)
     }
 
+    private func writeLegacy(_ record: PendingEdit) throws {
+        var legacy = record
+        legacy.completedStageRemoved = nil
+        legacy.completedBackupRemoved = nil
+        legacy.completedCleanupStarted = nil
+        try JSONEncoder().encode(legacy).write(to:
+            directory.appending(path: "Edits/\(legacy.id.uuidString).edit"))
+    }
+
+    private struct PreviousRecord: Decodable {
+        enum State: String, Decodable {
+            case preparing, prepared, creatingStage, staged, creatingBackup, backedUp, movingOriginal
+            case copying, restoring, publishing, published, completed, retired
+        }
+        let state: State
+    }
+
     /// Mirrors the M19 and M20 listing: every .edit file must decode as a record named by its ID.
     private func olderBuildRecords() throws -> [PendingEdit] {
         try FileManager.default.contentsOfDirectory(at: directory.appending(path: "Edits"),
@@ -151,7 +168,81 @@ final class EditOutboxTests: XCTestCase {
         XCTAssertThrowsError(try outbox.removeIfCompleted())
         record.recoveryRetained = false
         try outbox.complete(&record, item: item)
-        XCTAssertEqual(try outbox.pendingCount, 0)
+        XCTAssertEqual(record.state, .cleaningUp)
+        XCTAssertTrue(record.recoveryRetained)
+        XCTAssertEqual(try outbox.pendingCount, 1)
+        try outbox.validateContents(record)
+    }
+
+    func testCleanupStateRejectsEarlierDecodersAndKeepsItsOrderingGuard() throws {
+        var record = try prepare()
+        record.state = .published
+        record.previous = try version(for: record)
+        record.stageVersion = try version(for: record)
+        record.stageIdentity = record.stageVersion?.identity
+        record.published = try EditBaseReceipt(item: item, version: version(for: record))
+        record.recoveryRetained = true
+        try outbox.complete(&record, item: item)
+        XCTAssertTrue(record.isPublicationComplete)
+        XCTAssertEqual(record.state, .cleaningUp)
+        XCTAssertNil(try outbox.order(item: item).head)
+        XCTAssertEqual(try prepare().id, record.id)
+        let url = directory.appending(path: "Edits/\(record.id.uuidString).edit")
+        let encoded = try Data(contentsOf: url)
+        XCTAssertThrowsError(try JSONDecoder().decode(PreviousRecord.self, from: encoded))
+        try outbox.releaseOrderingGuardIfSettled()
+        XCTAssertThrowsError(try olderBuildRecords())
+        try FileManager.default.removeItem(at: directory.appending(path: "Edits/" + EditOutbox.orderingGuardName))
+        XCTAssertThrowsError(try outbox.order(item: item))
+        XCTAssertThrowsError(try outbox.beginCompletedCleanup(&record))
+        XCTAssertEqual(try Data(contentsOf: url), encoded)
+        try outbox.validateContents(record)
+    }
+
+    func testCompletedCleanupProgressCannotRegressOrChangeReceiptEvidence() throws {
+        var record = try prepare()
+        record.state = .published
+        record.previous = try version(for: record)
+        record.stageVersion = try version(for: record)
+        record.stageIdentity = record.stageVersion?.identity
+        record.published = try EditBaseReceipt(item: item, version: version(for: record))
+        record.recoveryRetained = true
+        try outbox.complete(&record, item: item)
+        let stale = record
+        var changed = record
+        changed.completedStageRemoved = nil
+        XCTAssertThrowsError(try outbox.saveCompletedProgress(changed))
+        changed = record
+        changed.completedCleanupStarted = true
+        XCTAssertThrowsError(try outbox.saveCompletedProgress(changed))
+        changed = record
+        changed.recoveryRetained = false
+        XCTAssertThrowsError(try outbox.save(changed))
+        XCTAssertThrowsError(try outbox.saveCompletedProgress(changed))
+        changed = record
+        changed.completedBackupRemoved = true
+        XCTAssertThrowsError(try outbox.saveCompletedProgress(changed))
+        changed = record
+        changed.published = try EditBaseReceipt(item: item, version: version(for: record))
+        XCTAssertThrowsError(try outbox.saveCompletedProgress(changed))
+        record.completedStageRemoved = true
+        try outbox.saveCompletedProgress(record)
+        XCTAssertThrowsError(try outbox.saveCompletedProgress(stale))
+        XCTAssertThrowsError(try outbox.save(stale))
+        record.completedCleanupStarted = true
+        try outbox.saveCompletedProgress(record)
+        changed = record
+        changed.completedCleanupStarted = nil
+        XCTAssertThrowsError(try outbox.saveCompletedProgress(changed))
+        try outbox.finishCompletedCleanup(&record)
+        XCTAssertEqual(record.state, .completed)
+        XCTAssertEqual(record.published, stale.published)
+        XCTAssertThrowsError(try outbox.save(stale))
+        XCTAssertThrowsError(try outbox.saveCompletedProgress(stale))
+        let finalData = try Data(contentsOf: directory.appending(path: "Edits/\(record.id.uuidString).edit"))
+        XCTAssertEqual(try JSONDecoder().decode(PreviousRecord.self, from: finalData).state, .completed)
+        XCTAssertEqual(try olderBuildRecords(), [record])
+        XCTAssertEqual(try prepare(), record)
     }
 
     func testDecodedNestedIdentityAndVersionCannotBypassValidation() throws {
@@ -630,6 +721,9 @@ final class EditOutboxTests: XCTestCase {
         changed = old
         changed.published = try EditBaseReceipt(item: item, version: version(for: old))
         XCTAssertThrowsError(try outbox.saveRetiredProgress(changed))
+        changed.state = .published
+        changed.previous = changed.published?.version
+        XCTAssertThrowsError(try outbox.complete(&changed, item: item))
         old.retiredCleanupStarted = true
         try outbox.saveRetiredProgress(old)
         changed = old
@@ -816,7 +910,7 @@ final class EditOutboxTests: XCTestCase {
         XCTAssertEqual(try outbox.ownPublications(before: successor), [accepted])
         var legacy = published
         legacy.sequence = nil
-        try outbox.save(legacy)
+        try writeLegacy(legacy)
         XCTAssertEqual(try outbox.ownPublications(before: successor), [accepted])
         XCTAssertEqual(try outbox.ownPublications(before: unordered(successor)), [])
     }

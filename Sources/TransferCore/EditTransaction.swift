@@ -12,7 +12,12 @@ public protocol EditRemote {
 /// Every mutation follows durable intent; recovery never repeats an uncertain content write.
 public enum EditTransaction {
     public static func publish(_ record: inout PendingEdit, outbox: EditOutbox, remote: EditRemote) throws {
-        if record.state == .completed { return }
+        if let completed = try outbox.records().first(where: {
+            $0.id == record.id && $0.item == record.item && $0.isPublicationComplete
+        }) {
+            record = completed
+            return
+        }
         try outbox.validateContents(record)
         let order = try outbox.order(item: record.item)
         guard order.head?.id == record.id || order.predecessors.contains(where: { $0.id == record.id }) else {
@@ -147,15 +152,43 @@ public enum EditTransaction {
     }
 
     public static func cleanup(_ record: inout PendingEdit, outbox: EditOutbox, remote: EditRemote) throws {
-        guard record.state == .completed, let item = record.completedItem else { throw UploadError.unresolved }
-        if !record.conflict, let stage = record.stageVersion {
+        try outbox.beginCompletedCleanup(&record)
+        if record.state == .completed { return }
+        if record.completedCleanupStarted == true {
+            try outbox.finishCompletedCleanup(&record)
+            return
+        }
+        try outbox.validateContents(record)
+        if record.completedStageRemoved == false {
+            guard let stage = record.stageVersion, stage.identity == record.stageIdentity,
+                  matchesEdit(stage, record),
+                  try remote.inspect(path: record.stagePath, original: false) == stage else {
+                throw UploadError.unresolved
+            }
+        }
+        if record.completedBackupRemoved == false {
+            guard let backup = record.backupVersion, backup.identity == record.backupIdentity,
+                  try remote.inspect(path: record.recoveryPath, original: false) == backup else {
+                throw UploadError.unresolved
+            }
+        }
+        if record.completedStageRemoved == false {
+            guard let stage = record.stageVersion else { throw UploadError.unresolved }
             try remote.removeArtifact(path: record.stagePath, version: stage)
+            var acknowledged = record
+            acknowledged.completedStageRemoved = true
+            try outbox.saveCompletedProgress(acknowledged)
+            record = acknowledged
         }
-        if let backup = record.backupVersion {
+        if record.completedBackupRemoved == false {
+            guard let backup = record.backupVersion else { throw UploadError.unresolved }
             try remote.removeArtifact(path: record.recoveryPath, version: backup)
+            var acknowledged = record
+            acknowledged.completedBackupRemoved = true
+            try outbox.saveCompletedProgress(acknowledged)
+            record = acknowledged
         }
-        record.recoveryRetained = false
-        try outbox.complete(&record, item: item)
+        try outbox.finishCompletedCleanup(&record)
     }
 
     // Retirement uses recorded complete versions, never a fresh version of changed contents.

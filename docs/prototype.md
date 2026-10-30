@@ -340,6 +340,10 @@ signed interrupted-save update check. Retired-save cleanup and status reporting 
 VM checks; their signed checks remain. Retry Pending Changes attempts cleanup only with complete artifact evidence;
 uncertain data stays retained. The pane reports local saved-copy bytes under the existing
 2 GiB free-space reserve and can dismiss resolved conflict notices without removing receipts.
+The 2026-10-30 completed-cleanup follow-up passes required VM checks; signed checks remain.
+Its cleaningUp state makes earlier
+builds refuse an outbox until recovery cleanup finishes, including earlier M23 builds that
+understand Ordering.edit. It retains uncertain removals and keeps publication receipts.
 
 Catalog versions 1 through 6 migrate to version 7 without replacing item IDs or the epoch.
 Version 7 records departures from former parents for known file moves. Older readers refuse it
