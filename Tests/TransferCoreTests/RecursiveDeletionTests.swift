@@ -181,6 +181,72 @@ final class RecursiveDeletionTests: XCTestCase {
         XCTAssertEqual(server.marks.filter { $0 == "Docs/Tree/b" }.count, 1)
     }
 
+    func testPostCloseConfirmationRefusalsKeepUncertaintyAndGuards() throws {
+        for failure in [ItemDeletionError.sharingViolation, .accessDenied, .cannotDelete, .directoryNotEmpty, .unsupported] {
+            try reset()
+            let server = self.server
+            let path = "Docs/Tree/a"
+            var record = try fixture.prepare(path, recursive: false)
+            let replacement = ItemDeletionEvidence.file(try DeletionFixture.version(60))
+            server.afterClose[path] = { [unowned server] in
+                server.objects[path] = replacement
+                server.inspectFailures[path] = failure
+            }
+            try run(&record)
+            XCTAssertEqual(record.summary, [.unconfirmed: 1])
+            XCTAssertTrue(record.hasUnconfirmed)
+            XCTAssertEqual(server.marks, [path])
+            XCTAssertEqual(server.closes, [path])
+            XCTAssertEqual(server.objects[path], replacement)
+            for domain in [fixture.owner, fixture.neighbor] { try fixture.outbox.finishDomain(domain, record: &record) }
+            XCTAssertTrue(record.isComplete)
+            XCTAssertTrue(record.isPending)
+            XCTAssertEqual(try fixture.outbox.pendingCount(domain: fixture.owner), 1)
+            XCTAssertTrue((fixture.guardURLs(fixture.owner) + fixture.guardURLs(fixture.neighbor))
+                .allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
+            fixture.outbox = try fixture.makeOutbox()
+            XCTAssertEqual(try fixture.outbox.records(), [record])
+            let sessions = server.sessions
+            try run(&record)
+            XCTAssertEqual(server.sessions, sessions)
+        }
+    }
+
+    func testCloseFailureAfterSuccessfulMarkDoesNotProveSurvival() throws {
+        let path = "Docs/Tree/a"
+        var record = try fixture.prepare(path, recursive: false)
+        server.closeFailures[path] = ItemDeletionError.sharingViolation
+        try run(&record)
+        XCTAssertEqual(record.summary, [.unconfirmed: 1])
+        XCTAssertTrue(record.hasUnconfirmed)
+        XCTAssertNil(server.objects[path])
+        XCTAssertEqual(server.marks, [path])
+        XCTAssertEqual(server.closes, [path])
+    }
+
+    func testRecoveryUsesFreshIdentityEvidenceToProveSurvival() throws {
+        for expected in [DeletionNodeOutcome.changed, .moved, .cannotDelete] {
+            try reset()
+            let path = "Docs/Tree/a"
+            var record = try fixture.prepare(path, recursive: false)
+            server.markFailures[path] = DeletionFixture.Fault.connection
+            XCTAssertThrowsError(try run(&record))
+            XCTAssertEqual(record.progress.current, .attempting)
+            switch expected {
+            case .changed: server.objects[path] = .file(try DeletionFixture.version(15, digest: "c"))
+            case .moved: server.objects["Docs/Tree/moved"] = server.objects.removeValue(forKey: path)
+            case .cannotDelete: server.markFailures[path] = ItemDeletionError.cannotDelete
+            default: XCTFail("Unexpected survival outcome")
+            }
+            try run(&record)
+            XCTAssertEqual(record.summary, [expected: 1])
+            XCTAssertFalse(record.hasUnconfirmed)
+            let surviving = try XCTUnwrap(server.objects[expected == .moved ? "Docs/Tree/moved" : path])
+            XCTAssertEqual(surviving.identity, record.plan.selected.evidence.identity)
+            XCTAssertEqual(server.closes, [])
+        }
+    }
+
     func testUnconfirmedChildDoesNotKeepAnEmptyParent() throws {
         var record = try fixture.prepare()
         server.lostCloses = ["Docs/Tree/b"]
@@ -474,6 +540,7 @@ final class DeletionServer {
     var lookups: [String: ItemDeletionLookup] = [:]
     var inspectFailures: [String: Error] = [:]
     var markFailures: [String: Error] = [:]
+    var closeFailures: [String: Error] = [:]
     var lostCloses: Set<String> = []
     var onList: [String: () -> Void] = [:]
     var afterClose: [String: () -> Void] = [:]
@@ -548,6 +615,7 @@ final class DeletionSession: DeletionRemote {
         server.closes.append(path)
         server.objects[path] = nil
         if server.lostCloses.remove(path) != nil { throw DeletionFixture.Fault.connection }
+        if let failure = server.closeFailures.removeValue(forKey: path) { throw failure }
         server.afterClose.removeValue(forKey: path)?()
     }
 }

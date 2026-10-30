@@ -264,6 +264,7 @@ public struct DeletionProgress: Codable, Equatable, Sendable {
 
     func validateUpdate(from previous: Self, plan: DeletionPlan) throws {
         guard exceptions.starts(with: previous.exceptions), next >= previous.next,
+              next == previous.next || current == .prepared,
               finishedDomains.starts(with: previous.finishedDomains), !previous.dismissed || dismissed,
               previous.stopped == nil || previous.stopped == stopped else { throw ItemDeletionError.invalidRequest }
         let added = Array(exceptions.dropFirst(previous.exceptions.count))
@@ -384,8 +385,9 @@ public struct PendingDeletion: Equatable, Sendable {
 }
 
 /// One inventory for every share; records bind their endpoint and domains.
-/// Callers serialize operations on one namespace; records of different namespaces never interact.
+/// Callers serialize each namespace; local storage and shared guards serialize process-wide.
 public final class DeletionOutbox {
+    private static let storageLock = NSRecursiveLock()
     private let directory: URL
     private let guards: (String) -> [URL]
     private let directorySync: (Int32) throws -> Void
@@ -411,7 +413,9 @@ public final class DeletionOutbox {
     }
 
     public func records() throws -> [PendingDeletion] {
-        try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+        Self.storageLock.lock()
+        defer { Self.storageLock.unlock() }
+        return try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == "deletion" }.map { url in
                 let plan = try JSONDecoder().decode(DeletionPlan.self, from: Data(contentsOf: url))
                 guard url.deletingPathExtension().lastPathComponent == plan.id.uuidString else {
@@ -435,6 +439,8 @@ public final class DeletionOutbox {
     public func prepare(endpoint: ShareAddress, owner: String, request: DeletionRequest,
                         traversal: DeletionTraversal, views: [DeletionView], protectedRoots: [RelativePath],
                         recursive: Bool) throws -> PendingDeletion {
+        Self.storageLock.lock()
+        defer { Self.storageLock.unlock() }
         if let existing = try replay(endpoint: endpoint, owner: owner, request: request) { return existing }
         let plan = try DeletionPlan(id: UUID(), endpoint: DeletionEndpoint(endpoint), owner: owner, request: request,
                                     parents: traversal.parents,
@@ -454,6 +460,8 @@ public final class DeletionOutbox {
 
     /// Call after this domain's catalog shows every settled outcome.
     public func finishDomain(_ domain: String, record: inout PendingDeletion) throws {
+        Self.storageLock.lock()
+        defer { Self.storageLock.unlock() }
         var current = try reload(record)
         guard current.isSettled, current.plan.domains.contains(domain) else { throw ItemDeletionError.invalidRequest }
         if !current.progress.finishedDomains.contains(domain) {
@@ -468,6 +476,8 @@ public final class DeletionOutbox {
 
     /// Settles an operation that cannot proceed. A node that may have been requested stays unconfirmed.
     public func stop(_ record: inout PendingDeletion) throws {
+        Self.storageLock.lock()
+        defer { Self.storageLock.unlock() }
         var current = try reload(record)
         if !current.isSettled {
             var next = current.progress
@@ -486,6 +496,8 @@ public final class DeletionOutbox {
 
     /// The user has seen the unconfirmed outcomes; the record no longer needs to stay visible.
     public func dismiss(_ record: inout PendingDeletion) throws {
+        Self.storageLock.lock()
+        defer { Self.storageLock.unlock() }
         var current = try reload(record)
         guard current.isComplete, current.hasUnconfirmed else { throw ItemDeletionError.invalidRequest }
         if !current.progress.dismissed {
@@ -498,8 +510,12 @@ public final class DeletionOutbox {
         try reconcileGuards(Set(current.plan.domains))
     }
 
-    public func remove(_ record: PendingDeletion) throws {
+    /// Removes a replay record only after its owner domain has been removed.
+    public func remove(_ record: PendingDeletion, removedOwner domain: String) throws {
+        Self.storageLock.lock()
+        defer { Self.storageLock.unlock() }
         let current = try reload(record)
+        guard current.plan.owner == domain else { throw ItemDeletionError.invalidRequest }
         guard !current.isPending else { throw UploadError.pendingWrites }
         try removeFiles(current.id)
         try reconcileGuards(Set(current.plan.domains))
@@ -507,9 +523,12 @@ public final class DeletionOutbox {
 
     /// Call after domain removal succeeds; pendingCount supplies the earlier preflight.
     public func removeSettled(domain: String) throws {
+        Self.storageLock.lock()
+        defer { Self.storageLock.unlock() }
         let affected = try records().filter { $0.plan.domains.contains(domain) }
         guard !affected.contains(where: \.isPending) else { throw UploadError.pendingWrites }
-        for record in affected { try removeFiles(record.id) }
+        // Other owners can still receive delayed callbacks and need their replay records.
+        for record in affected where record.plan.owner == domain { try removeFiles(record.id) }
         try reconcileGuards(Set(affected.flatMap(\.plan.domains) + [domain]))
     }
 
@@ -517,12 +536,16 @@ public final class DeletionOutbox {
     public func reconcileGuards(domains: [String]) throws { try reconcileGuards(Set(domains)) }
 
     func reload(_ record: PendingDeletion) throws -> PendingDeletion {
+        Self.storageLock.lock()
+        defer { Self.storageLock.unlock() }
         let plan = try JSONDecoder().decode(DeletionPlan.self, from: Data(contentsOf: url(record.id, "deletion")))
         guard plan == record.plan else { throw ItemDeletionError.invalidRequest }
         return PendingDeletion(plan: plan, progress: try durableProgress(of: plan))
     }
 
     func durableProgress(of plan: DeletionPlan) throws -> DeletionProgress {
+        Self.storageLock.lock()
+        defer { Self.storageLock.unlock() }
         let progress = try storedProgress(plan)
         // An earlier write may be visible even though syncing its directory failed.
         try syncDirectory(directory)
@@ -531,6 +554,8 @@ public final class DeletionOutbox {
 
     /// Rejects a caller whose view of the durable progress is stale.
     func advance(_ plan: DeletionPlan, from previous: DeletionProgress, to next: DeletionProgress) throws {
+        Self.storageLock.lock()
+        defer { Self.storageLock.unlock() }
         guard try storedProgress(plan) == previous else { throw ItemDeletionError.invalidRequest }
         try next.validate(for: plan)
         try next.validateUpdate(from: previous, plan: plan)
@@ -556,6 +581,8 @@ public final class DeletionOutbox {
     }
 
     private func reconcileGuards(_ domains: Set<String>) throws {
+        Self.storageLock.lock()
+        defer { Self.storageLock.unlock() }
         let pending = try records().filter(\.isPending)
         let wanted = Set(pending.flatMap(\.plan.domains).flatMap(guards).map(\.standardizedFileURL.path))
         for url in Self.unique(domains.sorted().flatMap(guards)) {
