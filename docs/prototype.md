@@ -331,6 +331,13 @@ locations stay read-only, confirmed writable locations keep their access, and cr
 locations retain creation access until Complete Write Setup. An inactive grant is retained
 when Read only is enabled. Older builds must refuse version 6 so they cannot mistake that
 retained grant for active write permission. IDs, domains, bookmarks and keep lists remain.
+
+Unfinished M23 ordered saves keep an Ordering.edit guard that makes M19/M20 refuse that outbox.
+Use the newer build to resume it; do not remove the guard to force a downgrade. Legacy pending
+saves remain readable, but differing contents with unknown order stay blocked and exportable.
+The [ordering implementation](results/2026-10-29-pending-save-order.md) passes core checks but
+still needs signed runtime checks.
+
 Catalog versions 1 through 6 migrate to version 7 without replacing item IDs or the epoch.
 Version 7 records departures from former parents for known file moves. Older readers refuse it
 instead of missing those departures. The catalog API is preparation for M21; the provider does

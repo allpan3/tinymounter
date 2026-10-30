@@ -78,7 +78,8 @@ final class EditNamespace: @unchecked Sendable {
         }
     }
 
-    func requireUncontested(path: RelativePath, excluding id: UUID) throws {
+    func requireUncontested(path: RelativePath, excluding id: UUID,
+                            retaining: (domain: String, item: String)? = nil) throws {
         for record in try LocationSource.renameOutbox().records() where record.isPending && record.id != id {
             guard !record.views.contains(where: { domains[$0.domain] != nil }) ||
                 (NameKey(record.source) != NameKey(path.string) && NameKey(record.destination) != NameKey(path.string)) else {
@@ -88,7 +89,9 @@ final class EditNamespace: @unchecked Sendable {
         for (domain, folder) in domains {
             for record in try LocationSource.editOutbox(domainID: domain).records()
                 where record.id != id && record.mayHaveChangedOriginal {
-                guard let relative = RelativePath(record.path), folder.appending(relative) != path else {
+                if retaining?.domain == domain, retaining?.item == record.item { continue }
+                guard let relative = RelativePath(record.path), let full = folder.appending(relative),
+                      NameKey(full.string) != NameKey(path.string) else {
                     throw UploadError.pendingWrites
                 }
             }
