@@ -118,6 +118,7 @@ public final class UploadOutbox {
         guard source?.filesystem.isLocal != false, source?.snapshot.size ?? 0 == record.size,
               try source.map({ try $0.checksum(range: ByteRange(offset: 0, length: record.size, fileSize: record.size)) })
                 ?? Self.emptyDigest == record.digest else { throw UploadError.unresolved }
+        if try finishStagedPayload(record) { return }
         let destination = contentURL(record.id)
         if FileManager.default.fileExists(atPath: destination.path) {
             try FileManager.default.removeItem(at: destination)
@@ -162,19 +163,63 @@ public final class UploadOutbox {
         try FileManager.default.removeItem(at: directory)
     }
 
-    // EditOutbox proves supersession before retiring a payload that never started a remote upload.
+    // A complete payload can outlive a failed state update; only incomplete staging is disposable.
+    func recoverLocalPreparation(_ id: UUID, size: Int64, digest: String) throws -> Bool {
+        if var record = try records().first(where: { $0.id == id }) {
+            guard record.kind == .file, [.staging, .prepared].contains(record.state),
+                  record.size == size, record.digest == digest, record.remoteID == nil, record.item == nil,
+                  record.initialName == nil, record.serverFolder == nil else { throw UploadError.unresolved }
+            if try finishStagedPayload(record) {
+                record.state = .prepared
+                try save(record)
+                return true
+            }
+            guard record.state == .staging else { throw UploadError.unresolved }
+        } else if try stagedFile(id) != nil {
+            throw UploadError.unresolved
+        }
+        try discardUnpublishedPayload(id)
+        return false
+    }
+
+    private func stagedFile(_ id: UUID) throws -> ReadOnlyFile? {
+        do { return try ReadOnlyFile(url: contentURL(id)) }
+        catch let error as NSError where error.domain == NSPOSIXErrorDomain && error.code == Int(ENOENT) {
+            return nil
+        }
+    }
+
+    private func finishStagedPayload(_ record: PendingUpload) throws -> Bool {
+        guard let file = try stagedFile(record.id) else { return false }
+        guard file.filesystem.isLocal else { throw UploadError.unresolved }
+        if file.snapshot.size < record.size { return false }
+        guard file.snapshot.size == record.size,
+              try file.checksum(range: ByteRange(offset: 0, length: record.size, fileSize: record.size)) == record.digest
+        else { throw UploadError.unresolved }
+        guard fchmod(file.descriptor, 0o400) == 0, fcntl(file.descriptor, F_FULLFSYNC) == 0 else {
+            throw posixError("sync recovered payload")
+        }
+        return true
+    }
+
+    // EditOutbox proves supersession or incomplete local preparation before removing a payload.
     func discardUnpublishedPayload(_ id: UUID) throws {
         if let record = try records().first(where: { $0.id == id }) {
             guard record.kind == .file, [.staging, .prepared].contains(record.state),
                   record.remoteID == nil, record.item == nil,
                   record.initialName == nil, record.serverFolder == nil else { throw UploadError.unresolved }
         }
-        for url in [contentURL(id), directory.appending(path: id.uuidString + ".json")] {
-            guard unlink(url.path) == 0 || errno == ENOENT else { throw posixError("discard superseded payload") }
-        }
         let fd = open(directory.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         guard fd >= 0 else { throw posixError("open payload directory") }
         defer { close(fd) }
+        guard unlink(contentURL(id).path) == 0 || errno == ENOENT else { throw posixError("discard local payload") }
+        // A surviving payload must keep its staging receipt after an interrupted cleanup.
+        guard fsync(fd) == 0 else { throw posixError("sync payload removal") }
+        for suffix in ["json", "new"] {
+            guard unlink(directory.appending(path: id.uuidString + "." + suffix).path) == 0 || errno == ENOENT else {
+                throw posixError("discard local payload record")
+            }
+        }
         guard fsync(fd) == 0 else { throw posixError("sync payload removal") }
     }
 

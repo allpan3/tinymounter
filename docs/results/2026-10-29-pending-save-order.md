@@ -76,6 +76,23 @@ it. After both exports and the final server contents were saved as evidence, fix
 removed that known empty stage through the backing directory. This does not add a production
 cleanup route or authorize deleting uncertain user artifacts.
 
+## Interrupted local preparation
+
+Retry now examines saves left in preparing before it chooses the next publication. A missing or
+short local payload can be removed only when its durable records show that staging never reached
+the server. Complete bytes are verified and flushed, then recovered to prepared with their saved
+metadata. A complete copy with inconsistent metadata, an orphan payload, or evidence of a later
+state remains pending. UploadOutbox owns removal and syncs payload deletion before removing its
+receipt, so interrupted cleanup can resume without losing the evidence for a surviving payload.
+
+Matching callbacks reuse an already complete staged copy. This also protects ordinary uploads
+from replacing their complete copy after a lost state update. Focused regressions cover low
+space, a lost state update, interrupted cleanup, earlier complete copies, metadata uncertainty
+and release of the older-build guard. Required VM checks pass on the integrated source:
+356 tests, one optional skip, no failures or Swift warnings, and six encoder cases. Evidence is
+in m23-preparing-checks.log. Recovery runs on retry or ordering evaluation; it does not claim
+that every failed Save was accepted.
+
 ## Verification and remaining work
 
 Tools/run-checks.sh passes on the integrated source including retirement: 336 tests, one optional native-fixture skip,

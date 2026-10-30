@@ -142,7 +142,7 @@ public struct EditOrder: Equatable, Sendable {
     public var unordered: [PendingEdit] = []
 }
 
-/// Serialized by the location's mutation lane; incomplete generations are never replaced.
+/// Serialized by the location's mutation lane; complete and uncertain saves stay recoverable.
 public final class EditOutbox {
     private let directory: URL
     private let payloads: UploadOutbox
@@ -186,12 +186,17 @@ public final class EditOutbox {
 
     // The guard prevents older writers from adding unordered saves beside unfinished ordered ones.
     public func order(item: String) throws -> EditOrder {
-        let all = try records()
+        var all = try records()
         try requireOrderingEvidence(all)
-        let sameItem = all.filter { $0.item == item }
-        let sequences = sameItem.compactMap(\.sequence)
+        let sequences = all.filter { $0.item == item }.compactMap(\.sequence)
         guard Set(sequences).count == sequences.count else { throw UploadError.unresolved }
-        let generations = sameItem.filter { $0.state != .retired }
+        // A crash can leave complete newer bytes behind a preparing record.
+        let preparing = all.filter { $0.item == item && $0.state == .preparing }
+        if !preparing.isEmpty {
+            try recoverPreparations(preparing)
+            all = try records()
+        }
+        let generations = all.filter { $0.item == item && $0.state != .retired }
         let unfinished = generations.filter { $0.state != .completed }
         var order = EditOrder()
         let earlier: [PendingEdit]
@@ -259,15 +264,35 @@ public final class EditOutbox {
               current.stageIdentity == nil, current.backupIdentity == nil else { throw UploadError.unresolved }
         if let head = order.head { try validateContents(head) }
         try payloads.discardUnpublishedPayload(current.id)
-        let metadata = directory.appending(path: current.id.uuidString + ".metadata")
-        guard unlink(metadata.path) == 0 || errno == ENOENT else { throw posixError("discard superseded metadata") }
+        try removeLocalRecord(current)
+    }
+
+    private func removeLocalRecord(_ record: PendingEdit) throws {
+        let metadata = directory.appending(path: record.id.uuidString + ".metadata")
+        guard unlink(metadata.path) == 0 || errno == ENOENT else { throw posixError("discard local edit metadata") }
         // The record goes last, so an interrupted discard is retried rather than orphaning a payload.
-        guard unlink(directory.appending(path: current.id.uuidString + ".edit").path) == 0 else {
-            throw posixError("discard superseded edit record")
+        guard unlink(directory.appending(path: record.id.uuidString + ".edit").path) == 0 || errno == ENOENT else {
+            throw posixError("discard local edit record")
         }
         try Self.syncDirectory(directory)
         // A guard left in place only keeps older builds out; the next release removes it.
         try? releaseOrderingGuardIfSettled()
+    }
+
+    private func recoverPreparations(_ records: [PendingEdit]) throws {
+        for var record in records {
+            guard record.stageIdentity == nil, record.stageVersion == nil,
+                  record.backupIdentity == nil, record.backupVersion == nil, record.previous == nil,
+                  record.published == nil, record.completedItem == nil, !record.conflict,
+                  !record.recoveryRetained, record.destination == record.path else { throw UploadError.unresolved }
+            if try payloads.recoverLocalPreparation(record.id, size: record.size, digest: record.digest) {
+                try validateContents(record)
+                record.state = .prepared
+                try save(record)
+            } else {
+                try removeLocalRecord(record)
+            }
+        }
     }
 
     /// Retains uncertain private artifacts without letting this superseded save publish again.
