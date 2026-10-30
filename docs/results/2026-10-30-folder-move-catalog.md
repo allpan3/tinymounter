@@ -127,7 +127,10 @@ Review found that an unbrowsed known directory could contain names that settleme
 leaving a successful remote move unresolved. Source verification now lists every known
 directory before attempting the rename. Admission, settlement and recovery share the same
 aggregate child limit across views. A concurrent arrival can still require recovery. The
-budget regression test and adapter correction await VM checks.
+correction passes all required VM checks: 491 tests, one optional skip, no failures or Swift
+warnings, six encoder cases and 57 SMB-status cases. Evidence:
+`.local/phase4/m21-20261029/m22-adapter-review-checks.log`. Signed SMB checks remain blocked
+by the fixture recovery described in the [restart report](2026-10-30-vm-graphics-interruption.md).
 
 ## Saved keep paths
 
