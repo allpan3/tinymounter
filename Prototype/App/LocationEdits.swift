@@ -166,7 +166,7 @@ extension LocationSource {
                 if old.isLocalOnly { try outbox.discard(old) }
                 else { try retireEdit(&old, outbox: outbox, progress: progress) }
             } catch {
-                try outbox.retainSuperseded(&old)
+                if old.state != .retired { try outbox.retainSuperseded(&old) }
                 Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
                     .error("edit_superseded id=\(old.id.uuidString, privacy: .public) retained \(logFields(error), privacy: .public)")
             }

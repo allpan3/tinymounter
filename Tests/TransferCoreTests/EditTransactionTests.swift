@@ -984,6 +984,64 @@ final class EditTransactionTests: XCTestCase {
         XCTAssertEqual(try outbox.pendingCount, 0)
     }
 
+    func testSupersessionRecordsAcknowledgedRemovalBeforeTheNextCleanupFails() throws {
+        remote.failure = .backupReply
+        XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))
+        edit.backupVersion = try XCTUnwrap(remote.files[edit.recoveryPath])
+        edit.state = .backedUp
+        try outbox.save(edit)
+        var latest = try save("latest version")
+        remote.failRemovalAt = edit.recoveryPath
+        XCTAssertThrowsError(try EditTransaction.retire(&edit, outbox: outbox, remote: remote))
+        XCTAssertEqual(edit.state, .retired)
+        let retained = try stored(edit)
+        XCTAssertEqual(retained.retiredStageRemoved, true)
+        XCTAssertNotEqual(retained.retiredBackupRemoved, true)
+        XCTAssertNil(remote.files[edit.stagePath])
+        try outbox.validateContents(edit)
+        let replacement = try Remote.version(identity: 999, size: 5, digest: String(repeating: "d", count: 64))
+        remote.files[edit.stagePath] = replacement
+        remote.failRemovalAt = nil
+        outbox = try EditOutbox(directory: directory.appending(path: "Outbox"))
+        try finish(&latest)
+        remote.inspections = []
+        remote.removals = []
+        try EditTransaction.cleanupRetired(&edit, outbox: outbox, remote: remote)
+        XCTAssertEqual(remote.inspections, [edit.recoveryPath])
+        XCTAssertEqual(remote.removals, [edit.recoveryPath])
+        XCTAssertEqual(remote.files[edit.stagePath], replacement)
+        XCTAssertEqual(remote.files[edit.path]?.digest, latest.digest)
+        XCTAssertEqual(try outbox.pendingCount, 0)
+    }
+
+    func testSupersessionRetainsUnacknowledgedRemovalAndAllowsTheSuccessor() throws {
+        remote.failure = .backupReply
+        XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))
+        edit.backupVersion = try XCTUnwrap(remote.files[edit.recoveryPath])
+        edit.state = .backedUp
+        try outbox.save(edit)
+        var latest = try save("latest version")
+        let backup = remote.files[edit.recoveryPath]
+        remote.loseRemovalReplyAt = edit.stagePath
+        XCTAssertThrowsError(try EditTransaction.retire(&edit, outbox: outbox, remote: remote))
+        XCTAssertEqual(edit.state, .retired)
+        XCTAssertNotEqual(try stored(edit).retiredStageRemoved, true)
+        XCTAssertNil(remote.files[edit.stagePath])
+        outbox = try EditOutbox(directory: directory.appending(path: "Outbox"))
+        try finish(&latest)
+        let before = remote.files
+        remote.removals = []
+        XCTAssertThrowsError(try EditTransaction.cleanupRetired(&edit, outbox: outbox, remote: remote))
+        XCTAssertEqual(remote.files, before)
+        XCTAssertEqual(remote.files[edit.recoveryPath], backup)
+        XCTAssertTrue(remote.removals.isEmpty)
+        try outbox.validateContents(edit)
+        let exported = directory.appending(path: "retained.txt")
+        try outbox.export(edit, to: exported)
+        XCTAssertEqual(try Data(contentsOf: exported), Data("complete new version".utf8))
+        XCTAssertEqual(try outbox.pendingCount, 1)
+    }
+
     func testSupersededMissingStageRetainsTheLocalSaveBeforeAnyRemoval() throws {
         try assertMissingSupersededArtifactRetained(stage: true)
     }
