@@ -224,7 +224,12 @@ final class ShareAccess: @unchecked Sendable {
         let activity = changeHealth { $0.begin() }
         defer { changeHealth { $0.end(activity) } }
         do {
-            return try body(session) { [weak self] in self?.changeHealth { $0.progressed(activity) } }
+            let result = try body(session) { [weak self] in self?.changeHealth { $0.progressed(activity) } }
+            let recovered = changeHealth { health in
+                self.session === session ? health.operationSucceeded() : []
+            }
+            if !recovered.isEmpty { onRecovery(recovered) }
+            return result
         } catch {
             noteFailure(SourceFailure.classify(error, context: .listing), session: session)
             throw error
