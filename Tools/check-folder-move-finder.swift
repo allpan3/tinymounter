@@ -185,7 +185,7 @@ enum M22FinderProbe {
         init(_ wrapped: NSFileProviderEnumerationObserver, _ config: Config, _ call: UUID, _ parent: String) {
             self.wrapped = wrapped; self.config = config; self.call = call; self.parent = parent
         }
-        var suggestedPageSize: Int { CatalogPage.size(suggested: wrapped.suggestedPageSize) }
+        var suggestedPageSize: Int { wrapped.suggestedPageSize ?? 200 }
         func didEnumerate(_ items: [NSFileProviderItem]) {
             M22FinderProbe.emit(config, call: call, kind: "enumerated", fields: ["parent": parent],
                                 items: items.map(M22FinderProbe.item))
@@ -211,7 +211,7 @@ enum M22FinderProbe {
         init(_ wrapped: NSFileProviderChangeObserver, _ config: Config, _ call: UUID, _ parent: String) {
             self.wrapped = wrapped; self.config = config; self.call = call; self.parent = parent
         }
-        var suggestedBatchSize: Int { CatalogPage.size(suggested: wrapped.suggestedBatchSize) }
+        var suggestedBatchSize: Int { wrapped.suggestedBatchSize ?? 200 }
         func didUpdate(_ updatedItems: [NSFileProviderItem]) {
             M22FinderProbe.emit(config, call: call, kind: "updated", fields: ["parent": parent],
                                 items: updatedItems.map(M22FinderProbe.item))
