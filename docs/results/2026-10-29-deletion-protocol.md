@@ -231,3 +231,15 @@ Compatibility guard paths still default to empty; the app's current readers do n
 deletion guards. The guard tests simulate older decoders, not real older app builds. Independent
 source review is pending. No app caller can start a durable recursive deletion, and no Finder
 Delete capability is enabled. Signed recursive SMB and Finder checks remain required.
+
+The subsequent source review found that pre-delete presence evidence could hide uncertainty
+after a successful mark, and that removing a secondary location discarded the owner's replay
+record. Both are fixed. Presence evidence expires after marking, and settled records remain
+until their owner is removed. A process-wide storage lock also serializes guard publication
+and reconciliation, and progress cannot carry an acknowledgement into the next node.
+
+Six added regressions pass in VM 1, bringing deletion storage/recursive tests to 28 and the
+complete suite to 526 with one optional skip. `Tools/run-checks.sh` passes with no Swift warnings,
+including the app build, CLI, project, encoder and status checks. Evidence is
+`m24-core-review-checks.log` in the same session directory. These fixes do not enable an app
+caller or close the recursive SMB and Finder gates.
