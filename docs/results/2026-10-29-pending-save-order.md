@@ -305,4 +305,7 @@ capacity loss, final-block recovery and interrupted supersession cleanup. Eviden
 `Tools/check-save-recovery.swift` and its Python driver prepare four bounded signed checks
 for reserve loss, native partial staging and cleanup interruption. The standalone helper uses
 private settings/catalogs and a marked fixture; the driver checks retained artifact contents.
-Compilation and execution of these helpers remain pending.
+The Swift helper compiles without Swift diagnostics, and the Python driver passes syntax
+compilation in VM 1. Its signed bundle passes strict verification with unchanged sandbox
+entitlements (`m23-final-helper-build.log`). Execution and independent probe review remain
+pending; no runtime claim follows from the build.
