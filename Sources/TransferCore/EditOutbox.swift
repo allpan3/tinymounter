@@ -91,7 +91,7 @@ public struct EditBaseReceipt: Codable, Equatable, Sendable {
 public struct PendingEdit: Codable, Equatable, Sendable {
     public enum State: String, Codable, Sendable {
         case preparing, prepared, creatingStage, staged, creatingBackup, backedUp, movingOriginal
-        case copying, restoring, publishing, published, completed
+        case copying, restoring, publishing, published, completed, retired
     }
 
     public let id: UUID
@@ -188,9 +188,10 @@ public final class EditOutbox {
     public func order(item: String) throws -> EditOrder {
         let all = try records()
         try requireOrderingEvidence(all)
-        let generations = all.filter { $0.item == item }
-        let sequences = generations.compactMap(\.sequence)
+        let sameItem = all.filter { $0.item == item }
+        let sequences = sameItem.compactMap(\.sequence)
         guard Set(sequences).count == sequences.count else { throw UploadError.unresolved }
+        let generations = sameItem.filter { $0.state != .retired }
         let unfinished = generations.filter { $0.state != .completed }
         var order = EditOrder()
         let earlier: [PendingEdit]
@@ -269,13 +270,31 @@ public final class EditOutbox {
         try? releaseOrderingGuardIfSettled()
     }
 
+    /// Retains uncertain private artifacts without letting this superseded save publish again.
+    public func retainSuperseded(_ record: inout PendingEdit) throws {
+        let order = try self.order(item: record.item)
+        guard var stored = order.superseded.first(where: { $0.id == record.id }),
+              [.creatingStage, .staged, .creatingBackup, .backedUp].contains(stored.state),
+              stored.published == nil, stored.completedItem == nil,
+              let head = order.head else { throw UploadError.unresolved }
+        try validateContents(head)
+        try validateContents(stored)
+        try ensureOrderingGuard()
+        stored.state = .retired
+        stored.recoveryRetained = true
+        try save(stored)
+        record = stored
+    }
+
     static let orderingGuardName = "Ordering.edit"
     private var orderingGuard: URL { directory.appending(path: Self.orderingGuardName) }
     private var hasOrderingGuard: Bool { FileManager.default.fileExists(atPath: orderingGuard.path) }
 
     /// Without the guard, an older build may have written saves whose order is unknown.
     private func requireOrderingEvidence(_ records: [PendingEdit]) throws {
-        guard hasOrderingGuard || !records.contains(where: { $0.sequence != nil && $0.state != .completed }) else {
+        guard hasOrderingGuard || !records.contains(where: {
+            ($0.sequence != nil && $0.state != .completed) || $0.state == .retired
+        }) else {
             throw UploadError.unresolved
         }
     }
@@ -292,7 +311,9 @@ public final class EditOutbox {
 
     /// Lets older builds read the outbox again once no ordered save is unfinished.
     public func releaseOrderingGuardIfSettled() throws {
-        guard hasOrderingGuard, try !records().contains(where: { $0.sequence != nil && $0.state != .completed }) else {
+        guard hasOrderingGuard, try !records().contains(where: {
+            ($0.sequence != nil && $0.state != .completed) || $0.state == .retired
+        }) else {
             return
         }
         guard unlink(orderingGuard.path) == 0 || errno == ENOENT else { throw posixError("remove edit ordering guard") }
@@ -327,7 +348,7 @@ public final class EditOutbox {
         try requireOrderingEvidence(all)
         let highest = all.compactMap(\.sequence).max() ?? 0
         guard highest < UInt64.max else { throw UploadError.unresolved }
-        let generations = all.filter { $0.item == item }
+        let generations = all.filter { $0.item == item && $0.state != .retired }
         let replays = { (record: PendingEdit) in
             record.parent == parent && record.path == path.string && record.baseVersion == baseVersion
                 && record.digest == digest && (record.localMetadataDigest == metadata
@@ -340,7 +361,9 @@ public final class EditOutbox {
             ordered.dropLast().last?.sequence != last.sequence
                 && (last.state != .completed || ordered.count == generations.count) ? last : nil
         }
-        let existing = newest.flatMap { replays($0) ? $0 : nil }
+        // A retry before publication can use fresh private names and retain the interrupted attempt.
+        let needsFreshAttempt: [PendingEdit.State] = [.creatingStage, .staged, .creatingBackup, .backedUp]
+        let existing = newest.flatMap { replays($0) && !needsFreshAttempt.contains($0.state) ? $0 : nil }
         if let existing, existing.state != .preparing {
             if existing.isPending { try validateContents(existing) }
             return existing
@@ -456,7 +479,14 @@ public final class EditOutbox {
 
     public func save(_ record: PendingEdit) throws {
         // Older builds would publish an unfinished ordered save without honoring its order.
-        if record.sequence != nil, record.state != .completed, !hasOrderingGuard { throw UploadError.unresolved }
+        if (record.sequence != nil && record.state != .completed) || record.state == .retired {
+            guard hasOrderingGuard else { throw UploadError.unresolved }
+        }
+        let url = directory.appending(path: record.id.uuidString + ".edit")
+        if FileManager.default.fileExists(atPath: url.path) {
+            let stored = try JSONDecoder().decode(PendingEdit.self, from: Data(contentsOf: url))
+            guard stored.state != .retired || record == stored else { throw UploadError.unresolved }
+        }
         try persist(record, id: record.id, extension: "edit", exclusive: false)
     }
 

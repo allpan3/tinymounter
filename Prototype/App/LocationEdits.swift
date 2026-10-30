@@ -129,7 +129,7 @@ extension LocationSource {
         }
     }
 
-    /// Earlier work resolves before the newest complete save; superseded saves never publish.
+    /// Started publications resolve first; uncertain private artifacts can remain for recovery.
     private func finishItem(_ item: String, outbox: EditOutbox, progress: Progress) throws {
         for var earlier in try outbox.order(item: item).predecessors {
             do { try finishResolvingEquivalents(&earlier, outbox: outbox, progress: progress) }
@@ -143,7 +143,7 @@ extension LocationSource {
                 if old.isLocalOnly { try outbox.discard(old) }
                 else { try retireEdit(&old, outbox: outbox, progress: progress) }
             } catch {
-                // Without evidence the superseded save stays retained, and the head waits for it.
+                try outbox.retainSuperseded(&old)
                 Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
                     .error("edit_superseded id=\(old.id.uuidString, privacy: .public) retained \(logFields(error), privacy: .public)")
             }
@@ -188,7 +188,7 @@ extension LocationSource {
         guard let bookmark = writeBookmark, let relative = RelativePath(record.path),
               let path = folder.appending(relative) else { throw UploadError.readOnly }
         if record.state == .completed, !record.recoveryRetained { return }
-        guard record.state != .preparing else { throw UploadError.unresolved }
+        guard record.state != .preparing, record.state != .retired else { throw UploadError.unresolved }
         try outbox.validateContents(record)
         guard try !outbox.hasResourceFork(record) else {
             throw CocoaError(.featureUnsupported)

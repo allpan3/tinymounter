@@ -607,7 +607,8 @@ private struct UploadStatus: View {
             ForEach(edits.filter { $0.isPending || $0.conflict }, id: \.id) { edit in
                 VStack(alignment: .leading) {
                     Text((edit.path as NSString).lastPathComponent)
-                    Text(edit.state == .completed && edit.conflict ? UIText.conflictSaved : UIText.editNeedsRecovery)
+                    Text(edit.state == .retired ? UIText.retiredEdit
+                         : edit.state == .completed && edit.conflict ? UIText.conflictSaved : UIText.editNeedsRecovery)
                         .font(.callout).foregroundStyle(.secondary)
                     if edit.isPending {
                         Button(UIText.exportEdit) { model.exportEdit(edit, record: record) }

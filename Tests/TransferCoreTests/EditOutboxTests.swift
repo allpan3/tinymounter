@@ -450,6 +450,50 @@ final class EditOutboxTests: XCTestCase {
         XCTAssertThrowsError(try outbox.discard(started))
     }
 
+    func testRetiredLegacySaveKeepsDowngradeGuardAndExportAfterSuccessorCompletes() throws {
+        var old = try unordered(prepare("older build save"))
+        old.state = .creatingStage
+        try outbox.save(old)
+        var latest = try prepare("latest save")
+        try outbox.retainSuperseded(&old)
+        try completeAsPublished(&latest)
+        try outbox.releaseOrderingGuardIfSettled()
+        XCTAssertThrowsError(try olderBuildRecords())
+        outbox = try EditOutbox(directory: directory.appending(path: "Edits"))
+        XCTAssertNil(try outbox.order(item: item).head)
+        XCTAssertEqual(try outbox.order(item: item).unordered, [])
+        XCTAssertEqual(try outbox.pendingCount, 1)
+        XCTAssertEqual(try prepare("latest save").id, latest.id)
+        let newSave = try prepare("older build save")
+        XCTAssertNotEqual(newSave.id, old.id)
+        XCTAssertEqual(try outbox.order(item: item).head?.id, newSave.id)
+        try FileManager.default.removeItem(at: directory.appending(path: "Edits/" + EditOutbox.orderingGuardName))
+        XCTAssertThrowsError(try outbox.order(item: item))
+        let exported = directory.appending(path: "retained.txt")
+        try outbox.export(old, to: exported)
+        XCTAssertEqual(try Data(contentsOf: exported), Data("older build save".utf8))
+    }
+
+    func testRetirementRequiresDurableCompleteSuccessorAndOrderingEvidence() throws {
+        var old = try prepare("older save")
+        old.state = .creatingStage
+        try outbox.save(old)
+        XCTAssertThrowsError(try outbox.retainSuperseded(&old))
+        XCTAssertThrowsError(try prepare("failed save", checkSpace: { _ in throw CocoaError(.fileWriteOutOfSpace) }))
+        XCTAssertThrowsError(try outbox.retainSuperseded(&old))
+        let latest = try prepare("latest save")
+        let payload = outbox.contentURL(latest)
+        XCTAssertEqual(chmod(payload.path, 0o600), 0)
+        try Data("damaged".utf8).write(to: payload)
+        XCTAssertThrowsError(try outbox.retainSuperseded(&old))
+        XCTAssertEqual(try stored(old).state, .creatingStage)
+        _ = try prepare("another complete save")
+        try FileManager.default.removeItem(at: directory.appending(path: "Edits/" + EditOutbox.orderingGuardName))
+        XCTAssertThrowsError(try outbox.retainSuperseded(&old))
+        XCTAssertEqual(try stored(old).state, .creatingStage)
+        try outbox.validateContents(old)
+    }
+
     func testUnorderedRecordsFromAnOlderBuildStayBlockedAndExportable() throws {
         let first = try unordered(prepare("older build first"))
         let second = try unordered(prepare("older build second"))

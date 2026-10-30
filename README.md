@@ -188,18 +188,20 @@ write operation; signed SMB runtime checks and installation remain pending. See 
 
 File organization protocol, 2026-10-29: all nine disposable VM cases pass, including protected
 moves, collisions, permission/stream preservation and crash recovery. The app still does not
-enable moves. Admitting older catalog rows needs a decision because their historical server
-identity was not recorded; signed Finder checks also remain. The approved fixture session is
+enable moves. The user accepted admission of the current server object for unverified rows;
+production integration and signed Finder checks remain. The approved fixture session is
 still open. See the [protocol results](docs/results/2026-10-29-file-organization-protocol.md).
 
 Pending saves (M23), 2026-10-29: a focused VM regression reproduces an older save publishing
-while a newer complete copy waits. The core fix and required checks pass: 332 tests, one optional
-skip and no Swift warnings. Signed workflows, storage bounds and recovery UI remain incomplete. See the
+while a newer complete copy waits. The core fix, retained retirement and required checks pass:
+336 tests, one optional skip and no Swift warnings. Signed workflows, storage bounds and recovery
+cleanup remain incomplete. See the
 [ordering results](docs/results/2026-10-29-pending-save-order.md).
 
 Deletion protocol (M24), 2026-10-29: the disposable VM probe completed deletion, competing-access
-and eleven crash scenarios, then cleaned up its test subtree. Concurrent attached data requires
-a policy decision; lost replies remain visibly unconfirmed. No app deletion capability is
+and eleven crash scenarios, then cleaned up its test subtree. The user accepted deleting the
+whole selected file, including concurrent attached data; lost replies remain visibly unconfirmed.
+No app deletion capability is
 enabled. See the [deletion results](docs/results/2026-10-29-deletion-protocol.md).
 
 ## Run the prototype
