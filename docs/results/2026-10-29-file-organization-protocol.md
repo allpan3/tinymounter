@@ -165,3 +165,23 @@ only enabled for the test location, Return did not start a rename and Move Item 
 change. The saved log contains no mutation callbacks, and the same remote comparison passes.
 Read only was restored off and checked in Settings on 2026-10-30. Evidence:
 m21-finder-collision-result.json, m21-readonly-log.json and m21-readonly-result.json.
+
+## Signed app boundary checks, 2026-10-30
+
+An isolated signed-app helper completed a combined rename/move and refused changed and
+identical-byte replacement sources and a move crossing another registered root. These calls
+used the app API, not Finder callbacks. The first move refreshed the source folder, so the
+changed/replaced cases demonstrate stale-version refusal rather than the deeper historical
+identity comparison. The selected file and all neighbors retained complete contents and identity.
+
+The initial helper incorrectly required every DOS attribute to stay identical. Samba changed
+NORMAL (128) to ARCHIVE (32) on the moved file. A fresh complete audit found only that difference
+and its change time; permissions, modification time, contents and neighbors were unchanged.
+The corrected helper records those flags and still compares all other flags and security data.
+It resumed after the completed move without replaying it; the original failure evidence remains.
+
+The pending-upload callback also returned pendingWrites, but the next audit was refused by the
+temporary unresponsive state after a roughly 20-second fixture authentication. Admission now
+checks local pending data in every affected view before opening that protected SMB session.
+The namespace lock still excludes concurrent mutations through publication. Required checks
+and the signed repeat of this admission change are pending; this run is not a completed suite.
