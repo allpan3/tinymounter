@@ -5,8 +5,10 @@ A macOS app that brings a network disk, such as a NAS, into Apple's file system:
 Save recovery, 2026-10-30: signed TextEdit checks recovered from stops before publication and before its reply. A simulated mid-copy space failure preserved the earlier exportable save; the complete newer save uploaded after retry. Item IDs, server identities and keep flags survived, with no final pending copies or false conflicts. [The observed callbacks and limits are recorded](docs/results/2026-10-29-pending-save-order.md#signed-callback-observation-2026-10-30). Actual disk exhaustion and broader editor workflows remain unverified; M23 is incomplete.
 
 Folder moves, 2026-10-30: signed adapter checks pass for populated and case-only moves,
-destination collisions, lost-reply recovery and partial-catalog recovery. Two ambiguous-name
-cases could not run on the fixture. [Finder integration remains unverified and disabled](docs/results/2026-10-30-folder-move-catalog.md#signed-adapter-checks-2026-10-30).
+destination collisions, lost-reply recovery and partial-catalog recovery. Signed app checks also
+pass for read/watch draining, pending-write exclusions, overlapping views, keeps and recovery
+after settings persistence. Two ambiguous-name cases could not run on the fixture.
+[Finder integration remains unverified and disabled](docs/results/2026-10-30-folder-move-catalog.md#signed-app-checks-2026-10-30).
 Required VM checks pass with 492 tests and one optional skip.
 
 Deletion adapter, 2026-10-30: signed file and empty-folder deletion, paginated confirmation,
