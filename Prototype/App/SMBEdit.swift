@@ -13,6 +13,7 @@ final class SMBEdit: EditRemote, FileRenameRemote {
     }
 
     private let client: UnsafeMutableRawPointer
+    private let endpoint: ShareAddress
     private let folder: RelativePath
     private let root: Int32
     private let progress: Progress
@@ -22,6 +23,10 @@ final class SMBEdit: EditRemote, FileRenameRemote {
     private var originals: Set<String> = []
     private var hiddenOriginals: Set<String> = []
     private var deletionTarget: String?
+    private var folderMoveMount: MountIdentity?
+    private var folderMoveRoots: [String: Handle] = [:]
+    private var folderMoveFiles: [String: Handle] = [:]
+    private var folderMoveParents: Set<String> = []
     private static let read: UInt32 = 0x20081
     private static let write: UInt32 = 2
     private static let delete: UInt32 = 0x10000
@@ -33,6 +38,7 @@ final class SMBEdit: EditRemote, FileRenameRemote {
             throw posixError("connect protected save", code: error)
         }
         self.client = client
+        self.endpoint = endpoint
         self.folder = folder
         self.root = root
         self.progress = progress
@@ -463,6 +469,410 @@ final class SMBEdit: EditRemote, FileRenameRemote {
         bytes += [2, 0, UInt8(size), 0, owner.isEmpty ? 0 : 1, 0, 0, 0]
         if !owner.isEmpty { bytes += [0, 0, UInt8(8 + owner.count), 0, 0xff, 1, 0x1f, 0] + owner }
         return bytes
+    }
+}
+
+extension SMBEdit: FolderMoveRemote {
+    private struct FolderMoveCurrent {
+        let identity: EditFileIdentity
+        let version: EditFileVersion?
+        let nativeID: UInt64
+        let fingerprint: ContentFingerprint
+    }
+
+    func protectFolderMoveParents(source: String, destination: String) throws -> [FileRenameParent] {
+        guard folder.isRoot, handles.isEmpty, stageVerifiers.isEmpty, deletionTarget == nil else {
+            throw UploadError.invalidRequest
+        }
+        _ = try folderMoveMountIdentity()
+        let parents = try protectRenameParents(source: source, destination: destination)
+        for parent in parents {
+            guard parent.name.utf8.elementsEqual((RelativePath(parent.path)!.components.last ?? "").utf8) else {
+                throw UploadError.unresolved
+            }
+        }
+        folderMoveParents = Set(parents.map(\.path))
+        return parents
+    }
+
+    func inspectFolderMoveRoot(path: String) throws -> FolderMoveEvidence? {
+        let relative = try folderMovePath(path)
+        let parent = relative.components.dropLast().joined(separator: "/")
+        guard folderMoveParents.contains(parent) else { throw UploadError.unresolved }
+        guard let entry = try folderMoveListing(parent).first(where: { NameKey($0.name) == NameKey(relative.components.last!) })
+        else { return nil }
+        guard entry.kind == .folder else { throw UploadError.collision }
+        if folderMoveRoots[path] == nil {
+            if let held = try folderMoveRoots.values.first(where: { try folderMoveIdentity(info($0)) == entry.identity }) {
+                folderMoveRoots[path] = held
+            } else {
+                let handle = Handle()
+                let stored = relative.components.dropLast() + [entry.name]
+                try handle.use {
+                    try check(tm_edit_open_directory(client, stored.joined(separator: "/"), 0x81 | Self.delete, 3, $0))
+                }
+                folderMoveRoots[path] = handle
+            }
+        }
+        let values = try info(folderMoveRoots[path]!)
+        guard values[4] & 0x450 == 0x10, try folderMoveIdentity(values) == entry.identity,
+              let confirmed = try folderMoveListing(parent).first(where: { NameKey($0.name) == NameKey(entry.name) }),
+              confirmed.identity == entry.identity, confirmed.name.utf8.elementsEqual(entry.name.utf8) else {
+            throw UploadError.unresolved
+        }
+        return FolderMoveEvidence(identity: entry.identity, name: entry.name)
+    }
+
+    func releaseFolderMoveRoot(path: String) throws {
+        guard let handle = folderMoveRoots[path] else { return }
+        if folderMoveRoots.contains(where: { $0.key != path && $0.value === handle }) {
+            folderMoveRoots[path] = nil
+            return
+        }
+        try handle.use { try check(tm_edit_close(client, $0)) }
+        folderMoveRoots[path] = nil
+    }
+
+    func captureFolderMoveProofs(move: CatalogFolderMove, folder: RelativePath) throws -> [CatalogFolderMoveProof] {
+        guard !move.entries.isEmpty, move.entries.count <= DirectoryListing.defaultLimit,
+              Set(move.entries.map(\.item)).count == move.entries.count,
+              move.entries.allSatisfy({ RelativePath($0.path).map { !$0.isRoot } == true }),
+              let rootEntry = move.entries.first(where: { $0.item == move.item }), rootEntry.kind == .folder,
+              let rootRelative = RelativePath(rootEntry.path), let rootPath = folder.appending(rootRelative),
+              let root = try inspectFolderMoveRoot(path: rootPath.string),
+              root.name.utf8.elementsEqual(rootEntry.name.utf8) else { throw SourceFailure.versionChanged }
+        var proofs: [String: CatalogFolderMoveProof] = [:]
+        for entry in folderMoveOrdered(move.entries) {
+            guard let path = folder.appending(RelativePath(entry.path)!),
+                  let current = try folderMoveCurrent(path: path, kind: entry.kind, expected: nil),
+                  current.nativeID == entry.nativeID, current.fingerprint.size == entry.size,
+                  current.fingerprint.mtimeNs == entry.mtimeNs, current.fingerprint.ctimeNs == entry.ctimeNs else {
+                throw SourceFailure.versionChanged
+            }
+            if let version = current.version {
+                proofs[entry.item] = .file(try EditBaseReceipt(item: entry.item, version: version))
+            } else {
+                proofs[entry.item] = .directory(item: entry.item, identity: current.identity)
+            }
+        }
+        return try move.entries.map {
+            guard let proof = proofs[$0.item] else { throw UploadError.unresolved }
+            return proof
+        }
+    }
+
+    func verifyFolderMoveSource(_ record: PendingFolderMove) throws {
+        for view in record.views {
+            let proofs = Dictionary(uniqueKeysWithValues: view.proofs.map { ($0.item, $0) })
+            for entry in folderMoveOrdered(view.move.entries) {
+                guard let path = RelativePath(view.folder)?.appending(RelativePath(entry.path)!),
+                      let proof = proofs[entry.item],
+                      let current = try folderMoveCurrent(path: path, kind: entry.kind, expected: proof.identity) else {
+                    throw SourceFailure.versionChanged
+                }
+                if case .file(let receipt) = proof {
+                    guard let version = current.version, version.hasSameContents(as: receipt.version),
+                          version.modifiedMicroseconds == receipt.version.modifiedMicroseconds else {
+                        throw SourceFailure.versionChanged
+                    }
+                }
+            }
+        }
+    }
+
+    func releaseFolderMoveDescendants() throws {
+        for path in folderMoveFiles.keys.sorted() {
+            try folderMoveFiles[path]!.use { try check(tm_edit_close(client, $0)) }
+            folderMoveFiles[path] = nil
+        }
+        for path in directories.keys.filter({ !folderMoveParents.contains($0) }).sorted(by: { $0.count > $1.count }) {
+            try directories[path]!.use { try check(tm_edit_close(client, $0)) }
+            directories[path] = nil
+        }
+    }
+
+    func moveFolder(source: String, destination: String) throws {
+        guard let handle = folderMoveRoots[source], folderMoveFiles.isEmpty,
+              Set(directories.keys) == folderMoveParents else { throw UploadError.unresolved }
+        _ = try folderMovePath(destination)
+        try cancellation()
+        try handle.use { try check(tm_edit_rename(client, $0, destination)) }
+        folderMoveRoots = folderMoveRoots.filter { $0.value !== handle }
+        folderMoveRoots[destination] = handle
+    }
+
+    func settleFolderMove(_ record: PendingFolderMove) throws -> [FolderMoveSettlement] {
+        let states = try Dictionary(uniqueKeysWithValues: record.views.map {
+            ($0.domain, try CatalogFolderMoveState.admission($0.move, proofs: $0.proofs))
+        })
+        return try observeFolderMove(record, states: states).map { refresh in
+            let view = record.views.first { $0.domain == refresh.domain }!
+            let proofs = Dictionary(uniqueKeysWithValues: view.proofs.map { ($0.item, $0) })
+            let resolutions = try refresh.observations.map { observed -> CatalogFolderMoveResolution in
+                switch observed {
+                case .removed(let item): return .removed(item: item)
+                case .directory(let after, _): return .preserved(after)
+                case .file(let after, let version):
+                    guard let proof = proofs[after.item], case .file(let before) = proof else {
+                        throw UploadError.unresolved
+                    }
+                    if version.hasSameContents(as: before.version)
+                        && version.modifiedMicroseconds == before.version.modifiedMicroseconds { return .preserved(after) }
+                    return .changed(after, receipt: try EditBaseReceipt(item: after.item, version: version))
+                }
+            }
+            return FolderMoveSettlement(domain: view.domain, settlement: CatalogFolderMoveSettlement(
+                proofs: view.proofs, resolutions: resolutions, listings: refresh.listings))
+        }
+    }
+
+    func verifyFolderMoveSettlement(_ record: PendingFolderMove) throws {
+        guard record.recovery == nil else { throw UploadError.unresolved }
+        try verifyFolderMoveTarget(record)
+    }
+
+    func refreshFolderMove(_ record: PendingFolderMove) throws -> [FolderMoveRefresh] {
+        let states = try Dictionary(uniqueKeysWithValues: record.views.map {
+            ($0.domain, try record.latestTarget(domain: $0.domain))
+        })
+        return try observeFolderMove(record, states: states)
+    }
+
+    func verifyFolderMoveRecovery(_ record: PendingFolderMove) throws {
+        guard record.recovery != nil else { throw UploadError.unresolved }
+        try verifyFolderMoveTarget(record)
+    }
+
+    private func verifyFolderMoveTarget(_ record: PendingFolderMove) throws {
+        let refreshed = try refreshFolderMove(record)
+        for refresh in refreshed {
+            let state = try record.latestTarget(domain: refresh.domain)
+            let entries = Dictionary(uniqueKeysWithValues: state.entries.map { ($0.item, $0) })
+            for observed in refresh.observations {
+                let expected = entries[observed.item]!
+                if expected.retired {
+                    guard case .removed = observed else { throw UploadError.unresolved }
+                    continue
+                }
+                let after: CatalogFolderMoveObservation
+                switch observed {
+                case .removed: throw SourceFailure.versionChanged
+                case .directory(let value, let identity):
+                    guard identity == expected.proof.identity else { throw SourceFailure.versionChanged }
+                    after = value
+                case .file(let value, let version):
+                    guard case .file(let receipt) = expected.proof,
+                          version.hasSameContents(as: receipt.version),
+                          version.modifiedMicroseconds == receipt.version.modifiedMicroseconds else {
+                        throw SourceFailure.versionChanged
+                    }
+                    after = value
+                }
+                guard after.nativeID == expected.nativeID, after.size == expected.size,
+                      after.mtimeNs == expected.mtimeNs, after.ctimeNs == expected.ctimeNs else {
+                    throw SourceFailure.versionChanged
+                }
+            }
+        }
+    }
+
+    private func observeFolderMove(_ record: PendingFolderMove, states: [String: CatalogFolderMoveState]) throws
+        -> [FolderMoveRefresh] {
+        var physical: [String: FolderMoveCurrent] = [:], absent: Set<String> = []
+        var complete: [String: [RenameDirectoryEntry]] = [:]
+        return try record.views.map { view in
+            guard let state = states[view.domain] else { throw UploadError.unresolved }
+            let expected = Dictionary(uniqueKeysWithValues: state.entries.map { ($0.item, $0) })
+            var observations: [String: FolderMoveObservation] = [:], listings: [CatalogFolderMoveListing] = []
+            for entry in folderMoveOrdered(view.move.entries) {
+                guard let before = expected[entry.item], let relative = view.destinationPath(for: entry),
+                      let path = RelativePath(view.folder)?.appending(relative) else { throw UploadError.unresolved }
+                if before.retired || absent.contains(path.string)
+                    || observations[entry.parent].map({ if case .removed = $0 { true } else { false } }) == true {
+                    observations[entry.item] = .removed(item: entry.item)
+                    absent.insert(path.string)
+                    continue
+                }
+                if physical[path.string] == nil {
+                    physical[path.string] = try folderMoveCurrent(path: path, kind: entry.kind, expected: before.proof.identity)
+                }
+                guard let current = physical[path.string] else {
+                    guard entry.item != view.move.item else { throw SourceFailure.versionChanged }
+                    observations[entry.item] = .removed(item: entry.item)
+                    absent.insert(path.string)
+                    continue
+                }
+                guard current.identity == before.proof.identity else { throw UploadError.unresolved }
+                let preserved: Bool
+                if let version = current.version, case .file(let receipt) = before.proof {
+                    preserved = version.hasSameContents(as: receipt.version)
+                } else { preserved = false }
+                let after = CatalogFolderMoveObservation(item: entry.item, path: relative, kind: entry.kind,
+                    nativeID: current.nativeID, fingerprint: current.fingerprint,
+                    preservesIdentity: true, preservesContents: preserved)
+                if let version = current.version { observations[entry.item] = .file(after, version: version) }
+                else {
+                    observations[entry.item] = .directory(after, identity: current.identity)
+                    if complete[path.string] == nil { complete[path.string] = try folderMoveListing(path.string) }
+                    listings.append(CatalogFolderMoveListing(parent: entry.item, path: relative, identity: current.identity,
+                        complete: true, children: complete[path.string]!.map {
+                            CatalogFolderMoveListing.Child(name: $0.name, identity: $0.identity, kind: $0.kind)
+                        }))
+                }
+            }
+            return FolderMoveRefresh(domain: view.domain, observations: try view.move.entries.map {
+                guard let value = observations[$0.item] else { throw UploadError.unresolved }
+                return value
+            }, listings: listings)
+        }
+    }
+
+    private func folderMoveCurrent(path: RelativePath, kind: CatalogRow.Kind,
+                                   expected: EditFileIdentity?) throws -> FolderMoveCurrent? {
+        let parent = path.components.dropLast().joined(separator: "/"), name = path.components.last!
+        guard let entry = try folderMoveListing(parent).first(where: { NameKey($0.name) == NameKey(name) }),
+              expected == nil || entry.identity == expected else { return nil }
+        guard entry.kind == kind, entry.name.utf8.elementsEqual(name.utf8) else { throw UploadError.unresolved }
+        let handle: Handle
+        if kind == .folder {
+            if let held = folderMoveRoots[path.string] ?? directories[path.string] { handle = held }
+            else {
+                handle = Handle()
+                try handle.use { try check(tm_edit_open_directory(client, path.string, 0x81, 3, $0)) }
+                directories[path.string] = handle
+            }
+        } else {
+            if let held = folderMoveFiles[path.string] { handle = held }
+            else {
+                handle = try open(path: path.string, access: Self.read, sharing: 1)
+                folderMoveFiles[path.string] = handle
+            }
+        }
+        let version = kind == .file ? try version(handle) : nil
+        let values = try info(handle)
+        guard try folderMoveIdentity(values) == entry.identity,
+              values[4] & 0x450 == (kind == .folder ? 0x10 : 0),
+              let confirmed = try folderMoveListing(parent).first(where: { NameKey($0.name) == NameKey(name) }),
+              confirmed.identity == entry.identity, confirmed.name.utf8.elementsEqual(name.utf8) else {
+            throw UploadError.unresolved
+        }
+        let native = try folderMoveNative(path: path, kind: kind, values: values)
+        let after = try info(handle)
+        guard after[0...2] == values[0...2], after[4...6] == values[4...6] else { throw SourceFailure.versionChanged }
+        return FolderMoveCurrent(identity: entry.identity, version: version,
+                                 nativeID: native.0, fingerprint: native.1)
+    }
+
+    private func folderMoveListing(_ path: String) throws -> [RenameDirectoryEntry] {
+        guard let handle = folderMoveRoots[path] ?? directories[path] else { throw UploadError.unresolved }
+        var entries: [RenameDirectoryEntry] = [], pages = 0, restart = true
+        while true {
+            try cancellation()
+            var buffer = [UInt8](repeating: 0, count: 65_536), count: UInt32 = 0, finished: Int32 = 0
+            try handle.use {
+                try check(tm_edit_list(client, $0, restart ? 1 : 0, &buffer, UInt32(buffer.count), &count, &finished))
+            }
+            if finished != 0 {
+                guard entries.allSatisfy({ RelativePath.isValidComponent($0.name) }),
+                      Set(entries.map { NameKey($0.name) }).count == entries.count else { throw UploadError.unresolved }
+                return entries
+            }
+            pages += 1
+            let page = try RenameDirectoryEntry.parse(Array(buffer.prefix(Int(count))))
+            guard page.count <= DirectoryListing.defaultLimit - entries.count,
+                  pages <= DirectoryListing.defaultLimit else { throw SourceFailure.tooManyEntries }
+            entries += page
+            progress.completedUnitCount += 1
+            restart = false
+        }
+    }
+
+    private func folderMoveNative(path: RelativePath, kind: CatalogRow.Kind, values: [UInt64]) throws
+        -> (UInt64, ContentFingerprint) {
+        let mount = try folderMoveMountIdentity()
+        return try mount.guarding(root: root) {
+            try mount.requireMounted(root)
+            let parent = RelativePath(path.components.dropLast().joined(separator: "/"))!, name = path.components.last!
+            let listing = try DirectoryListing.list(locationRoot: root, relativePath: parent, expected: mount)
+            guard let listed = listing.entries.first(where: { $0.name.utf8.elementsEqual(name.utf8) }),
+                  listed.kind.rawValue == kind.rawValue else { throw UploadError.unresolved }
+            let descriptor = openat(root, parent.isRoot ? "." : parent.string,
+                                    O_EVTONLY | O_DIRECTORY | O_NOFOLLOW_ANY | O_RESOLVE_BENEATH | O_CLOEXEC)
+            guard descriptor >= 0 else { throw posixError("inspect moved folder parent") }
+            defer { Darwin.close(descriptor) }
+            guard try MountIdentity(descriptor: descriptor) == mount else { throw SourceFailure.pathRejected }
+            guard let protectedParent = folderMoveRoots[parent.string] ?? directories[parent.string] else {
+                throw UploadError.unresolved
+            }
+            let parentValues = try info(protectedParent)
+            var parentMetadata = stat()
+            guard fstat(descriptor, &parentMetadata) == 0, parentMetadata.st_mode & S_IFMT == S_IFDIR,
+                  parent.isRoot || (parentMetadata.st_birthtimespec.tv_sec > 0
+                    && UInt64(parentMetadata.st_birthtimespec.tv_sec) * 1_000_000
+                      + UInt64(parentMetadata.st_birthtimespec.tv_nsec / 1_000) == parentValues[1]) else {
+                throw UploadError.unresolved
+            }
+            var metadata = stat()
+            guard fstatat(descriptor, name, &metadata, AT_SYMLINK_NOFOLLOW) == 0 else {
+                throw posixError("inspect moved descendant")
+            }
+            var attributes = attrlist()
+            attributes.bitmapcount = UInt16(ATTR_BIT_MAP_COUNT)
+            attributes.commonattr = attrgroup_t(ATTR_CMN_FSID)
+            var filesystem = [UInt32](repeating: 0, count: 3)
+            guard getattrlistat(descriptor, name, &attributes, &filesystem, 12, UInt(FSOPT_NOFOLLOW)) == 0 else {
+                throw posixError("inspect moved descendant filesystem")
+            }
+            guard filesystem[0] == 12, UInt64(filesystem[1]) | UInt64(filesystem[2]) << 32 == mount.fsid,
+                  metadata.st_dev == parentMetadata.st_dev else { throw SourceFailure.pathRejected }
+            let fingerprint = ContentFingerprint(size: kind == .folder ? 0 : metadata.st_size,
+                mtimeNs: ContentFingerprint.nanoseconds(seconds: Int64(metadata.st_mtimespec.tv_sec),
+                                                       nanoseconds: Int64(metadata.st_mtimespec.tv_nsec)),
+                ctimeNs: ContentFingerprint.nanoseconds(seconds: Int64(metadata.st_ctimespec.tv_sec),
+                                                       nanoseconds: Int64(metadata.st_ctimespec.tv_nsec)))
+            guard metadata.st_mode & S_IFMT == (kind == .folder ? S_IFDIR : S_IFREG), metadata.st_ino != 0,
+                  metadata.st_birthtimespec.tv_sec > 0,
+                  UInt64(metadata.st_birthtimespec.tv_sec) * 1_000_000
+                    + UInt64(metadata.st_birthtimespec.tv_nsec / 1_000) == values[1],
+                  kind == .folder || (metadata.st_nlink == 1 && metadata.st_size >= 0 && UInt64(metadata.st_size) == values[2]),
+                  fingerprint.mtimeNs >= 0, fingerprint.ctimeNs >= 0,
+                  UInt64(fingerprint.mtimeNs / 1_000) == values[5], UInt64(fingerprint.ctimeNs / 1_000) == values[6],
+                  listed.fileID == UInt64(metadata.st_ino), listed.size == fingerprint.size,
+                  listed.mtimeNs == fingerprint.mtimeNs, listed.ctimeNs == fingerprint.ctimeNs else {
+                throw UploadError.unresolved
+            }
+            guard try MountIdentity(descriptor: descriptor) == mount else { throw SourceFailure.pathRejected }
+            try mount.requireMounted(root)
+            return (UInt64(metadata.st_ino), fingerprint)
+        }
+    }
+
+    private func folderMoveMountIdentity() throws -> MountIdentity {
+        if let mount = folderMoveMount { try mount.requireMounted(root); return mount }
+        let mount = try MountIdentity(descriptor: root)
+        guard folder.isRoot, mount.typeName == "smbfs", ShareAddress(mount.mountFrom) == endpoint else {
+            throw UploadError.invalidRequest
+        }
+        folderMoveMount = mount
+        return mount
+    }
+
+    private func folderMovePath(_ path: String) throws -> RelativePath {
+        guard folder.isRoot, let path = RelativePath(path), !path.isRoot, !folderMoveParents.isEmpty else {
+            throw UploadError.invalidRequest
+        }
+        return path
+    }
+
+    private func folderMoveIdentity(_ values: [UInt64]) throws -> EditFileIdentity {
+        try EditFileIdentity(fileID: values[0], birthMicroseconds: values[1])
+    }
+
+    private func folderMoveOrdered(_ entries: [CatalogFolderMoveEntry]) -> [CatalogFolderMoveEntry] {
+        entries.sorted {
+            let left = RelativePath($0.path)!.components.count, right = RelativePath($1.path)!.components.count
+            return left == right ? $0.path.utf8.lexicographicallyPrecedes($1.path.utf8) : left < right
+        }
     }
 }
 

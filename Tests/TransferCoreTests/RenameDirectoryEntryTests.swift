@@ -3,7 +3,7 @@ import XCTest
 @testable import TransferCore
 
 final class RenameDirectoryEntryTests: XCTestCase {
-    private func entry(_ name: String, id: UInt64 = 7, next: Bool = false) -> [UInt8] {
+    private func entry(_ name: String, id: UInt64 = 7, attributes: UInt32 = 0, next: Bool = false) -> [UInt8] {
         let encoded = Array(name.data(using: .utf16LittleEndian)!)
         let size = (80 + encoded.count + 7) & ~7
         var bytes = [UInt8](repeating: 0, count: size)
@@ -12,10 +12,22 @@ final class RenameDirectoryEntryTests: XCTestCase {
         }
         set(0, 4, next ? UInt64(size) : 0)
         set(8, 8, (11_644_473_600_000_000 + 123_456) * 10)
+        set(56, 4, UInt64(attributes))
         set(60, 4, UInt64(encoded.count))
         set(72, 8, id)
         bytes.replaceSubrange(80..<(80 + encoded.count), with: encoded)
         return bytes
+    }
+
+    func testKindsKeepUnsupportedEntriesInCompleteListings() throws {
+        let attributes: [UInt32] = [0x20, 0x10, 0x400, 0x410, 0x40]
+        let bytes = attributes.enumerated().flatMap {
+            entry("child-\($0.offset)", attributes: $0.element, next: $0.offset != attributes.count - 1)
+        }
+        let parsed = try RenameDirectoryEntry.parse(bytes)
+        XCTAssertEqual(parsed.map(\.attributes), attributes)
+        XCTAssertEqual(parsed.map(\.kind), [.file, .folder, nil, nil, nil])
+        XCTAssertEqual(parsed.map(\.name), (0..<attributes.count).map { "child-\($0)" })
     }
 
     func testStoredSpellingAndIdentitySurviveDirectoryParsing() throws {
