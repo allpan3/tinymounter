@@ -268,10 +268,11 @@ The final integrated M21/M23 candidate passes 346 tests with one optional skip, 
 Swift warnings, and all required checks, including six encoder cases. Evidence:
 m21-final-checks-01.log. Its personalized app build also passes in m21-final-build.log.
 
-Complete interrupted-upload recovery within the accepted retention policy.
-Verify cleanup, storage admission and the distinct waiting/conflict/recovery states. Complete
-signed repeated-save and interruption tests and matched recordings before calling M23 complete. No physical-Mac
-installation is authorized. The approved disposable VM session remains open.
+The signed TextEdit checks above cover repeated saves and two app-interruption boundaries.
+Broader callback/editor patterns, actual partial-stage uploads, cleanup interruptions, early
+space admission over IPC, a partial-original write with a queued successor, and real disk
+exhaustion remain unverified. M23 is incomplete. No physical-Mac installation is authorized.
+The approved disposable VM session remains open.
 
 Decision status: accepted on 2026-10-29. A superseded save proved never to have started original-file
 publication may be durably marked never to publish, while its uncertain temporary files and
@@ -280,3 +281,28 @@ original-file protection. This replaces the requirement that every uncertain rem
 resolve before any successor publishes. The core implementation and required checks pass;
 the signed update-recovery check above passes. Merely missing
 a stage identity would still never authorize deletion or imply that no remote request occurred.
+
+## Queue-time capacity and cleanup checkpoints, 2026-10-30
+
+Save preparation now rechecks its existing space reservation after waiting in the queue.
+The capacity ledger also checks the final short block, which could previously finish below
+the 16 MiB check interval without another check. The 2 GiB reserve and reservation formula
+are unchanged. A failed new admission preserves the previous complete local save; a complete
+payload left by a final-block failure remains recoverable and exportable.
+
+Supersession now durably retires an older save before removing its verified artifacts and
+records each acknowledged removal. If backup cleanup fails after stage removal, retry skips
+that already acknowledged stage even if a new occupant appears at its old name. A missing
+reply leaves removal unconfirmed and retains the local copy. The successor can proceed once
+retirement is durable; original-touching predecessors still block it.
+
+The integrated source passes `Tools/run-checks.sh` in VM 1: 498 tests, one optional skip,
+no failures or Swift warnings, project generation, release CLI validation, unsigned app build,
+six encoder and 57 SMB-status cases. Six new regressions cover reserve boundaries, queued
+capacity loss, final-block recovery and interrupted supersession cleanup. Evidence:
+`.local/phase4/m21-20261029/m23-final-source-checks.log`.
+
+`Tools/check-save-recovery.swift` and its Python driver prepare four bounded signed checks
+for reserve loss, native partial staging and cleanup interruption. The standalone helper uses
+private settings/catalogs and a marked fixture; the driver checks retained artifact contents.
+Compilation and execution of these helpers remain pending.

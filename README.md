@@ -9,7 +9,8 @@ destination collisions, lost-reply recovery and partial-catalog recovery. Signed
 pass for read/watch draining, pending-write exclusions, overlapping views, keeps and recovery
 after settings persistence. Two ambiguous-name cases could not run on the fixture.
 [Finder integration remains unverified and disabled](docs/results/2026-10-30-folder-move-catalog.md#signed-app-checks-2026-10-30).
-Required VM checks pass with 492 tests and one optional skip.
+Required VM checks pass with 498 tests and one optional skip, including queued save-space
+checks and durable cleanup acknowledgements for superseded saves.
 
 Deletion adapter, 2026-10-30: signed file and empty-folder deletion, paginated confirmation,
 changed/replaced-file refusal and recovery checks pass. Lost close replies remain unconfirmed.
