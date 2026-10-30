@@ -187,9 +187,9 @@ write operation; signed SMB runtime checks and installation remain pending. See 
 [encoding results](docs/results/2026-10-29-smb-rename-encoding.md).
 
 File organization protocol, 2026-10-29: all nine disposable VM cases pass, including protected
-moves, collisions, permission/stream preservation and crash recovery. The app still does not
-enable moves. The user accepted admission of the current server object for unverified rows;
-production integration and signed Finder checks remain. The approved fixture session is
+moves, collisions, permission/stream preservation and crash recovery. File-organization
+integration is written under the accepted current-object admission rule for unverified rows;
+compilation and signed Finder checks remain. The approved fixture session is
 still open. See the [protocol results](docs/results/2026-10-29-file-organization-protocol.md).
 
 Pending saves (M23), 2026-10-29: a focused VM regression reproduces an older save publishing

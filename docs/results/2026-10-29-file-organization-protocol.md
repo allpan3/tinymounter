@@ -79,4 +79,11 @@ Keep legacy downloaded copies and their evidence level unchanged. A move must no
 to a verified editing base or claim that an old copy was compared when it was not. Subsequent
 editing still requires a verified full download. This decision changes initial selection
 semantics only; it does not permit metadata-only recovery, overwrites or copy/delete fallback.
-Production admission and signed Finder checks remain to be implemented.
+Production admission, durable parent evidence, file moves and saved keep-path updates are
+implemented. Compilation and signed Finder checks remain; this protocol run predates that code.
+
+Source review found a stale-callback defect: a filename-only callback could carry an old parent
+and accidentally move a file back after another view moved it. The provider now carries the
+changed fields to app admission, which refuses mismatches in fields the user did not change.
+Matching durable intents still replay before new admission. Core regressions cover both a stale
+parent on rename and a stale name on move; signed overlapping-view checks remain.

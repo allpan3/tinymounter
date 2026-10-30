@@ -242,7 +242,7 @@ and first disposable VM test session. Each implementation still has to pass its 
   and matching timestamps cannot distinguish an earlier replacement. The organization probe
   tests protected operations and recovery, but cannot supply that missing history. Binding a
   move to the object currently at the path, after matching known details and establishing
-  protected identity/content evidence, is accepted but not yet implemented. An indistinguishable
+  protected identity/content evidence, is implemented but awaits signed verification. An indistinguishable
   prior replacement may therefore be moved. The [protocol results and accepted boundary](results/2026-10-29-file-organization-protocol.md#admission-decision)
   retain full-content recovery and existing verified-file admission. All nine isolated protocol
   cases pass, but cannot establish the missing history.

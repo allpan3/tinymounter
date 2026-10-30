@@ -263,6 +263,27 @@ public struct SavedKeepList: Codable, Equatable, Sendable {
 }
 
 extension AppSettings {
+    public mutating func moveKeptFile(from source: String, to destination: String, host: String, share: String) throws {
+        guard let sourcePath = RelativePath(source), !sourcePath.isRoot,
+              let destinationPath = RelativePath(destination), !destinationPath.isRoot else {
+            throw UploadError.invalidRequest
+        }
+        func moved(_ paths: [KeepPath]) -> [KeepPath] {
+            var seen: Set<KeepPath> = []
+            return paths.map { path in
+                path.kind == .file && path.path == source
+                    ? KeepPath(path: destination, kind: .file) : path
+            }.filter { seen.insert($0).inserted }
+        }
+        let related = Set(shares.filter { ServerGrant.isSameShare($0.host, $0.share, host, share) }.map(\.id))
+        for index in locations.indices where related.contains(locations[index].serverID) {
+            locations[index].pendingKeeps = moved(locations[index].pendingKeeps)
+        }
+        for index in savedKeeps.indices where savedKeeps[index].isFor(host: host, share: share) {
+            savedKeeps[index].paths = moved(savedKeeps[index].paths)
+        }
+    }
+
     /// Plan §4: a new location takes the saved paths inside its folder out of the share's list.
     public mutating func takeSavedKeeps(host: String, share: String, inside folder: RelativePath) -> [KeepPath] {
         var taken: [KeepPath] = []

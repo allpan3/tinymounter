@@ -14,6 +14,36 @@ final class SettingsTests: XCTestCase {
         try? FileManager.default.removeItem(at: directory)
     }
 
+    func testFileMoveRewritesOnlyMatchingKeepsOnTheSameShareAndIsIdempotent() throws {
+        let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "smb://fixture")))
+        let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//account@fixture/share",
+                                address: try XCTUnwrap(ShareAddress("//account@fixture/share")))
+        let other = ServerGrant(serverID: server.id, bookmark: Data([2]), mountFrom: "//account@fixture/other",
+                                address: try XCTUnwrap(ShareAddress("//account@fixture/other")))
+        let old = KeepPath(path: "Inbox/file.txt", kind: .file)
+        let new = KeepPath(path: "Archive/file.txt", kind: .file)
+        let folder = KeepPath(path: "Inbox/file.txt", kind: .folder)
+        let neighbor = KeepPath(path: "Inbox/file.txt/child", kind: .file)
+        var location = LocationRecord(name: "Location", serverID: grant.id, folder: .root)
+        location.pendingKeeps = [old, new, folder, neighbor]
+        var otherLocation = LocationRecord(name: "Other", serverID: other.id, folder: .root)
+        otherLocation.pendingKeeps = [old]
+        var settings = AppSettings(servers: [server], shares: [grant, other], locations: [location, otherLocation],
+                                   savedKeeps: [SavedKeepList(host: "FIXTURE", share: "SHARE", paths: [old]),
+                                                SavedKeepList(host: "fixture", share: "other", paths: [old])])
+        try settings.moveKeptFile(from: old.path, to: new.path, host: grant.host, share: grant.share)
+        XCTAssertEqual(settings.locations[0].pendingKeeps, [new, folder, neighbor])
+        XCTAssertEqual(settings.locations[1], otherLocation)
+        XCTAssertEqual(settings.savedKeeps.map(\.paths), [[new], [old]])
+        XCTAssertEqual(settings.locations[0].domainID, location.domainID)
+        let completed = settings
+        try settings.moveKeptFile(from: old.path, to: new.path, host: grant.host, share: grant.share)
+        XCTAssertEqual(settings, completed)
+        let url = directory.appending(path: "Settings.json")
+        try settings.save(to: url)
+        XCTAssertEqual(try AppSettings.load(from: url), completed)
+    }
+
     func testExistingWriteGrantDoesNotEnableEditingDuringUpgrade() throws {
         let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "smb://home-nas")))
         let address = try XCTUnwrap(ShareAddress("//account@home-nas/share"))

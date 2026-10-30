@@ -12,8 +12,12 @@ public struct FileRenameView: Codable, Equatable, Sendable {
     public let size: Int64
     public let mtimeNs: Int64
     public let ctimeNs: Int64
+    public let destinationParent: String?
 
-    public init(domain: String, folder: RelativePath, row: CatalogRow, path: RelativePath, nativeID: UInt64) throws {
+    public var targetParent: String { destinationParent ?? parent }
+
+    public init(domain: String, folder: RelativePath, row: CatalogRow, path: RelativePath, nativeID: UInt64,
+                destinationParent: String? = nil) throws {
         guard row.kind == .file, !row.deleted, let parent = row.parentID else { throw UploadError.unresolved }
         self.domain = domain
         self.folder = folder.string
@@ -25,6 +29,24 @@ public struct FileRenameView: Codable, Equatable, Sendable {
         size = row.size
         mtimeNs = row.mtimeNs
         ctimeNs = row.ctimeNs
+        self.destinationParent = destinationParent
+    }
+}
+
+public struct FileRenameParent: Codable, Equatable, Sendable {
+    public let path: String
+    public let name: String
+    public let identity: EditFileIdentity
+
+    public init(path: String, name: String, identity: EditFileIdentity) {
+        self.path = path
+        self.name = name
+        self.identity = identity
+    }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.path.utf8.elementsEqual(rhs.path.utf8) && lhs.name.utf8.elementsEqual(rhs.name.utf8)
+            && lhs.identity == rhs.identity
     }
 }
 
@@ -42,6 +64,7 @@ public struct PendingFileRename: Codable, Equatable, Sendable {
     public var state: State = .prepared
     public var refusal: Refusal?
     public var verified: EditFileVersion?
+    public var parents: [FileRenameParent]?
 
     public var isPending: Bool { state != .completed && state != .refused }
     public var name: String { RelativePath(destination)?.components.last ?? "" }
@@ -51,14 +74,14 @@ public struct PendingFileRename: Codable, Equatable, Sendable {
         guard UUID(uuidString: owner)?.uuidString == owner,
               let source = RelativePath(source), let destination = RelativePath(destination),
               !source.isRoot, !destination.isRoot,
-              source.components.dropLast().joined(separator: "/").utf8
-                .elementsEqual(destination.components.dropLast().joined(separator: "/").utf8),
+              parents != nil || source.components.dropLast() == destination.components.dropLast(),
               FileRenameRequest.supportsName(name), FileRenameRequest.supportsName(oldName),
               !source.string.utf8.elementsEqual(destination.string.utf8),
               Int64(metadataVersion).map({ $0 >= 0 }) == true,
               !views.isEmpty, Set(views.map(\.domain)).count == views.count,
               views.contains(where: { $0.domain == owner && $0.item == base.item
-                  && $0.contentVersion == base.contentVersion }),
+                  && (!$0.contentVersion.hasPrefix("e1:") || $0.contentVersion == base.contentVersion) }),
+              parents != nil || views.contains(where: { $0.domain == owner && $0.contentVersion == base.contentVersion }),
               (state == .refused) == (refusal != nil),
               ![.verified, .completed].contains(state) || verified?.hasSameContents(as: base.version) == true else {
             throw UploadError.invalidRequest
@@ -66,11 +89,28 @@ public struct PendingFileRename: Codable, Equatable, Sendable {
         for view in views {
             guard UUID(uuidString: view.domain)?.uuidString == view.domain,
                   ReaderMessage.isItemID(view.item), view.item != Catalog.rootItemID,
-                  ReaderMessage.isItemID(view.parent), view.nativeID != 0, view.size >= 0,
+                  ReaderMessage.isItemID(view.parent), ReaderMessage.isItemID(view.targetParent),
+                  view.nativeID != 0, view.size >= 0,
                   !view.contentVersion.isEmpty, view.contentVersion.utf8.count <= 128,
                   let folder = RelativePath(view.folder), let path = RelativePath(view.path),
-                  folder.appending(path)?.string.utf8.elementsEqual(source.string.utf8) == true else {
+                  folder.appending(path)?.string == source.string,
+                  destination.components.count > folder.components.count,
+                  destination.components.prefix(folder.components.count).map(NameKey.init)
+                    == folder.components.map(NameKey.init) else {
                 throw UploadError.invalidRequest
+            }
+        }
+        if let parents {
+            let required = Set([source, destination].flatMap { path in
+                (0..<path.components.count).map { path.components.prefix($0).joined(separator: "/") }
+            })
+            guard Set(parents.map(\.path)) == required, parents.count == required.count else {
+                throw UploadError.invalidRequest
+            }
+            for parent in parents {
+                guard let path = RelativePath(parent.path), parent.name == (path.components.last ?? "") else {
+                    throw UploadError.invalidRequest
+                }
             }
         }
     }
@@ -109,9 +149,10 @@ public final class FileRenameOutbox {
     public func replay(owner: String, request: FileRenameRequest) throws -> PendingFileRename? {
         let records = try records()
         if let match = records.first(where: {
-            $0.owner == owner && $0.base.item == request.item && $0.base.contentVersion == request.contentVersion
+            $0.owner == owner && $0.base.item == request.item
                 && $0.metadataVersion == request.metadataVersion && $0.name.utf8.elementsEqual(request.name.utf8)
-                && $0.views.contains(where: { $0.domain == owner && $0.parent == request.parent })
+                && $0.views.contains(where: { $0.domain == owner && $0.targetParent == request.parent
+                    && $0.contentVersion == request.contentVersion })
                 && $0.state != .refused
         }) { return match }
         guard !records.contains(where: { record in
@@ -121,14 +162,19 @@ public final class FileRenameOutbox {
     }
 
     public func prepare(owner: String, request: FileRenameRequest, base: EditBaseReceipt,
-                        source: RelativePath, views: [FileRenameView]) throws -> PendingFileRename {
+                        source: RelativePath, views: [FileRenameView], destination: RelativePath? = nil,
+                        parents: [FileRenameParent]? = nil) throws -> PendingFileRename {
         if let existing = try replay(owner: owner, request: request) { return existing }
-        guard request.item == base.item, request.contentVersion == base.contentVersion,
-              views.contains(where: { $0.domain == owner && $0.parent == request.parent }),
+        guard request.item == base.item,
+              views.contains(where: { $0.domain == owner && $0.targetParent == request.parent
+                  && $0.contentVersion == request.contentVersion }),
               let parent = RelativePath(source.components.dropLast().joined(separator: "/")),
-              let destination = parent.appending(request.name) else { throw UploadError.invalidRequest }
+              let destination = destination ?? parent.appending(request.name),
+              destination.components.last?.utf8.elementsEqual(request.name.utf8) == true else {
+            throw UploadError.invalidRequest
+        }
         let record = PendingFileRename(id: UUID(), owner: owner, base: base, metadataVersion: request.metadataVersion,
-                                       source: source.string, destination: destination.string, views: views)
+                                       source: source.string, destination: destination.string, views: views, parents: parents)
         try save(record)
         return record
     }
@@ -180,6 +226,7 @@ public struct FileRenameEvidence: Sendable {
 }
 
 public protocol FileRenameRemote {
+    func protectRenameParents(source: String, destination: String) throws -> [FileRenameParent]
     func inspectRename(path: String) throws -> FileRenameEvidence?
     func releaseRename(path: String) throws
     func move(source: String, destination: String) throws
@@ -192,6 +239,10 @@ public enum FileRenameTransaction {
         try record.validate()
         if record.state == .completed { return }
         if record.state == .refused { throw refusalError(record.refusal) }
+        let parents = try remote.protectRenameParents(source: record.source, destination: record.destination)
+        if let recorded = record.parents {
+            guard parents == recorded else { throw UploadError.unresolved }
+        }
         let attempted = record.state != .prepared
         let target = try remote.inspectRename(path: record.destination)
         if let target, target.version.hasSameContents(as: record.base.version),
@@ -219,7 +270,7 @@ public enum FileRenameTransaction {
         catch UploadError.collision { try refuse(&record, .collision, outbox: outbox) }
         catch let error as NSError where error.domain == NSPOSIXErrorDomain {
             if error.code == Int(EEXIST) { try refuse(&record, .collision, outbox: outbox) }
-            if [Int(EACCES), Int(EPERM), Int(ENOTSUP), Int(EINVAL)].contains(error.code) {
+            if [Int(EACCES), Int(EPERM), Int(ENOTSUP), Int(EINVAL), Int(EXDEV)].contains(error.code) {
                 try refuse(&record, .unsupported, outbox: outbox)
             }
             throw error

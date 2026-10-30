@@ -714,7 +714,8 @@ final class LocationSource: @unchecked Sendable {
     let access: ShareAccess
     let folder: RelativePath
     /// Signals the domain's working set; `scheduleSignal` debounces it.
-    private let signal: @Sendable () -> Void
+    private let signal: @Sendable ([String]) -> Void
+    let renameSettings: @Sendable (PendingFileRename) async throws -> Void
     // The system SQLite can't share a connection between threads, so every use takes this lock.
     private let catalogLock = NSLock()
     private var catalog: Catalog?
@@ -738,12 +739,14 @@ final class LocationSource: @unchecked Sendable {
     private static let fetchLog = Logger(subsystem: "dev.tinymounter.prototype", category: "fetch")
 
     init(domainID: String, folder: RelativePath, catalog: Catalog, access: ShareAccess,
-         signal: @escaping @Sendable () -> Void) {
+         renameSettings: @escaping @Sendable (PendingFileRename) async throws -> Void,
+         signal: @escaping @Sendable ([String]) -> Void) {
         self.domainID = domainID
         self.folder = folder
         self.catalog = catalog
         self.access = access
         self.signal = signal
+        self.renameSettings = renameSettings
         editNamespace.register(self)
     }
 
@@ -1086,9 +1089,11 @@ final class LocationSource: @unchecked Sendable {
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + Self.signalDelay) { [weak self] in
             guard let self else { return }
             lock.withLock { self.signalScheduled = false }
-            signal()
+            signal([])
         }
     }
+
+    func signalFolders(_ folders: [String]) { signal(folders) }
 
     /// A missing item lists its parent again: only a complete listing may delete it (plan §7).
     private func shareCall<T>(_ requestID: UUID, parent: String?, context: SourceFailure.Context,

@@ -34,7 +34,7 @@ final class CatalogItem: NSObject, NSFileProviderItem {
                 : .allowsContentEnumerating
         }
         if allowsEditing {
-            return [.allowsReading, .allowsRenaming, .allowsWriting]
+            return [.allowsReading, .allowsRenaming, .allowsReparenting, .allowsWriting]
         }
         return row.allowsCreation ? [.allowsReading, .allowsRenaming] : .allowsReading
     }
