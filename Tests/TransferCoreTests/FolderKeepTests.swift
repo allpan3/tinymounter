@@ -304,6 +304,7 @@ final class FolderKeepTests: XCTestCase {
 
     private func downgrade(_ catalog: Catalog) throws {
         try catalog.database.execute("""
+            DROP TABLE departures;
             ALTER TABLE meta DROP COLUMN allows_editing;
             ALTER TABLE items DROP COLUMN edit_version;
             DROP INDEX items_listing;

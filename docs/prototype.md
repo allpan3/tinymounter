@@ -331,8 +331,11 @@ locations stay read-only, confirmed writable locations keep their access, and cr
 locations retain creation access until Complete Write Setup. An inactive grant is retained
 when Read only is enabled. Older builds must refuse version 6 so they cannot mistake that
 retained grant for active write permission. IDs, domains, bookmarks and keep lists remain.
-Catalog versions 1 through 5 migrate to version 6 without replacing item IDs or the epoch.
-Version 6 makes older writers refuse catalogs whose pending renames they cannot honor.
+Catalog versions 1 through 6 migrate to version 7 without replacing item IDs or the epoch.
+Version 7 records departures from former parents for known file moves. Older readers refuse it
+instead of missing those departures. The catalog API is preparation for M21; the provider does
+not yet admit cross-folder moves. Version 6 made older writers refuse catalogs whose pending
+renames they cannot honor.
 Version 5 stores the editing permission and optional strong content-revision token; existing
 rows retain their f1 versions until a verified full handoff establishes an immutable receipt. The
 immutable enumeration key keeps existing folder-page cursors valid when initial naming changes

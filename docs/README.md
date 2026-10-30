@@ -24,6 +24,7 @@ it wrong.
 
 ## Results logs
 
+- [Catalog preparation for file moves](results/2026-10-29-move-catalog.md) — migration and core checks pass; app integration and signed Finder moves remain unverified.
 - [File renaming and one write mode](results/2026-10-29-file-renaming.md) — M20 signed Finder renames, recovery and preservation checks pass; one Read only toggle.
 
 Name each log `results/YYYY-MM-DD-topic.md`. Write it when the experiment ends, then link it from

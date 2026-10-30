@@ -148,6 +148,14 @@ extension Catalog {
             // Older writers cannot honor pending file renames outside this catalog.
             try database.write { try database.execute("PRAGMA user_version = 6", operation: "migrate rename support") }
         }
+        if (1...6).contains(version) {
+            _ = try checkedEpoch(database, domainID: domainID, version: 6)
+            try configureWriter(database)
+            // Older readers would miss a moved file's departure and show it in its old folder.
+            try database.write {
+                try database.execute(departuresSchema + "\nPRAGMA user_version = 7;", operation: "migrate move history")
+            }
+        }
         let epoch = try checkedEpoch(database, domainID: domainID)
         try configureWriter(database)
         return Catalog(database: database, domainID: domainID, epoch: epoch)
