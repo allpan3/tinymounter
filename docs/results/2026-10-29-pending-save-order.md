@@ -203,6 +203,54 @@ completion call, not OS acknowledgement. Event uptime must not be sorted across 
 VM reboot as though it were one clock epoch. Lost-publication replies and low-space admission
 remain separate checks.
 
+## Lost-publication reply, 2026-10-30
+
+On the same signed fixture, a second document stopped after A completed publication but before
+the app returned its reply. A matched the complete server contents at that checkpoint. After
+the stopped app was killed, TextEdit saved B and C while the app remained absent. A Finder copy
+proved that C was local before recovery.
+
+The provider recorded A, A, B, B, C and C with unavailable completions, then a further C after
+relaunch. That final C completed without conflict. The final server file matched C and retained
+its original identity. The audit found no pending copies, no extra files and unchanged item IDs
+and keep flags. This tests an app-side lost reply after publication, not a lost SMB reply.
+
+Evidence: `m23-currency-reply-stop.json`, `m23-currency-reply-after-{b,c}-state.json`,
+`m23-reply-before-recovery-c`, `m23-currency-reply-recovery.jsonl`,
+`m23-currency-reply-final-audit.jsonl` and `m23-currency-reply-server-final.json` in the same
+private VM session. The final event and audit copy is `m23-currency-final-inspection/M23Currency`.
+
+## Mid-copy space failure, 2026-10-30
+
+A complete earlier save remained exportable when staging a newer save failed. The signed
+Currency hook held a 23-byte A before publication, then returned Cocoa's out-of-space error
+after writing the first 1 MiB of a 2 MiB B into its recovery payload. Six observed B attempts
+failed at that offset. Each provider staging copy matched its entry contents.
+
+Export Local Copy returned exact A contents both before and after the failure. A Finder copy
+also verified the full local B. The audit found A prepared and valid, B preparing and incomplete,
+and 1,048,599 retained bytes. The server still held its initial contents. Settings showed A as
+waiting to upload and B as "Local save not yet confirmed. Keep the document open."
+
+After the failure hook was removed, the pending work retried without another document edit or
+pressing Retry Pending Changes. B reached the server with all 2 MiB matching. The final audit
+found six completed generation receipts across the three documents, zero pending saves, no
+retained payloads, no conflicts, unchanged server identities and unchanged item IDs/keep flags.
+The untouched neighbor and marker matched their full baseline versions. This validates failure
+preservation and retry; it does not simulate real disk exhaustion or measure the reserve threshold.
+The accepted policy remains a 2 GiB reserve with no separate quota or pruning of recovery data.
+
+One audit's SMB authentication failed with EPERM after its local audit completed. Repeating the
+audit passed without changing credentials or service state; both logs are retained. Cache state
+was uncontrolled. This is correctness evidence, with no performance claim.
+
+Evidence in the same session: `export-space-{before,after}-a.txt`, `m23-space-failed-b`,
+`m23-currency-space-fault-log.jsonl`, `m23-currency-space-fault-audit{,-retry}.jsonl`,
+`m23-currency-space-failure-server.json`, `m23-currency-space-recovered-server.json` and
+`m23-currency-final-audit.jsonl`. `m23-currency-final-inspection/M23Currency` holds the full
+event/audit copy; the operator's export and snapshot observations remain in the earlier
+`m23-prepared-complete-inspection/M23Currency` copy. No File Provider path was read through exec.
+
 ## Verification and remaining work
 
 Tools/run-checks.sh passes on the integrated source including retirement: 336 tests, one optional native-fixture skip,

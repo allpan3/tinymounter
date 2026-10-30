@@ -2,7 +2,7 @@
 
 A macOS app that brings a network disk, such as a NAS, into Apple's file system: browse it from Finder or another file manager such as QSpace, download on demand, and keep selected files available offline. Finder is the first file manager and SMB the first protocol it will support. A later mode will mount server volumes, the ordinary macOS SMB mounts, automatically.
 
-Save recovery, 2026-10-30: after the approved VM and fixture recovery, a signed TextEdit interruption check reached the final saved contents without conflict and retained item IDs and keep flags. [The observed callback sequence and its limits are recorded](docs/results/2026-10-29-pending-save-order.md#signed-callback-observation-2026-10-30). Lost-publication replies and low-space admission remain unverified; M23 is incomplete.
+Save recovery, 2026-10-30: signed TextEdit checks recovered from stops before publication and before its reply. A simulated mid-copy space failure preserved the earlier exportable save; the complete newer save uploaded after retry. Item IDs, server identities and keep flags survived, with no final pending copies or false conflicts. [The observed callbacks and limits are recorded](docs/results/2026-10-29-pending-save-order.md#signed-callback-observation-2026-10-30). Actual disk exhaustion and broader editor workflows remain unverified; M23 is incomplete.
 
 Folder-move source work, 2026-10-30: directory preflight and app integration pass all required VM
 checks, with 492 tests and one optional skip. [Source review is complete; signed runtime checks remain](docs/results/2026-10-30-folder-move-catalog.md#app-integration-preparation);
