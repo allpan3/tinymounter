@@ -44,6 +44,66 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(try AppSettings.load(from: url), completed)
     }
 
+    func testFolderMoveRewritesTypedDescendantsAndPreservesOtherShares() throws {
+        let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "smb://fixture")))
+        let address = try XCTUnwrap(ShareAddress("//account@fixture/share"))
+        let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//account@fixture/share",
+                                address: address)
+        let paths = [KeepPath(path: "Inbox/Café", kind: .folder),
+                     KeepPath(path: "inbox/Cafe\u{301}/Nested/file.txt", kind: .file),
+                     KeepPath(path: "Inbox/Café/Nested", kind: .folder),
+                     KeepPath(path: "Archive/Report/Nested/file.txt", kind: .file),
+                     KeepPath(path: "Inbox/Café", kind: .file),
+                     KeepPath(path: "Inbox/Café-other/file.txt", kind: .file)]
+        var location = LocationRecord(name: "Location", serverID: grant.id, folder: .root)
+        location.pendingKeeps = paths
+        var settings = AppSettings(servers: [server], shares: [grant], locations: [location], savedKeeps: [
+            SavedKeepList(host: "FIXTURE", share: "SHARE", paths: paths),
+            SavedKeepList(host: "fixture", share: "other", paths: paths)])
+        try settings.moveKeptFolder(from: "Inbox/Café", to: "Archive/Report", host: "fixture", share: "share")
+        let expected = [KeepPath(path: "Archive/Report", kind: .folder),
+                        KeepPath(path: "Archive/Report/Nested/file.txt", kind: .file),
+                        KeepPath(path: "Archive/Report/Nested", kind: .folder), paths[4], paths[5]]
+        XCTAssertEqual(settings.locations[0].pendingKeeps, expected)
+        XCTAssertEqual(settings.locations[0].domainID, location.domainID)
+        XCTAssertEqual(settings.savedKeeps.map(\.paths), [expected, paths])
+        let completed = settings
+        try settings.moveKeptFolder(from: "Inbox/Café", to: "Archive/Report", host: "fixture", share: "share")
+        XCTAssertEqual(settings, completed)
+        let url = directory.appending(path: "Settings.json")
+        try settings.save(to: url)
+        XCTAssertEqual(try AppSettings.load(from: url), completed)
+    }
+
+    func testFolderKeepCaseRenamePreservesCombiningMarkComponentsAndReplays() throws {
+        let paths = [KeepPath(path: "Folder/\u{301}child/file", kind: .file),
+                     KeepPath(path: "Folder", kind: .folder), KeepPath(path: "Neighbor/file", kind: .file)]
+        var settings = AppSettings(savedKeeps: [SavedKeepList(host: "fixture", share: "share", paths: paths)])
+        try settings.moveKeptFolder(from: "Folder", to: "FOLDER", host: "fixture", share: "share")
+        XCTAssertEqual(settings.savedKeeps[0].paths, [KeepPath(path: "FOLDER/\u{301}child/file", kind: .file),
+                                                    KeepPath(path: "FOLDER", kind: .folder), paths[2]])
+        let completed = settings
+        try settings.moveKeptFolder(from: "Folder", to: "FOLDER", host: "fixture", share: "share")
+        XCTAssertEqual(settings, completed)
+    }
+
+    func testFolderKeepRewriteRefusesInvalidOrOverlongTargetsWithoutPartialChanges() throws {
+        let grant = ServerGrant(serverID: UUID(), bookmark: Data([1]), mountFrom: "//account@fixture/share",
+                                address: try XCTUnwrap(ShareAddress("//account@fixture/share")))
+        var location = LocationRecord(name: "Location", serverID: grant.id, folder: .root)
+        location.pendingKeeps = [KeepPath(path: "a/short", kind: .file)]
+        let component = String(repeating: "x", count: 250)
+        let long = "a/" + Array(repeating: component, count: 4).joined(separator: "/")
+        let original = AppSettings(shares: [grant], locations: [location], savedKeeps: [
+            SavedKeepList(host: "fixture", share: "share", paths: [KeepPath(path: long, kind: .file)])])
+        for (source, target) in [("", "b"), ("a", ""), ("a", "a/sub"), ("a/sub", "a"),
+                                  ("a", "../b"), ("a", String(repeating: "z", count: 30))] {
+            var settings = original
+            XCTAssertThrowsError(try settings.moveKeptFolder(from: source, to: target, host: "fixture", share: "share"))
+            XCTAssertEqual(settings, original)
+        }
+    }
+
     func testExistingWriteGrantDoesNotEnableEditingDuringUpgrade() throws {
         let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "smb://home-nas")))
         let address = try XCTUnwrap(ShareAddress("//account@home-nas/share"))

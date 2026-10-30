@@ -224,7 +224,8 @@ versions and require fresh directory listings before reporting offline availabil
 settlement also handles proved changed or missing descendants. Required VM checks pass with
 414 tests, one optional skip and no failures or Swift warnings. The folder transaction core
 then passed required checks with 472 tests and one optional skip. Recovery after partial
-catalog completion and runtime integration remain; app folder rename and move are unavailable. See the
+catalog completion and runtime integration remain. Saved keep-path rewriting passes the required
+checks with 475 tests and one optional skip; app folder rename and move are unavailable. See the
 [catalog preparation](docs/results/2026-10-30-folder-move-catalog.md).
 
 ## Run the prototype

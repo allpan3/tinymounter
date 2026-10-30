@@ -84,3 +84,15 @@ fixture failure remains in m22-folder-core-checks.log. These are simulated-remot
 The core still has no runtime adapter or provider wiring. If children change after settlement
 was recorded and some catalogs committed, fresh verification currently refuses the replay.
 Recovery for that partial local completion must be implemented before enabling folder moves.
+
+## Saved keep paths
+
+Settings now has a caller-invoked folder-path rewrite for pending and saved Keep Downloaded
+requests on the affected share. It moves the selected folder's request and typed descendants,
+preserves descendant spelling, and leaves other shares and neighboring names unchanged.
+Case and Unicode aliases use the existing NameKey comparison. The rewrite is idempotent and
+refuses overlapping or overlong destinations before changing Settings. There is no format
+change or runtime caller yet. Three focused tests cover aliases, typed descendants, replay,
+Settings reload and refusal without partial changes. All required VM checks pass with 475
+tests, one optional skip, no failures or Swift warnings, six encoder cases and 57 SMB-status
+cases. Evidence: `.local/phase4/m21-20261029/m22-keeps-checks.log`.
