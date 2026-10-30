@@ -259,4 +259,38 @@ and checks the backing files between app processes. The suite covers read/watch 
 pending-write and root exclusions, overlapping catalogs, keeps, and recovery after an injected
 error following settings persistence. It does not enable provider capabilities or establish
 Finder behavior. Parent review corrected its intent-ID comparison and its assumption that
-the fixture's mapped SMB login was a macOS account. Compilation and execution are pending.
+the fixture's mapped SMB login was a macOS account. The signed checks below use these corrections.
+
+## Signed app checks, 2026-10-30
+
+The app-level helper compiles without Swift diagnostics and passes exercise, fresh-process
+recovery and the backing-tree audit in macOS VM 1 (macOS 27.0.1, build 26A434). It runs from a
+signed staging bundle with unchanged entitlements and private catalogs/settings; no installed
+app or extension was replaced. The original Settings bytes remain unchanged. The loopback
+fixture has 11 synthetic files, cache state is uncontrolled, and this is not a performance run.
+
+A held native read forces the move's drain timeout before an intent is saved. Releasing a read
+allows a watched folder to move while preserving its item ID and complete file contents.
+Configured roots, contained roots, self-descendant moves, differing overlapping views and
+pending uploads/saves/retained copies all refuse before admission. The retained-save fixture
+contains a local checkpoint only; it creates no remote artifact.
+
+The second move preserves descendant IDs, versions, independent and inherited keeps, and
+rewrites pending/saved keep paths across two catalogs. An injected error after settings
+persistence leaves a verified pending intent. Between clean app exits, the driver changes
+one child's bytes and moves another into the fixture's Hold folder. Fresh-process retry
+completes both views, preserves unchanged versions, gives the changed child a new receipt,
+and retires the moved-out child's old binding. Relisting and replay preserve that result.
+A stale read and an edit to the retired row are refused. The audit confirms the complete
+expected tree, including the untouched neighbor and the retained original in Hold.
+
+Evidence in `.local/phase4/m21-20261029`: `m22-app-build.log`, `m22-app-fixture/`,
+`m22-app-inspection/` and `m22-app-final-inspection/`. Private settings and catalogs stay in
+the VM. The signed helper has exited; the fixture and synthetic recovery copies remain for
+the session's final teardown. Finder callbacks, downloaded-copy invalidation, actual crashes,
+interruption after only one catalog commit, ambiguous names, and publication of stale saves
+after a move remain unverified. Folder capabilities remain disabled.
+
+The integrated source passes `Tools/run-checks.sh`: 492 tests, one optional skip, release CLI
+validation, project generation, unsigned app build, six encoder and 57 SMB-status cases, with
+no Swift warnings. Evidence: `m22-app-source-checks.log` in the same private session directory.

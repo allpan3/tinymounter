@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-r"""Parent-operated M22 signed app fixture. Compilation and runtime checks are pending.
+r"""Parent-operated M22 signed app fixture.
 
 This driver does not build, sign, register, install, launch, stop or clean up anything.
 Run only in the already approved macOS VM 1 fixture session, with the normal app
