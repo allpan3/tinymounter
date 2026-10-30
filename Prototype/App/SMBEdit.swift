@@ -24,6 +24,7 @@ final class SMBEdit: EditRemote, FileRenameRemote {
     private static let read: UInt32 = 0x20081
     private static let write: UInt32 = 2
     private static let delete: UInt32 = 0x10000
+    private static let statusKey = "tinymounter.smb.ntstatus"
 
     init(endpoint: ShareAddress, folder: RelativePath, root: Int32, progress: Progress) throws {
         var error: Int32 = 0
@@ -429,7 +430,18 @@ final class SMBEdit: EditRemote, FileRenameRemote {
 
     private func check(_ code: Int32) throws {
         if code == EEXIST { throw UploadError.collision }
-        if code != 0 { throw posixError("protected save", code: code) }
+        guard code != 0 else { return }
+        let status = tm_edit_last_ntstatus(client)
+        let error = posixError("protected save", code: code)
+        var details = error.userInfo
+        if status != 0 { details[Self.statusKey] = status }
+        throw NSError(domain: error.domain, code: error.code, userInfo: details)
+    }
+
+    static func serverStatus(_ error: Error) -> UInt32? {
+        let error = error as NSError
+        guard error.domain == NSPOSIXErrorDomain else { return nil }
+        return error.userInfo[statusKey] as? UInt32
     }
 
     private static func integer(_ bytes: [UInt8], at offset: Int, bytes count: Int) throws -> UInt64 {

@@ -27,3 +27,8 @@ xcrun clang -std=gnu11 -Wall -Wextra -Werror -IVendor/libsmb2/include \
     Tools/check-set-info-encoding.c -L"$smb_products" -lTinyMounterSMB -Wl,-rpath,"$smb_products" \
     -o .build/check-set-info-encoding
 .build/check-set-info-encoding
+
+xcrun clang -std=gnu11 -Wall -Wextra -Werror -Wno-unused-parameter -IVendor/libsmb2/include \
+    Tools/check-edit-status.c -L"$smb_products" -lTinyMounterSMB -Wl,-rpath,"$smb_products" \
+    -o .build/check-edit-status
+.build/check-edit-status

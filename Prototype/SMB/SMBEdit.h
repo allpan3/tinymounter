@@ -4,6 +4,9 @@
 
 void *tm_edit_connect(const char *server, const char *share, const char *account, int *error);
 void tm_edit_disconnect(void *opaque);
+// Zero means the preceding operation had no failure with a decoded server reply.
+// Copy immediately: the next operation clears this, including successful cleanup closes.
+uint32_t tm_edit_last_ntstatus(void *opaque);
 int tm_edit_open(void *opaque, const char *path, uint32_t access, uint32_t sharing,
                uint8_t *file);
 int tm_edit_open_quarantine(void *opaque, const char *path, uint8_t *file);
