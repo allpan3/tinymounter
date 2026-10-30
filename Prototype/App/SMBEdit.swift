@@ -21,6 +21,7 @@ final class SMBEdit: EditRemote, FileRenameRemote {
     private var directories: [String: Handle] = [:]
     private var originals: Set<String> = []
     private var hiddenOriginals: Set<String> = []
+    private var deletionTarget: String?
     private static let read: UInt32 = 0x20081
     private static let write: UInt32 = 2
     private static let delete: UInt32 = 0x10000
@@ -41,9 +42,9 @@ final class SMBEdit: EditRemote, FileRenameRemote {
 
     func protectAncestors(of path: String) throws {
         let full = try remotePath(path)
-        let components = full.split(separator: "/").dropLast()
+        let components = RelativePath(full)!.components.dropLast()
         var parent = ""
-        for component in [""] + components.map(String.init) {
+        for component in [""] + components {
             if !component.isEmpty { parent += (parent.isEmpty ? "" : "/") + component }
             if directories[parent] != nil { continue }
             let handle = Handle()
@@ -61,7 +62,7 @@ final class SMBEdit: EditRemote, FileRenameRemote {
         try protectAncestors(of: destination)
         let paths = try Set([source, destination].flatMap { path -> [String] in
             let full = try remotePath(path)
-            let components = full.split(separator: "/").map(String.init)
+            let components = RelativePath(full)!.components
             return (0..<components.count).map { components.prefix($0).joined(separator: "/") }
         })
         return try paths.sorted().map { path in
@@ -462,5 +463,101 @@ final class SMBEdit: EditRemote, FileRenameRemote {
         bytes += [2, 0, UInt8(size), 0, owner.isEmpty ? 0 : 1, 0, 0, 0]
         if !owner.isEmpty { bytes += [0, 0, UInt8(8 + owner.count), 0, 0xff, 1, 0x1f, 0] + owner }
         return bytes
+    }
+}
+
+extension SMBEdit: DeletionRemote {
+    private enum DeletionStatus: UInt32 {
+        case accessDenied = 0xc0000022, nameNotFound = 0xc0000034, pathNotFound = 0xc000003a
+        case sharingViolation = 0xc0000043, deletePending = 0xc0000056
+        case directoryNotEmpty = 0xc0000101, cannotDelete = 0xc0000121
+    }
+
+    func protectParents(of path: String) throws -> [ItemDeletionParent] {
+        guard folder.isRoot, handles.isEmpty, stageVerifiers.isEmpty,
+              originals.isEmpty, hiddenOriginals.isEmpty, deletionTarget == nil else {
+            throw ItemDeletionError.invalidRequest
+        }
+        let parents = try protectRenameParents(source: path, destination: path)
+        deletionTarget = path
+        return parents.map { ItemDeletionParent(path: $0.path, name: $0.name, identity: $0.identity) }
+    }
+
+    func inspect(path: String, kind: CatalogRow.Kind) throws -> ItemDeletionLookup {
+        guard path == deletionTarget, kind == .file || kind == .folder else {
+            throw ItemDeletionError.invalidRequest
+        }
+        if handles[path] == nil {
+            let handle = Handle()
+            do {
+                try handle.use { file in
+                    let code = kind == .file
+                        ? tm_edit_open(client, path, Self.read | Self.delete, 0, file)
+                        : tm_edit_open_directory(client, path, Self.read | Self.delete, 0, file)
+                    try check(code)
+                }
+            } catch {
+                switch Self.serverStatus(error).flatMap(DeletionStatus.init(rawValue:)) {
+                case .nameNotFound: return .nameNotFound
+                case .pathNotFound: return .pathNotFound
+                case .deletePending: return .deletePending
+                default: throw Self.deletionFailure(error)
+                }
+            }
+            handles[path] = handle
+        }
+        guard let handle = handles[path] else { throw ItemDeletionError.unresolved }
+        if kind == .file { return .present(.file(try version(handle))) }
+        let values = try info(handle)
+        guard values[4] & 0x410 == 0x10 else { throw ItemDeletionError.unsupported }
+        return .present(.directory(try EditFileIdentity(fileID: values[0], birthMicroseconds: values[1])))
+    }
+
+    func list(path: String) throws -> ItemDeletionListing {
+        guard deletionTarget != nil, let handle = directories[path] ?? handles[path] else {
+            throw ItemDeletionError.invalidRequest
+        }
+        var entries: [ItemDeletionEntry] = [], pages = 0, restart = true
+        while true {
+            try cancellation()
+            var buffer = [UInt8](repeating: 0, count: 65_536), count: UInt32 = 0, finished: Int32 = 0
+            try handle.use {
+                try check(tm_edit_list(client, $0, restart ? 1 : 0, &buffer, UInt32(buffer.count), &count, &finished))
+            }
+            if finished != 0 { return ItemDeletionListing(entries: entries, isComplete: true) }
+            pages += 1
+            let page = try RenameDirectoryEntry.parse(Array(buffer.prefix(Int(count))))
+            guard page.count <= DirectoryListing.defaultLimit - entries.count,
+                  pages <= DirectoryListing.defaultLimit else { throw SourceFailure.tooManyEntries }
+            entries += page.map { ItemDeletionEntry(name: $0.name, identity: $0.identity) }
+            progress.completedUnitCount += 1
+            restart = false
+        }
+    }
+
+    func markDeletion(path: String) throws {
+        guard path == deletionTarget, let handle = handles[path] else { throw ItemDeletionError.invalidRequest }
+        try cancellation()
+        do { try handle.use { try check(tm_edit_delete(client, $0)) } }
+        catch { throw Self.deletionFailure(error) }
+    }
+
+    func closeTarget(path: String) throws {
+        guard path == deletionTarget, handles.count == 1, let handle = handles[path],
+              directories[path] == nil, stageVerifiers.isEmpty else { throw ItemDeletionError.invalidRequest }
+        do { try handle.use { try check(tm_edit_close(client, $0)) } }
+        catch { throw Self.deletionFailure(error) }
+        handles[path] = nil
+    }
+
+    private static func deletionFailure(_ error: Error) -> Error {
+        switch serverStatus(error).flatMap(DeletionStatus.init(rawValue:)) {
+        case .deletePending: return ItemDeletionError.deletePending
+        case .sharingViolation: return ItemDeletionError.sharingViolation
+        case .directoryNotEmpty: return ItemDeletionError.directoryNotEmpty
+        case .accessDenied: return ItemDeletionError.accessDenied
+        case .cannotDelete: return ItemDeletionError.cannotDelete
+        default: return error
+        }
     }
 }

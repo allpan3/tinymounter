@@ -116,3 +116,21 @@ project generation, release CLI validation, unsigned app build and six encoder c
 Evidence: .local/phase4/m21-20261029/m24-status-checks.log. The callback tests establish error
 classification in the adapter; they do not establish live deletion behavior. This adds no
 deletion capability.
+
+## Production adapter preparation
+
+The Swift adapter now implements the one-object deletion contract without exposing a File
+Provider capability. A fresh session protects the parent chain and holds the selected file
+or empty directory with deny-all sharing. File evidence uses a complete digest and requires
+one link. Listings continue through every page. Only an exact name-not-found reply supplies
+name absence; delete-pending, path-not-found and transport errors remain distinct.
+
+Deletion and close use the same target handle. Confirmation opens the name afresh after the
+acknowledged close. The session retains no stream or native handles on the target. Review found
+no unsafe-deletion defect under the fresh-session contract. It also found character-based path
+splitting in the shared parent helpers; these now use the existing byte-safe path components,
+so a leading combining mark cannot hide a parent separator. Required VM checks pass: 472 tests,
+one optional skip, no failures or Swift warnings, project generation, release CLI validation,
+unsigned app build, six encoder cases and 57 status cases. Evidence:
+.local/phase4/m21-20261029/m24-adapter-checks.log. Live adapter checks are pending. Durable
+operation storage, catalog mutation and the user-facing deletion flow remain unimplemented.
