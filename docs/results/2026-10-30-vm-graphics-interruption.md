@@ -45,3 +45,17 @@ A Finder copy of the synthetic `M23Currency` evidence after reboot contains only
 control events: zero provider callbacks, completions or stop checkpoints. The control remains
 `prepared`. The copy and observer report are in `m23-restart-inspection/M23Currency` inside
 the same session. This confirms that the interrupted attempt supplies no save-ordering evidence.
+
+## Fixture recovery, 2026-10-30
+
+The user approved temporarily unloading the built-in SMB service and restoring it after the
+same fixture session. Its persistent enabled setting is unchanged. The task server now listens
+only on loopback. The disposable fixture Keychain was locked after reboot and its discarded
+password could not be recovered, so only that Keychain and the task Samba credentials were
+recreated. The native fixture mount succeeded. `approved-smb-pause-before.json` and
+`fixture-remount-diagnostic.json` preserve these checks. Restoring the built-in SMB service
+remains part of session teardown.
+
+After an audit and a fresh arm action, the prepared-save checkpoint was reached. The subsequent
+[callback experiment](2026-10-29-pending-save-order.md#signed-callback-observation-2026-10-30)
+has its own evidence and does not change the conclusion about the frozen attempt.
