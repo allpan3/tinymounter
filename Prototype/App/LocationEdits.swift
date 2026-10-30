@@ -37,6 +37,20 @@ extension LocationSource {
         try uploadLock.withLock { try Self.editOutbox(domainID: domainID).records() }
     }
 
+    func savedChangeBytes() throws -> Int64 {
+        try uploadLock.withLock {
+            let uploads = try Self.outbox(domainID: domainID).contentBytes
+            let edits = try Self.editOutbox(domainID: domainID).contentBytes
+            let (total, overflow) = uploads.addingReportingOverflow(edits)
+            guard !overflow else { throw UploadError.unresolved }
+            return total
+        }
+    }
+
+    func dismissEditNotice(_ id: UUID) throws {
+        try uploadLock.withLock { try Self.editOutbox(domainID: domainID).dismissConflictNotice(id: id) }
+    }
+
     func exportEdit(_ id: UUID, destination: URL) throws {
         try uploadLock.withLock {
             let outbox = try Self.editOutbox(domainID: domainID)
@@ -98,7 +112,7 @@ extension LocationSource {
         }
     }
 
-    func retryEdits() {
+    func retryEdits(recoverRetired: Bool = false) {
         access.enqueue { [self] in
             let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
             let result = Result { try editNamespace.perform {
@@ -117,6 +131,14 @@ extension LocationSource {
                         do { try finishItem(item, outbox: outbox, progress: Progress()) }
                         catch {
                             logger.error("edit_retry item=\(item, privacy: .public) failed \(logFields(error), privacy: .public)")
+                        }
+                    }
+                    if recoverRetired {
+                        for var record in try outbox.records() where record.state == .retired {
+                            do { try cleanupRetiredEdit(&record, outbox: outbox) }
+                            catch {
+                                logger.error("edit_retained_cleanup id=\(record.id.uuidString, privacy: .public) failed \(logFields(error), privacy: .public)")
+                            }
                         }
                     }
                     try outbox.releaseOrderingGuardIfSettled()
@@ -175,6 +197,19 @@ extension LocationSource {
             let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: root, progress: progress)
             try remote.protectAncestors(of: record.path)
             try EditTransaction.retire(&record, outbox: outbox, remote: remote)
+        }
+    }
+
+    private func cleanupRetiredEdit(_ record: inout PendingEdit, outbox: EditOutbox) throws {
+        guard let bookmark = writeBookmark, let relative = RelativePath(record.path),
+              let path = folder.appending(relative) else { throw UploadError.readOnly }
+        try editNamespace.requireUncontested(path: path, excluding: record.id)
+        let progress = Progress()
+        try withWriteSession(bookmark, progress: progress) { session, root in
+            guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
+            let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: root, progress: progress)
+            try remote.protectAncestors(of: record.path)
+            try EditTransaction.cleanupRetired(&record, outbox: outbox, remote: remote)
         }
     }
 

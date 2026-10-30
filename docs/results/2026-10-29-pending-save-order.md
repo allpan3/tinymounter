@@ -4,8 +4,8 @@ Date: 2026-10-29. M23 implementation in progress; not a completed milestone.
 
 The baseline VM regression reproduced an older save publishing while a newer complete local
 save was waiting. The ordering fix passes the required VM checks, including the same regression.
-The signed update-recovery check below also passes. Broader signed workflows, the storage bound
-and recovery interface are still incomplete.
+The signed update-recovery check below also passes. Recovery cleanup and clearer status reporting
+pass the required VM checks. Their signed workflows and the storage policy need runtime evidence.
 
 ## Reproduction
 
@@ -93,6 +93,32 @@ and release of the older-build guard. Required VM checks pass on the integrated 
 in m23-preparing-checks.log. Recovery runs on retry or ordering evaluation; it does not claim
 that every failed Save was accepted.
 
+## Retained recovery cleanup and status
+
+Retry Pending Changes now attempts retired-save cleanup after pending publications. Automatic
+reconnect retry leaves retained recovery data alone. Cleanup requires a proved successor and
+checks every remaining temporary file before removing any. Each file must match its recorded
+identity and complete expected contents. Partial, changed, unowned or absent artifacts remain
+unresolved with the local copy retained. Ordinary supersession also refuses missing artifacts.
+
+Cleanup persists complete evidence before deletion, then records each acknowledged removal.
+A retry never revisits an acknowledged removed name, even if another file now occupies it.
+A lost removal reply remains unconfirmed. A final durable checkpoint allows interrupted local
+payload removal to resume. Legacy retired saves need an active ordered successor because a
+completed receipt alone cannot establish their relative order.
+
+The location pane separates waiting, conflict and recovery states and reports local payload
+bytes, including orphan payloads. The existing free-space policy remains: reserve 2 GiB and
+the space needed to stage new work, then refuse new saves before deleting retained contents.
+No separate quota or automatic pruning is added. Dismiss Notice hides only completed conflict
+notices with no retained recovery; the publication receipt remains available for replay.
+
+These changes pass Tools/run-checks.sh in macOS VM 1: 373 tests, one optional skip, no failures
+or Swift warnings, project generation, release CLI checks, unsigned app build and six encoder
+cases. Evidence is m23-cleanup-checks.log in the same session. Signed cleanup, status and storage
+checks remain. The older completed-save cleanup path still accepts an absent
+artifact through the SMB adapter; it needs separate review of uncertain absence and lost replies.
+
 ## Verification and remaining work
 
 Tools/run-checks.sh passes on the integrated source including retirement: 336 tests, one optional native-fixture skip,
@@ -104,15 +130,15 @@ save-order-run-checks.log and save-order-run-checks-02.log. The retirement chang
 retirement-run-checks-01.log, including retained partial stages/backups, continued later saves,
 restart/export, downgrade refusal and refusal to bypass an uncertain original write. Source
 review found no blocking issue. Retired records still block share-wide organization and
-location lifecycle changes; an evidence-based recovery-cleanup action remains to be implemented.
+location lifecycle changes until their recovery is resolved.
 
 The final integrated M21/M23 candidate passes 346 tests with one optional skip, no failures or
 Swift warnings, and all required checks, including six encoder cases. Evidence:
 m21-final-checks-01.log. Its personalized app build also passes in m21-final-build.log.
 
 Complete interrupted-upload recovery within the accepted retention policy.
-Complete bounded storage, distinct waiting/conflict/recovery states, signed repeated-save and
-interruption tests, and matched recordings before calling M23 complete. No physical-Mac
+Verify cleanup, storage admission and the distinct waiting/conflict/recovery states. Complete
+signed repeated-save and interruption tests and matched recordings before calling M23 complete. No physical-Mac
 installation is authorized. The approved disposable VM session remains open.
 
 Decision status: accepted on 2026-10-29. A superseded save proved never to have started original-file

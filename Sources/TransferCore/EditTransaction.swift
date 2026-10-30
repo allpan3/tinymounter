@@ -168,17 +168,17 @@ public enum EditTransaction {
             // Without a recorded identity, the create request may still have reached the server.
             guard let stageVersion = record.stageVersion, stageVersion.identity == record.stageIdentity,
                   matchesEdit(stageVersion, record) else { throw UploadError.unresolved }
-            let stage = try remote.inspect(path: record.stagePath, original: false)
-            guard stage.map({ $0 == stageVersion }) != false else { throw UploadError.unresolved }
+            guard let stage = try remote.inspect(path: record.stagePath, original: false),
+                  stage == stageVersion else { throw UploadError.unresolved }
             var backup: EditFileVersion?
             if [.creatingBackup, .backedUp].contains(record.state) {
                 guard let backupVersion = record.backupVersion, backupVersion.identity == record.backupIdentity,
                       let previous = record.previous, backupVersion.size == previous.size,
                       backupVersion.digest == previous.digest else { throw UploadError.unresolved }
                 backup = try remote.inspect(path: record.recoveryPath, original: false)
-                guard backup.map({ $0 == backupVersion }) != false else { throw UploadError.unresolved }
+                guard backup == backupVersion else { throw UploadError.unresolved }
             }
-            if let stage { try remote.removeArtifact(path: record.stagePath, version: stage) }
+            try remote.removeArtifact(path: record.stagePath, version: stage)
             if let backup { try remote.removeArtifact(path: record.recoveryPath, version: backup) }
             record.state = .prepared
             record.stageIdentity = nil
@@ -190,6 +190,57 @@ public enum EditTransaction {
             try outbox.save(record)
         }
         try outbox.discard(record)
+    }
+
+    /// Inspection must hold artifact protection through removal; an absent name is unconfirmed.
+    public static func cleanupRetired(_ record: inout PendingEdit, outbox: EditOutbox, remote: EditRemote) throws {
+        record = try outbox.retiredRecord(record)
+        try outbox.requireRetiredSuccessor(record)
+        if record.retiredCleanupStarted == true {
+            try outbox.discardRetired(record)
+            return
+        }
+        try outbox.validateContents(record)
+        var proved = record
+        if record.retiredStageRemoved != true {
+            guard let identity = record.stageIdentity,
+                  let stage = try remote.inspect(path: record.stagePath, original: false),
+                  stage.identity == identity, matchesEdit(stage, record),
+                  record.stageVersion.map({ $0 == stage }) != false else { throw UploadError.unresolved }
+            proved.stageVersion = stage
+        }
+        if record.retiredNeedsBackup, record.retiredBackupRemoved != true {
+            guard let identity = record.backupIdentity, let previous = record.previous,
+                  let backup = try remote.inspect(path: record.recoveryPath, original: false),
+                  backup.identity == identity, backup.size == previous.size, backup.digest == previous.digest,
+                  record.backupVersion.map({ $0 == backup }) != false else { throw UploadError.unresolved }
+            proved.backupVersion = backup
+        }
+        if proved != record {
+            try outbox.saveRetiredProgress(proved)
+            record = proved
+        }
+        if record.retiredStageRemoved != true {
+            guard let stage = record.stageVersion else { throw UploadError.unresolved }
+            try remote.removeArtifact(path: record.stagePath, version: stage)
+            var acknowledged = record
+            acknowledged.retiredStageRemoved = true
+            try outbox.saveRetiredProgress(acknowledged)
+            record = acknowledged
+        }
+        if record.retiredNeedsBackup, record.retiredBackupRemoved != true {
+            guard let backup = record.backupVersion else { throw UploadError.unresolved }
+            try remote.removeArtifact(path: record.recoveryPath, version: backup)
+            var acknowledged = record
+            acknowledged.retiredBackupRemoved = true
+            try outbox.saveRetiredProgress(acknowledged)
+            record = acknowledged
+        }
+        var resolved = record
+        resolved.retiredCleanupStarted = true
+        try outbox.saveRetiredProgress(resolved)
+        record = resolved
+        try outbox.discardRetired(record)
     }
 
     private static func publishConflict(_ record: inout PendingEdit, outbox: EditOutbox, remote: EditRemote) throws {

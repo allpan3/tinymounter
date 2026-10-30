@@ -335,8 +335,11 @@ retained grant for active write permission. IDs, domains, bookmarks and keep lis
 Unfinished M23 ordered saves keep an Ordering.edit guard that makes M19/M20 refuse that outbox.
 Use the newer build to resume it; do not remove the guard to force a downgrade. Legacy pending
 saves remain readable, but differing contents with unknown order stay blocked and exportable.
-The [ordering implementation](results/2026-10-29-pending-save-order.md) passes core checks but
-still needs signed runtime checks.
+The [ordering implementation](results/2026-10-29-pending-save-order.md) passes core checks and a
+signed interrupted-save update check. Retired-save cleanup and status reporting pass required
+VM checks; their signed checks remain. Retry Pending Changes attempts cleanup only with complete artifact evidence;
+uncertain data stays retained. The pane reports local saved-copy bytes under the existing
+2 GiB free-space reserve and can dismiss resolved conflict notices without removing receipts.
 
 Catalog versions 1 through 6 migrate to version 7 without replacing item IDs or the epoch.
 Version 7 records departures from former parents for known file moves. Older readers refuse it

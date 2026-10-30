@@ -337,13 +337,23 @@ final class LocationController {
         return try await Self.offMain { try source.editRecords() }
     }
 
+    func savedChangeBytes(_ record: LocationRecord) async throws -> Int64 {
+        guard let source = sources[record.domainID] else { throw LocationError.catalogClosed }
+        return try await Self.offMain { try source.savedChangeBytes() }
+    }
+
+    func dismissEditNotice(_ record: LocationRecord, id: UUID) async throws {
+        guard let source = sources[record.domainID] else { throw LocationError.catalogClosed }
+        try await Self.offMain { try source.dismissEditNotice(id) }
+    }
+
     func exportEdit(_ record: LocationRecord, id: UUID, destination: URL) async throws {
         guard let source = sources[record.domainID] else { throw LocationError.catalogClosed }
         try await Self.offMain { try source.exportEdit(id, destination: destination) }
     }
 
     func retryEdits(_ record: LocationRecord) {
-        sources[record.domainID]?.retryEdits()
+        sources[record.domainID]?.retryEdits(recoverRetired: true)
         guard let source = sources[record.domainID] else { return }
         for candidate in sources.values where candidate.editNamespace === source.editNamespace { candidate.retryRenames() }
     }
