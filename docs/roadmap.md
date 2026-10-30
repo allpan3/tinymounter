@@ -78,6 +78,10 @@ add evidence-based restoration/cleanup where it is safe. A partial original cann
 renamed back over the public file. Do not add a force-discard action that hides unresolved remote
 work. Dismiss a completed notice only when no pending data or artifact ownership is lost.
 
+Storage policy accepted on 2026-10-30: keep the existing 2 GiB free-space reserve, with no
+separate recovery-storage quota. Refuse a new save when its complete local copy cannot fit
+above that reserve. Never delete saved recovery data to make room.
+
 Done includes multiple saves, duplicate callbacks, concurrent external edits, low space, crashes
 between generations, and recovery with unchanged IDs/keeps. A newer failed save must leave the
 previous complete save available. This milestone also protects online saves racing a disconnect.
@@ -92,6 +96,12 @@ gate. Do not advertise Move to Trash or Put Back without implementing their diff
 The user accepted this product choice with the roadmap on 2026-10-29. The user also accepted
 that Delete removes attached data added by another device while deletion is underway. SMB
 cannot exclude that race. Main-content protection and visibly unconfirmed lost replies remain.
+
+On 2026-10-30 the user also approved current-name admission for unverified files: Delete may
+act on the server object currently at the selected name when its known details still match.
+An earlier replacement with indistinguishable details may therefore be deleted. Protect and
+verify that object before deletion; previously verified files keep historical identity/content
+checks. Recovery stays bound to the admitted identity and must never delete a later replacement.
 
 Start implementation with ordinary files and empty directories; the milestone also includes
 populated-folder deletion so users can finish normal cleanup. Resolve selected-object identity
