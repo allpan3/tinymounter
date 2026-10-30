@@ -214,8 +214,10 @@ No app deletion capability is
 enabled. See the [deletion results](docs/results/2026-10-29-deletion-protocol.md).
 
 Folder catalog preparation (M22), 2026-10-30: subtree commits preserve item identity and file
-versions and require fresh directory listings before reporting offline availability. Required
-VM checks pass; app folder rename and move remain unavailable. See the
+versions and require fresh directory listings before reporting offline availability. Atomic
+settlement also handles proved changed or missing descendants. Required VM checks pass with
+414 tests, one optional skip and no failures or Swift warnings; app folder rename and move
+remain unavailable. See the
 [catalog preparation](docs/results/2026-10-30-folder-move-catalog.md).
 
 ## Run the prototype
