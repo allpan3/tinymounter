@@ -135,10 +135,12 @@ def main():
     evidence = args.evidence.absolute()
     if evidence.parent.name != "probe-m23-final" or evidence.exists():
         raise RuntimeError("use a new private probe-m23-final evidence file")
+    require_fixture()
+    if evidence.resolve().is_relative_to(MOUNT.resolve()):
+        raise RuntimeError("evidence must be outside the SMB mount")
     evidence.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     if evidence.parent.is_symlink() or evidence.parent.resolve() != evidence.parent:
         raise RuntimeError("evidence scope mismatch")
-    require_fixture()
     result = seed(args.run) if args.action == "seed" else audit(args.run)
     result.update({"run": args.run, "date": datetime.now(timezone.utc).isoformat(), "cache": "uncontrolled",
                    "real_disk_exhaustion": "unverified"})

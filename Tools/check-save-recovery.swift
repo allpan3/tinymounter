@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 
@@ -66,7 +67,8 @@ extension LocationSource {
                 guard !mutationsSuspended, let bookmark = writeBookmark,
                       folder.string == "probe-m23-final" else { throw UploadError.readOnly }
                 try editNamespace.requireSettled()
-                try withWriteSession(bookmark) { session, root in
+                let progress = Progress()
+                try withWriteSession(bookmark, progress: progress) { session, root in
                     guard session.identity.typeName == "smbfs",
                           let endpoint = ShareAddress(session.identity.mountFrom),
                           endpoint.host == "127.0.0.1", endpoint.account == "_tinymounter_m19",
@@ -85,7 +87,8 @@ extension LocationSource {
                     guard marker.snapshot.size == expected.count, count == expected.count, bytes == expected else {
                         throw UploadError.readOnly
                     }
-                    try M23FinalProbe.run(caseID, endpoint: endpoint, folder: folder, root: root)
+                    try M23FinalProbe.run(caseID, endpoint: endpoint, folder: folder, root: root,
+                                          identity: session.identity, progress: progress)
                 }
             } } })
         }
@@ -108,12 +111,15 @@ private enum M23FinalProbe {
         var beforeMove = false
         var beforeRemoval: String?
         var afterRemoval: String?
+        var inspected: [String] = []
+        var removed: [String] = []
         init(_ remote: SMBEdit) { self.remote = remote }
         func stage(path: String, contents: URL, created: (EditFileIdentity) throws -> Void) throws -> EditFileVersion {
             try remote.stage(path: path, contents: contents, created: created)
         }
         func inspect(path: String, original: Bool) throws -> EditFileVersion? {
-            try remote.inspect(path: path, original: original)
+            inspected.append(path)
+            return try remote.inspect(path: path, original: original)
         }
         func backup(original: String, path: String, created: (EditFileIdentity) throws -> Void) throws -> EditFileVersion {
             try remote.backup(original: original, path: path, created: created)
@@ -126,6 +132,7 @@ private enum M23FinalProbe {
             try remote.update(work: work, stage: stage, size: size)
         }
         func removeArtifact(path: String, version: EditFileVersion) throws {
+            removed.append(path)
             if path == beforeRemoval { throw Failure.injected }
             try remote.removeArtifact(path: path, version: version)
             if path == afterRemoval { throw Failure.injected }
@@ -136,6 +143,8 @@ private enum M23FinalProbe {
         let endpoint: ShareAddress
         let folder: RelativePath
         let root: Int32
+        let identity: MountIdentity
+        let progress: Progress
         let path: String
         let local: URL
         let item = UUID().uuidString
@@ -144,14 +153,17 @@ private enum M23FinalProbe {
         let base: EditBaseReceipt
         let outbox: EditOutbox
 
-        init(_ caseID: String, endpoint: ShareAddress, folder: RelativePath, root: Int32, local: URL) throws {
+        init(_ caseID: String, endpoint: ShareAddress, folder: RelativePath, root: Int32,
+             identity: MountIdentity, progress: Progress, local: URL) throws {
             self.endpoint = endpoint
             self.folder = folder
             self.root = root
+            self.identity = identity
+            self.progress = progress
             path = caseID + "/document.txt"
             self.local = local
             outbox = try EditOutbox(directory: local.appending(path: "Outbox"))
-            let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: root, progress: Progress())
+            let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: root, progress: progress)
             try remote.protectAncestors(of: path)
             original = try remote.readVersion(path: path)
             neighbor = try remote.readVersion(path: caseID + "/neighbor.txt")
@@ -159,8 +171,8 @@ private enum M23FinalProbe {
             try outbox.storeBase(base)
         }
 
-        func withRemote<T>(progress: Progress = Progress(), _ body: (SMBEdit) throws -> T) throws -> T {
-            let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: root, progress: progress)
+        func withRemote<T>(progress: Progress? = nil, _ body: (SMBEdit) throws -> T) throws -> T {
+            let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: root, progress: progress ?? self.progress)
             try remote.protectAncestors(of: path)
             return try body(remote)
         }
@@ -213,7 +225,8 @@ private enum M23FinalProbe {
         }
     }
 
-    static func run(_ caseID: String, endpoint: ShareAddress, folder: RelativePath, root: Int32) throws {
+    static func run(_ caseID: String, endpoint: ShareAddress, folder: RelativePath, root: Int32,
+                    identity: MountIdentity, progress: Progress) throws {
         guard ["c01", "c02", "c03", "c04"].contains(caseID) else { throw Failure.assertion }
         let parent = URL.applicationSupportDirectory.appending(path: "tinymounter/probe-m23-final")
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true,
@@ -221,7 +234,8 @@ private enum M23FinalProbe {
         let local = parent.appending(path: caseID)
         guard mkdir(local.path, 0o700) == 0 else { throw Failure.assertion }
         let result = Result {
-            let fixture = try Fixture(caseID, endpoint: endpoint, folder: folder, root: root, local: local)
+            let fixture = try Fixture(caseID, endpoint: endpoint, folder: folder, root: root,
+                                      identity: identity, progress: progress, local: local)
             switch caseID {
             case "c01": try admission(fixture)
             case "c02": try partialStage(fixture)
@@ -243,6 +257,7 @@ private enum M23FinalProbe {
     }
 
     static func admission(_ fixture: Fixture) throws {
+        try require(DownloadSpace.reserveBytes == 2 << 30)
         let firstBytes = Data("first complete save\n".utf8), nextBytes = Data(repeating: 78, count: 4096)
         let first = try fixture.prepare(firstBytes)
         let required = DownloadSpace.reserveBytes + Int64(nextBytes.count) * 2 + 65536
@@ -299,6 +314,11 @@ private enum M23FinalProbe {
         try fixture.export(first, expected: firstBytes)
         try fixture.withRemote { try require($0.readVersion(path: fixture.path) == fixture.original) }
         var latest = try fixture.prepare(Data("latest complete save\n".utf8))
+        try fixture.withRemote { remote in
+            let fault = Fault(remote)
+            let refused = try failure { try EditTransaction.retire(&first, outbox: fixture.outbox, remote: fault) }
+            try require(refused as? UploadError == .unresolved && fault.removed.isEmpty)
+        }
         try fixture.outbox.retainSuperseded(&first)
         try fixture.finish(&latest)
         try fixture.verifyRemote(latest)
@@ -307,6 +327,12 @@ private enum M23FinalProbe {
         var after = stat()
         try require(fstatat(fixture.root, first.stagePath, &after, AT_SYMLINK_NOFOLLOW) == 0)
         try require(after.st_size == before.st_size && after.st_ino == before.st_ino)
+        try fixture.withRemote { remote in
+            let stage = try remote.inspect(path: first.stagePath, original: false)
+            let digest = SHA256.hash(data: Data(repeating: 65, count: 1 << 20))
+                .map { String(format: "%02x", $0) }.joined()
+            try require(stage?.identity == first.stageIdentity && stage?.size == 1 << 20 && stage?.digest == digest)
+        }
     }
 
     static func cleanup(_ fixture: Fixture, loseReply: Bool) throws {
@@ -344,6 +370,10 @@ private enum M23FinalProbe {
         try fixture.export(first, expected: firstBytes)
         var replacement: EditFileVersion?
         if !loseReply {
+            _ = try DirectoryListing.list(locationRoot: fixture.root, relativePath: RelativePath("c03")!,
+                                          expected: fixture.identity)
+            var gone = stat()
+            try require(fstatat(fixture.root, first.stagePath, &gone, AT_SYMLINK_NOFOLLOW) == -1 && errno == ENOENT)
             let input = fixture.local.appending(path: "occupant.input")
             try Data("new occupant\n".utf8).write(to: input, options: .withoutOverwriting)
             replacement = try fixture.withRemote { try $0.stage(path: first.stagePath, contents: input) { _ in } }
@@ -351,10 +381,19 @@ private enum M23FinalProbe {
         try fixture.finish(&latest)
         try fixture.verifyRemote(latest)
         if loseReply {
-            let retainedError = try failure {
-                try fixture.withRemote { try EditTransaction.cleanupRetired(&first, outbox: reopened, remote: $0) }
+            try fixture.withRemote { remote in
+                let fault = Fault(remote)
+                let retainedError = try failure {
+                    try EditTransaction.cleanupRetired(&first, outbox: reopened, remote: fault)
+                }
+                try require(retainedError as? UploadError == .unresolved)
+                try require(fault.inspected == [first.stagePath] && fault.removed.isEmpty)
             }
-            try require(retainedError as? UploadError == .unresolved)
+            guard let uncertain = try reopened.records().first(where: { $0.id == first.id }) else {
+                throw Failure.assertion
+            }
+            try require(uncertain.retiredStageRemoved != true && uncertain.retiredBackupRemoved != true
+                && uncertain.retiredCleanupStarted != true)
             try fixture.export(first, expected: firstBytes)
             try fixture.withRemote { try require($0.inspect(path: first.recoveryPath, original: false) == first.backupVersion) }
             try require(reopened.pendingCount == 1)
