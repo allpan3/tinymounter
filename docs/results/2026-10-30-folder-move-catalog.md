@@ -302,4 +302,6 @@ app caller. It carries the existing content/metadata versions and changed-field 
 a separate XPC selector. Creation-only folder naming retains its existing path. Selected
 packages and package destinations are refused. `SourceReaderBridge.folderOrganizationEnabled`
 stays false in the normal build; only an isolated disposable Finder candidate may enable it
-for the remaining runtime checks. Compilation of this routing change is pending.
+for the remaining runtime checks. The routing change passes all required VM checks with 492
+tests, one optional skip, no Swift warnings, six encoder and 57 SMB-status cases. Evidence:
+`m22-provider-routing-checks.log`. Its enabled Finder behavior remains unverified.
