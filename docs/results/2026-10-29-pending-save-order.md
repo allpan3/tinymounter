@@ -55,9 +55,9 @@ Complete bounded storage, distinct waiting/conflict/recovery states, signed repe
 interruption tests, and matched recordings before calling M23 complete. No physical-Mac
 installation is authorized. The approved disposable VM session remains open.
 
-Decision status: proposed. A superseded save proved never to have started original-file
-publication could be durably marked never to publish, while its uncertain temporary files and
-local copy remain visible and exportable. Then a newer save could proceed with the normal
-original-file protection. This would replace the current requirement that every uncertain
-remote operation resolve before any successor publishes. It is not implemented. Merely missing
+Decision status: accepted on 2026-10-29. A superseded save proved never to have started original-file
+publication may be durably marked never to publish, while its uncertain temporary files and
+local copy remain visible and exportable. A newer save may then proceed with the normal
+original-file protection. This replaces the requirement that every uncertain remote operation
+resolve before any successor publishes. It is not yet implemented. Merely missing
 a stage identity would still never authorize deletion or imply that no remote request occurred.

@@ -68,7 +68,7 @@ cross-filesystem refusal and large-file cost still need verification.
 
 ## Admission decision
 
-Decision status: proposed. For a never-verified file and its selected parents, bind the request
+Decision status: accepted on 2026-10-29. For a never-verified file and its selected parents, bind the request
 to the objects currently at those paths when protected admission begins. Require the known
 catalog metadata to match, exact directory entries and fresh server identities. Read and record
 the file's complete contents under protection, then retain that evidence through publication
@@ -77,6 +77,6 @@ the current file. Existing verified revisions still require their recorded ident
 
 Keep legacy downloaded copies and their evidence level unchanged. A move must not upgrade one
 to a verified editing base or claim that an old copy was compared when it was not. Subsequent
-editing still requires a verified full download. This proposal changes initial selection
+editing still requires a verified full download. This decision changes initial selection
 semantics only; it does not permit metadata-only recovery, overwrites or copy/delete fallback.
-Without this decision, M21 admission for older rows remains blocked by missing history.
+Production admission and signed Finder checks remain to be implemented.

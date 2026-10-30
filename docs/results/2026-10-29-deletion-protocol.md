@@ -52,7 +52,7 @@ The competing client successfully added a named stream while the deny-all main-f
 was held. The guard observed the stream and the probe preserved it. A further stream change
 after a final check would still be possible, so another read cannot close this race.
 
-Decision status: proposed. Permanent Delete removes the selected object and all its attached
+Decision status: accepted on 2026-10-29. Permanent Delete removes the selected object and all its attached
 data at deletion time, including attached data added during the operation. The main contents
 still require protected complete-content verification, and in-use files still refuse deletion.
 This is not implemented. Without that boundary, the current transport cannot prove the full
