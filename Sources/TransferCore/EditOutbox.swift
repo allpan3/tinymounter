@@ -91,7 +91,7 @@ public struct EditBaseReceipt: Codable, Equatable, Sendable {
 public struct PendingEdit: Codable, Equatable, Sendable {
     public enum State: String, Codable, Sendable {
         case preparing, prepared, creatingStage, staged, creatingBackup, backedUp, movingOriginal
-        case copying, restoring, publishing, published, completed, retired
+        case copying, restoring, publishing, published, cleaningUp, completed, retired
     }
 
     public let id: UUID
@@ -123,8 +123,13 @@ public struct PendingEdit: Codable, Equatable, Sendable {
     public var retiredBackupRemoved: Bool?
     public var retiredCleanupStarted: Bool?
     public var conflictNoticeDismissed: Bool?
+    // Nil means no removal is required; false keeps an unconfirmed artifact pending.
+    public var completedStageRemoved: Bool?
+    public var completedBackupRemoved: Bool?
+    public var completedCleanupStarted: Bool?
 
     public var isPending: Bool { state != .completed || recoveryRetained }
+    public var isPublicationComplete: Bool { state == .completed || state == .cleaningUp }
     public var publishedIdentity: EditFileIdentity? { conflict ? stageIdentity : previous?.identity }
     public var workPath: String { String(recoveryPath.dropLast("recovery".count)) + "work" }
     public var hasStartedPublication: Bool {
@@ -135,6 +140,37 @@ public struct PendingEdit: Codable, Equatable, Sendable {
     var retiredNeedsBackup: Bool { previous != nil || backupIdentity != nil || backupVersion != nil }
     var retiredArtifactsRemoved: Bool {
         retiredStageRemoved == true && (!retiredNeedsBackup || retiredBackupRemoved == true)
+    }
+    var hasCompletedCleanup: Bool {
+        state == .cleaningUp || completedStageRemoved != nil || completedBackupRemoved != nil
+            || completedCleanupStarted != nil
+    }
+    var completedArtifactsRemoved: Bool { completedStageRemoved != false && completedBackupRemoved != false }
+    var needsOrderingGuard: Bool {
+        (sequence != nil && !isPublicationComplete) || state == .retired || state == .cleaningUp
+    }
+
+    var validCompletedProgress: Bool {
+        guard hasCompletedCleanup else { return true }
+        guard isPublicationComplete, let published, published.item == completedItem,
+              published.version.identity == publishedIdentity,
+              published.version.size == size, published.version.digest == digest,
+              !conflict || completedStageRemoved == nil else { return false }
+        if !conflict, stageIdentity != nil || stageVersion != nil {
+            guard completedStageRemoved != nil else { return false }
+        }
+        if backupIdentity != nil || backupVersion != nil {
+            guard completedBackupRemoved != nil else { return false }
+        }
+        if completedStageRemoved == true {
+            guard stageVersion.map({ $0.identity == stageIdentity && $0.size == size && $0.digest == digest }) == true
+            else { return false }
+        }
+        if completedBackupRemoved == true {
+            guard backupVersion.map({ $0.identity == backupIdentity }) == true else { return false }
+        }
+        guard completedCleanupStarted != true || completedArtifactsRemoved else { return false }
+        return state == .cleaningUp ? recoveryRetained : !recoveryRetained && completedCleanupStarted == true
     }
 
     var validRetiredProgress: Bool {
@@ -192,7 +228,8 @@ public final class EditOutbox {
                   destination.components.dropLast() == path.components.dropLast(),
                   stage.components.last == ".tinymounter-\(record.id.uuidString).stage",
                   recovery.components.last == ".tinymounter-\(record.id.uuidString).recovery",
-                  !destination.isRoot, record.sequence != 0, record.validRetiredProgress else {
+                  !destination.isRoot, record.sequence != 0,
+                  record.validRetiredProgress, record.validCompletedProgress else {
                 throw UploadError.invalidRequest
             }
             return record
@@ -222,11 +259,11 @@ public final class EditOutbox {
             all = try records()
         }
         let generations = all.filter { $0.item == item && $0.state != .retired }
-        let unfinished = generations.filter { $0.state != .completed }
+        let unfinished = generations.filter { !$0.isPublicationComplete }
         var order = EditOrder()
         let earlier: [PendingEdit]
         let latest = generations.last(where: { $0.sequence != nil && $0.state != .preparing })
-        if let latest, let newest = latest.sequence, latest.state != .completed {
+        if let latest, let newest = latest.sequence, !latest.isPublicationComplete {
             order.head = latest
             earlier = unfinished.filter { $0.id != latest.id && $0.sequence.map { $0 < newest } ?? true }
         } else {
@@ -270,13 +307,13 @@ public final class EditOutbox {
 
     // Only proven earlier publications can explain a changed original without an external conflict.
     public func ownPublications(before record: PendingEdit) throws -> [EditFileVersion] {
-        guard let sequence = record.sequence, record.state != .completed else { return [] }
+        guard let sequence = record.sequence, !record.isPublicationComplete else { return [] }
         let all = try records()
         try requireOrderingEvidence(all)
         return all.filter { earlier in
             earlier.id != record.id && earlier.item == record.item && earlier.parent == record.parent
                 && earlier.path == record.path && earlier.baseVersion == record.baseVersion
-                && earlier.state == .completed && !earlier.conflict && earlier.published?.item == record.item
+                && earlier.isPublicationComplete && !earlier.conflict && earlier.published?.item == record.item
                 // Records without a sequence all precede an unfinished ordered save.
                 && earlier.sequence.map { $0 < sequence } ?? true
         }.compactMap { $0.published?.version }
@@ -358,7 +395,7 @@ public final class EditOutbox {
         }
         guard let sequence = record.sequence,
               let completed = try records().last(where: {
-                  $0.item == record.item && $0.state == .completed && $0.sequence.map({ $0 > sequence }) == true
+                  $0.item == record.item && $0.isPublicationComplete && $0.sequence.map({ $0 > sequence }) == true
               }), completed.parent == record.parent, completed.path == record.path,
               let receipt = completed.published, receipt.item == completed.completedItem,
               receipt.version.identity == completed.publishedIdentity,
@@ -416,9 +453,7 @@ public final class EditOutbox {
 
     /// Without the guard, an older build may have written saves whose order is unknown.
     private func requireOrderingEvidence(_ records: [PendingEdit]) throws {
-        guard hasOrderingGuard || !records.contains(where: {
-            ($0.sequence != nil && $0.state != .completed) || $0.state == .retired
-        }) else {
+        guard hasOrderingGuard || !records.contains(where: \.needsOrderingGuard) else {
             throw UploadError.unresolved
         }
     }
@@ -435,9 +470,7 @@ public final class EditOutbox {
 
     /// Lets older builds read the outbox again once no ordered save is unfinished.
     public func releaseOrderingGuardIfSettled() throws {
-        guard hasOrderingGuard, try !records().contains(where: {
-            ($0.sequence != nil && $0.state != .completed) || $0.state == .retired
-        }) else {
+        guard hasOrderingGuard, try !records().contains(where: \.needsOrderingGuard) else {
             return
         }
         guard unlink(orderingGuard.path) == 0 || errno == ENOENT else { throw posixError("remove edit ordering guard") }
@@ -462,7 +495,7 @@ public final class EditOutbox {
             throw UploadError.unresolved
         }
         record.conflictNoticeDismissed = true
-        try save(record)
+        try persist(record, id: record.id, extension: "edit", exclusive: false)
     }
 
     // Callers must deliver current contents in order; no callback identity can detect stale replay.
@@ -494,13 +527,13 @@ public final class EditOutbox {
         let ordered = generations.filter { $0.sequence != nil }
         let newest = ordered.last.flatMap { last in
             ordered.dropLast().last?.sequence != last.sequence
-                && (last.state != .completed || ordered.count == generations.count) ? last : nil
+                && (!last.isPublicationComplete || ordered.count == generations.count) ? last : nil
         }
         // A retry before publication can use fresh private names and retain the interrupted attempt.
         let needsFreshAttempt: [PendingEdit.State] = [.creatingStage, .staged, .creatingBackup, .backedUp]
         let existing = newest.flatMap { replays($0) && !needsFreshAttempt.contains($0.state) ? $0 : nil }
         if let existing, existing.state != .preparing {
-            if existing.isPending { try validateContents(existing) }
+            if existing.isPending, !existing.isPublicationComplete { try validateContents(existing) }
             return existing
         }
         let storedPayload = try existing.flatMap { existing in try payloads.records().first { $0.id == existing.id } }
@@ -614,14 +647,19 @@ public final class EditOutbox {
 
     public func save(_ record: PendingEdit) throws {
         // Older builds would publish an unfinished ordered save without honoring its order.
-        if (record.sequence != nil && record.state != .completed) || record.state == .retired {
+        if record.needsOrderingGuard {
             guard hasOrderingGuard else { throw UploadError.unresolved }
         }
         let url = directory.appending(path: record.id.uuidString + ".edit")
         if FileManager.default.fileExists(atPath: url.path) {
             let stored = try JSONDecoder().decode(PendingEdit.self, from: Data(contentsOf: url))
             guard stored.state != .retired || record == stored else { throw UploadError.unresolved }
+            if stored.hasCompletedCleanup {
+                guard record == stored else { throw UploadError.unresolved }
+                return
+            }
         }
+        guard !record.hasCompletedCleanup else { throw UploadError.unresolved }
         try persist(record, id: record.id, extension: "edit", exclusive: false)
     }
 
@@ -644,35 +682,120 @@ public final class EditOutbox {
     }
 
     public func complete(_ record: inout PendingEdit, item: String) throws {
-        guard record.state == .published || record.state == .completed,
+        let all = try records()
+        try requireOrderingEvidence(all)
+        guard let stored = all.first(where: { $0.id == record.id && $0.item == record.item }),
+              stored.state != .retired else { throw UploadError.unresolved }
+        if stored.isPublicationComplete || stored.state == .published {
+            record = stored
+        }
+        guard record.state == .published || record.isPublicationComplete,
               let receipt = record.published, receipt.item == item,
               receipt.version.identity == record.publishedIdentity,
               receipt.version.size == record.size, receipt.version.digest == record.digest else {
             throw UploadError.unresolved
+        }
+        if record.isPublicationComplete {
+            guard record.completedItem == item else { throw UploadError.unresolved }
+            try beginCompletedCleanup(&record)
+            if record.state == .cleaningUp, record.completedArtifactsRemoved {
+                try finishCompletedCleanup(&record)
+            }
+            return
         }
         if record.documentMetadataDigest == nil {
             record.documentMetadataDigest = try retainedDocumentMetadataDigest(record)
         }
         try storeBase(receipt)
         record.completedItem = item
-        record.state = .completed
-        try save(record)
-        guard var payload = try payloads.records().first(where: { $0.id == record.id }) else {
+        try startCompletedCleanup(&record)
+        if record.completedArtifactsRemoved { try finishCompletedCleanup(&record) }
+    }
+
+    func beginCompletedCleanup(_ record: inout PendingEdit) throws {
+        record = try completedCleanupRecord(record)
+        if record.state == .completed, record.recoveryRetained { try startCompletedCleanup(&record) }
+    }
+
+    private func completedCleanupRecord(_ record: PendingEdit) throws -> PendingEdit {
+        let all = try records()
+        try requireOrderingEvidence(all)
+        guard let stored = all.first(where: { $0.id == record.id && $0.item == record.item }),
+              stored.isPublicationComplete, let receipt = stored.published,
+              receipt.item == stored.completedItem, receipt.version.identity == stored.publishedIdentity,
+              receipt.version.size == stored.size, receipt.version.digest == stored.digest,
+              try base(item: receipt.item, contentVersion: receipt.contentVersion) == receipt else {
             throw UploadError.unresolved
         }
-        if payload.state != .completed, !record.recoveryRetained { try payloads.complete(&payload, item: item) }
-        if payload.state == .completed, !record.recoveryRetained {
-            let metadata = directory.appending(path: record.id.uuidString + ".metadata")
-            if FileManager.default.fileExists(atPath: metadata.path) { try FileManager.default.removeItem(at: metadata) }
+        return stored
+    }
+
+    private func startCompletedCleanup(_ record: inout PendingEdit) throws {
+        if record.documentMetadataDigest == nil {
+            record.documentMetadataDigest = try retainedDocumentMetadataDigest(record)
         }
-        // A guard left in place only keeps older builds out; the next release removes it.
+        let stage = !record.conflict && (record.recoveryRetained || record.stageIdentity != nil
+            || record.stageVersion != nil || record.backupIdentity != nil || record.backupVersion != nil)
+        let backup = record.backupIdentity != nil || record.backupVersion != nil
+            || (record.conflict && record.recoveryRetained)
+        record.completedStageRemoved = stage ? false : nil
+        record.completedBackupRemoved = backup ? false : nil
+        record.completedCleanupStarted = nil
+        record.state = .cleaningUp
+        record.recoveryRetained = true
+        guard record.validCompletedProgress else { throw UploadError.unresolved }
+        try ensureOrderingGuard()
+        // Earlier ordered-save builds also skip Ordering.edit, so this state must be undecodable.
+        try persist(record, id: record.id, extension: "edit", exclusive: false)
+    }
+
+    func saveCompletedProgress(_ record: PendingEdit) throws {
+        let stored = try completedCleanupRecord(record)
+        guard stored.state == .cleaningUp, record.state == .cleaningUp, record.validCompletedProgress,
+              stored.completedStageRemoved == record.completedStageRemoved
+                || (stored.completedStageRemoved == false && record.completedStageRemoved == true),
+              stored.completedBackupRemoved == record.completedBackupRemoved
+                || (stored.completedBackupRemoved == false && record.completedBackupRemoved == true),
+              stored.completedCleanupStarted == record.completedCleanupStarted
+                || (stored.completedCleanupStarted == nil && record.completedCleanupStarted == true) else {
+            throw UploadError.unresolved
+        }
+        var permitted = stored
+        permitted.completedStageRemoved = record.completedStageRemoved
+        permitted.completedBackupRemoved = record.completedBackupRemoved
+        permitted.completedCleanupStarted = record.completedCleanupStarted
+        guard permitted == record else { throw UploadError.unresolved }
+        if record.completedCleanupStarted == true, stored.completedCleanupStarted != true {
+            try validateContents(stored)
+        }
+        try persist(record, id: record.id, extension: "edit", exclusive: false)
+    }
+
+    func finishCompletedCleanup(_ record: inout PendingEdit) throws {
+        record = try completedCleanupRecord(record)
+        if record.state == .completed, !record.recoveryRetained { return }
+        guard record.state == .cleaningUp, record.completedArtifactsRemoved else { throw UploadError.unresolved }
+        if record.completedCleanupStarted != true {
+            var terminal = record
+            terminal.completedCleanupStarted = true
+            try saveCompletedProgress(terminal)
+            record = terminal
+        }
+        try payloads.discardUnpublishedPayload(record.id)
+        let metadata = directory.appending(path: record.id.uuidString + ".metadata")
+        guard unlink(metadata.path) == 0 || errno == ENOENT else { throw posixError("remove completed edit metadata") }
+        var completed = record
+        completed.state = .completed
+        completed.recoveryRetained = false
+        try persist(completed, id: completed.id, extension: "edit", exclusive: false)
+        record = completed
         try? releaseOrderingGuardIfSettled()
     }
 
     // Identical unordered saves can resolve without assigning an arrival order to older records.
     public func resolveEquivalent(_ record: inout PendingEdit, with completed: PendingEdit) throws {
         guard record.sequence == nil, [.prepared, .staged, .backedUp].contains(record.state),
-              completed.state == .completed, !completed.recoveryRetained, !completed.conflict,
+              completed.isPublicationComplete, !completed.recoveryRetained, !completed.conflict,
               let receipt = completed.published, completed.item == record.item,
               completed.parent == record.parent, completed.path == record.path,
               completed.size == record.size, completed.digest == record.digest,

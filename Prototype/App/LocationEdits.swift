@@ -87,12 +87,12 @@ extension LocationSource {
                     var record = try outbox.prepare(item: request.item, parent: request.parent, path: path,
                                                     baseVersion: request.baseVersion, failOnConflict: request.failOnConflict,
                                                     contents: contents, progress: progress, checkSpace: checkSpace)
-                    if record.state == .completed {
+                    if record.isPublicationComplete {
                         try finishEdit(&record, outbox: outbox, progress: progress)
                     } else {
                         try finishItem(request.item, outbox: outbox, progress: progress)
                         guard let current = try outbox.records().first(where: { $0.id == record.id }),
-                              current.state == .completed else { throw UploadError.pendingWrites }
+                              current.isPublicationComplete else { throw UploadError.pendingWrites }
                         record = current
                     }
                     return EditReceipt(item: record.completedItem ?? record.item, conflict: record.conflict,
@@ -121,13 +121,13 @@ extension LocationSource {
                           try withCatalog({ try $0.item(id: Catalog.rootItemID)?.allowsEditing }) == true else { return }
                     let outbox = try Self.editOutbox(domainID: domainID)
                     let pending = try outbox.records().filter(\.isPending)
-                    for var record in pending where record.state == .completed {
+                    for var record in pending where record.isPublicationComplete {
                         do { try finishEdit(&record, outbox: outbox, progress: Progress()) }
                         catch {
                             logger.error("edit_retry id=\(record.id.uuidString, privacy: .public) failed \(logFields(error), privacy: .public)")
                         }
                     }
-                    for item in Set(pending.filter { $0.state != .completed }.map(\.item)).sorted() {
+                    for item in Set(pending.filter { !$0.isPublicationComplete }.map(\.item)).sorted() {
                         do { try finishItem(item, outbox: outbox, progress: Progress()) }
                         catch {
                             logger.error("edit_retry item=\(item, privacy: .public) failed \(logFields(error), privacy: .public)")
@@ -181,9 +181,9 @@ extension LocationSource {
     private func finishResolvingEquivalents(_ record: inout PendingEdit, outbox: EditOutbox,
                                             progress: Progress) throws {
         try finishEdit(&record, outbox: outbox, progress: progress)
-        guard record.state == .completed, !record.conflict, !record.recoveryRetained else { return }
+        guard record.isPublicationComplete, !record.conflict, !record.recoveryRetained else { return }
         for var other in try outbox.records()
-            where other.id != record.id && other.item == record.item && other.state != .completed {
+            where other.id != record.id && other.item == record.item && !other.isPublicationComplete {
             if (try? outbox.resolveEquivalent(&other, with: record)) != nil {
                 try? finishEdit(&other, outbox: outbox, progress: progress)
             }
@@ -201,6 +201,10 @@ extension LocationSource {
     }
 
     private func cleanupRetiredEdit(_ record: inout PendingEdit, outbox: EditOutbox) throws {
+        if record.retiredCleanupStarted == true {
+            try outbox.discardRetired(record)
+            return
+        }
         guard let bookmark = writeBookmark, let relative = RelativePath(record.path),
               let path = folder.appending(relative) else { throw UploadError.readOnly }
         try editNamespace.requireUncontested(path: path, excluding: record.id)
@@ -222,7 +226,11 @@ extension LocationSource {
         }
         guard let bookmark = writeBookmark, let relative = RelativePath(record.path),
               let path = folder.appending(relative) else { throw UploadError.readOnly }
-        if record.state == .completed, !record.recoveryRetained { return }
+        if record.isPublicationComplete, !record.recoveryRetained { return }
+        if record.completedCleanupStarted == true, let item = record.completedItem {
+            try outbox.complete(&record, item: item)
+            return
+        }
         guard record.state != .preparing, record.state != .retired else { throw UploadError.unresolved }
         try outbox.validateContents(record)
         guard try !outbox.hasResourceFork(record) else {
@@ -234,7 +242,7 @@ extension LocationSource {
             let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: root, progress: progress)
             try remote.protectAncestors(of: record.path)
             try EditTransaction.publish(&record, outbox: outbox, remote: remote)
-            if record.state != .completed {
+            if !record.isPublicationComplete {
                 guard let published = record.published else { throw UploadError.unresolved }
                 try remote.allowPublishedReads(path: record.destination, expected: published.version)
                 guard let destination = RelativePath(record.destination),

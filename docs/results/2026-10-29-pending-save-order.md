@@ -116,8 +116,30 @@ notices with no retained recovery; the publication receipt remains available for
 These changes pass Tools/run-checks.sh in macOS VM 1: 373 tests, one optional skip, no failures
 or Swift warnings, project generation, release CLI checks, unsigned app build and six encoder
 cases. Evidence is m23-cleanup-checks.log in the same session. Signed cleanup, status and storage
-checks remain. The older completed-save cleanup path still accepts an absent
-artifact through the SMB adapter; it needs separate review of uncertain absence and lost replies.
+checks remain.
+
+## Completed-publication cleanup follow-up
+
+Implemented on 2026-10-30; required VM checks pass. Completed publications now retain cleanup
+progress separately from their save receipt. Missing or changed artifacts and lost removal
+replies keep the local recovery copy. A durable acknowledgement prevents retry from deleting
+a new occupant at a previously cleaned name. Once all removals are acknowledged, a local
+checkpoint permits payload removal to resume without contacting the server.
+
+The new cleaningUp state makes earlier builds, including the earlier M23 implementation,
+refuse these records. Ordering.edit alone is insufficient because earlier M23 builds already
+skip that guard. Completion returns to the readable completed state; old completed records
+without retained recovery stay unchanged. No Settings or catalog format changes are needed.
+Callbacks and successor saves treat cleaningUp as a proved publication, while Settings says
+that the file is saved on the server and recovery files still need attention.
+
+The SMB adapter also closes its upload verifier and reacquires exclusive artifact protection
+before cleanup, then checks the recorded complete version again. Otherwise its own remaining
+reader could defer removal beyond the delete handle's close reply. An absent artifact now
+fails cleanup. Tools/run-checks.sh passes in macOS VM 1: 404 tests, one optional skip, no failures
+or Swift warnings, project generation, release CLI validation, unsigned app build and six
+encoder cases. Evidence is m23-completed-cleanup-checks.log. Signed checks must establish this
+handle behavior on the fixture.
 
 ## Verification and remaining work
 

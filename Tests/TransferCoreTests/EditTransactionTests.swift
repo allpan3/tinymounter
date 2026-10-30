@@ -60,6 +60,14 @@ final class EditTransactionTests: XCTestCase {
         try EditTransaction.cleanup(&record, outbox: outbox, remote: remote)
     }
 
+    private func completePublication() throws {
+        try EditTransaction.publish(&edit, outbox: outbox, remote: remote)
+        try outbox.complete(&edit, item: edit.item)
+        XCTAssertEqual(edit.state, .cleaningUp)
+        remote.inspections = []
+        remote.removals = []
+    }
+
     private func retireInterruptedBackup() throws -> PendingEdit {
         remote.failure = .backupReply
         XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))
@@ -158,6 +166,270 @@ final class EditTransactionTests: XCTestCase {
         try outbox.validateContents(edit)
         XCTAssertNotNil(remote.files[edit.path])
         XCTAssertNotNil(remote.files[edit.recoveryPath])
+    }
+
+    func testCompletedCleanupPreflightsBothArtifactsBeforeAnyRemoval() throws {
+        try completePublication()
+        let stage = try XCTUnwrap(remote.files[edit.stagePath])
+        let backup = try XCTUnwrap(remote.files[edit.recoveryPath])
+        remote.files[edit.stagePath] = nil
+        let absentStage = remote.files
+        XCTAssertThrowsError(try EditTransaction.cleanup(&edit, outbox: outbox, remote: remote))
+        XCTAssertEqual(remote.files, absentStage)
+        XCTAssertEqual(remote.removals, [])
+        remote.files[edit.stagePath] = stage
+        let changed = try Remote.version(identity: backup.identity.fileID, size: backup.size,
+                                         digest: String(repeating: "d", count: 64))
+        let replaced = try Remote.version(identity: 999, size: backup.size, digest: backup.digest)
+        for value in [changed, replaced, nil] {
+            remote.files[edit.recoveryPath] = value
+            let before = remote.files
+            XCTAssertThrowsError(try EditTransaction.cleanup(&edit, outbox: outbox, remote: remote))
+            XCTAssertEqual(remote.files, before)
+            XCTAssertEqual(remote.removals, [])
+            XCTAssertEqual(try stored(edit).completedStageRemoved, false)
+            XCTAssertEqual(try stored(edit).completedBackupRemoved, false)
+            XCTAssertEqual(try outbox.pendingCount, 1)
+            try outbox.validateContents(edit)
+        }
+    }
+
+    func testLegacyCompletedCleanupRequiresFullRecordedOwnershipEvidence() throws {
+        try completePublication()
+        let completed = edit!
+        for missingStage in [true, false] {
+            var legacy = completed
+            legacy.state = .completed
+            legacy.completedStageRemoved = nil
+            legacy.completedBackupRemoved = nil
+            legacy.completedCleanupStarted = nil
+            if missingStage { legacy.stageIdentity = nil }
+            else { legacy.backupVersion = nil }
+            try JSONEncoder().encode(legacy).write(to:
+                directory.appending(path: "Outbox/\(edit.id.uuidString).edit"))
+            edit = legacy
+            let before = remote.files
+            XCTAssertThrowsError(try EditTransaction.cleanup(&edit, outbox: outbox, remote: remote))
+            XCTAssertEqual(remote.files, before)
+            XCTAssertEqual(remote.removals, [])
+            XCTAssertEqual(try stored(edit).state, .cleaningUp)
+            try outbox.validateContents(edit)
+        }
+    }
+
+    func testLegacyRetainedCompletionAcquiresCleanupStateBeforeRemoval() throws {
+        try completePublication()
+        edit.state = .completed
+        edit.documentMetadataDigest = nil
+        edit.completedStageRemoved = nil
+        edit.completedBackupRemoved = nil
+        edit.completedCleanupStarted = nil
+        try JSONEncoder().encode(edit!).write(to:
+            directory.appending(path: "Outbox/\(edit.id.uuidString).edit"))
+        try outbox.releaseOrderingGuardIfSettled()
+        remote.failRemovalAt = edit.stagePath
+        XCTAssertThrowsError(try EditTransaction.cleanup(&edit, outbox: outbox, remote: remote))
+        XCTAssertEqual(try stored(edit).state, .cleaningUp)
+        XCTAssertEqual(try stored(edit).completedStageRemoved, false)
+        XCTAssertEqual(try stored(edit).completedBackupRemoved, false)
+        XCTAssertNotNil(try stored(edit).documentMetadataDigest)
+        XCTAssertTrue(FileManager.default.fileExists(atPath:
+            directory.appending(path: "Outbox/" + EditOutbox.orderingGuardName).path))
+        remote.failRemovalAt = nil
+        try EditTransaction.cleanup(&edit, outbox: outbox, remote: remote)
+        XCTAssertEqual(edit.state, .completed)
+        XCTAssertEqual(try save("complete new version").id, edit.id)
+        XCTAssertEqual(try outbox.pendingCount, 0)
+    }
+
+    func testCompletedCleanupKeepsLostRemovalReplyUnconfirmedAcrossRestart() throws {
+        try completePublication()
+        remote.loseRemovalReplyAt = edit.recoveryPath
+        XCTAssertThrowsError(try EditTransaction.cleanup(&edit, outbox: outbox, remote: remote))
+        XCTAssertEqual(try stored(edit).completedStageRemoved, true)
+        XCTAssertEqual(try stored(edit).completedBackupRemoved, false)
+        XCTAssertNil(remote.files[edit.stagePath])
+        XCTAssertNil(remote.files[edit.recoveryPath])
+        outbox = try EditOutbox(directory: directory.appending(path: "Outbox"))
+        remote.inspections = []
+        remote.removals = []
+        XCTAssertThrowsError(try EditTransaction.cleanup(&edit, outbox: outbox, remote: remote))
+        XCTAssertEqual(remote.inspections, [edit.recoveryPath])
+        XCTAssertEqual(remote.removals, [])
+        XCTAssertTrue(edit.recoveryRetained)
+        XCTAssertEqual(try outbox.pendingCount, 1)
+        try outbox.validateContents(edit)
+        XCTAssertThrowsError(try outbox.removeIfCompleted())
+    }
+
+    func testCompletedCleanupReloadsAcknowledgmentsBeforeUsingAStaleRecord() throws {
+        try completePublication()
+        var stale = edit!
+        remote.failRemovalAt = edit.recoveryPath
+        XCTAssertThrowsError(try EditTransaction.cleanup(&edit, outbox: outbox, remote: remote))
+        let occupant = try Remote.version(identity: 999, size: 4, digest: String(repeating: "d", count: 64))
+        remote.files[edit.stagePath] = occupant
+        stale.recoveryRetained = false
+        try outbox.complete(&stale, item: stale.item)
+        XCTAssertEqual(stale.completedStageRemoved, true)
+        XCTAssertEqual(stale.completedBackupRemoved, false)
+        XCTAssertTrue(stale.recoveryRetained)
+        var reactivated = stale
+        reactivated.state = .published
+        XCTAssertThrowsError(try outbox.save(reactivated))
+        remote.failRemovalAt = nil
+        remote.inspections = []
+        remote.removals = []
+        outbox = try EditOutbox(directory: directory.appending(path: "Outbox"))
+        try EditTransaction.cleanup(&stale, outbox: outbox, remote: remote)
+        XCTAssertEqual(remote.inspections, [edit.recoveryPath])
+        XCTAssertEqual(remote.removals, [edit.recoveryPath])
+        XCTAssertEqual(remote.files[edit.stagePath], occupant)
+        XCTAssertEqual(stale.state, .completed)
+        XCTAssertFalse(stale.recoveryRetained)
+        XCTAssertEqual(try outbox.pendingCount, 0)
+        try EditTransaction.cleanup(&edit, outbox: outbox, remote: remote)
+        XCTAssertEqual(remote.inspections, [edit.recoveryPath])
+        XCTAssertEqual(remote.removals, [edit.recoveryPath])
+        XCTAssertEqual(edit, stale)
+    }
+
+    func testCompletedCleanupResumesAfterTerminalCheckpointBeforeLocalRemoval() throws {
+        try completePublication()
+        let receipt = try XCTUnwrap(edit.published)
+        let payloadRecord = directory.appending(path: "Outbox/Contents/\(edit.id.uuidString).json")
+        let savedRecord = directory.appending(path: "saved-payload-record")
+        try FileManager.default.moveItem(at: payloadRecord, to: savedRecord)
+        try FileManager.default.createDirectory(at: payloadRecord, withIntermediateDirectories: false)
+        XCTAssertThrowsError(try EditTransaction.cleanup(&edit, outbox: outbox, remote: remote))
+        XCTAssertEqual(try stored(edit).completedCleanupStarted, true)
+        try outbox.validateContents(edit)
+        try FileManager.default.removeItem(at: payloadRecord)
+        try FileManager.default.moveItem(at: savedRecord, to: payloadRecord)
+        outbox = try EditOutbox(directory: directory.appending(path: "Outbox"))
+        remote.inspections = []
+        remote.removals = []
+        try EditTransaction.cleanup(&edit, outbox: outbox, remote: remote)
+        XCTAssertEqual(remote.inspections, [])
+        XCTAssertEqual(remote.removals, [])
+        XCTAssertEqual(edit.state, .completed)
+        XCTAssertEqual(edit.published, receipt)
+        XCTAssertEqual(try outbox.base(item: receipt.item, contentVersion: receipt.contentVersion), receipt)
+        XCTAssertEqual(try outbox.pendingCount, 0)
+    }
+
+    func testCompletedCleanupResumesAndReplaysAfterPayloadRemoval() throws {
+        try completePublication()
+        var stale = edit!
+        let obstruction = directory.appending(path: "Outbox/Contents/\(edit.id.uuidString).new")
+        try FileManager.default.createDirectory(at: obstruction, withIntermediateDirectories: false)
+        XCTAssertThrowsError(try EditTransaction.cleanup(&edit, outbox: outbox, remote: remote))
+        XCTAssertEqual(try stored(edit).completedCleanupStarted, true)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outbox.contentURL(edit).path))
+        XCTAssertEqual(try outbox.pendingCount, 1)
+        XCTAssertEqual(try save("complete new version").id, edit.id)
+        outbox = try EditOutbox(directory: directory.appending(path: "Outbox"))
+        remote.inspections = []
+        remote.removals = []
+        try EditTransaction.publish(&stale, outbox: outbox, remote: remote)
+        XCTAssertEqual(stale.completedCleanupStarted, true)
+        try FileManager.default.removeItem(at: obstruction)
+        try outbox.complete(&stale, item: stale.item)
+        XCTAssertEqual(stale.state, .completed)
+        XCTAssertEqual(stale.published, edit.published)
+        XCTAssertEqual(remote.inspections, [])
+        XCTAssertEqual(remote.removals, [])
+        XCTAssertEqual(try outbox.pendingCount, 0)
+        XCTAssertEqual(try save("complete new version").id, stale.id)
+        XCTAssertFalse(FileManager.default.fileExists(atPath:
+            directory.appending(path: "Outbox/" + EditOutbox.orderingGuardName).path))
+    }
+
+    func testCleanupPendingPublicationRemainsAValidBaseForNewerSaves() throws {
+        try completePublication()
+        let stage = remote.files[edit.stagePath], backup = remote.files[edit.recoveryPath]
+        XCTAssertNil(try outbox.order(item: edit.item).head)
+        var latest = try save("latest version")
+        XCTAssertEqual(try outbox.order(item: edit.item).predecessors, [])
+        XCTAssertEqual(try outbox.order(item: edit.item).superseded, [])
+        XCTAssertEqual(try outbox.ownPublications(before: latest), [try XCTUnwrap(edit.published?.version)])
+        try finish(&latest)
+        XCTAssertFalse(latest.conflict)
+        XCTAssertEqual(remote.files[edit.path]?.digest, latest.digest)
+        XCTAssertEqual(remote.files[edit.stagePath], stage)
+        XCTAssertEqual(remote.files[edit.recoveryPath], backup)
+        XCTAssertEqual(try outbox.pendingCount, 1)
+        try EditTransaction.cleanup(&edit, outbox: outbox, remote: remote)
+        XCTAssertEqual(remote.files[edit.path]?.digest, latest.digest)
+        XCTAssertEqual(try outbox.pendingCount, 0)
+    }
+
+    func testEquivalentLegacySaveCleansItsRecordedBackupAfterRebasingItsReceipt() throws {
+        edit.sequence = nil
+        edit.previous = remote.files[edit.path]
+        edit.stageVersion = try Remote.version(identity: 300, size: edit.size, digest: edit.digest)
+        edit.stageIdentity = edit.stageVersion?.identity
+        edit.backupVersion = try Remote.version(identity: 301, size: 3, digest: String(repeating: "a", count: 64))
+        edit.backupIdentity = edit.backupVersion?.identity
+        edit.state = .backedUp
+        try outbox.save(edit)
+        remote.files[edit.stagePath] = edit.stageVersion
+        remote.files[edit.recoveryPath] = edit.backupVersion
+        var completed = try save("complete new version", failOnConflict: true)
+        completed.sequence = nil
+        try outbox.save(completed)
+        let version = try Remote.version(identity: 1, size: completed.size, digest: completed.digest)
+        completed.previous = version
+        completed.published = try EditBaseReceipt(item: edit.item, version: version)
+        completed.state = .published
+        remote.files[edit.path] = version
+        try outbox.complete(&completed, item: completed.item)
+        try outbox.resolveEquivalent(&edit, with: completed)
+        XCTAssertEqual(edit.state, .cleaningUp)
+        XCTAssertNotEqual(edit.previous?.digest, edit.backupVersion?.digest)
+        try EditTransaction.cleanup(&edit, outbox: outbox, remote: remote)
+        XCTAssertEqual(remote.files, [edit.path: version])
+        XCTAssertEqual(edit.published, completed.published)
+        XCTAssertEqual(try outbox.pendingCount, 0)
+    }
+
+    func testCompletedConflictCleanupNeverRevisitsThePublishedStageName() throws {
+        remote.files[edit.path] = nil
+        try EditTransaction.publish(&edit, outbox: outbox, remote: remote)
+        let receipt = try XCTUnwrap(edit.published)
+        XCTAssertTrue(edit.conflict)
+        try outbox.complete(&edit, item: receipt.item)
+        let occupant = try Remote.version(identity: 999, size: 4, digest: String(repeating: "d", count: 64))
+        remote.files[edit.stagePath] = occupant
+        remote.inspections = []
+        remote.removals = []
+        try EditTransaction.cleanup(&edit, outbox: outbox, remote: remote)
+        XCTAssertEqual(remote.files[edit.stagePath], occupant)
+        XCTAssertEqual(remote.files[edit.destination], receipt.version)
+        XCTAssertEqual(remote.inspections, [])
+        XCTAssertEqual(remote.removals, [])
+        XCTAssertEqual(try outbox.pendingCount, 0)
+        try outbox.dismissConflictNotice(id: edit.id)
+        XCTAssertEqual(try save("complete new version").conflictNoticeDismissed, true)
+    }
+
+    func testLegacyCompletedRecordWithoutRecoveryDataIsUntouched() throws {
+        try finish(&edit)
+        edit.completedStageRemoved = nil
+        edit.completedBackupRemoved = nil
+        edit.completedCleanupStarted = nil
+        let url = directory.appending(path: "Outbox/\(edit.id.uuidString).edit")
+        let data = try JSONEncoder().encode(edit!)
+        try data.write(to: url)
+        remote.inspections = []
+        remote.removals = []
+        try EditTransaction.cleanup(&edit, outbox: outbox, remote: remote)
+        try outbox.complete(&edit, item: edit.item)
+        XCTAssertEqual(try Data(contentsOf: url), data)
+        XCTAssertEqual(remote.inspections, [])
+        XCTAssertEqual(remote.removals, [])
+        XCTAssertFalse(FileManager.default.fileExists(atPath:
+            directory.appending(path: "Outbox/" + EditOutbox.orderingGuardName).path))
     }
 
     func testConflictNameCollisionChoosesAnotherPersistedNameAndKeepsWinner() throws {
@@ -656,7 +928,11 @@ final class EditTransactionTests: XCTestCase {
     func testOrderedSaveAcceptsAnEarlierUnorderedPublication() throws {
         try finish(&edit)
         edit.sequence = nil
-        try outbox.save(edit)
+        edit.completedStageRemoved = nil
+        edit.completedBackupRemoved = nil
+        edit.completedCleanupStarted = nil
+        try JSONEncoder().encode(edit!).write(to:
+            directory.appending(path: "Outbox/\(edit.id.uuidString).edit"))
         var latest = try save("latest version")
         try finish(&latest)
         XCTAssertFalse(latest.conflict)

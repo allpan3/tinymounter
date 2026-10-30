@@ -17,7 +17,7 @@ final class SMBEdit: EditRemote, FileRenameRemote {
     private let root: Int32
     private let progress: Progress
     private var handles: [String: Handle] = [:]
-    private var extraHandles: [Handle] = []
+    private var stageVerifiers: [String: Handle] = [:]
     private var directories: [String: Handle] = [:]
     private var originals: Set<String> = []
     private var hiddenOriginals: Set<String> = []
@@ -197,7 +197,7 @@ final class SMBEdit: EditRemote, FileRenameRemote {
         closed = true
         guard result == 0 else { throw posixError("close native edit") }
         let verifier = try open(path: path, access: Self.read, sharing: 5)
-        extraHandles.append(verifier)
+        stageVerifiers[path] = verifier
         guard try info(verifier)[0...1] == expected[0...1] else { throw UploadError.unresolved }
         return try version(handle, artifactPath: path)
     }
@@ -246,7 +246,15 @@ final class SMBEdit: EditRemote, FileRenameRemote {
     func removeArtifact(path: String, version expected: EditFileVersion) throws {
         guard !originals.contains(path), !hiddenOriginals.contains(path),
               path.hasSuffix(".stage") || path.hasSuffix(".recovery") else { throw UploadError.unresolved }
-        guard let actual = try inspect(path: path, original: false) else { return }
+        // Reacquire exclusive protection so no verifier can defer deletion past its close reply.
+        if let verifier = stageVerifiers[path] {
+            try verifier.use { try check(tm_edit_close(client, $0)) }
+            stageVerifiers[path] = nil
+            guard let handle = handles[path] else { throw UploadError.unresolved }
+            try handle.use { try check(tm_edit_close(client, $0)) }
+            handles[path] = nil
+        }
+        guard let actual = try inspect(path: path, original: false) else { throw UploadError.unresolved }
         guard actual == expected else {
             Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
                 .error("edit_cleanup_version contents=\(actual.hasSameContents(as: expected)) modified=\(actual.modifiedMicroseconds == expected.modifiedMicroseconds) changed=\(actual.changedMicroseconds == expected.changedMicroseconds) attributes=\(actual.attributes == expected.attributes) security=\(actual.security == expected.security)")

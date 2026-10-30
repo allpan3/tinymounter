@@ -643,6 +643,9 @@ private struct UploadStatus: View {
     private func status(_ edit: PendingEdit) -> String {
         if edit.state == .retired { return UIText.retiredEdit }
         if edit.state == .preparing { return UIText.editPreparing }
+        if edit.isPublicationComplete, edit.recoveryRetained {
+            return edit.conflict ? UIText.conflictRecovery : UIText.publishedRecovery
+        }
         if edit.conflict { return edit.state == .completed ? UIText.conflictSaved : UIText.editConflict }
         if edit.state == .prepared, edit.sequence != nil { return UIText.editWaiting }
         return UIText.editNeedsRecovery
