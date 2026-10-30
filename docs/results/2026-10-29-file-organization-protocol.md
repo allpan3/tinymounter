@@ -157,3 +157,11 @@ callback. Both views retained their IDs, versions, keeps, local inodes and full 
 intent completed. Evidence: m21-completion-recovery-log.json, m21-completion-connection-count.json
 and m21-completion-comparison.json. Neither interruption lost data. These are correctness
 observations with uncontrolled cache state, not performance results.
+
+Finder refused renaming Verified.txt to the occupied Neighbor.txt name and displayed its
+name-taken message. All synthetic remote identities and full digests stayed unchanged. This
+was Finder preflight refusal; no new provider collision callback was established. With Read
+only enabled for the test location, Return did not start a rename and Move Item Here made no
+change. The saved log contains no mutation callbacks, and the same remote comparison passes.
+Read only was restored off and checked in Settings on 2026-10-30. Evidence:
+m21-finder-collision-result.json, m21-readonly-log.json and m21-readonly-result.json.
