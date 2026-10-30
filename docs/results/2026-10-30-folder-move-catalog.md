@@ -81,9 +81,30 @@ the checkpoint file but before syncing its directory; retry cannot proceed until
 succeeds. Evidence: .local/phase4/m21-20261029/m22-folder-core-checks-02.log. The first run's
 fixture failure remains in m22-folder-core-checks.log. These are simulated-remote checks.
 
-The core still has no runtime adapter or provider wiring. If children change after settlement
-was recorded and some catalogs committed, fresh verification currently refuses the replay.
-Recovery for that partial local completion must be implemented before enabling folder moves.
+At this checkpoint the core had no runtime adapter or provider wiring. Children changing after
+settlement and partial catalog completion caused replay to refuse. The next change addresses
+that recovery case before folder moves can be enabled.
+
+## Recovery after partial catalog completion
+
+The transaction now retains its original admission, directory identity and first settlement,
+plus one expected and one target state per participating catalog. A fresh protected observation
+can replace that bounded recovery plan. Each catalog either applies its expected state to the
+target atomically or proves it already matches the target. An untouched catalog can go directly
+to the fresh target. Earlier completion markers cannot skip this catch-up.
+
+Changed contents or modification times require fresh edit receipts. Reverting to earlier bytes
+also receives a new version. A missing or replaced descendant's old catalog binding stays
+retired, even if the same object later reappears. A bounded immutable witness records the first
+complete-listing proof, or the retirement of its parent; it does not claim server deletion.
+The original moved root can never retire, and replacing it leaves recovery unresolved.
+
+Older readers reject an active `recovering` state. Completed replay remains a no-op; callers
+must never apply the original settlement again. Runtime integration must store new receipts
+durably before exposing their versions and retain protection through local completion.
+Source review found no blocking defect. Tests cover repeated recovery, partial commits,
+mtime-only changes, permanent retirement, root replacement, collisions and interruption.
+VM compilation and checks are pending. There is no catalog or Settings format change.
 
 ## Saved keep paths
 

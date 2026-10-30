@@ -580,6 +580,120 @@ final class CatalogFolderMoveTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(catalog.item(id: tree.id)).listingComplete)
     }
 
+    func testRecoveryClassifiesAdmissionAndCommitsTheFreshTargetDirectly() throws {
+        let move = try prepare(), proofs = try proofs(move)
+        let admission = try CatalogFolderMoveState.admission(move, proofs: proofs)
+        let first = try CatalogFolderMoveState.settled(move, settlement: settlement(move, proofs: proofs))
+        let plainID = try child(tree.id, "plain").id
+        let plain = try XCTUnwrap(first.entries.first { $0.item == plainID })
+        let changed = try receipt(item: plain.item, identity: plain.proof.identity, digest: "b")
+        let target = try recoveryState(first, replacing: [plain.item: changed])
+        XCTAssertEqual(try catalog.classifyFolderMove(move, proofs: proofs, allowed: [admission, first, target]), admission)
+        let keys = try rows("SELECT id || '|' || enumeration_key FROM items ORDER BY row")
+        let anchor = try catalog.currentAnchor()
+        try catalog.setKeep(ids: [plain.item], value: true)
+        try catalog.applyFolderMoveRecovery(move, proofs: proofs, expected: admission, target: target)
+        XCTAssertEqual(try catalog.classifyFolderMove(move, proofs: proofs, allowed: [admission, first, target]), target)
+        XCTAssertEqual(try catalog.item(id: plain.item)?.contentVersion, changed.contentVersion)
+        XCTAssertTrue(try XCTUnwrap(catalog.item(id: plain.item)).keepRequested)
+        XCTAssertEqual(try rows("SELECT id || '|' || enumeration_key FROM items ORDER BY row"), keys)
+        XCTAssertEqual(try catalog.changes(after: anchor, limit: 100, scope: .parent(inbox.id)).updated.map(\.id), [tree.id])
+        let committed = try dump()
+        try catalog.applyFolderMoveRecovery(move, proofs: proofs, expected: admission, target: target)
+        XCTAssertEqual(try dump(), committed)
+    }
+
+    func testRecoveryCatchesUpAnAlreadyCommittedCatalogAndDoesNotRepeatDeparture() throws {
+        let move = try prepare(), proofs = try proofs(move), settlement = try settlement(move, proofs: proofs)
+        let admission = try CatalogFolderMoveState.admission(move, proofs: proofs)
+        let first = try CatalogFolderMoveState.settled(move, settlement: settlement)
+        try catalog.settleFolderMove(move, settlement: settlement)
+        let departure = try rows("SELECT item || '|' || parent || '|' || seq FROM departures")
+        let plain = try child(tree.id, "plain"), explicit = try child(tree.id, "explicit")
+        let changed = try receipt(item: plain.id,
+            identity: XCTUnwrap(first.entries.first { $0.item == plain.id }).proof.identity, digest: "b")
+        let target = try recoveryState(first, replacing: [plain.id: changed], retiring: [explicit.id])
+        XCTAssertEqual(try catalog.classifyFolderMove(move, proofs: proofs, allowed: [admission, first, target]), first)
+        try catalog.applyFolderMoveRecovery(move, proofs: proofs, expected: first, target: target)
+        XCTAssertEqual(try catalog.classifyFolderMove(move, proofs: proofs, allowed: [first, target]), target)
+        XCTAssertTrue(try XCTUnwrap(catalog.item(id: explicit.id)).deleted)
+        XCTAssertEqual(try catalog.item(id: plain.id)?.contentVersion, changed.contentVersion)
+        XCTAssertEqual(try rows("SELECT item || '|' || parent || '|' || seq FROM departures"), departure)
+        let committed = try dump()
+        try catalog.applyFolderMoveRecovery(move, proofs: proofs, expected: first, target: target)
+        XCTAssertEqual(try dump(), committed)
+    }
+
+    func testRecoveryNeverRevivesRetiredBindingsOrAcceptsMissingOriginalEntries() throws {
+        let move = try prepare(), proofs = try proofs(move), admission = try CatalogFolderMoveState.admission(move, proofs: proofs)
+        let first = try CatalogFolderMoveState.settled(move, settlement: settlement(move, proofs: proofs))
+        let plain = try child(tree.id, "plain")
+        let retired = try recoveryState(first, retiring: [plain.id])
+        try catalog.applyFolderMoveRecovery(move, proofs: proofs, expected: admission, target: retired)
+        let committed = try dump()
+        XCTAssertThrowsError(try catalog.applyFolderMoveRecovery(move, proofs: proofs, expected: retired, target: first))
+        let incomplete = CatalogFolderMoveState(moved: true, entries: Array(retired.entries.dropLast()))
+        XCTAssertThrowsError(try catalog.classifyFolderMove(move, proofs: proofs, allowed: [incomplete]))
+        let retiredRoot = CatalogFolderMoveState(moved: true, entries: retired.entries.map { entry in
+            entry.item == move.item ? entry.retiring(.parent(item: move.destinationParent)) : entry
+        })
+        XCTAssertThrowsError(try catalog.applyFolderMoveRecovery(move, proofs: proofs, expected: retired,
+                                                                  target: retiredRoot))
+        XCTAssertEqual(try dump(), committed)
+    }
+
+    func testRecoveryPreservesReceiptForCtimeButRequiresNewVersionForMtime() throws {
+        let move = try prepare(), proofs = try proofs(move), admission = try CatalogFolderMoveState.admission(move, proofs: proofs)
+        let first = try CatalogFolderMoveState.settled(move, settlement: settlement(move, proofs: proofs))
+        let ctimeOnly = try recoveryState(first, ctimeDelta: 1_000)
+        try catalog.applyFolderMoveRecovery(move, proofs: proofs, expected: admission, target: ctimeOnly)
+        for before in first.entries {
+            XCTAssertEqual(try catalog.item(id: before.item)?.contentVersion, before.contentVersion)
+            XCTAssertEqual(ctimeOnly.entries.first { $0.item == before.item }?.proof, before.proof)
+        }
+        let plain = try child(tree.id, "plain"), old = try XCTUnwrap(ctimeOnly.entries.first { $0.item == plain.id })
+        guard case .file(let base) = old.proof else { return XCTFail("Expected file proof") }
+        let refreshed = try EditBaseReceipt(item: old.item, version: EditFileVersion(identity: base.version.identity,
+            size: base.version.size, digest: base.version.digest, modifiedMicroseconds: 2, changedMicroseconds: 4,
+            attributes: base.version.attributes, security: base.version.security))
+        let next = try recoveryState(ctimeOnly, replacing: [old.item: refreshed])
+        try catalog.applyFolderMoveRecovery(move, proofs: proofs, expected: ctimeOnly, target: next)
+        XCTAssertEqual(try catalog.item(id: old.item)?.contentVersion, refreshed.contentVersion)
+        XCTAssertEqual(old.proof, .file(base))
+        XCTAssertNotEqual(refreshed.id, base.id)
+    }
+
+    func testRecoveryRefusesUnexplainedCatalogChangesAndMoreThanThreeAllowedStates() throws {
+        let move = try prepare(), proofs = try proofs(move), admission = try CatalogFolderMoveState.admission(move, proofs: proofs)
+        let target = try CatalogFolderMoveState.settled(move, settlement: settlement(move, proofs: proofs))
+        XCTAssertThrowsError(try catalog.classifyFolderMove(move, proofs: proofs, allowed: [admission, target, target, target]))
+        try list(nested.id, [file("deep", 30), file("arrived", 31)])
+        let before = try dump()
+        XCTAssertThrowsError(try catalog.classifyFolderMove(move, proofs: proofs, allowed: [admission, target]))
+        XCTAssertThrowsError(try catalog.applyFolderMoveRecovery(move, proofs: proofs, expected: admission, target: target))
+        XCTAssertEqual(try dump(), before)
+    }
+
+    private func recoveryState(_ previous: CatalogFolderMoveState, replacing: [String: EditBaseReceipt] = [:],
+                               retiring: Set<String> = [], ctimeDelta: Int64 = 0) throws -> CatalogFolderMoveState {
+        try CatalogFolderMoveState(moved: true, entries: previous.entries.map { before in
+            if before.retired { return before }
+            if retiring.contains(before.item) {
+                let row = try XCTUnwrap(catalog.item(id: before.item)), parentID = try XCTUnwrap(row.parentID)
+                if retiring.contains(parentID) { return before.retiring(.parent(item: parentID)) }
+                let parent = try XCTUnwrap(previous.entries.first { $0.item == parentID })
+                return before.retiring(.listed(parent: parentID, identity: parent.proof.identity, name: row.name, occupant: nil))
+            }
+            let receipt = replacing[before.item]
+            let fingerprint = ContentFingerprint(size: receipt?.version.size ?? before.size,
+                mtimeNs: receipt.map { Int64($0.version.modifiedMicroseconds) * 1_000 } ?? before.mtimeNs,
+                ctimeNs: receipt.map { Int64($0.version.changedMicroseconds) * 1_000 } ?? before.ctimeNs + ctimeDelta)
+            return CatalogFolderMoveState.Entry(item: before.item, nativeID: before.nativeID,
+                fingerprint: fingerprint, contentVersion: receipt?.contentVersion ?? before.contentVersion,
+                proof: receipt.map(CatalogFolderMoveProof.file) ?? before.proof, retirement: before.retirement)
+        })
+    }
+
     private func receipt(item: String, identity: EditFileIdentity, id: UUID = UUID(),
                          digest: String = "a") throws -> EditBaseReceipt {
         try EditBaseReceipt(id: id, item: item, version: EditFileVersion(identity: identity, size: 10,
