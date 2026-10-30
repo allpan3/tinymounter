@@ -648,6 +648,14 @@ large-file move performance result is claimed. Metadata-only recovery after losi
 is not an approved substitute. Any reduction of the content-verification guarantee needs its
 own evidence and decision.
 
+The isolated Tools/check-file-organization.py probe is written but has not run. It checks
+protected file/parent identities, full bytes, permission and stream preservation, collisions,
+replacement races and interrupted publication. A passing protocol run alone cannot prove the
+historical identity of a legacy catalog row: those rows have no recorded server identity, and
+native lookup IDs can be derived from names. A replacement with identical metadata can therefore
+match an old row. Binding only the current object at admission would change the accepted safety
+boundary and is not enabled. That admission decision remains open in architecture section 11.
+
 This accepted scope expands libsmb2 use to user-requested cross-folder moves and the protected parent
 identity queries needed for recovery. It adds no dependency or server component. The existing
 requirement that files change only through SMB still applies. Native reads and file uploads,
