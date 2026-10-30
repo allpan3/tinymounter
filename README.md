@@ -213,7 +213,8 @@ Deletion protocol (M24), 2026-10-29: the disposable VM probe completed deletion,
 and eleven crash scenarios, then cleaned up its test subtree. The user accepted deleting the
 whole selected file, including concurrent attached data; lost replies remain visibly unconfirmed.
 The initial transaction core passed required VM checks on 2026-10-30: 441 tests, one optional
-skip and no failures or Swift warnings. No app deletion capability is enabled. See the
+skip and no failures or Swift warnings. Exact SMB error capture also passes 57 simulated
+callback cases and required VM checks; no app deletion capability is enabled. See the
 [deletion results](docs/results/2026-10-29-deletion-protocol.md).
 
 Folder catalog preparation (M22), 2026-10-30: subtree commits preserve item identity and file

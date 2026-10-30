@@ -13,6 +13,7 @@
 
 struct tm_edit_reply {
     int done, error;
+    uint32_t ntstatus;
     smb2_file_id file;
     uint64_t values[8];
     uint32_t count;
@@ -20,7 +21,10 @@ struct tm_edit_reply {
     uint32_t capacity;
 };
 
-struct edit_client { struct smb2_context *smb; };
+struct edit_client {
+    struct smb2_context *smb;
+    uint32_t ntstatus;
+};
 extern void *tm_smb_begin_edit(const char *, const char *, const char *, int *);
 extern void tm_smb_end_edit(void *);
 
@@ -41,10 +45,21 @@ void tm_edit_disconnect(void *opaque)
     free(client);
 }
 
+uint32_t tm_edit_last_ntstatus(void *opaque)
+{
+    struct edit_client *client = opaque;
+    return client->ntstatus;
+}
+
 static void done(struct smb2_context *smb, int status, void *data, void *context)
 {
     struct tm_edit_reply *reply = context;
     reply->error = status ? nterror_to_errno((uint32_t)status) : 0;
+    // Raw server replies have a payload; libsmb2's local timeout and shutdown callbacks do not.
+    uint32_t raw = (uint32_t)status;
+    int server_failure = data && (raw & SMB2_STATUS_SEVERITY_MASK) >= SMB2_STATUS_SEVERITY_WARNING
+        && !(raw & 0x10000000);
+    reply->ntstatus = server_failure ? raw : 0;
     reply->done = 1;
 }
 
@@ -68,6 +83,7 @@ static int wait_reply(struct edit_client *client, struct smb2_pdu *pdu, struct t
         client->smb = NULL;
         return error;
     }
+    client->ntstatus = reply->error ? reply->ntstatus : 0;
     return reply->error;
 }
 
@@ -95,6 +111,7 @@ int tm_edit_open(void *opaque, const char *path, uint32_t access, uint32_t shari
                uint8_t *file)
 {
     struct edit_client *client = opaque;
+    client->ntstatus = 0;
     struct smb2_context *smb = client->smb;
     if (!smb) return EIO;
     if (!valid_path(path)) return EINVAL;
@@ -114,6 +131,7 @@ int tm_edit_open(void *opaque, const char *path, uint32_t access, uint32_t shari
 int tm_edit_open_quarantine(void *opaque, const char *path, uint8_t *file)
 {
     struct edit_client *client = opaque;
+    client->ntstatus = 0;
     struct smb2_context *smb = client->smb;
     if (!smb) return EIO;
     if (!valid_path(path)) return EINVAL;
@@ -135,6 +153,7 @@ int tm_edit_open_quarantine(void *opaque, const char *path, uint8_t *file)
 int tm_edit_close(void *opaque, uint8_t *file)
 {
     struct edit_client *client = opaque;
+    client->ntstatus = 0;
     struct smb2_context *smb = client->smb;
     if (!smb) return EIO;
     struct smb2_close_request request = {0};
@@ -147,6 +166,7 @@ int tm_edit_open_directory(void *opaque, const char *path, uint32_t access, uint
                          uint8_t *file)
 {
     struct edit_client *client = opaque;
+    client->ntstatus = 0;
     struct smb2_context *smb = client->smb;
     if (!smb) return EIO;
     if (!path || (*path && !valid_path(path))) return EINVAL;
@@ -181,6 +201,7 @@ int tm_edit_list(void *opaque, uint8_t *directory, int restart, uint8_t *buffer,
                  uint32_t capacity, uint32_t *count, int *finished)
 {
     struct edit_client *client = opaque;
+    client->ntstatus = 0;
     if (!client->smb) return EIO;
     if (!buffer || capacity < 80 || capacity > 65536) return EINVAL;
     struct smb2_query_directory_request request = {0};
@@ -215,6 +236,7 @@ int tm_edit_open_private(void *opaque, const char *path, uint32_t access, uint32
                        const uint8_t *security, uint32_t length, uint8_t *file)
 {
     struct edit_client *client = opaque;
+    client->ntstatus = 0;
     struct smb2_context *smb = client->smb;
     if (!smb) return EIO;
     if (!valid_path(path) || !security || length < 20 || length > 4096) return EINVAL;
@@ -258,6 +280,7 @@ static void ioctl_done(struct smb2_context *smb, int status, void *data, void *c
 int tm_edit_resume_key(void *opaque, uint8_t *file, uint8_t *key)
 {
     struct edit_client *client = opaque;
+    client->ntstatus = 0;
     struct smb2_context *smb = client->smb;
     if (!smb) return EIO;
     uint8_t buffer[64];
@@ -274,6 +297,7 @@ int tm_edit_copy_chunk(void *opaque, uint8_t *target, const uint8_t *key, uint64
                      uint64_t target_offset, uint32_t length, uint8_t *result)
 {
     struct edit_client *client = opaque;
+    client->ntstatus = 0;
     struct smb2_context *smb = client->smb;
     if (!smb) return EIO;
     const uint64_t limit = INT64_MAX;
@@ -296,6 +320,7 @@ int tm_edit_copy_chunk(void *opaque, uint8_t *target, const uint8_t *key, uint64
 int tm_edit_set_size(void *opaque, uint8_t *file, uint64_t size)
 {
     struct edit_client *client = opaque;
+    client->ntstatus = 0;
     struct smb2_context *smb = client->smb;
     if (!smb) return EIO;
     if (size > INT64_MAX) return EINVAL;
@@ -318,7 +343,8 @@ static uint64_t microseconds(struct smb2_timeval value)
 static void inspected(struct smb2_context *smb, int status, void *data, void *context)
 {
     struct tm_edit_reply *reply = context;
-    struct smb2_file_all_info *info = data ? ((struct smb2_query_info_reply *)data)->output_buffer : NULL;
+    struct smb2_file_all_info *info = !status && data
+        ? ((struct smb2_query_info_reply *)data)->output_buffer : NULL;
     done(smb, status, data, context);
     if (!status && info) {
         reply->values[0] = info->index_number;
@@ -336,6 +362,7 @@ static void inspected(struct smb2_context *smb, int status, void *data, void *co
 int tm_edit_info(void *opaque, uint8_t *file, uint64_t *values)
 {
     struct edit_client *client = opaque;
+    client->ntstatus = 0;
     struct smb2_context *smb = client->smb;
     if (!smb) return EIO;
     struct smb2_query_info_request request = {0};
@@ -361,6 +388,7 @@ int tm_edit_read(void *opaque, uint8_t *file, uint64_t offset, uint8_t *buffer, 
                uint32_t *count)
 {
     struct edit_client *client = opaque;
+    client->ntstatus = 0;
     struct smb2_context *smb = client->smb;
     if (!smb) return EIO;
     struct smb2_read_request request = {0};
@@ -377,6 +405,7 @@ int tm_edit_read(void *opaque, uint8_t *file, uint64_t offset, uint8_t *buffer, 
 int tm_edit_rename(void *opaque, uint8_t *file, const char *destination)
 {
     struct edit_client *client = opaque;
+    client->ntstatus = 0;
     struct smb2_context *smb = client->smb;
     if (!smb) return EIO;
     if (!valid_path(destination)) return EINVAL;
@@ -396,6 +425,7 @@ int tm_edit_rename(void *opaque, uint8_t *file, const char *destination)
 int tm_edit_delete(void *opaque, uint8_t *file)
 {
     struct edit_client *client = opaque;
+    client->ntstatus = 0;
     struct smb2_context *smb = client->smb;
     if (!smb) return EIO;
     struct smb2_file_disposition_info disposition = {.delete_pending = 1};
@@ -411,6 +441,7 @@ int tm_edit_delete(void *opaque, uint8_t *file)
 int tm_edit_flush(void *opaque, uint8_t *file)
 {
     struct edit_client *client = opaque;
+    client->ntstatus = 0;
     struct smb2_context *smb = client->smb;
     if (!smb) return EIO;
     struct smb2_flush_request request = {0};
@@ -428,13 +459,14 @@ static void queried(struct smb2_context *smb, int status, void *data, void *cont
         memcpy(reply->buffer, info->output_buffer, info->output_buffer_length);
         reply->count = info->output_buffer_length;
     } else if (!status) reply->error = EOVERFLOW;
-    if (info && info->output_buffer) smb2_free_data(smb, info->output_buffer);
+    if (!status && info && info->output_buffer) smb2_free_data(smb, info->output_buffer);
 }
 
 int tm_edit_metadata(void *opaque, uint8_t *file, int security, uint8_t *buffer,
                    uint32_t capacity, uint32_t *count)
 {
     struct edit_client *client = opaque;
+    client->ntstatus = 0;
     struct smb2_context *smb = client->smb;
     if (!smb) return EIO;
     struct smb2_query_info_request request = {0};
@@ -455,6 +487,7 @@ int tm_edit_set_metadata(void *opaque, uint8_t *file, int security,
                        uint8_t *buffer, uint32_t length)
 {
     struct edit_client *client = opaque;
+    client->ntstatus = 0;
     struct smb2_context *smb = client->smb;
     if (!smb) return EIO;
     if (!security || !buffer || length > 4096 || length < 20) return EINVAL;

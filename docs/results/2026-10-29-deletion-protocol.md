@@ -98,3 +98,21 @@ source in macOS VM 1: 441 tests, one optional skip, no failures or Swift warning
 generation, release CLI validation, unsigned app build and six encoder cases. Evidence:
 .local/phase4/m21-20261029/m24-core-checks.log. These are simulated-remote tests, not signed
 deletion or SMB adapter evidence; M24 remains incomplete.
+
+## Exact server errors, 2026-10-30
+
+The production SMB client now exposes the exact status from its last failed server reply.
+Every operation clears the previous status, including local validation failures and successful
+cleanup closes. Transport failures and synthetic timeout/shutdown callbacks provide no server
+evidence. Swift copies the status into the error before cleanup; existing filesystem error
+codes and collision handling stay unchanged. Failed information queries also stop interpreting
+the server's error payload as a successful data reply.
+
+A standalone regression uses the real request encoders and deterministic callbacks without
+opening a connection. It covers distinct absence and pending-delete replies, cleanup, local
+errors, malformed successful replies and teardown callbacks. All 57 cases pass in VM 1.
+The required checks also pass: 441 tests, one optional skip, no failures or Swift warnings,
+project generation, release CLI validation, unsigned app build and six encoder cases.
+Evidence: .local/phase4/m21-20261029/m24-status-checks.log. The callback tests establish error
+classification in the adapter; they do not establish live deletion behavior. This adds no
+deletion capability.

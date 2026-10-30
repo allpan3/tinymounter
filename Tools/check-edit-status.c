@@ -1,0 +1,321 @@
+#include <errno.h>
+#include <poll.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <smb2/smb2.h>
+#include <smb2/smb2-errors.h>
+#include <smb2/libsmb2.h>
+#include <smb2/libsmb2-raw.h>
+#include "libsmb2-private.h"
+
+enum delivery { reply_ready, poll_failure, service_failure, timeout, reply_then_service_failure };
+static enum delivery delivery;
+static struct smb2_pdu *queued;
+static uint32_t response_status;
+static void *response_data;
+static int fail_create, fail_allocation, clock_calls, destroyed, freed_data;
+static int failures, cases;
+
+static void fake_queue(struct smb2_context *smb, struct smb2_pdu *pdu);
+static int fake_poll(struct pollfd *fds, nfds_t count, int milliseconds);
+static int fake_service(struct smb2_context *smb, int revents);
+static int fake_clock(clockid_t clock, struct timespec *value);
+static void fake_destroy(struct smb2_context *smb);
+static void fake_free_data(struct smb2_context *smb, void *data);
+static void *fake_calloc(size_t count, size_t size);
+static struct smb2_pdu *fake_create(struct smb2_context *smb, struct smb2_create_request *request,
+                                    smb2_command_cb callback, void *context);
+
+// Real request encoders feed deterministic callbacks; no request reaches a socket.
+#define smb2_queue_pdu fake_queue
+#define poll fake_poll
+#define smb2_service fake_service
+#define clock_gettime fake_clock
+#define smb2_destroy_context fake_destroy
+#define smb2_free_data fake_free_data
+#define calloc fake_calloc
+#define smb2_cmd_create_async fake_create
+#include "../Prototype/SMB/SMBEdit.c"
+#undef smb2_queue_pdu
+#undef poll
+#undef smb2_service
+#undef clock_gettime
+#undef smb2_destroy_context
+#undef smb2_free_data
+#undef calloc
+#undef smb2_cmd_create_async
+
+static void expect(int condition, const char *name, const char *detail)
+{
+    if (condition) return;
+    fprintf(stderr, "%s: %s\n", name, detail);
+    failures++;
+}
+
+static void fake_queue(struct smb2_context *smb, struct smb2_pdu *pdu)
+{
+    (void)smb;
+    if (queued) abort();
+    queued = pdu;
+}
+
+static int fake_poll(struct pollfd *fds, nfds_t count, int milliseconds)
+{
+    if (count != 1 || milliseconds != 100) abort();
+    if (delivery == poll_failure) { errno = EBADF; return -1; }
+    fds[0].revents = POLLIN;
+    return 1;
+}
+
+static int fake_service(struct smb2_context *smb, int revents)
+{
+    (void)revents;
+    if (delivery == service_failure) return -1;
+    if (delivery == timeout) return 0;
+    if (!queued) abort();
+    struct smb2_pdu *pdu = queued;
+    queued = NULL;
+    pdu->cb(smb, (int)response_status, response_data, pdu->cb_data);
+    smb2_free_pdu(smb, pdu);
+    return delivery == reply_then_service_failure ? -1 : 0;
+}
+
+static int fake_clock(clockid_t clock, struct timespec *value)
+{
+    if (clock != CLOCK_MONOTONIC) abort();
+    *value = (struct timespec){.tv_sec = clock_calls++ * 12};
+    return 0;
+}
+
+static void fake_destroy(struct smb2_context *smb)
+{
+    destroyed++;
+    if (queued) {
+        struct smb2_pdu *pdu = queued;
+        queued = NULL;
+        pdu->cb(smb, SMB2_STATUS_SHUTDOWN, NULL, pdu->cb_data);
+        smb2_free_pdu(smb, pdu);
+    }
+    smb2_destroy_context(smb);
+}
+
+static void fake_free_data(struct smb2_context *smb, void *data)
+{
+    (void)smb;
+    (void)data;
+    freed_data++;
+}
+
+static void *fake_calloc(size_t count, size_t size)
+{
+    return fail_allocation ? NULL : calloc(count, size);
+}
+
+static struct smb2_pdu *fake_create(struct smb2_context *smb, struct smb2_create_request *request,
+                                    smb2_command_cb callback, void *context)
+{
+    return fail_create ? NULL : smb2_cmd_create_async(smb, request, callback, context);
+}
+
+void *tm_smb_begin_edit(const char *server, const char *share, const char *account, int *error)
+{
+    (void)server;
+    (void)share;
+    (void)account;
+    (void)error;
+    abort();
+}
+
+void tm_smb_end_edit(void *smb)
+{
+    (void)smb;
+    abort();
+}
+
+static struct edit_client client;
+static uint8_t file[SMB2_FD_SIZE], buffer[4096], key[24], security[20];
+static uint64_t values[8];
+static uint32_t count;
+static int finished;
+
+static void prepare(void)
+{
+    if (queued) abort();
+    if (client.smb) smb2_destroy_context(client.smb);
+    client = (struct edit_client){.smb = smb2_init_context(),
+                                .ntstatus = SMB2_STATUS_OBJECT_NAME_NOT_FOUND};
+    if (!client.smb) abort();
+    delivery = reply_ready;
+    response_status = 0;
+    response_data = NULL;
+    fail_create = fail_allocation = clock_calls = destroyed = freed_data = 0;
+}
+
+static void result(const char *name, int actual, int expected, uint32_t status)
+{
+    cases++;
+    expect(actual == expected, name, "errno changed");
+    expect(tm_edit_last_ntstatus(&client) == status, name, "incorrect server status");
+    expect(queued == NULL, name, "request still queued");
+}
+
+static void server_failures(void)
+{
+    static const uint32_t statuses[] = {
+        SMB2_STATUS_OBJECT_NAME_NOT_FOUND, SMB2_STATUS_OBJECT_PATH_NOT_FOUND,
+        SMB2_STATUS_DELETE_PENDING, SMB2_STATUS_SHARING_VIOLATION, SMB2_STATUS_IO_TIMEOUT,
+    };
+    struct smb2_error_reply error_reply = {.byte_count = 1, .error_data = buffer};
+    for (size_t i = 0; i < sizeof(statuses) / sizeof(statuses[0]); i++) {
+        prepare();
+        response_status = statuses[i];
+        response_data = &error_reply;
+        result("server failure", tm_edit_open(&client, "file", 0, 0, file),
+               nterror_to_errno(statuses[i]), statuses[i]);
+        uint32_t copied = tm_edit_last_ntstatus(&client);
+        response_status = 0;
+        response_data = NULL;
+        result("cleanup close", tm_edit_close(&client, file), 0, 0);
+        expect(copied == statuses[i], "cleanup close", "copied failure changed");
+    }
+    prepare();
+    response_status = SMB2_STATUS_ACCESS_DENIED;
+    response_data = &error_reply;
+    result("query failure", tm_edit_info(&client, file, values), EACCES, response_status);
+    result("metadata failure", tm_edit_metadata(&client, file, 0, buffer, sizeof(buffer), &count),
+           EACCES, response_status);
+    expect(freed_data == 0, "query failure", "decoded error payload as success data");
+}
+
+static void local_failures(void)
+{
+    prepare();
+    result("invalid open", tm_edit_open(&client, "../file", 0, 0, file), EINVAL, 0);
+    client.ntstatus = SMB2_STATUS_DELETE_PENDING;
+    result("invalid directory", tm_edit_open_directory(&client, NULL, 0, 0, file), EINVAL, 0);
+    client.ntstatus = SMB2_STATUS_DELETE_PENDING;
+    result("invalid quarantine", tm_edit_open_quarantine(&client, "", file), EINVAL, 0);
+    client.ntstatus = SMB2_STATUS_DELETE_PENDING;
+    result("invalid private", tm_edit_open_private(&client, "file", 0, 0, NULL, 20, file), EINVAL, 0);
+    client.ntstatus = SMB2_STATUS_DELETE_PENDING;
+    result("invalid list", tm_edit_list(&client, file, 1, buffer, 0, &count, &finished), EINVAL, 0);
+    client.ntstatus = SMB2_STATUS_DELETE_PENDING;
+    result("invalid copy", tm_edit_copy_chunk(&client, file, key, 0, 0, 0, buffer), EINVAL, 0);
+    client.ntstatus = SMB2_STATUS_DELETE_PENDING;
+    result("invalid size", tm_edit_set_size(&client, file, UINT64_MAX), EINVAL, 0);
+    client.ntstatus = SMB2_STATUS_DELETE_PENDING;
+    result("invalid rename", tm_edit_rename(&client, file, "/file"), EINVAL, 0);
+    client.ntstatus = SMB2_STATUS_DELETE_PENDING;
+    result("invalid metadata", tm_edit_set_metadata(&client, file, 0, security, 20), EINVAL, 0);
+    prepare();
+    fail_allocation = 1;
+    result("allocation failure", tm_edit_open_private(&client, "file", 0, 0, security, 20, file),
+           ENOMEM, 0);
+    prepare();
+    fail_create = 1;
+    result("request allocation failure", tm_edit_open(&client, "file", 0, 0, file), EIO, 0);
+
+    static const uint32_t local[] = {
+        SMB2_STATUS_SHUTDOWN, SMB2_STATUS_IO_TIMEOUT, (uint32_t)-EIO,
+        SMB2_STATUS_OBJECT_NAME_NOT_FOUND,
+    };
+    for (size_t i = 0; i < sizeof(local) / sizeof(local[0]); i++) {
+        prepare();
+        response_status = local[i];
+        result("local callback", tm_edit_delete(&client, file), nterror_to_errno(local[i]), 0);
+    }
+    prepare();
+    struct smb2_error_reply error_reply = {0};
+    response_data = &error_reply;
+    response_status = (uint32_t)-EINVAL;
+    result("errno with data", tm_edit_delete(&client, file), nterror_to_errno(response_status), 0);
+}
+
+#define DISCONNECTED(name, call) do { \
+    client.ntstatus = SMB2_STATUS_DELETE_PENDING; \
+    result(name, (call), EIO, 0); \
+} while (0)
+
+static void disconnected(void)
+{
+    prepare();
+    smb2_destroy_context(client.smb);
+    client.smb = NULL;
+    DISCONNECTED("disconnected open", tm_edit_open(&client, "file", 0, 0, file));
+    DISCONNECTED("disconnected quarantine", tm_edit_open_quarantine(&client, "file", file));
+    DISCONNECTED("disconnected close", tm_edit_close(&client, file));
+    DISCONNECTED("disconnected directory", tm_edit_open_directory(&client, "", 0, 0, file));
+    DISCONNECTED("disconnected list", tm_edit_list(&client, file, 1, buffer, 80, &count, &finished));
+    DISCONNECTED("disconnected private",
+                 tm_edit_open_private(&client, "file", 0, 0, security, 20, file));
+    DISCONNECTED("disconnected resume", tm_edit_resume_key(&client, file, key));
+    DISCONNECTED("disconnected copy", tm_edit_copy_chunk(&client, file, key, 0, 0, 1, buffer));
+    DISCONNECTED("disconnected size", tm_edit_set_size(&client, file, 1));
+    DISCONNECTED("disconnected info", tm_edit_info(&client, file, values));
+    DISCONNECTED("disconnected read", tm_edit_read(&client, file, 0, buffer, 1, &count));
+    DISCONNECTED("disconnected rename", tm_edit_rename(&client, file, "target"));
+    DISCONNECTED("disconnected delete", tm_edit_delete(&client, file));
+    DISCONNECTED("disconnected flush", tm_edit_flush(&client, file));
+    DISCONNECTED("disconnected metadata", tm_edit_metadata(&client, file, 0, buffer, 80, &count));
+    DISCONNECTED("disconnected set metadata", tm_edit_set_metadata(&client, file, 4, security, 20));
+}
+
+static void decoded_success(void)
+{
+    prepare();
+    struct smb2_error_reply error_reply = {0};
+    response_status = SMB2_STATUS_NO_MORE_FILES;
+    response_data = &error_reply;
+    result("listing finished", tm_edit_list(&client, file, 0, buffer, 80, &count, &finished), 0, 0);
+    expect(finished && count == 0, "listing finished", "end of listing changed");
+    prepare();
+    result("malformed open", tm_edit_open(&client, "file", 0, 0, file), EIO, 0);
+    result("malformed info", tm_edit_info(&client, file, values), EIO, 0);
+    result("malformed read", tm_edit_read(&client, file, 0, buffer, 1, &count), EIO, 0);
+    result("malformed list", tm_edit_list(&client, file, 1, buffer, 80, &count, &finished),
+           EOVERFLOW, 0);
+    result("malformed metadata", tm_edit_metadata(&client, file, 0, buffer, 80, &count),
+           EOVERFLOW, 0);
+    result("malformed ioctl", tm_edit_resume_key(&client, file, key), EOVERFLOW, 0);
+    uint8_t short_reply[1] = {0};
+    struct smb2_ioctl_reply ioctl_reply = {.output = short_reply, .output_count = 1};
+    response_data = &ioctl_reply;
+    result("short resume key", tm_edit_resume_key(&client, file, key), EIO, 0);
+    result("short copy reply", tm_edit_copy_chunk(&client, file, key, 0, 0, 1, buffer), EIO, 0);
+}
+
+static void transport_failures(void)
+{
+    static const enum delivery modes[] = {
+        poll_failure, service_failure, timeout, reply_then_service_failure,
+    };
+    static const int errors[] = {EBADF, EIO, ETIMEDOUT, EIO};
+    struct smb2_error_reply error_reply = {0};
+    for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
+        prepare();
+        delivery = modes[i];
+        response_status = SMB2_STATUS_OBJECT_NAME_NOT_FOUND;
+        response_data = &error_reply;
+        result("transport failure", tm_edit_delete(&client, file), errors[i], 0);
+        expect(destroyed == 1 && !client.smb, "transport failure", "context survived");
+    }
+}
+
+int main(void)
+{
+    server_failures();
+    local_failures();
+    disconnected();
+    decoded_success();
+    transport_failures();
+    if (client.smb) smb2_destroy_context(client.smb);
+    if (failures) {
+        fprintf(stderr, "SMB edit status: %d failures\n", failures);
+        return 1;
+    }
+    printf("SMB edit status: %d cases passed\n", cases);
+    return 0;
+}
