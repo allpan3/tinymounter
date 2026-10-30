@@ -239,6 +239,15 @@ final class SourceReaderService: NSObject, NSFileProviderServiceSource, NSXPCLis
         return try ReaderMessage.decode(CreateReceipt.self, from: response.value())
     }
     func renameFile(_ request: FileRenameRequest, progress: Progress) throws -> CreateReceipt {
+        try organize(request, folder: false, progress: progress)
+    }
+
+    func moveFolder(_ request: FileRenameRequest, progress: Progress) throws -> CreateReceipt {
+        guard SourceReaderBridge.folderOrganizationEnabled else { throw CocoaError(.fileWriteNoPermission) }
+        return try organize(request, folder: true, progress: progress)
+    }
+
+    private func organize(_ request: FileRenameRequest, folder: Bool, progress: Progress) throws -> CreateReceipt {
         let response = Response(progress: progress)
         let id = request.id.uuidString
         let proxy = try proxy(startupProgress: progress) { response.finish(.failure($0)) }
@@ -247,9 +256,11 @@ final class SourceReaderService: NSObject, NSFileProviderServiceSource, NSXPCLis
             lock.withLock { waiting[id] = nil }
             proxy.release(id)
         }
-        proxy.renameFile(try ReaderMessage.encode(request)) { data, error in
+        let reply = { (data: Data?, error: NSError?) in
             response.finish(Result { try Self.payload(data, error) })
         }
+        if folder { proxy.moveFolder(try ReaderMessage.encode(request), reply: reply) }
+        else { proxy.renameFile(try ReaderMessage.encode(request), reply: reply) }
         while response.ready.wait(timeout: .now() + 0.1) == .timedOut {
             guard !progress.isCancelled else { throw TransferError.cancelled }
             guard !response.hasStalled else { throw NSFileProviderError(.serverUnreachable) }

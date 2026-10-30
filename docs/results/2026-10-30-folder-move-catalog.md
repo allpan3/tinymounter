@@ -294,3 +294,12 @@ after a move remain unverified. Folder capabilities remain disabled.
 The integrated source passes `Tools/run-checks.sh`: 492 tests, one optional skip, release CLI
 validation, project generation, unsigned app build, six encoder and 57 SMB-status cases, with
 no Swift warnings. Evidence: `m22-app-source-checks.log` in the same private session directory.
+
+## Finder routing preparation
+
+The provider now has a disabled route for ordinary-folder organization through the checked
+app caller. It carries the existing content/metadata versions and changed-field flags through
+a separate XPC selector. Creation-only folder naming retains its existing path. Selected
+packages and package destinations are refused. `SourceReaderBridge.folderOrganizationEnabled`
+stays false in the normal build; only an isolated disposable Finder candidate may enable it
+for the remaining runtime checks. Compilation of this routing change is pending.

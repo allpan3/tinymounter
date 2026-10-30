@@ -30,6 +30,11 @@ final class CatalogItem: NSObject, NSFileProviderItem {
     var capabilities: NSFileProviderItemCapabilities {
         // Finder needs rename permission to choose a new name for an incoming copy in Keep Both.
         if isFolder {
+            if SourceReaderBridge.folderOrganizationEnabled, row.parentID != nil, allowsEditing,
+               FileRenameRequest.supportsName(row.name),
+               UTType(filenameExtension: (row.name as NSString).pathExtension)?.conforms(to: .package) != true {
+                return [.allowsContentEnumerating, .allowsAddingSubItems, .allowsRenaming, .allowsReparenting]
+            }
             return row.allowsCreation ? [.allowsContentEnumerating, .allowsAddingSubItems, .allowsRenaming]
                 : .allowsContentEnumerating
         }
