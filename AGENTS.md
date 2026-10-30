@@ -138,6 +138,8 @@ request ([CONTRIBUTING.md](CONTRIBUTING.md#pull-requests)). It checks that:
 - `swift build -c release && python3 Tools/verify-benchmark.py` passes.
 - The unsigned app build succeeds with no Swift warnings:
   `xcodebuild -project TinyMounter.xcodeproj -scheme TinyMounterPrototype -configuration Release -derivedDataPath .build/xcode CODE_SIGNING_ALLOWED=NO build`
+- The SMB SET_INFO encoder preserves file handles and encodes rename destinations correctly,
+  checked against the built library without a network connection.
 
 Then check by hand that:
 

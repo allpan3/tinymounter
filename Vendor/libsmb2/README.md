@@ -25,6 +25,9 @@ Local changes:
 - An explicit guest session disables signing after the server identifies it as guest. An
   authenticated GSS connection refuses an unexpected guest fallback.
 - Challenges, salts, client GUIDs and encryption nonces use macOS's arc4random_buf.
+- A SET_INFO rename converts `/` to `\` in the new name. Upstream 6.3 converted the request's
+  fixed part instead, where a FileId word of 0x002f became 0x005c.
+  Tools/check-set-info-encoding.c checks the encoding without a connection.
 
 Prototype/SMB/SMBRename.c is the app's restricted entry point. Authenticated connections require
 SMB encryption. It opens and checks directory handles, preserves ancestor paths against SMB
