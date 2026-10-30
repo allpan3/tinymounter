@@ -72,6 +72,12 @@ public struct ShareHealth: Sendable {
         lastProgress[activity.id] = nil
     }
 
+    public mutating func operationSucceeded() -> [SourceFailure] {
+        guard state == .unresponsive else { return [] }
+        enter(.connected)
+        return recovered()
+    }
+
     /// A probe can bring back a share that times out, but not one whose mount or grant failed.
     public mutating func failed(_ failure: SourceFailure) {
         switch failure {

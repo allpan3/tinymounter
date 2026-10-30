@@ -101,4 +101,18 @@ correction. The moved file retains its server identity and complete contents; th
 unchanged. The next case-only rename exposed a second delete-capable handle against the same
 object and returned ETXTBSY before mutation. Case-only admission now releases that file handle
 before the transaction reopens and fully revalidates it; parent guards and the connection stay
-held. This follow-up awaits the next required checks and signed run.
+held. Required VM checks and the signed case-only rename now pass. Evidence is in
+m21-case-checks.log and m21-case-guard-before.json / m21-case-guard-after.json.
+
+An isolated app-owned audit confirmed that the never-downloaded file retained its item ID and
+f1 content version through the rename and move, and still had a dataless local placeholder.
+The audit forbids hydration on its thread. Legacy downloaded and verified kept comparison files
+have complete matching local bytes before their moves, respectively f1 and e1 versions. Their
+move, retention and overlapping-view checks are still in progress.
+
+Moving two files together then exposed a stale health state: the first move completed, but the
+second callback arrived before the periodic probe cleared Unresponsive and was refused. A
+successful operation on the current mount session now resolves that timeout before returning.
+The 15 s stall threshold stays unchanged. Success cannot restore a missing mount or denied
+grant, and an old session cannot restore a replacement session. Core and signed verification of
+this correction are pending.

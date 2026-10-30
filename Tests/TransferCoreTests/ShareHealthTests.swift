@@ -49,6 +49,39 @@ final class ShareHealthTests: XCTestCase {
         XCTAssertEqual(health.evaluate(), .unresponsive)
     }
 
+    func testSuccessfulOperationResolvesTimeoutBeforeTheNextRequest() {
+        let clock = ManualClock()
+        var health = connected(clock)
+        let activity = health.begin()
+        clock.now += ShareHealth.stallLimit + .milliseconds(1)
+        XCTAssertEqual(health.refusal(), .serverUnreachable)
+        XCTAssertEqual(health.operationSucceeded(), [.serverUnreachable])
+        health.end(activity)
+        XCTAssertNil(health.refusal())
+        XCTAssertEqual(health.operationSucceeded(), [])
+    }
+
+    func testSuccessfulOperationCannotRestoreLostMountOrDeniedGrant() {
+        var health = connected(ManualClock())
+        health.failed(.notAuthenticated)
+        XCTAssertEqual(health.operationSucceeded(), [])
+        XCTAssertEqual(health.refusal(), .notAuthenticated)
+        health.mountDisappeared()
+        XCTAssertEqual(health.operationSucceeded(), [])
+        XCTAssertEqual(health.state, .notConnected)
+    }
+
+    func testLateProbeCannotRepeatSuccessfulOperationRecovery() {
+        let clock = ManualClock()
+        var health = connected(clock)
+        health.failed(.serverUnreachable)
+        clock.now += ShareHealth.probeInterval
+        XCTAssertTrue(health.startProbe())
+        XCTAssertEqual(health.operationSucceeded(), [.serverUnreachable])
+        XCTAssertEqual(health.probeFinished(succeeded: true), [])
+        XCTAssertNil(health.refusal())
+    }
+
     func testRefusalFollowsTheState() {
         let clock = ManualClock()
         var health = ShareHealth(now: { clock.now })
