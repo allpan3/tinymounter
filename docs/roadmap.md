@@ -191,8 +191,9 @@ app/Finder integration checks remain.
 M24's signed production-adapter checks pass for ordinary files, empty directories, paginated
 confirmation, changed/replaced-file refusal and recovery after injected interruptions. Lost
 close replies stay unconfirmed. Durable operation storage and the recursive transaction pass
-28 simulated-server and storage tests in VM 1. App traversal, catalog updates, downgrade-guard
-integration, recursive SMB checks and Finder integration remain; no deletion capability is enabled.
+28 simulated-server and storage tests in VM 1. Protected traversal admission is implemented and
+source-reviewed, but not yet compiled or exercised. Catalog updates, downgrade-guard integration,
+recursive SMB checks and Finder integration remain; no deletion capability is enabled.
 
 The supported write boundary remains folders whose writers use SMB and leave tinymounter's
 transaction files alone. All milestones preserve complete pending content, refuse silent

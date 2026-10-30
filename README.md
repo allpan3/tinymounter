@@ -16,7 +16,8 @@ Deletion adapter, 2026-10-30: signed file and empty-folder deletion, paginated c
 changed/replaced-file refusal and recovery checks pass. Lost close replies remain unconfirmed.
 [The results and simulated-interruption limits are recorded](docs/results/2026-10-29-deletion-protocol.md#signed-adapter-continuation-2026-10-30).
 The durable recursive-deletion core also passes 28 simulated-server and storage tests in VM 1.
-Its app integration and recursive SMB checks remain pending; Finder deletion remains unavailable.
+Protected traversal admission is source-reviewed but not yet compiled or exercised. App integration
+and recursive SMB checks remain pending; Finder deletion remains unavailable.
 
 Status, 2026-10-11: verified NAS-cold full downloads reached **183.3 MB/s versus 192.7 MB/s native SMB (95.1%)**; with the file in NAS RAM, **229.0 versus 247.2 MB/s (92.6%)**. Each condition has five matched pairs, server cache/disk-read evidence, and representative complete-file checksum verification. Fully downloaded local reads also pass, though an unexplained speed gap to a local APFS control remains. See [verified cache results](docs/results/2026-10-11-cache-states.md), [full-download attribution](docs/results/2026-10-11-full-download.md), and [range-delay diagnosis](docs/results/2026-10-11-provider-delay.md).
 

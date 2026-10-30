@@ -243,3 +243,18 @@ complete suite to 526 with one optional skip. `Tools/run-checks.sh` passes with 
 including the app build, CLI, project, encoder and status checks. Evidence is
 `m24-core-review-checks.log` in the same session directory. These fixes do not enable an app
 caller or close the recursive SMB and Finder gates.
+
+## Protected traversal preparation, 2026-10-30
+
+The adapter now captures a complete deletion tree in one protected session, including children
+absent from the catalog. It checks every supplied view's known details and retains stricter
+identity, contents and mtime checks for previously verified files. Unsupported entries, packages,
+repeated identities, multiple links and excess nodes refuse admission. A final listing pass
+rejects arrivals observed before preparation. Exact server absence replies for a deletion's
+ancestor now report `parentChanged`; other failures retain their existing classification.
+
+Independent source review found no confirmed blocker. The caller must supply all affected views,
+persist the plan while protection remains held, close the capture handles and destroy that SMB
+session before opening node sessions. Reported reparse points are refused; links hidden by the
+server as ordinary objects remain an unverified transport limit. This source has not yet been
+compiled or run. No production deletion caller is connected.
