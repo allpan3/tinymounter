@@ -256,5 +256,22 @@ ancestor now report `parentChanged`; other failures retain their existing classi
 Independent source review found no confirmed blocker. The caller must supply all affected views,
 persist the plan while protection remains held, close the capture handles and destroy that SMB
 session before opening node sessions. Reported reparse points are refused; links hidden by the
-server as ordinary objects remain an unverified transport limit. This source has not yet been
-compiled or run. No production deletion caller is connected.
+server as ordinary objects remain an unverified transport limit. The integrated source passes
+`Tools/run-checks.sh` in VM 1: 526 tests, one optional skip, no Swift warnings, the app build,
+release CLI, project, six encoder and 57 status cases. Evidence: `m24-traversal-checks.log` in
+the same private session. Signed traversal behavior remains unverified; no production deletion
+caller is connected.
+
+## Inventory and downgrade-guard preparation, 2026-10-30
+
+The app now supplies `Deletion.edit` and `Deletion.rename` guards to its deletion inventory.
+Current readers skip only exact empty, single-link regular guard files. Namespace admission
+reads the deletion inventory before permitting writes, and unreadable inventory fails closed.
+Pending deletions block location changes and removal; removing a secondary view preserves the
+owner's replay record. Launch reconciles guards before opening sources, including inactive and
+retired domain IDs.
+
+Independent source review found no concrete defect. The future caller must serialize admission,
+check mutation suspension in every affected view and retain all configured roots as protected.
+These changes and the new guard regressions have not yet been compiled or run. Historical-reader
+behavior is modeled in tests, not verified in older signed apps. No execution caller is enabled.

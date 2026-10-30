@@ -81,11 +81,14 @@ final class EditNamespace: @unchecked Sendable {
             && path.components.prefix(ancestor.components.count).map(NameKey.init) == ancestor.components.map(NameKey.init)
     }
 
-    func requireSettled(excluding rename: UUID? = nil) throws {
+    /// An unsettled rename or deletion here blocks listing and writes, except the one named by `id`.
+    func requireSettled(excluding id: UUID? = nil) throws {
         let pendingRenames = try LocationSource.renameOutbox().intents().filter {
-            $0.isPending && $0.id != rename && $0.domains.contains { domains[$0] != nil }
+            $0.isPending && $0.id != id && $0.domains.contains { domains[$0] != nil }
         }
-        guard pendingRenames.isEmpty else { throw UploadError.pendingWrites }
+        guard pendingRenames.isEmpty, try blockingDeletions(excluding: id).isEmpty else {
+            throw UploadError.pendingWrites
+        }
         for domain in domains.keys {
             let outbox = try LocationSource.editOutbox(domainID: domain)
             let pending = try outbox.records().filter(\.isPending)
@@ -99,6 +102,11 @@ final class EditNamespace: @unchecked Sendable {
     func requireUncontested(path: RelativePath, excluding id: UUID,
                             retaining: (domain: String, item: String)? = nil) throws {
         guard !isReserved(path) else { throw UploadError.pendingWrites }
+        for record in try blockingDeletions(excluding: id) {
+            guard let selected = RelativePath(record.plan.selected.path), !Self.contains(selected, path) else {
+                throw UploadError.pendingWrites
+            }
+        }
         for intent in try LocationSource.renameOutbox().intents() where intent.isPending && intent.id != id {
             guard intent.domains.contains(where: { domains[$0] != nil }) else { continue }
             switch intent {
@@ -121,6 +129,13 @@ final class EditNamespace: @unchecked Sendable {
                     throw UploadError.pendingWrites
                 }
             }
+        }
+    }
+
+    /// Deletions whose views are not all settled; an unreadable inventory throws, so it blocks writes.
+    private func blockingDeletions(excluding id: UUID?) throws -> [PendingDeletion] {
+        try LocationSource.deletionOutbox().records().filter {
+            $0.blocksWrites && $0.id != id && $0.plan.domains.contains { domains[$0] != nil }
         }
     }
 

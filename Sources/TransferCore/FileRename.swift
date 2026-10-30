@@ -118,6 +118,8 @@ public struct PendingFileRename: Codable, Equatable, Sendable {
 
 /// One intent includes every affected catalog, so none can be removed during uncertain publication.
 public final class FileRenameOutbox {
+    /// Earlier builds fail to decode this empty file, so they stay out while a deletion is pending.
+    static let deletionGuardName = "Deletion.rename"
     private let directory: URL
     private let directorySync: (Int32) throws -> Void
 
@@ -147,7 +149,8 @@ public final class FileRenameOutbox {
 
     public func intents() throws -> [RenameIntent] {
         try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "rename" }.map { url in
+            .filter { $0.pathExtension == "rename" && !DeletionGuard.isExact($0, named: Self.deletionGuardName) }
+            .map { url in
                 let record = try decode(Data(contentsOf: url))
                 guard url.deletingPathExtension().lastPathComponent == record.id.uuidString else {
                     throw UploadError.invalidRequest
