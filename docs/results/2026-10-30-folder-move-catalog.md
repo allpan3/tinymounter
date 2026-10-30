@@ -141,13 +141,13 @@ unverified files retain their existing content versions. Completion stores recei
 catalog updates and rewrites saved keep paths while the SMB protection remains held.
 
 Namespace checks, pending counts, recovery display and location removal now read the shared
-file/folder intent inventory. Edits to deleted catalog rows are refused. The first integrated
-candidate passed all required VM checks with 491 tests, one optional skip and no failures or
-Swift warnings, plus six encoder and 57 SMB-status cases (`m22-app-integration-checks.log`).
-An additional mixed-inventory regression awaits checks; source review is running.
-Provider routing and folder capabilities remain disabled;
-draining, protected native queries, local-copy invalidation and interruption recovery still
-need signed VM evidence.
+file/folder intent inventory. Edits to deleted catalog rows are refused. The integrated
+candidate passes all required VM checks with 492 tests, one optional skip and no failures or
+Swift warnings, plus six encoder and 57 SMB-status cases (`m22-app-regression-checks.log`).
+The new regression checks file admission and replay beside pending and completed folder history.
+Source review is running. Provider routing and folder capabilities remain disabled; draining,
+protected native queries, local-copy invalidation and interruption recovery still need signed
+VM evidence.
 
 ## Saved keep paths
 
