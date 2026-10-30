@@ -209,6 +209,11 @@ whole selected file, including concurrent attached data; lost replies remain vis
 No app deletion capability is
 enabled. See the [deletion results](docs/results/2026-10-29-deletion-protocol.md).
 
+Folder catalog preparation (M22), 2026-10-30: subtree commits preserve item identity and file
+versions and require fresh directory listings before reporting offline availability. Required
+VM checks pass; app folder rename and move remain unavailable. See the
+[catalog preparation](docs/results/2026-10-30-folder-move-catalog.md).
+
 ## Run the prototype
 
 See [prototype setup and validation](docs/prototype.md). Build the benchmark with `swift build -c release`; run `.build/release/transfer-bench --help`. Open `TinyMounter.xcodeproj` to configure signing for the Finder prototype.
