@@ -191,8 +191,10 @@ moves, collisions, permission/stream preservation and crash recovery. File-organ
 integration uses the accepted current-object admission rule for unverified rows and passes all
 required VM checks: 356 tests, one optional skip and no Swift warnings. Signed Finder moves
 preserve unverified, legacy downloaded and verified files, their versions and downloaded copies.
-Overlapping-view and before/after-move interruption checks also preserve those copies. Remaining
-signed refusal cases and matched recordings are open. The approved fixture session is still open. See the
+Overlapping-view and before/after-move interruption checks also preserve those copies. On
+2026-10-30, five signed app-API boundary cases passed, including refusal of pending uploads
+before SMB admission; their temporary locations were removed. Finder drag, pending-edit and
+remaining callback checks and matched recordings are open. The approved fixture session is still open. See the
 [protocol results](docs/results/2026-10-29-file-organization-protocol.md).
 
 Pending saves (M23), 2026-10-29: a focused VM regression reproduces an older save publishing
