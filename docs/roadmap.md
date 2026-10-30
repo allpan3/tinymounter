@@ -1,8 +1,8 @@
 # Roadmap to everyday use
 
-Date: 2026-10-29. Decision status: proposed. The user requested a complete remaining roadmap
-and parallel development with agents in separate worktrees. Those working methods are approved;
-the new feature scopes below still need acceptance. Installation is deferred.
+Date: 2026-10-29. Decision status: accepted. The user approved this roadmap, including permanent
+deletion without a tinymounter Trash, parallel agents/worktrees and the first disposable VM test
+session. Implementation follows the safety gates and dependencies below. Installation is deferred.
 
 The goal is ordinary document work in Finder: create, open, save, organize and delete files,
 then edit downloaded files while offline. Tinymounter remains a Mac app using an existing SMB
@@ -16,7 +16,7 @@ compatibility claim or an estimate of delivery time.
 ## Milestones and dependencies
 
 Numbers identify outcomes; independent work may run in parallel. M21 and M23 can start together
-after scope acceptance and agreement on their shared interfaces. M21 includes the identity work
+after agreement on their shared interfaces. M21 includes the identity work
 needed for ordinary existing files. The earlier proposal limited to verified-file moves is
 expanded here, before implementation, so downloading a file is not a permanent prerequisite
 for organizing it.
@@ -41,7 +41,7 @@ Fresh observation must not assign an old downloaded copy to an unproven object a
 Keep full-content checks where the existing contract needs them. Removing those checks, including
 during recovery after protection was lost, is not approved by this roadmap. Measure the cost;
 do not claim constant-time moves or require silent local hydration to establish evidence.
-The proposed SMB expansion is limited to protected ordinary-file admission, parent/directory
+The accepted SMB expansion is limited to protected ordinary-file admission, parent/directory
 identity queries, no-replace file/folder moves and verified user-requested deletion. Prove each
 operation on the disposable fixture before integration. There is no new dependency, general
 replacement-by-path API or replacement for native bulk reads/uploads in this plan.
@@ -81,12 +81,12 @@ previous complete save available. This milestone also protects online saves raci
 
 ### M24: deletion policy
 
-Recommendation: explicit permanent deletion, with no custom Trash or hidden retention copies.
+Accepted policy: explicit permanent deletion, with no custom Trash or hidden retention copies.
 Deleting removes the selected file's contents and attached data from the server and its location
 views. A server's own backups or recycle bin are outside tinymounter's guarantee. The UI must
 make that permanent effect clear; Finder's actual warning and callback behavior is a protocol/UI
 gate. Do not advertise Move to Trash or Put Back without implementing their different semantics.
-Approval of this roadmap must include this product choice before deletion is implemented.
+The user accepted this product choice with the roadmap on 2026-10-29.
 
 Start implementation with ordinary files and empty directories; the milestone also includes
 populated-folder deletion so users can finish normal cleanup. Resolve selected-object identity
@@ -123,7 +123,7 @@ Scope: edit ordinary files whose complete current local copy and editing base we
 before disconnection. Repeated saves keep the latest durable contents. On reconnect, an unchanged
 base receives those contents; a competing edit preserves both versions. For a deleted or moved
 remote original, retain the local edit for recovery/export rather than guess where it belongs or
-silently recreate the old pathname. This proposed offline policy differs from the older general
+silently recreate the old pathname. This accepted offline policy differs from the older general
 delete-versus-edit proposal in synchronization.md.
 
 Offline creation, renaming, moving and deletion are deferred. Test the app-running, intentional
@@ -191,7 +191,7 @@ and integration order must be agreed before agents edit those shared parts.
 
 ## Delivery and approval
 
-Once the roadmap is accepted, implement its scopes in dependency order without asking the user
+Implement the accepted scopes in dependency order without asking the user
 to select a new feature after each milestone. Ordinary implementation choices belong to the
 agents. Record significant choices and measured limits with the corresponding code and tests.
 
@@ -206,11 +206,11 @@ interruption needed for recovery tests. No VM or shared-daemon restart, network 
 change or account change is included. Keep the original NAS read-only. Installation, publication,
 push and merge require their own approval; none is included here.
 
-The first requested test session uses the same disposable loopback-only Samba setup as M20,
+The first test session, approved on 2026-10-29, uses the same disposable loopback-only Samba setup as M20,
 with bounded synthetic files, temporary dependencies and a private Keychain credential. It
 covers file/parent identity, file and directory rename, delete-on-close and Finder/editor
 callbacks. Recovery checks may stop only task-owned test processes, including that disposable
-server. Restore the saved state and remove the fixture at the end. This request covers one
+server. Restore the saved state and remove the fixture at the end. This approval covers one
 session, not standing permission to reopen it later.
 
 ## Common completion criteria
@@ -232,7 +232,7 @@ before work starts, supplies the accepted scope and baseline, and integrates rev
 Opus 5.5 is available for implementation. Do not let agents independently redesign the same
 persisted records or shared interface.
 
-| Workstream | First assignment after acceptance | Ownership and integration dependency |
+| Workstream | First assignment | Ownership and integration dependency |
 | --- | --- | --- |
 | Organization | M21 identity, move intent and catalog changes; then M22 | Catalog identity/change records, FileRename and the SMB organization adapter; integrate after protocol gates |
 | Saves and recovery | M23 ordering, durable consolidation and recovery; then M26 local queue behavior | EditOutbox/EditTransaction and recovery UI; coordinate admission with organization and integrate offline behavior after M25 |
@@ -243,6 +243,14 @@ M24 deletion follows the identity and recovery contracts; M25 follows proven del
 callbacks. Their isolated core work can overlap once those contracts are fixed. Do not assign
 all milestones to independent agents against incompatible snapshots. Planning speed from three
 agents is not a measured implementation speedup.
+
+For the first implementation batch, catalog work accepts only a caller-proven file move and
+owns departure/arrival history and keep recomputation. It does not establish server identity or
+enable a provider capability. Save-queue work owns EditOutbox, EditTransaction and LocationEdits;
+it preserves the existing EditBaseReceipt contract and leaves shared controller/IPC wiring to
+the coordinator. Protocol work owns an isolated organization probe and proposes any required
+SMB adapter change before another branch uses it. Only the coordinator changes shared settings
+compatibility, project generation and production capability admission after those gates pass.
 
 Catalog/settings migrations, shared IPC, provider callback routing, the project generator and
 namespace locking have one integration owner. Agree on the small shared contract first; then

@@ -5,8 +5,8 @@ Date: 2026-10-23. Decision status: accepted. M18 starts phase 4 of
 and folders, then adds editing and conflict handling in later milestones. The remaining phase 3
 checks are still open; starting this design does not mark them passed.
 
-The [remaining roadmap](roadmap.md) proposes the full sequence after M20 and its parallel
-workstreams. New scopes remain proposed; the accepted M18 to M20 contracts below still apply.
+The [remaining roadmap](roadmap.md), accepted on 2026-10-29, sets the full sequence after M20
+and its parallel workstreams. The accepted M18 to M20 contracts below still apply.
 
 Native upload decision, 2026-10-23: the user accepted exclusive creation through native SMB.
 Other devices can see a new file while it uploads, including a partial file after interruption.
@@ -565,10 +565,10 @@ the affected docs, results log and README in the implementation commits.
 
 ## M21: organize ordinary files
 
-Date: 2026-10-29. Decision status: proposed. The [remaining roadmap](roadmap.md) expands the
+Date: 2026-10-29. Decision status: accepted. The [remaining roadmap](roadmap.md) expands the
 earlier verified-file move proposal to online rename and move for ordinary files, including
-files never downloaded. The identity gate below is part of this milestone. Scope acceptance
-and a fresh disposable VM fixture are pending. M20 remains the verified development build;
+files never downloaded. The identity gate below is part of this milestone. The user approved
+the scope and first disposable VM protocol session. M20 remains the verified development build;
 the physical Mac still runs M19. Installation is deferred.
 
 ### What the user gets
@@ -648,7 +648,7 @@ large-file move performance result is claimed. Metadata-only recovery after losi
 is not an approved substitute. Any reduction of the content-verification guarantee needs its
 own evidence and decision.
 
-This proposal expands libsmb2 use to user-requested cross-folder moves and the protected parent
+This accepted scope expands libsmb2 use to user-requested cross-folder moves and the protected parent
 identity queries needed for recovery. It adds no dependency or server component. The existing
 requirement that files change only through SMB still applies. Native reads and file uploads,
 macOS-managed credentials, encryption and existing licence obligations remain.
@@ -665,7 +665,7 @@ local and remote identities and full downloaded bytes before and after, includin
 neighbor. Record matched M20/M21
 workflows and run Tools/run-checks.sh in macOS VM 1.
 
-The requested fixture is a new session of the disposable loopback-only Samba setup used for
+The approved fixture is a new session of the disposable loopback-only Samba setup used for
 M20, with synthetic files, temporary dependencies and a private disposable Keychain credential.
 Do not create a macOS account, alter Apple's sharing settings, restart a shared daemon or VM,
 or cut the network. Snapshot affected state, then remove task-owned server processes, mounts,

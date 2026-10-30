@@ -168,10 +168,11 @@ is unverified. See the
 [results and matched recordings](docs/results/2026-10-29-file-renaming.md) and the
 [accepted scope](docs/phase4-plan.md#m20-file-renaming).
 
-Roadmap planning, 2026-10-29: the [remaining roadmap](docs/roadmap.md) defines the proposed
+Roadmap accepted, 2026-10-29: the [remaining roadmap](docs/roadmap.md) defines the accepted
 work toward ordinary file/folder operations, complete online saves and offline editing, followed
-by daily-use and release validation. The user approved parallel agents and worktrees. New feature
-scopes await approval; no new implementation or fixture is active. Installation is deferred.
+by daily-use and release validation. The user approved permanent deletion, parallel agents and
+worktrees, and the first disposable VM test session. Implementation is starting with M21 and
+M23; their safety gates and runtime checks are not yet passed. Installation is deferred.
 
 ## Run the prototype
 

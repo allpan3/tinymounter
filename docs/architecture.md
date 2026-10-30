@@ -211,10 +211,10 @@ refinement comes after. Writes now come before release hardening. After M9, the 
 move phase 5 earlier. Its reconnection part now starts phase 3; the rest stays in phase 5, because
 it waits for the transport decision.
 
-The [remaining roadmap](roadmap.md), proposed on 2026-10-29, sets user-facing milestones,
+The [remaining roadmap](roadmap.md), accepted on 2026-10-29, sets user-facing milestones,
 dependencies and completion criteria within these phases. It also assigns parallel worktree
-ownership. The user approved preparing that plan and using multiple agents; future feature
-scopes remain proposed until accepted.
+ownership. The user approved its scopes, permanent-deletion policy, parallel agents/worktrees
+and first disposable VM test session. Each implementation still has to pass its safety gates.
 
 1. **Feasibility harness.** Signed File Provider with a small local fixture; full/range fetching; cancellation; local-network permissions tested for both app and extension; native SMB baseline; native-backed provider; async SMB comparator. Exit: attribution of throughput overhead, player matrix, and transport/permissions decision. Follow [benchmark-plan.md](benchmark-plan.md). Do this before the full UI.
 2. **Read-only vertical slice.** One SMB share, persistent IDs/database, lazy directory enumeration, range/full reads, Keychain, meaningful offline/auth errors, safe restart. Exit: real Finder browsing and media reading without memory growth or leaked mounts/staging files. Started 2026-10-12 before phase 1's exit, on the current transport, with the user's Finder connection standing in for Keychain until the transport decision; see the [phase 2 plan](phase2-plan.md). It ends with M9, exit validation in the VM, and M10, daily use on the physical Mac: updates keep locations, removal steps, and a signature that lasts.
@@ -226,18 +226,19 @@ scopes remain proposed until accepted.
 
 ## 11. Open decisions for the first experiment
 
-- **Remaining milestones, proposed 2026-10-29.** The user requested one forward plan and
+- **Remaining milestones, accepted 2026-10-29.** The user requested one forward plan and
   approved parallel agents/worktrees. The [roadmap](roadmap.md) defines M21 to M28, completion
-  criteria and shared integration ownership. Feature scopes remain proposed, including explicit
-  permanent deletion and bounded offline editing. It does not authorize weaker recovery evidence,
-  new fixtures, installation or publication. Existing benchmark and phase exit gates remain.
-- **M21 file organization, proposed 2026-10-29.** Rename and move ordinary files within one
+  criteria and shared integration ownership. Accepted scopes include explicit permanent deletion
+  and bounded offline editing. The first disposable VM test session is approved. Weaker recovery
+  evidence, subsequent fixture sessions, installation and publication need separate decisions.
+  Existing benchmark and phase exit gates remain.
+- **M21 file organization, accepted 2026-10-29.** Rename and move ordinary files within one
   location, including files never downloaded, with an identity gate before mutation. Preserve
   original objects, IDs, downloads and keeps; prove departures as well as arrivals in enumeration.
   Reuse protected no-replace rename with durable evidence for both parents. Initially refuse
   crossing an overlapping location's boundary and moves between locations; folder operations
   follow in M22. The [transaction plan](phase4-plan.md#m21-organize-ordinary-files) keeps the
-  content-preservation checks and requests a fresh disposable VM fixture. Approvals are pending.
+  content-preservation checks. Its first disposable VM protocol session is approved.
 - **M20 file renaming, accepted 2026-10-29.** After M19 installation, the next feature
   is renaming an ordinary file within its folder, using an existing M19 verified revision.
   Preserve the original object and item ID; refuse collisions, changed sources and uncertain
