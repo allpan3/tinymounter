@@ -188,6 +188,11 @@ correction found in source review. Selected signed adapter checks pass for moves
 and recovery. Two ambiguous-name cases lack a usable fixture. Provider enablement and signed
 app/Finder integration checks remain.
 
+M24's signed production-adapter checks pass for ordinary files, empty directories, paginated
+confirmation, changed/replaced-file refusal and recovery after injected interruptions. Lost
+close replies stay unconfirmed. Production operation storage, catalog updates, recursive
+deletion and Finder integration remain; no deletion capability is enabled.
+
 The supported write boundary remains folders whose writers use SMB and leave tinymounter's
 transaction files alone. All milestones preserve complete pending content, refuse silent
 replacement of another device's changes, retain uncertainty, and preserve existing locations,

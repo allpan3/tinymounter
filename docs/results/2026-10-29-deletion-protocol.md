@@ -7,6 +7,10 @@ scenarios and guarded cleanup. It also confirmed a safety limitation: another SM
 add attached data while the main file is protected. The user accepted deletion of the whole
 object, including data added during the operation, on 2026-10-29. M24 is not enabled.
 
+The [signed production-adapter checks](#signed-adapter-continuation-2026-10-30) also pass on
+2026-10-30 for ordinary files, empty directories, changed/replaced-file refusal and recovery.
+Production operation storage, catalog updates, recursive deletion and Finder integration remain.
+
 After a lost reply, absence cannot distinguish deletion from a move elsewhere. The probe
 reports that state as absent, unconfirmed. This matches the roadmap's existing requirement
 to preserve uncertainty; it is not evidence that the object was deleted.
@@ -141,8 +145,8 @@ operation storage, catalog mutation and the user-facing deletion flow remain uni
 Two regular-file deletions passed in the signed, sandboxed app in macOS VM 1. Both recorded
 an acknowledged close, then confirmed name and identity absence with fresh protected checks.
 The run stopped during connection setup for the next case. Empty-folder deletion, paginated
-confirmation, changed/replaced-file refusal and interruption recovery remain unverified through
-this production adapter. No File Provider deletion capability is enabled.
+confirmation, changed/replaced-file refusal and interruption recovery were unverified at that
+point. The continuation below completed them. No File Provider deletion capability is enabled.
 
 Setup admitted nine targets in a new synthetic subtree. The large directory's complete listing
 contained 513 entries with at least 127,086 encoded bytes, exceeding one SMB listing buffer.
@@ -161,11 +165,49 @@ verification in the VM with the same sandbox entitlements. It requires the two s
 reports and the other seven original intents before continuing. It allows at most three
 connection attempts, records failures and never retries the deletion body in that loop.
 Automatic approval review blocked replacing and registering the VM test app, treating it as
-an installation change outside the fixture-session approval. The verified continuation is
-staged but has not run. Production transport and deletion code are unchanged.
+an installation change outside the fixture-session approval. The user subsequently approved
+that VM-only update, allowing the continuation below. Production transport and deletion code
+are unchanged.
 
 Private evidence in `.local/phase4/m21-20261029` includes `m24-adapter-setup.jsonl`,
 `m24-adapter-setup2.jsonl`, `m24-adapter-run.jsonl`, the Finder-copied `m24-adapter-*-inspection`
 directories, `m24-adapter-between.json`, `m24-continuation-build.log` and
 `m24-continuation-verification.json`. The failed reports and original test app remain intact.
 The fixture session remains open; final removal and restoration are still owed.
+
+## Signed adapter continuation, 2026-10-30
+
+All remaining adapter cases passed after the approved test-app update in macOS VM 1. The
+continuation, recovery and final audit ran in separate app processes with unchanged sandbox
+entitlements. They used the same nine admitted targets and 64 KiB file payloads from the first
+attempt. Cache state was uncontrolled; these results make no performance claim.
+
+| Case | Observed result |
+| --- | --- |
+| Empty directory | Protected empty listing, delete request, acknowledged close and fresh absence checks passed. |
+| File in a large directory | Complete parent listings contained 513 entries before deletion and 512 after. Both exceeded one 64 KiB listing buffer; all surviving identities matched the admission listing. |
+| Changed file and identical-byte replacement | Both were refused before any delete request. The changed file, replacement and retained original survived. |
+| Stop after durable intent, before delete request | The fresh process proved the target again, deleted it and confirmed completion. |
+| Stop after durable close acknowledgement | Recovery confirmed deletion without sending another delete or close request. |
+| Simulated lost close reply | Recovery recorded `absentUnconfirmed`, without sending another delete or close request. |
+
+The final audit retained the earlier two successful file-deletion results. The untouched
+neighbor's identity and complete contents matched admission. A separate backing-folder check
+matched all 517 surviving files and their complete bytes, with no unexpected files or folders.
+Connection setup failed once in recovery and once in the audit; each succeeded on the helper's
+next attempt. The helper retried only connection setup, never a deletion body. The underlying
+connection failure remains unexplained.
+
+The interruption points use injected errors and a simulated lost reply, followed by real app
+process exits between phases. They do not establish behavior during an actual app crash or
+network reply loss. These checks exercise the production adapter and transaction with private
+test journals. Production operation storage, catalog removal, recursive deletion and Finder's
+warning/callback behavior remain unimplemented or unverified; M24 stays disabled.
+
+Evidence in `.local/phase4/m21-20261029` includes `m24-adapter-final-inspection/M24Adapter`,
+`m24-adapter-{finish,resume,audit}.jsonl`, `m24-continuation-results.json` and
+`m24-adapter-final-backing.json`. After verification, the previous test app and extension
+registration were restored, both builds and all reports were retained, and only the M24
+synthetic subtree was removed. `m24-test-app-restored.json` and `m24-adapter-cleanup.json`
+record that cleanup. The broader approved fixture session remains open for other checks;
+its final removal and SMB-service restoration are still owed. The physical Mac was unchanged.

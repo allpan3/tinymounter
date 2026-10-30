@@ -9,8 +9,9 @@ destination collisions, lost-reply recovery and partial-catalog recovery. Two am
 cases could not run on the fixture. [Finder integration remains unverified and disabled](docs/results/2026-10-30-folder-move-catalog.md#signed-adapter-checks-2026-10-30).
 Required VM checks pass with 492 tests and one optional skip.
 
-Deletion adapter, 2026-10-30: two signed regular-file deletion checks passed. Connection setup
-failures interrupted the remaining cases. [The partial results and staged continuation are recorded](docs/results/2026-10-29-deletion-protocol.md#signed-adapter-attempt-2026-10-30).
+Deletion adapter, 2026-10-30: signed file and empty-folder deletion, paginated confirmation,
+changed/replaced-file refusal and recovery checks pass. Lost close replies remain unconfirmed.
+[The results and simulated-interruption limits are recorded](docs/results/2026-10-29-deletion-protocol.md#signed-adapter-continuation-2026-10-30).
 Finder deletion remains unavailable.
 
 Status, 2026-10-11: verified NAS-cold full downloads reached **183.3 MB/s versus 192.7 MB/s native SMB (95.1%)**; with the file in NAS RAM, **229.0 versus 247.2 MB/s (92.6%)**. Each condition has five matched pairs, server cache/disk-read evidence, and representative complete-file checksum verification. Fully downloaded local reads also pass, though an unexplained speed gap to a local APFS control remains. See [verified cache results](docs/results/2026-10-11-cache-states.md), [full-download attribution](docs/results/2026-10-11-full-download.md), and [range-delay diagnosis](docs/results/2026-10-11-provider-delay.md).
