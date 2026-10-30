@@ -536,6 +536,8 @@ public final class EditOutbox {
             if existing.isPending, !existing.isPublicationComplete { try validateContents(existing) }
             return existing
         }
+        // Admission can wait behind other work after the caller reserves its space.
+        try checkSpace?(0)
         let storedPayload = try existing.flatMap { existing in try payloads.records().first { $0.id == existing.id } }
         let unorderedTemplate = item + ":" + baseVersion + ":" + digest + ":" + documentMetadata + ":" + String(failOnConflict)
         let known = Set(all.map(\.id))

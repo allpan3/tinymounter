@@ -55,6 +55,33 @@ final class DownloadSpaceTests: XCTestCase {
         }
     }
 
+    func testQueuedWorkRechecksTheReserveWithoutChangingItsReservation() throws {
+        let bytes: Int64 = 4096
+        let required = DownloadSpace.reserveBytes + 2 * bytes + 65536
+        let capacity = Capacity(required - 1)
+        let space = DownloadSpace { capacity.read() }, id = UUID()
+        assertFull { try space.begin(id, bytes: bytes) }
+        capacity.set(required)
+        try space.begin(id, bytes: bytes)
+        capacity.set(required - 1)
+        assertFull { try space.check(id, completedBytes: 0) }
+        capacity.set(required)
+        try space.check(id, completedBytes: 0)
+        capacity.set(required - bytes)
+        try space.check(id, completedBytes: bytes)
+        space.end(id)
+    }
+
+    func testLastShortBlockStillChecksCapacityBelowTheStride() throws {
+        let bytes: Int64 = 4096
+        let capacity = Capacity(DownloadSpace.reserveBytes + 2 * bytes + 65536)
+        let space = DownloadSpace { capacity.read() }, id = UUID()
+        try space.begin(id, bytes: bytes)
+        capacity.set(DownloadSpace.reserveBytes - 1)
+        assertFull { try space.check(id, completedBytes: bytes) }
+        space.end(id)
+    }
+
     func testCapacityLossDuringTransferRemovesPartialOutputAndPreservesSource() throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)

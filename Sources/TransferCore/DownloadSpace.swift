@@ -64,7 +64,9 @@ public final class DownloadSpace: @unchecked Sendable {
             guard var entry = entries[id] else { throw TransferError.cancelled }
             entry.completed = max(entry.completed, min(entry.length, max(0, completedBytes)))
             entries[id] = entry
-            guard entry.completed - entry.checked >= checkStride else { return }
+            // Queueing and a final short block can cross the reserve between stride checks.
+            guard completedBytes == 0 || entry.completed == entry.length
+                || entry.completed - entry.checked >= checkStride else { return }
             entry.checked = entry.completed
             entries[id] = entry
             guard try fits(0) else { throw CocoaError(.fileWriteOutOfSpace) }

@@ -9,6 +9,14 @@ final class EditOutboxTests: XCTestCase {
     private var outbox: EditOutbox!
     private let item = UUID().uuidString
 
+    private final class Capacity: @unchecked Sendable {
+        private let lock = NSLock()
+        private var bytes: Int64
+        init(_ bytes: Int64) { self.bytes = bytes }
+        func read() -> Int64 { lock.withLock { bytes } }
+        func set(_ bytes: Int64) { lock.withLock { self.bytes = bytes } }
+    }
+
     override func setUpWithError() throws {
         directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -406,7 +414,7 @@ final class EditOutboxTests: XCTestCase {
     func testInterruptedLocalStagingRemainsVisibleAndMatchingReplayFinishesIt() throws {
         XCTAssertThrowsError(try outbox.prepare(item: item, parent: Catalog.rootItemID,
             path: XCTUnwrap(RelativePath("document.txt")), baseVersion: "legacy", failOnConflict: false,
-            contents: input, progress: Progress(), checkSpace: { _ in throw CocoaError(.fileWriteOutOfSpace) }))
+            contents: input, progress: Progress(), checkSpace: { if $0 > 0 { throw CocoaError(.fileWriteOutOfSpace) } }))
         let interrupted = try XCTUnwrap(outbox.records().first)
         XCTAssertEqual(interrupted.state, .preparing)
         XCTAssertEqual(try outbox.pendingCount, 1)
@@ -530,7 +538,7 @@ final class EditOutboxTests: XCTestCase {
                                           path: XCTUnwrap(RelativePath("document.txt")), baseVersion: "legacy",
                                           failOnConflict: false, contents: input, progress: Progress())
         XCTAssertThrowsError(try prepare(String(repeating: "x", count: 2 * 1024 * 1024),
-                                          checkSpace: { _ in throw CocoaError(.fileWriteOutOfSpace) }))
+                                          checkSpace: { if $0 > 0 { throw CocoaError(.fileWriteOutOfSpace) } }))
         let order = try outbox.order(item: item)
         XCTAssertEqual(order.head?.id, previous.id)
         XCTAssertEqual(order.superseded, [])
@@ -542,11 +550,72 @@ final class EditOutboxTests: XCTestCase {
         XCTAssertEqual(getxattr(exported.path, "dev.tinymounter.test", nil, 0, 0, 0), "previous metadata".utf8.count)
     }
 
+    func testCapacityLostWhileQueuedRefusesNewPreparationAndPreservesPreviousSave() throws {
+        let earlier = try prepare("earlier complete save")
+        let newer = String(repeating: "n", count: 4096)
+        let required = DownloadSpace.reserveBytes + Int64(newer.utf8.count) * 2 + 65536
+        let capacity = Capacity(required - 1)
+        let space = DownloadSpace { capacity.read() }, id = UUID()
+        XCTAssertThrowsError(try space.begin(id, bytes: Int64(newer.utf8.count))) {
+            XCTAssertTrue(DownloadSpace.isFull($0))
+        }
+        XCTAssertEqual(try outbox.records(), [earlier])
+        capacity.set(required)
+        try space.begin(id, bytes: Int64(newer.utf8.count))
+        defer { space.end(id) }
+        capacity.set(required - 1)
+        XCTAssertThrowsError(try prepare(newer) { try space.check(id, completedBytes: $0) }) {
+            XCTAssertTrue(DownloadSpace.isFull($0))
+        }
+        XCTAssertEqual(try outbox.records(), [earlier])
+        XCTAssertEqual(try Data(contentsOf: input), Data(newer.utf8))
+        let exported = directory.appending(path: "earlier.txt")
+        try outbox.export(earlier, to: exported)
+        XCTAssertEqual(try Data(contentsOf: exported), Data("earlier complete save".utf8))
+        capacity.set(required)
+        let latest = try prepare(newer) { completed in
+            capacity.set(required - completed)
+            try space.check(id, completedBytes: completed)
+        }
+        XCTAssertEqual(try outbox.order(item: item).head?.id, latest.id)
+        try outbox.validateContents(latest)
+        try outbox.validateContents(earlier)
+    }
+
+    func testFinalSmallCopySpaceFailureRetainsAndRecoversTheCompleteNewerSave() throws {
+        let earlier = try prepare("earlier complete save")
+        let newer = String(repeating: "n", count: 4096)
+        let required = DownloadSpace.reserveBytes + Int64(newer.utf8.count) * 2 + 65536
+        let capacity = Capacity(required)
+        let space = DownloadSpace { capacity.read() }, id = UUID()
+        try space.begin(id, bytes: Int64(newer.utf8.count))
+        defer { space.end(id) }
+        XCTAssertThrowsError(try prepare(newer) { completed in
+            if completed > 0 { capacity.set(DownloadSpace.reserveBytes - 1) }
+            try space.check(id, completedBytes: completed)
+        }) {
+            XCTAssertTrue(DownloadSpace.isFull($0))
+        }
+        let interrupted = try XCTUnwrap(outbox.records().last)
+        XCTAssertEqual(interrupted.state, .preparing)
+        XCTAssertNotEqual(interrupted.id, earlier.id)
+        XCTAssertEqual(try Data(contentsOf: outbox.contentURL(interrupted)), Data(newer.utf8))
+        XCTAssertThrowsError(try prepare(newer) { try space.check(id, completedBytes: $0) })
+        try outbox.validateContents(earlier)
+        outbox = try EditOutbox(directory: directory.appending(path: "Edits"))
+        XCTAssertEqual(try outbox.order(item: item).head?.id, interrupted.id)
+        XCTAssertEqual(try stored(interrupted).state, .prepared)
+        let exported = directory.appending(path: "latest.txt")
+        try outbox.export(interrupted, to: exported)
+        XCTAssertEqual(try Data(contentsOf: exported), Data(newer.utf8))
+        try outbox.validateContents(earlier)
+    }
+
     func testIncompletePreparationAfterCompletedSaveReleasesOrderingGuard() throws {
         var completed = try prepare("completed save")
         try completeAsPublished(&completed)
         let failedContents = String(repeating: "x", count: 2 * 1024 * 1024)
-        XCTAssertThrowsError(try prepare(failedContents, checkSpace: { _ in throw CocoaError(.fileWriteOutOfSpace) }))
+        XCTAssertThrowsError(try prepare(failedContents, checkSpace: { if $0 > 0 { throw CocoaError(.fileWriteOutOfSpace) } }))
         XCTAssertThrowsError(try olderBuildRecords())
         outbox = try EditOutbox(directory: directory.appending(path: "Edits"))
         XCTAssertNil(try outbox.order(item: item).head)
@@ -559,7 +628,7 @@ final class EditOutboxTests: XCTestCase {
     func testInterruptedPreparationCleanupFinishesAfterPayloadRemoval() throws {
         let previous = try prepare("previous save")
         XCTAssertThrowsError(try prepare(String(repeating: "x", count: 2 * 1024 * 1024),
-                                          checkSpace: { _ in throw CocoaError(.fileWriteOutOfSpace) }))
+                                          checkSpace: { if $0 > 0 { throw CocoaError(.fileWriteOutOfSpace) } }))
         let interrupted = try XCTUnwrap(outbox.records().last)
         let payloads = try UploadOutbox(directory: directory.appending(path: "Edits/Contents"))
         try payloads.discardUnpublishedPayload(interrupted.id)
@@ -587,7 +656,7 @@ final class EditOutboxTests: XCTestCase {
 
     func testMissingOrderingEvidencePreventsIncompletePreparationCleanup() throws {
         XCTAssertThrowsError(try prepare(String(repeating: "x", count: 2 * 1024 * 1024),
-                                          checkSpace: { _ in throw CocoaError(.fileWriteOutOfSpace) }))
+                                          checkSpace: { if $0 > 0 { throw CocoaError(.fileWriteOutOfSpace) } }))
         let record = try XCTUnwrap(outbox.records().first)
         let before = try Data(contentsOf: outbox.contentURL(record))
         try FileManager.default.removeItem(at: directory.appending(path: "Edits/" + EditOutbox.orderingGuardName))
@@ -675,7 +744,7 @@ final class EditOutboxTests: XCTestCase {
         try outbox.save(old)
         XCTAssertThrowsError(try outbox.retainSuperseded(&old))
         XCTAssertThrowsError(try prepare(String(repeating: "x", count: 2 * 1024 * 1024),
-                                          checkSpace: { _ in throw CocoaError(.fileWriteOutOfSpace) }))
+                                          checkSpace: { if $0 > 0 { throw CocoaError(.fileWriteOutOfSpace) } }))
         XCTAssertThrowsError(try outbox.retainSuperseded(&old))
         let latest = try prepare("latest save")
         let payload = outbox.contentURL(latest)
@@ -818,7 +887,7 @@ final class EditOutboxTests: XCTestCase {
 
     func testOlderBuildCannotReadTheOutboxWhileAnOrderedSaveIsUnfinished() throws {
         XCTAssertEqual(try olderBuildRecords(), [])
-        XCTAssertThrowsError(try prepare("interrupted save", checkSpace: { _ in throw CocoaError(.fileWriteOutOfSpace) }))
+        XCTAssertThrowsError(try prepare("interrupted save", checkSpace: { if $0 > 0 { throw CocoaError(.fileWriteOutOfSpace) } }))
         XCTAssertThrowsError(try olderBuildRecords())
         var record = try prepare("interrupted save")
         XCTAssertEqual(record.state, .prepared)
@@ -885,7 +954,7 @@ final class EditOutboxTests: XCTestCase {
         let first = try prepare("first save")
         let second = try prepare("second save")
         XCTAssertThrowsError(try prepare(String(repeating: "x", count: 2 * 1024 * 1024),
-                                          checkSpace: { _ in throw CocoaError(.fileWriteOutOfSpace) }))
+                                          checkSpace: { if $0 > 0 { throw CocoaError(.fileWriteOutOfSpace) } }))
         let interrupted = try XCTUnwrap(outbox.records().last)
         XCTAssertEqual(interrupted.state, .preparing)
         XCTAssertThrowsError(try outbox.discard(second))
