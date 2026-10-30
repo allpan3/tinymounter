@@ -256,6 +256,7 @@ public struct PendingFolderMove: Codable, Equatable, Sendable {
         var physical: [[NameKey]: PhysicalResolution] = [:]
         var knownChildren: [[NameKey]: [NameKey: CatalogFolderMoveListing.Child]] = [:]
         var completeListings: [[NameKey]: [NameKey: CatalogFolderMoveListing.Child]] = [:]
+        var remaining = DirectoryListing.defaultLimit
         for result in settlements {
             let view = views.first { $0.domain == result.domain }!, move = view.move
             let settled = result.settlement
@@ -333,7 +334,6 @@ public struct PendingFolderMove: Codable, Equatable, Sendable {
                 }
             }
             let children = Dictionary(grouping: move.entries, by: \.parent)
-            var remaining = DirectoryListing.defaultLimit
             for listing in settled.listings {
                 guard let entry = entries[listing.parent], entry.kind == .folder, listing.complete,
                       listing.identity == proofs[entry.item]?.identity,

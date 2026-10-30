@@ -562,6 +562,7 @@ extension SMBEdit: FolderMoveRemote {
     }
 
     func verifyFolderMoveSource(_ record: PendingFolderMove) throws {
+        var remaining = DirectoryListing.defaultLimit
         for view in record.views {
             let proofs = Dictionary(uniqueKeysWithValues: view.proofs.map { ($0.item, $0) })
             for entry in folderMoveOrdered(view.move.entries) {
@@ -575,6 +576,10 @@ extension SMBEdit: FolderMoveRemote {
                           version.modifiedMicroseconds == receipt.version.modifiedMicroseconds else {
                         throw SourceFailure.versionChanged
                     }
+                } else {
+                    let children = try folderMoveListing(path.string)
+                    guard children.count <= remaining else { throw SourceFailure.tooManyEntries }
+                    remaining -= children.count
                 }
             }
         }
@@ -750,6 +755,9 @@ extension SMBEdit: FolderMoveRemote {
         }
         let version = kind == .file ? try version(handle) : nil
         let values = try info(handle)
+        if let version, version.modifiedMicroseconds != values[5] {
+            throw SourceFailure.versionChanged
+        }
         guard try folderMoveIdentity(values) == entry.identity,
               values[4] & 0x450 == (kind == .folder ? 0x10 : 0),
               let confirmed = try folderMoveListing(parent).first(where: { NameKey($0.name) == NameKey(name) }),
