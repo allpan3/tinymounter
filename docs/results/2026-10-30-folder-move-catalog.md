@@ -145,9 +145,17 @@ file/folder intent inventory. Edits to deleted catalog rows are refused. The int
 candidate passes all required VM checks with 492 tests, one optional skip and no failures or
 Swift warnings, plus six encoder and 57 SMB-status cases (`m22-app-regression-checks.log`).
 The new regression checks file admission and replay beside pending and completed folder history.
-Source review is running. Provider routing and folder capabilities remain disabled; draining,
-protected native queries, local-copy invalidation and interruption recovery still need signed
-VM evidence.
+Source review found no blocking safety defect. It found a watch-close race: a dropped watch
+could leave the dictionary before its descriptor closed. The session now tracks that closure
+separately and drains it too. The corrected candidate passes the same 492-test required checks
+without Swift warnings (`m22-watch-drain-checks.log`). Provider routing and folder capabilities
+remain disabled; draining, protected native queries, local-copy invalidation and interruption
+recovery still need signed VM evidence.
+
+An isolated adapter/core helper also compiles without Swift diagnostics
+(`m22-adapter-helper-build2.log`). It has not been signed or launched. Its planned checks cover
+protected native metadata, moves, collisions, simulated lost replies and partial-catalog
+recovery; they do not replace the app and Finder checks.
 
 ## Saved keep paths
 

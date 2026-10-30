@@ -5,7 +5,7 @@ A macOS app that brings a network disk, such as a NAS, into Apple's file system:
 Validation interruption, 2026-10-30: the VM graphical session froze before the first M23 callback checkpoint. An approved restart restored the display. The disposable SMB fixture is blocked by macOS's built-in listener; source and core checks can continue. [Evidence is preserved](docs/results/2026-10-30-vm-graphics-interruption.md); callback behavior remains unverified.
 
 Folder-move source work, 2026-10-30: directory preflight and app integration pass all required VM
-checks, with 492 tests and one optional skip. [Source review and signed runtime checks remain](docs/results/2026-10-30-folder-move-catalog.md#app-integration-preparation);
+checks, with 492 tests and one optional skip. [Source review is complete; signed runtime checks remain](docs/results/2026-10-30-folder-move-catalog.md#app-integration-preparation);
 Finder folder moves are still disabled.
 
 Status, 2026-10-11: verified NAS-cold full downloads reached **183.3 MB/s versus 192.7 MB/s native SMB (95.1%)**; with the file in NAS RAM, **229.0 versus 247.2 MB/s (92.6%)**. Each condition has five matched pairs, server cache/disk-read evidence, and representative complete-file checksum verification. Fully downloaded local reads also pass, though an unexplained speed gap to a local APFS control remains. See [verified cache results](docs/results/2026-10-11-cache-states.md), [full-download attribution](docs/results/2026-10-11-full-download.md), and [range-delay diagnosis](docs/results/2026-10-11-provider-delay.md).

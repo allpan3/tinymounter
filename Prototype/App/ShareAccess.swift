@@ -28,6 +28,7 @@ final class ShareSession: @unchecked Sendable {
     private let lock = NSLock()
     private var locationRoots: [RelativePath: Int32] = [:]
     private var watches: [String: [String: DirectoryWatch]] = [:]
+    private var watchClosures: [UUID: (path: RelativePath, closed: DispatchGroup)] = [:]
     private static let maximumWatches = 64
 
     fileprivate init(root: Int32, mount: MountEntry, url: URL) {
@@ -87,12 +88,19 @@ final class ShareSession: @unchecked Sendable {
         }
         guard needed else { return }
         let descriptor = try openFolder(path)
-        let watch = DirectoryWatch(descriptor: descriptor, path: path) { [weak self] events in
+        let id = UUID(), closed = DispatchGroup()
+        closed.enter()
+        lock.withLock { watchClosures[id] = (path, closed) }
+        let watch = DirectoryWatch(descriptor: descriptor, path: path, changed: { [weak self] events in
             if !events.intersection([.delete, .rename, .revoke]).isEmpty {
                 self?.lock.withLock { self?.watches[domainID]?[folderID] = nil }
             }
             changed()
-        }
+        }, closed: { [weak self] in
+            closed.leave()
+            guard let self else { return }
+            self.lock.withLock { self.watchClosures[id] = nil }
+        })
         lock.withLock {
             if watches[domainID]?[folderID] == nil,
                watches.values.reduce(0, { $0 + $1.count }) < Self.maximumWatches {
@@ -103,7 +111,7 @@ final class ShareSession: @unchecked Sendable {
 
     /// Removes every watch at or below `paths` and waits until its descriptor has closed.
     func drainWatches(below paths: [RelativePath]) throws {
-        let removed = lock.withLock { () -> [DirectoryWatch] in
+        let (removed, closing) = lock.withLock { () -> ([DirectoryWatch], [DispatchGroup]) in
             var removed: [DirectoryWatch] = []
             for (domain, folders) in watches {
                 for (folder, watch) in folders where paths.contains(where: { EditNamespace.contains($0, watch.path) }) {
@@ -112,12 +120,16 @@ final class ShareSession: @unchecked Sendable {
                 }
             }
             watches = watches.filter { !$0.value.isEmpty }
-            return removed
+            // Dropped watches stay tracked until their cancel handler closes the descriptor.
+            let closing = watchClosures.values.filter { entry in
+                paths.contains { EditNamespace.contains($0, entry.path) }
+            }.map(\.closed)
+            return (removed, closing)
         }
         for watch in removed { watch.cancel() }
         let deadline = DispatchTime.now() + .seconds(10)
         var closed = true
-        for watch in removed where !watch.waitClosed(until: deadline) { closed = false }
+        for group in closing where group.wait(timeout: deadline) != .success { closed = false }
         guard closed else { throw UploadError.pendingWrites }
     }
 
