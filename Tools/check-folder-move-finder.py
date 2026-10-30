@@ -162,6 +162,7 @@ Interpretation and remaining gates
 
 import argparse
 import base64
+import ctypes
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -222,17 +223,18 @@ def write_new(path, value):
     temporary.unlink()
 
 
-def environment(args):
+def environment(args, check_mapping=True):
     require(platform.system() == "Darwin", "macOS-VM-only")
     require(str(uuid.UUID(args.run)).upper() == args.run, "uppercase-run-UUID")
     user = pwd.getpwnam("user")
     require(user.pw_dir == "/Users/user", "native-user-mapping")
     require(os.geteuid() in (0, user.pw_uid), "fixture-user-or-root")
     checked_directory(SESSION)
-    mapping = SESSION / "server/username-map"
-    require(mapping.resolve(strict=True) == mapping and stat.S_ISREG(mapping.lstat().st_mode), "map-alias")
-    require(mapping.read_text().splitlines() == ["user = _tinymounter_m19", "nobody = _tinymounter_m19_observer"],
-            "exact-username-map")
+    if check_mapping:
+        mapping = SESSION / "server/username-map"
+        require(mapping.resolve(strict=True) == mapping and stat.S_ISREG(mapping.lstat().st_mode), "map-alias")
+        require(mapping.read_text().splitlines() == ["user = _tinymounter_m19", "nobody = _tinymounter_m19_observer"],
+                "exact-username-map")
     return user
 
 
@@ -248,7 +250,7 @@ def fixture(args):
 
 
 def channel(args):
-    user = environment(args)
+    user = environment(args, check_mapping=False)
     path = Path(args.channel)
     require(path.is_absolute() and path.parent.parent == GROUPS
             and path.name == "M22Finder-" + args.run, "task-app-group-channel")
@@ -284,12 +286,7 @@ def inventory(root):
         entry = {"device": info.st_dev, "inode": info.st_ino, "mode": stat.S_IMODE(info.st_mode),
                  "uid": info.st_uid, "gid": info.st_gid,
                  "kind": "directory" if stat.S_ISDIR(info.st_mode) else "file"}
-        attrs = {}
-        for name in os.listxattr(path, follow_symlinks=False):
-            value = os.getxattr(path, name, follow_symlinks=False)
-            require(len(value) <= 64 << 10 and len(attrs) < 32, "xattr-bound")
-            attrs[name] = hashlib.sha256(value).hexdigest()
-        entry["xattrs"] = attrs
+        entry["xattrs"] = extended_attributes(path)
         if entry["kind"] == "directory":
             with os.scandir(path) as children:
                 for child in children:
@@ -309,6 +306,35 @@ def inventory(root):
                     and len(data) == info.st_size and path.lstat().st_ino == info.st_ino, "file-changed-during-hash")
             entry.update(size=info.st_size, mtime_ns=info.st_mtime_ns, digest=hashlib.sha256(data).hexdigest())
         result[path.relative_to(root).as_posix()] = entry
+    return result
+
+
+def extended_attributes(path):
+    # macOS's bundled Python omits os.listxattr and os.getxattr.
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.listxattr.argtypes = [ctypes.c_char_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int]
+    libc.listxattr.restype = ctypes.c_ssize_t
+    libc.getxattr.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_void_p,
+                             ctypes.c_size_t, ctypes.c_uint32, ctypes.c_int]
+    libc.getxattr.restype = ctypes.c_ssize_t
+    encoded = os.fsencode(path)
+    length = libc.listxattr(encoded, None, 0, 1)
+    if length < 0:
+        raise OSError(ctypes.get_errno(), "list fixture attributes")
+    require(length <= 64 << 10, "xattr-name-bound")
+    names = ctypes.create_string_buffer(max(1, length))
+    require(libc.listxattr(encoded, names, length, 1) == length, "xattr-list-changed")
+    result = {}
+    for name in names.raw[:length].split(b"\0"):
+        if not name:
+            continue
+        size = libc.getxattr(encoded, name, None, 0, 0, 1)
+        if size < 0:
+            raise OSError(ctypes.get_errno(), "read fixture attribute")
+        require(size <= 64 << 10 and len(result) < 32, "xattr-bound")
+        value = ctypes.create_string_buffer(max(1, size))
+        require(libc.getxattr(encoded, name, value, size, 0, 1) == size, "xattr-value-changed")
+        result[os.fsdecode(name)] = hashlib.sha256(value.raw[:size]).hexdigest()
     return result
 
 
