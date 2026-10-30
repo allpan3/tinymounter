@@ -172,8 +172,9 @@ read-only. Folder organization, deletion, Finder Replace and deliberate offline 
 not implemented. M21 now handles ordinary files in signed VM checks, including unverified files,
 preserved downloads, overlapping views and interrupted moves. Its remaining acceptance checks
 are recorded in the organization results; this does not complete the milestone.
-M22's [catalog and transaction preparation](results/2026-10-30-folder-move-catalog.md) passes
-required VM checks. Recovery after partial catalog completion and runtime wiring remain.
+M22's [catalog, transaction and app preparation](results/2026-10-30-folder-move-catalog.md) passes
+required VM checks, including recovery after partial catalog completion. The app integration
+is under source review. Provider enablement and signed runtime checks remain.
 
 The supported write boundary remains folders whose writers use SMB and leave tinymounter's
 transaction files alone. All milestones preserve complete pending content, refuse silent
