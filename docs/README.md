@@ -24,6 +24,7 @@ it wrong.
 
 ## Results logs
 
+- [Folder-move catalog and transaction preparation](results/2026-10-30-folder-move-catalog.md) — required VM checks pass; recovery after partial catalog completion and runtime integration remain.
 - [Permanent-deletion protocol checks](results/2026-10-29-deletion-protocol.md) — protocol and initial transaction-core checks pass; whole-object deletion is accepted and lost replies remain unconfirmed. App deletion is unavailable.
 - [Pending-save ordering](results/2026-10-29-pending-save-order.md) — baseline bug reproduced and core fix passes 332 VM tests; signed workflows and remaining M23 work are open.
 - [SMB file organization checks](results/2026-10-29-file-organization-protocol.md) — protocol, signed Finder moves, overlapping-view recovery and five app-API boundary cases pass; remaining M21 checks are open.

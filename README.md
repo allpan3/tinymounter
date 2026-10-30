@@ -220,8 +220,9 @@ callback cases and required VM checks; no app deletion capability is enabled. Se
 Folder catalog preparation (M22), 2026-10-30: subtree commits preserve item identity and file
 versions and require fresh directory listings before reporting offline availability. Atomic
 settlement also handles proved changed or missing descendants. Required VM checks pass with
-414 tests, one optional skip and no failures or Swift warnings; app folder rename and move
-remain unavailable. See the
+414 tests, one optional skip and no failures or Swift warnings. The folder transaction core
+then passed required checks with 472 tests and one optional skip. Recovery after partial
+catalog completion and runtime integration remain; app folder rename and move are unavailable. See the
 [catalog preparation](docs/results/2026-10-30-folder-move-catalog.md).
 
 ## Run the prototype

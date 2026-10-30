@@ -58,3 +58,29 @@ release CLI validation, unsigned app build and six encoder cases. Evidence:
 The SMB transaction, watch/handle draining, pending-path checks, receipt replay, overlapping
 views, provider callbacks and signed Finder checks remain. These catalog APIs alone do not
 authorize moving a folder or establish that its remote subtree was preserved.
+
+## Folder transaction core
+
+Folder intents now share the durable rename inventory. Older file-only readers refuse folder
+records, including completed history. The transaction records admission evidence before
+releasing descendant handles, verifies the moved root by identity, and stores a settlement
+before local catalog work. Every retry reloads the durable record. Overlapping views must agree
+on each physical descendant's outcome, contents and native lookup evidence.
+
+Completion is tracked per location after its catalog, keeps and replay data are durable.
+Completed folder history remains until all participating locations are removed; removing a
+non-owner location preserves the owner's completed replay. There is no catalog or Settings
+format change. Review strengthened directory-sync retry and agreement across complete listings
+and filename aliases. A pre-existing test fixture now admits all participating views at once,
+because changing an already saved intent's participants correctly fails.
+
+All required VM checks pass: 472 tests, one optional skip, no failures or Swift warnings,
+project generation, release CLI validation, unsigned app build, six encoder cases and 57
+SMB-status callback cases. The 31 folder transaction tests include a failure after publishing
+the checkpoint file but before syncing its directory; retry cannot proceed until that sync
+succeeds. Evidence: .local/phase4/m21-20261029/m22-folder-core-checks-02.log. The first run's
+fixture failure remains in m22-folder-core-checks.log. These are simulated-remote checks.
+
+The core still has no runtime adapter or provider wiring. If children change after settlement
+was recorded and some catalogs committed, fresh verification currently refuses the replay.
+Recovery for that partial local completion must be implemented before enabling folder moves.
