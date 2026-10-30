@@ -40,3 +40,8 @@ SMB listener, which now occupies port 445. The fixture restart guard refused bef
 changes. Temporarily unloading that shared service requires separate approval under the test
 plan. `approved-restart-after.json` records the boot and blocked fixture restoration. Inspect
 the saved hook state and document contents before attempting another edit.
+
+A Finder copy of the synthetic `M23Currency` evidence after reboot contains only setup and
+control events: zero provider callbacks, completions or stop checkpoints. The control remains
+`prepared`. The copy and observer report are in `m23-restart-inspection/M23Currency` inside
+the same session. This confirms that the interrupted attempt supplies no save-ordering evidence.
