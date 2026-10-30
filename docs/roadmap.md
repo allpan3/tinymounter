@@ -153,6 +153,12 @@ install, notarize, publish or buy a developer account.
 
 ## Starting point
 
+Current protocol evidence: [file organization](results/2026-10-29-file-organization-protocol.md)
+and [permanent deletion](results/2026-10-29-deletion-protocol.md). Their operation checks pass,
+but initial identity admission and concurrent attached data still need decisions. These probes
+enable no Finder capability. The [M23 ordering core](results/2026-10-29-pending-save-order.md)
+passes required VM checks; remaining recovery policy and signed workflows are open.
+
 M18 creation, M19 same-object editing and M20 verified-file renaming have signed VM evidence.
 M20 is the development baseline; the physical Mac runs M19. Existing read-only locations stay
 read-only. Folder organization, deletion, Finder Replace and deliberate offline editing are

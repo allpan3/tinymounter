@@ -197,6 +197,11 @@ while a newer complete copy waits. The core fix and required checks pass: 332 te
 skip and no Swift warnings. Signed workflows, storage bounds and recovery UI remain incomplete. See the
 [ordering results](docs/results/2026-10-29-pending-save-order.md).
 
+Deletion protocol (M24), 2026-10-29: the disposable VM probe completed deletion, competing-access
+and eleven crash scenarios, then cleaned up its test subtree. Concurrent attached data requires
+a policy decision; lost replies remain visibly unconfirmed. No app deletion capability is
+enabled. See the [deletion results](docs/results/2026-10-29-deletion-protocol.md).
+
 ## Run the prototype
 
 See [prototype setup and validation](docs/prototype.md). Build the benchmark with `swift build -c release`; run `.build/release/transfer-bench --help`. Open `TinyMounter.xcodeproj` to configure signing for the Finder prototype.
