@@ -87,7 +87,7 @@ final class ShareSession: @unchecked Sendable {
         }
         guard needed else { return }
         let descriptor = try openFolder(path)
-        let watch = DirectoryWatch(descriptor: descriptor) { [weak self] events in
+        let watch = DirectoryWatch(descriptor: descriptor, path: path) { [weak self] events in
             if !events.intersection([.delete, .rename, .revoke]).isEmpty {
                 self?.lock.withLock { self?.watches[domainID]?[folderID] = nil }
             }
@@ -99,6 +99,26 @@ final class ShareSession: @unchecked Sendable {
                 watches[domainID, default: [:]][folderID] = watch
             }
         }
+    }
+
+    /// Removes every watch at or below `paths` and waits until its descriptor has closed.
+    func drainWatches(below paths: [RelativePath]) throws {
+        let removed = lock.withLock { () -> [DirectoryWatch] in
+            var removed: [DirectoryWatch] = []
+            for (domain, folders) in watches {
+                for (folder, watch) in folders where paths.contains(where: { EditNamespace.contains($0, watch.path) }) {
+                    removed.append(watch)
+                    watches[domain]?[folder] = nil
+                }
+            }
+            watches = watches.filter { !$0.value.isEmpty }
+            return removed
+        }
+        for watch in removed { watch.cancel() }
+        let deadline = DispatchTime.now() + .seconds(10)
+        var closed = true
+        for watch in removed where !watch.waitClosed(until: deadline) { closed = false }
+        guard closed else { throw UploadError.pendingWrites }
     }
 
     fileprivate func isListed(in mounts: [MountEntry]) -> Bool {
@@ -202,6 +222,10 @@ final class ShareAccess: @unchecked Sendable {
 
     func keepWatches(domainID: String, folders: Set<String>) {
         lock.withLock { session }?.keepWatches(domainID: domainID, folders: folders)
+    }
+
+    func drainWatches(below paths: [RelativePath]) throws {
+        try lock.withLock { session }?.drainWatches(below: paths)
     }
 
     var state: ShareHealth.State { lock.withLock { health.state } }
@@ -721,7 +745,7 @@ final class LocationSource: @unchecked Sendable {
     let folder: RelativePath
     /// Signals the domain's working set; `scheduleSignal` debounces it.
     private let signal: @Sendable ([String]) -> Void
-    let renameSettings: @Sendable (PendingFileRename) async throws -> Void
+    let renameSettings: @Sendable (RenameIntent) async throws -> Void
     // The share lane owns these replies while settings completion awaits the main actor.
     var renameCompletions: [UUID: [RenameReply]] = [:]
     // The system SQLite can't share a connection between threads, so every use takes this lock.
@@ -747,7 +771,7 @@ final class LocationSource: @unchecked Sendable {
     private static let fetchLog = Logger(subsystem: "dev.tinymounter.prototype", category: "fetch")
 
     init(domainID: String, folder: RelativePath, catalog: Catalog, access: ShareAccess,
-         renameSettings: @escaping @Sendable (PendingFileRename) async throws -> Void,
+         renameSettings: @escaping @Sendable (RenameIntent) async throws -> Void,
          signal: @escaping @Sendable ([String]) -> Void) {
         self.domainID = domainID
         self.folder = folder
@@ -923,36 +947,47 @@ final class LocationSource: @unchecked Sendable {
             throw CocoaError(.fileReadCorruptFile)
         }
         return try access.withSession { session, progressed in
-            let root = try session.locationRoot(folder)
-            let (row, file) = try editNamespace.perform {
-                let (current, path) = try readTarget(request)
-                guard let fullPath = folder.appending(path) else { throw UploadError.invalidRequest }
-                try editNamespace.requireUncontested(path: fullPath, excluding: request.id)
-                let file = try shareCall(request.id, parent: current.parentID, context: .fetch) {
-                    try ReadOnlyFile(directoryFD: root, relativePath: path, expected: session.identity, noCache: true)
-                }
-                let expected = ContentFingerprint(size: current.size, mtimeNs: current.mtimeNs, ctimeNs: current.ctimeNs)
-                guard file.snapshot.fingerprint == expected else {
-                    fileChanged(request.id, current, file.snapshot)
-                    throw SourceFailure.versionChanged
-                }
-                return (current, file)
+            var lease: UUID?
+            // The helper owns the descriptor, so it has closed before the lease ends.
+            defer { if let lease { editNamespace.endRead(lease) } }
+            return try nativeTransfer(request, range: range, session: session, lease: &lease, progress: progress,
+                                      progressed: progressed, stagingDirectory: stagingDirectory, checkSpace: checkSpace)
+        }
+    }
+
+    private func nativeTransfer(_ request: SourceReadRequest, range: ByteRange, session: ShareSession,
+                                lease: inout UUID?, progress: Progress, progressed: @escaping Progressed,
+                                stagingDirectory: URL, checkSpace: ((Int64) throws -> Void)?) throws -> TransferOutput {
+        let root = try session.locationRoot(folder)
+        let (row, file) = try editNamespace.perform {
+            let (current, path) = try readTarget(request)
+            guard let fullPath = folder.appending(path) else { throw UploadError.invalidRequest }
+            try editNamespace.requireUncontested(path: fullPath, excluding: request.id)
+            lease = try editNamespace.beginRead(fullPath)
+            let file = try shareCall(request.id, parent: current.parentID, context: .fetch) {
+                try ReadOnlyFile(directoryFD: root, relativePath: path, expected: session.identity, noCache: true)
             }
-            // Each block read is progress, so only a transfer that stops reading counts as a stall.
-            let observation = progress.observe(\.completedUnitCount) { _, _ in progressed() }
-            defer { observation.invalidate() }
-            do {
-                return try shareCall(request.id, parent: row.parentID, context: .fetch) {
-                    try session.identity.guarding(root: root) {
-                        try Transfer.run(source: file, range: range, stagingDirectory: stagingDirectory,
-                                         progress: progress, checkSpace: checkSpace)
-                    }
-                }
-            } catch SourceFailure.versionChanged {
-                // The held descriptor is the file that changed; its path may now name another.
-                if let now = try? file.currentSnapshot() { fileChanged(request.id, row, now) }
+            let expected = ContentFingerprint(size: current.size, mtimeNs: current.mtimeNs, ctimeNs: current.ctimeNs)
+            guard file.snapshot.fingerprint == expected else {
+                fileChanged(request.id, current, file.snapshot)
                 throw SourceFailure.versionChanged
             }
+            return (current, file)
+        }
+        // Each block read is progress, so only a transfer that stops reading counts as a stall.
+        let observation = progress.observe(\.completedUnitCount) { _, _ in progressed() }
+        defer { observation.invalidate() }
+        do {
+            return try shareCall(request.id, parent: row.parentID, context: .fetch) {
+                try session.identity.guarding(root: root) {
+                    try Transfer.run(source: file, range: range, stagingDirectory: stagingDirectory,
+                                     progress: progress, checkSpace: checkSpace)
+                }
+            }
+        } catch SourceFailure.versionChanged {
+            // The held descriptor is the file that changed; its path may now name another.
+            if let now = try? file.currentSnapshot() { fileChanged(request.id, row, now) }
+            throw SourceFailure.versionChanged
         }
     }
 
@@ -1019,7 +1054,7 @@ final class LocationSource: @unchecked Sendable {
                 }
                 if confirm { scheduleConfirmation(folderID) }
                 if applied, lock.withLock({ watchedFolders.contains(folderID) }),
-                   let fullPath = folder.appending(path) {
+                   let fullPath = folder.appending(path), !editNamespace.isReserved(fullPath) {
                     do {
                         try session.watch(domainID: domainID, folderID: folderID, path: fullPath) { [weak self] in
                             guard let self else { return }

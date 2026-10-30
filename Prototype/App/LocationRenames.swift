@@ -8,11 +8,9 @@ extension LocationSource {
             .appending(path: "tinymounter/Renames", directoryHint: .isDirectory))
     }
 
-    func renameRecords() throws -> [PendingFileRename] {
+    func renameRecords() throws -> [RenameIntent] {
         try editNamespace.perform {
-            try Self.renameOutbox().records().filter { record in
-                record.isPending && record.views.contains { $0.domain == domainID }
-            }
+            try Self.renameOutbox().intents().filter { $0.isPending && $0.domains.contains(domainID) }
         }
     }
 
@@ -29,7 +27,7 @@ extension LocationSource {
             let result = Result { try editNamespace.perform { () -> PendingFileRename? in
                 _ = try renameAccess()
                 let outbox = try Self.renameOutbox()
-                if var record = try outbox.replay(owner: domainID, request: request) {
+                if var record = try outbox.replayFile(owner: domainID, request: request) {
                     if renameCompletions[record.id] == nil {
                         try finishRename(&record, outbox: outbox, progress: progress)
                     }
@@ -95,8 +93,8 @@ extension LocationSource {
             guard let source = RelativePath((path.components.dropLast() + [evidence.name]).joined(separator: "/")) else {
                 throw UploadError.unresolved
             }
-            var record = try outbox.prepare(owner: domainID, request: request, base: base, source: source, views: views,
-                                            destination: destination, parents: parents)
+            var record = try outbox.prepareFile(owner: domainID, request: request, base: base, source: source,
+                                                views: views, destination: destination, parents: parents)
             // Case aliases need one delete-capable handle; publication revalidates after reopening.
             if NameKey(source.string) == NameKey(destination.string) { try remote.releaseRename(path: source.string) }
             try finishRename(&record, outbox: outbox, progress: progress, session: session, remote: remote)
@@ -104,7 +102,7 @@ extension LocationSource {
         }
     }
 
-    private func prepareRenameFolders(source: RelativePath, destination: RelativePath) throws {
+    func prepareRenameFolders(source: RelativePath, destination: RelativePath) throws {
         var listed: Set<String> = []
         for path in [source, destination] {
             var id = Catalog.rootItemID
@@ -122,11 +120,15 @@ extension LocationSource {
         access.enqueue { [self] in
             let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
             do {
-                let ready = try editNamespace.perform { () -> [PendingFileRename] in
+                let (ready, folders) = try editNamespace.perform { () -> ([PendingFileRename], [UUID]) in
                     let outbox = try Self.renameOutbox()
-                    var ready: [PendingFileRename] = []
-                    for var record in try outbox.records() where record.isPending && record.owner == domainID
-                        && renameCompletions[record.id] == nil {
+                    var ready: [PendingFileRename] = [], folders: [UUID] = []
+                    for intent in try outbox.intents() where intent.isPending && intent.owner == domainID {
+                        guard case .file(var record) = intent else {
+                            folders.append(intent.id)
+                            continue
+                        }
+                        guard renameCompletions[record.id] == nil else { continue }
                         do {
                             try finishRename(&record, outbox: outbox, progress: Progress())
                             ready.append(record)
@@ -134,13 +136,19 @@ extension LocationSource {
                             logger.error("rename_retry id=\(record.id.uuidString, privacy: .public) failed \(logFields(error), privacy: .public)")
                         }
                     }
-                    return ready
+                    return (ready, folders)
                 }
                 for record in ready {
                     completeRename(record) { result in
                         if case .failure(let error) = result {
                             logger.error("rename_settings id=\(record.id.uuidString, privacy: .public) failed \(logFields(error), privacy: .public)")
                         }
+                    }
+                }
+                for id in folders {
+                    do { try retryFolderMove(id) }
+                    catch {
+                        logger.error("folder_move_retry id=\(id.uuidString, privacy: .public) failed \(logFields(error), privacy: .public)")
                     }
                 }
             } catch {
@@ -150,7 +158,7 @@ extension LocationSource {
         }
     }
 
-    private func renameAccess() throws -> Data {
+    func renameAccess() throws -> Data {
         try uploadLock.withLock {
             guard !mutationsSuspended, let bookmark = writeBookmark,
                   try withCatalog({ try $0.item(id: Catalog.rootItemID)?.allowsEditing }) == true else {
@@ -235,7 +243,7 @@ extension LocationSource {
         }
     }
 
-    private func validateRenameParents(_ ids: [String], parents: [FileRenameParent], session: ShareSession) throws {
+    func validateRenameParents(_ ids: [String], parents: [FileRenameParent], session: ShareSession) throws {
         let root = try session.locationRoot(folder)
         for id in Set(ids) {
             let (relative, nativeID) = try withCatalog { catalog in
@@ -355,7 +363,7 @@ extension LocationSource {
         Task { [self] in
             let settingsResult: Result<Void, Error>
             do {
-                try await renameSettings(record)
+                try await renameSettings(.file(record))
                 settingsResult = .success(())
             } catch {
                 settingsResult = .failure(error)
@@ -365,7 +373,7 @@ extension LocationSource {
                     try settingsResult.get()
                     return try editNamespace.perform {
                         let outbox = try Self.renameOutbox()
-                        guard var current = try outbox.records().first(where: { $0.id == record.id }),
+                        guard case .file(var current)? = try outbox.intents().first(where: { $0.id == record.id }),
                               [.verified, .completed].contains(current.state) else { throw UploadError.unresolved }
                         if current.state == .completed { return CreateReceipt(item: current.base.item) }
                         current.state = .completed

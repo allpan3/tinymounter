@@ -79,6 +79,29 @@ final class FolderMoveTests: XCTestCase {
         XCTAssertLessThan(released, moved)
     }
 
+    func testFileAdmissionWaitsForFolderIntentButAcceptsCompletedHistory() throws {
+        var folder = try prepare()
+        let row = try XCTUnwrap(catalog.item(id: base.item))
+        let path = try XCTUnwrap(catalog.relativePath(of: row.id))
+        let request = try FileRenameRequest(item: row.id, parent: XCTUnwrap(row.parentID), name: "renamed",
+            contentVersion: row.contentVersion, metadataVersion: row.metadataVersion)
+        let view = try FileRenameView(domain: domain, folder: .root, row: row, path: path, nativeID: 40)
+        XCTAssertThrowsError(try outbox.replayFile(owner: domain, request: request))
+        XCTAssertThrowsError(try outbox.prepareFile(owner: domain, request: request, base: base,
+                                                   source: path, views: [view]))
+        XCTAssertEqual(try outbox.intents().count, 1)
+        try FolderMoveTransaction.publish(&folder, outbox: outbox, remote: remote)
+        try FolderMoveTransaction.finishDomain(domain, record: &folder, outbox: outbox)
+        XCTAssertNil(try outbox.replayFile(owner: domain, request: request))
+        let file = try outbox.prepareFile(owner: domain, request: request, base: base, source: path, views: [view])
+        XCTAssertEqual(try outbox.replayFile(owner: domain, request: request), file)
+        XCTAssertEqual(try outbox.prepareFile(owner: domain, request: request, base: base,
+                                             source: path, views: [view]), file)
+        XCTAssertEqual(try outbox.intents().count, 2)
+        XCTAssertEqual(try outbox.pendingIntentCount(domain: domain), 1)
+        XCTAssertThrowsError(try outbox.records())
+    }
+
     func testLostReplyReprovesRootAndSettlesWithoutRepeatingMove() throws {
         var record = try prepare()
         remote.disconnectAfterMove = true

@@ -162,23 +162,61 @@ public final class FileRenameOutbox {
 
     public func replay(owner: String, request: FileRenameRequest) throws -> PendingFileRename? {
         let records = try records()
-        if let match = records.first(where: {
-            $0.owner == owner && $0.base.item == request.item
-                && $0.metadataVersion == request.metadataVersion && $0.name.utf8.elementsEqual(request.name.utf8)
-                && $0.views.contains(where: { $0.domain == owner && $0.targetParent == request.parent
-                    && $0.contentVersion == request.contentVersion })
-                && $0.state != .refused
-        }) { return match }
+        if let match = Self.match(records, owner: owner, request: request) { return match }
         guard !records.contains(where: { record in
             record.isPending && record.views.contains { $0.domain == owner && $0.item == request.item }
         }) else { throw UploadError.pendingWrites }
         return nil
     }
 
+    /// Like `replay`, but reads a shared inventory; any pending folder move in this domain blocks.
+    public func replayFile(owner: String, request: FileRenameRequest) throws -> PendingFileRename? {
+        let inventory = try intents()
+        let files = inventory.compactMap { intent -> PendingFileRename? in
+            if case .file(let record) = intent { return record }
+            return nil
+        }
+        if let match = Self.match(files, owner: owner, request: request) { return match }
+        guard !inventory.contains(where: { intent in
+            guard intent.isPending else { return false }
+            switch intent {
+            case .file(let record): return record.views.contains { $0.domain == owner && $0.item == request.item }
+            case .folder: return intent.domains.contains(owner)
+            }
+        }) else { throw UploadError.pendingWrites }
+        return nil
+    }
+
+    private static func match(_ records: [PendingFileRename], owner: String,
+                              request: FileRenameRequest) -> PendingFileRename? {
+        records.first(where: {
+            $0.owner == owner && $0.base.item == request.item
+                && $0.metadataVersion == request.metadataVersion && $0.name.utf8.elementsEqual(request.name.utf8)
+                && $0.views.contains(where: { $0.domain == owner && $0.targetParent == request.parent
+                    && $0.contentVersion == request.contentVersion })
+                && $0.state != .refused
+        })
+    }
+
     public func prepare(owner: String, request: FileRenameRequest, base: EditBaseReceipt,
                         source: RelativePath, views: [FileRenameView], destination: RelativePath? = nil,
                         parents: [FileRenameParent]? = nil) throws -> PendingFileRename {
         if let existing = try replay(owner: owner, request: request) { return existing }
+        return try create(owner: owner, request: request, base: base, source: source, views: views,
+                          destination: destination, parents: parents)
+    }
+
+    public func prepareFile(owner: String, request: FileRenameRequest, base: EditBaseReceipt,
+                            source: RelativePath, views: [FileRenameView], destination: RelativePath? = nil,
+                            parents: [FileRenameParent]? = nil) throws -> PendingFileRename {
+        if let existing = try replayFile(owner: owner, request: request) { return existing }
+        return try create(owner: owner, request: request, base: base, source: source, views: views,
+                          destination: destination, parents: parents)
+    }
+
+    private func create(owner: String, request: FileRenameRequest, base: EditBaseReceipt,
+                        source: RelativePath, views: [FileRenameView], destination: RelativePath?,
+                        parents: [FileRenameParent]?) throws -> PendingFileRename {
         guard request.item == base.item,
               views.contains(where: { $0.domain == owner && $0.targetParent == request.parent
                   && $0.contentVersion == request.contentVersion }),

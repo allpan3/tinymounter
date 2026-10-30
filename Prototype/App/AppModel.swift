@@ -592,7 +592,7 @@ final class AppModel {
         }
     }
 
-    func renameRecords(_ record: LocationRecord) async throws -> [PendingFileRename] {
+    func renameRecords(_ record: LocationRecord) async throws -> [RenameIntent] {
         try await controller.renameRecords(record)
     }
 

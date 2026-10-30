@@ -358,7 +358,7 @@ final class LocationController {
         for candidate in sources.values where candidate.editNamespace === source.editNamespace { candidate.retryRenames() }
     }
 
-    func renameRecords(_ record: LocationRecord) async throws -> [PendingFileRename] {
+    func renameRecords(_ record: LocationRecord) async throws -> [RenameIntent] {
         guard let source = sources[record.domainID] else { throw LocationError.catalogClosed }
         return try await Self.offMain { try source.renameRecords() }
     }
@@ -443,7 +443,7 @@ final class LocationController {
         try Catalog.delete(at: SharedContainer.catalogURL(domainID: record.domainID))
         try LocationSource.outbox(domainID: record.domainID).removeIfCompleted()
         try LocationSource.editOutbox(domainID: record.domainID).removeIfCompleted()
-        try LocationSource.renameOutbox().removeCompleted(owner: record.domainID)
+        try LocationSource.renameOutbox().removeCompletedIntents(removedDomain: record.domainID)
         previousSource?.editNamespace.unregister(record.domainID)
         try store.update { settings in
             guard let index = settings.locations.firstIndex(where: { $0.id == recordID }) else { return }
@@ -487,7 +487,7 @@ final class LocationController {
         try Catalog.delete(at: SharedContainer.catalogURL(domainID: record.domainID))
         try LocationSource.outbox(domainID: record.domainID).removeIfCompleted()
         try LocationSource.editOutbox(domainID: record.domainID).removeIfCompleted()
-        try LocationSource.renameOutbox().removeCompleted(owner: record.domainID)
+        try LocationSource.renameOutbox().removeCompletedIntents(removedDomain: record.domainID)
         previousSource?.editNamespace.unregister(record.domainID)
         try store.update { $0.locations.removeAll { $0.id == recordID } }
         Self.catalogLog.info("""
@@ -915,7 +915,7 @@ final class LocationController {
             try Catalog.delete(at: SharedContainer.catalogURL(domainID: id))
             try LocationSource.outbox(domainID: id).removeIfCompleted()
             try LocationSource.editOutbox(domainID: id).removeIfCompleted()
-            try LocationSource.renameOutbox().removeCompleted(owner: id)
+            try LocationSource.renameOutbox().removeCompletedIntents(removedDomain: id)
         case .deleteRecord(let id):
             try store.update { $0.locations.removeAll { $0.id == id } }
         case .clearRetiredDomain(let id):
@@ -1001,18 +1001,30 @@ final class LocationController {
         return source
     }
 
-    private func commitRenameSettings(_ rename: PendingFileRename, host: String, share: String) throws {
-        guard let current = try LocationSource.renameOutbox().records().first(where: { $0.id == rename.id }),
-              current.state == .verified || current.state == .completed else { throw UploadError.unresolved }
-        if current.state == .completed { return }
-        try store.update { settings in
-            try settings.moveKeptFile(from: rename.source, to: rename.destination, host: host, share: share)
+    private func commitRenameSettings(_ rename: RenameIntent, host: String, share: String) throws {
+        guard let current = try LocationSource.renameOutbox().intents().first(where: { $0.id == rename.id }) else {
+            throw UploadError.unresolved
         }
-        for view in rename.views {
-            if let record = store.settings?.locations.first(where: { $0.domainID == view.domain }) {
+        switch current {
+        case .file(let record):
+            guard record.state == .verified || record.state == .completed else { throw UploadError.unresolved }
+            if record.state == .completed { return }
+            try store.update { settings in
+                try settings.moveKeptFile(from: record.source, to: record.destination, host: host, share: share)
+            }
+        case .folder(let record):
+            guard [.verified, .recovering, .completed].contains(record.state) else { throw UploadError.unresolved }
+            if record.state == .completed { return }
+            // Idempotent: a retry after a crash finds no saved path left below the source.
+            try store.update { settings in
+                try settings.moveKeptFolder(from: record.source, to: record.destination, host: host, share: share)
+            }
+        }
+        for domain in current.domains {
+            if let record = store.settings?.locations.first(where: { $0.domainID == domain }) {
                 notOnServer[record.id] = nil
             }
-            onLocationChange?(view.domain)
+            onLocationChange?(domain)
         }
         onChange?()
     }
