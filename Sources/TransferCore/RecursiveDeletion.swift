@@ -208,7 +208,7 @@ public enum RecursiveDeletionTransaction {
     }
 }
 
-/// Records whether this session proved the admitted object present, which a refusal alone cannot.
+/// Presence evidence expires when deletion is marked; a later refusal cannot prove survival.
 private final class ObservedRemote: DeletionRemote {
     private let remote: DeletionRemote
     private let identity: EditFileIdentity
@@ -222,6 +222,7 @@ private final class ObservedRemote: DeletionRemote {
     func protectParents(of path: String) throws -> [ItemDeletionParent] { try remote.protectParents(of: path) }
 
     func inspect(path: String, kind: CatalogRow.Kind) throws -> ItemDeletionLookup {
+        proved = false
         let lookup = try remote.inspect(path: path, kind: kind)
         if case .present(let actual) = lookup, actual.identity == identity { proved = true }
         return lookup
@@ -229,7 +230,10 @@ private final class ObservedRemote: DeletionRemote {
 
     func list(path: String) throws -> ItemDeletionListing { try remote.list(path: path) }
 
-    func markDeletion(path: String) throws { try remote.markDeletion(path: path) }
+    func markDeletion(path: String) throws {
+        try remote.markDeletion(path: path)
+        proved = false
+    }
 
     func closeTarget(path: String) throws { try remote.closeTarget(path: path) }
 }
