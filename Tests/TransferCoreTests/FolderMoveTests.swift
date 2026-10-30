@@ -430,6 +430,35 @@ final class FolderMoveTests: XCTestCase {
         XCTAssertEqual(try saved().settlements, changed)
     }
 
+    func testSettlementListingBudgetIsSharedAcrossViews() throws {
+        let first = try view()
+        let second = FolderMoveView(domain: UUID().uuidString, folder: .root,
+                                    move: first.move, proofs: first.proofs)
+        var record = try prepare(views: [first, second])
+        let preserved = try settlements(record), root = try rootListing(first)
+        let unknown = try identity(9_000)
+        let children = root.children + (root.children.count..<DirectoryListing.defaultLimit / 2).map {
+            CatalogFolderMoveListing.Child(name: "unknown-\($0)", identity: unknown, kind: .file)
+        }
+        func withChildren(_ children: [CatalogFolderMoveListing.Child]) -> [FolderMoveSettlement] {
+            preserved.map {
+                FolderMoveSettlement(domain: $0.domain, settlement: CatalogFolderMoveSettlement(
+                    proofs: $0.settlement.proofs, resolutions: $0.settlement.resolutions,
+                    listings: [CatalogFolderMoveListing(parent: root.parent, path: RelativePath(root.path)!,
+                        identity: root.identity, complete: true, children: children)]))
+            }
+        }
+        record.state = .verified
+        record.settlements = withChildren(children)
+        XCTAssertNoThrow(try record.validate())
+        record.settlements = withChildren(children + [
+            CatalogFolderMoveListing.Child(name: "one-too-many", identity: unknown, kind: .file)
+        ])
+        XCTAssertThrowsError(try record.validate())
+        XCTAssertEqual(try saved().state, .prepared)
+        XCTAssertEqual(remote.moves, 0)
+    }
+
     func testCompleteListingCoversKnownChildrenFromEveryView() throws {
         let other = UUID().uuidString, first = try view()
         let missing = try XCTUnwrap(first.move.entries.first { $0.name == "plain" })

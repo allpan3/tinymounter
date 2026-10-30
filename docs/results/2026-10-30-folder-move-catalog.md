@@ -123,6 +123,12 @@ skip, no failures or Swift warnings, six encoder cases and 57 SMB-status cases. 
 `.local/phase4/m21-20261029/m22-recovery-adapter-checks.log`. This compiles the real adapter but
 does not exercise it against SMB; signed adapter and app checks remain.
 
+Review found that an unbrowsed known directory could contain names that settlement rejects,
+leaving a successful remote move unresolved. Source verification now lists every known
+directory before attempting the rename. Admission, settlement and recovery share the same
+aggregate child limit across views. A concurrent arrival can still require recovery. The
+budget regression test and adapter correction await VM checks.
+
 ## Saved keep paths
 
 Settings now has a caller-invoked folder-path rewrite for pending and saved Keep Downloaded
