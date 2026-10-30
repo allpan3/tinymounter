@@ -133,5 +133,39 @@ splitting in the shared parent helpers; these now use the existing byte-safe pat
 so a leading combining mark cannot hide a parent separator. Required VM checks pass: 472 tests,
 one optional skip, no failures or Swift warnings, project generation, release CLI validation,
 unsigned app build, six encoder cases and 57 status cases. Evidence:
-.local/phase4/m21-20261029/m24-adapter-checks.log. Live adapter checks are pending. Durable
+.local/phase4/m21-20261029/m24-adapter-checks.log. Initial live adapter results follow below. Durable
 operation storage, catalog mutation and the user-facing deletion flow remain unimplemented.
+
+## Signed adapter attempt, 2026-10-30
+
+Two regular-file deletions passed in the signed, sandboxed app in macOS VM 1. Both recorded
+an acknowledged close, then confirmed name and identity absence with fresh protected checks.
+The run stopped during connection setup for the next case. Empty-folder deletion, paginated
+confirmation, changed/replaced-file refusal and interruption recovery remain unverified through
+this production adapter. No File Provider deletion capability is enabled.
+
+Setup admitted nine targets in a new synthetic subtree. The large directory's complete listing
+contained 513 entries with at least 127,086 encoded bytes, exceeding one SMB listing buffer.
+Before the run, a controlled in-place write retained one file's identity, and an identical-byte
+replacement received a different identity. Its original was retained separately. Cache state
+was uncontrolled; this is a correctness check, with no performance claim.
+
+The first setup failed after one admission. A fresh setup passed after its reports were retained
+and all 522 fixture files were checked unchanged. The deletion run then completed its first two
+cases before another failure. In both failures, logs show a cached credential followed by
+`smb_connect result=-1`, surfaced as `NSPOSIXErrorDomain:1`. This locates the failure in connection
+setup; it does not establish the underlying cause. The seven remaining intents stayed prepared.
+
+An isolated continuation helper compiles without Swift diagnostics and passes strict signature
+verification in the VM with the same sandbox entitlements. It requires the two successful case
+reports and the other seven original intents before continuing. It allows at most three
+connection attempts, records failures and never retries the deletion body in that loop.
+Automatic approval review blocked replacing and registering the VM test app, treating it as
+an installation change outside the fixture-session approval. The verified continuation is
+staged but has not run. Production transport and deletion code are unchanged.
+
+Private evidence in `.local/phase4/m21-20261029` includes `m24-adapter-setup.jsonl`,
+`m24-adapter-setup2.jsonl`, `m24-adapter-run.jsonl`, the Finder-copied `m24-adapter-*-inspection`
+directories, `m24-adapter-between.json`, `m24-continuation-build.log` and
+`m24-continuation-verification.json`. The failed reports and original test app remain intact.
+The fixture session remains open; final removal and restoration are still owed.

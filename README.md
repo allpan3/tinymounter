@@ -9,6 +9,10 @@ destination collisions, lost-reply recovery and partial-catalog recovery. Two am
 cases could not run on the fixture. [Finder integration remains unverified and disabled](docs/results/2026-10-30-folder-move-catalog.md#signed-adapter-checks-2026-10-30).
 Required VM checks pass with 492 tests and one optional skip.
 
+Deletion adapter, 2026-10-30: two signed regular-file deletion checks passed. Connection setup
+failures interrupted the remaining cases. [The partial results and staged continuation are recorded](docs/results/2026-10-29-deletion-protocol.md#signed-adapter-attempt-2026-10-30).
+Finder deletion remains unavailable.
+
 Status, 2026-10-11: verified NAS-cold full downloads reached **183.3 MB/s versus 192.7 MB/s native SMB (95.1%)**; with the file in NAS RAM, **229.0 versus 247.2 MB/s (92.6%)**. Each condition has five matched pairs, server cache/disk-read evidence, and representative complete-file checksum verification. Fully downloaded local reads also pass, though an unexplained speed gap to a local APFS control remains. See [verified cache results](docs/results/2026-10-11-cache-states.md), [full-download attribution](docs/results/2026-10-11-full-download.md), and [range-delay diagnosis](docs/results/2026-10-11-provider-delay.md).
 
 Players and read-ahead, 2026-10-11: in the measured VM configurations, Finder double-click, Open With and Cmd-O downloaded an uncached video fully before the player started, because Finder made a coordinated whole-file read. VLC's and IINA's own File > Open stream; QuickTime Player always downloads the whole file. Bounded read-ahead now favours seeks, as the user asked: seeks during streaming took **0.23–0.27 s** in all 9 trials, and long sequential partial reads run at **77–93 MB/s (about 30–37% of native)**, fetching about 1.03× the bytes read. A throughput-first setting reached 148.8 versus 249.4 MB/s (59.7%) but let seeks wait up to 1.4 s. Without read-ahead it was 9.6%. See [player and read-ahead results](docs/results/2026-10-11-player-readahead.md). These are VM results: first-frame and seek-resume times and physical-Mac speed remain unverified.
