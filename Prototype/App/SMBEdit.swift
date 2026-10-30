@@ -55,6 +55,32 @@ final class SMBEdit: EditRemote, FileRenameRemote {
         }
     }
 
+    func protectRenameParents(source: String, destination: String) throws -> [FileRenameParent] {
+        try protectAncestors(of: source)
+        try protectAncestors(of: destination)
+        let paths = try Set([source, destination].flatMap { path -> [String] in
+            let full = try remotePath(path)
+            let components = full.split(separator: "/").map(String.init)
+            return (0..<components.count).map { components.prefix($0).joined(separator: "/") }
+        })
+        return try paths.sorted().map { path in
+            guard let handle = directories[path], let relative = RelativePath(path) else {
+                throw UploadError.unresolved
+            }
+            let values = try info(handle)
+            guard values[4] & 0x410 == 0x10 else { throw UploadError.unresolved }
+            let identity = try EditFileIdentity(fileID: values[0], birthMicroseconds: values[1])
+            var name = ""
+            if let component = relative.components.last {
+                let parent = relative.components.dropLast().joined(separator: "/")
+                guard let entry = try renameEntry(parent: parent, name: component),
+                      entry.identity == identity, entry.name == component else { throw UploadError.unresolved }
+                name = entry.name
+            }
+            return FileRenameParent(path: path, name: name, identity: identity)
+        }
+    }
+
     func inspectRename(path: String) throws -> FileRenameEvidence? {
         try protectAncestors(of: path)
         let full = try remotePath(path)
@@ -71,6 +97,15 @@ final class SMBEdit: EditRemote, FileRenameRemote {
             throw UploadError.unresolved
         }
         return FileRenameEvidence(version: current, name: entry.name)
+    }
+
+    func renameSourceEntry(path: String) throws -> RenameDirectoryEntry? {
+        try protectAncestors(of: path)
+        let full = try remotePath(path)
+        guard let relative = RelativePath(full), let name = relative.components.last else {
+            throw UploadError.unresolved
+        }
+        return try renameEntry(parent: relative.components.dropLast().joined(separator: "/"), name: name)
     }
 
     func releaseRename(path: String) throws {

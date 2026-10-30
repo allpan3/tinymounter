@@ -221,18 +221,175 @@ final class FileRenameTests: XCTestCase {
         XCTAssertEqual(try outbox.records(), [record])
     }
 
-    func testInvalidOrUnverifiedRequestsNeverEnterTheOutbox() throws {
+    func testInvalidRequestsAndMovesWithoutParentEvidenceNeverEnterTheOutbox() throws {
         for name in ["../x", "a/b", "x\\y", "x:y", "*", "a?", ".tinymounter-owned", "x.db"] {
             XCTAssertThrowsError(try request(name: name))
         }
-        XCTAssertThrowsError(try FileRenameRequest(item: row.id, parent: Catalog.rootItemID, name: "new",
-                                                   contentVersion: "f1:10:1000:2000", metadataVersion: "1"))
+        for version in ["", String(repeating: "x", count: 129)] {
+            XCTAssertThrowsError(try FileRenameRequest(item: row.id, parent: Catalog.rootItemID, name: "new",
+                                                       contentVersion: version, metadataVersion: "1"))
+        }
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(prepare())) as? [String: Any])
         object["destination"] = "elsewhere/new.txt"
         let url = directory.appending(path: "Renames/\(try XCTUnwrap(outbox.records().first).id.uuidString).rename")
         try JSONSerialization.data(withJSONObject: object).write(to: url)
         XCTAssertThrowsError(try outbox.records())
         XCTAssertThrowsError(try outbox.removeCompleted(owner: domain))
+    }
+
+    private func prepareMove(unverified: Bool = false) throws -> PendingFileRename {
+        try catalog.reconcile(folder: Catalog.rootItemID, listing: DirectoryListing([
+            .entry(.init(name: "original.txt", kind: .file, size: 10, mtimeNs: 1_000, ctimeNs: 2_000, fileID: 7)),
+            .entry(.init(name: "z.txt", kind: .file, size: 10, mtimeNs: 1_000, ctimeNs: 2_000, fileID: 8)),
+            .entry(.init(name: "Archive", kind: .folder, size: 0, mtimeNs: 1_000, ctimeNs: 2_000, fileID: 50))
+        ])) { _ in true }
+        let destination = try XCTUnwrap(catalog.liveChild(parent: Catalog.rootItemID, nameKey: NameKey("Archive")))
+        try catalog.reconcile(folder: destination.id, listing: DirectoryListing([])) { _ in true }
+        if unverified {
+            row = try XCTUnwrap(catalog.liveChild(parent: Catalog.rootItemID, nameKey: NameKey("z.txt")))
+            base = try EditBaseReceipt(item: row.id, version: version(identity: 88))
+            remote.files[NameKey(row.name)] = FileRenameEvidence(version: base.version, name: row.name)
+        }
+        let request = try FileRenameRequest(item: row.id, parent: destination.id, name: "moved.txt",
+                                            contentVersion: row.contentVersion, metadataVersion: row.metadataVersion)
+        let view = try FileRenameView(domain: domain, folder: .root, row: row,
+                                      path: XCTUnwrap(RelativePath(row.name)),
+                                      nativeID: unverified ? 8 : 7, destinationParent: destination.id)
+        remote.parents = [
+            FileRenameParent(path: "", name: "", identity: try EditFileIdentity(fileID: 90, birthMicroseconds: 10)),
+            FileRenameParent(path: "Archive", name: "Archive", identity: try EditFileIdentity(fileID: 50, birthMicroseconds: 20))
+        ]
+        return try outbox.prepare(owner: domain, request: request, base: base,
+                                  source: XCTUnwrap(RelativePath(row.name)), views: [view],
+                                  destination: XCTUnwrap(RelativePath("Archive/moved.txt")), parents: remote.parents)
+    }
+
+    func testUnverifiedMoveKeepsItsEvidenceLevelAndDepartureAcrossReplay() throws {
+        var record = try prepareMove(unverified: true)
+        let version = row.contentVersion
+        XCTAssertTrue(version.hasPrefix("f1:"))
+        XCTAssertNotEqual(record.base.contentVersion, version)
+        XCTAssertEqual(try outbox.records(), [record])
+        let anchor = try catalog.currentAnchor()
+        try FileRenameTransaction.publish(&record, outbox: outbox, remote: remote)
+        let view = try XCTUnwrap(record.views.first)
+        let move = try CatalogFileMove(item: view.item, sourceParent: view.parent, sourceName: row.name,
+                                       contentVersion: view.contentVersion, sourceNativeID: view.nativeID,
+                                       destinationParent: view.targetParent, destinationName: record.name)
+        let fingerprint = ContentFingerprint(size: 10, mtimeNs: 1_000, ctimeNs: 3_000)
+        try catalog.commitFileMove(move, fingerprint: fingerprint, nativeID: 88)
+        XCTAssertEqual(try catalog.item(id: row.id)?.contentVersion, version)
+        XCTAssertEqual(try catalog.changes(after: anchor, limit: 100, scope: .parent(view.parent)).updated.map(\.id), [row.id])
+        record.state = .completed
+        try outbox.save(record)
+        try FileRenameTransaction.publish(&record, outbox: outbox, remote: remote)
+        XCTAssertEqual(remote.moves, 1)
+        XCTAssertEqual(remote.files[NameKey(record.destination)]?.version, base.version)
+    }
+
+    func testCrossFolderMoveRecoversBeforeAndAfterTheServerRequest() throws {
+        var record = try prepareMove()
+        XCTAssertThrowsError(try FileRenameTransaction.publish(&record, outbox: outbox, remote: remote) { state in
+            if state == .attempting { throw UploadError.unresolved }
+        })
+        XCTAssertEqual(remote.moves, 0)
+        record = try XCTUnwrap(outbox.records().first)
+        remote.failAfterMove = true
+        XCTAssertThrowsError(try FileRenameTransaction.publish(&record, outbox: outbox, remote: remote))
+        XCTAssertEqual(remote.moves, 1)
+        remote.failAfterMove = false
+        record = try XCTUnwrap(outbox.records().first)
+        try FileRenameTransaction.publish(&record, outbox: outbox, remote: remote)
+        XCTAssertEqual(remote.moves, 1)
+        XCTAssertEqual(record.state, .verified)
+        XCTAssertEqual(record.parents, remote.parents)
+    }
+
+    func testReplacedOrRenamedParentStopsRecoveryBeforeAnyFileRequest() throws {
+        var record = try prepareMove()
+        let parents = remote.parents
+        for replacement in [
+            FileRenameParent(path: "Archive", name: "Archive", identity: try EditFileIdentity(fileID: 51, birthMicroseconds: 20)),
+            FileRenameParent(path: "Archive", name: "ARCHIVE", identity: parents[1].identity)
+        ] {
+            remote.parents = [parents[0], replacement]
+            XCTAssertThrowsError(try FileRenameTransaction.publish(&record, outbox: outbox, remote: remote))
+            XCTAssertEqual(remote.inspections, 0)
+            XCTAssertEqual(remote.moves, 0)
+            XCTAssertTrue(record.isPending)
+        }
+    }
+
+    func testUnverifiedMoveStillRejectsAReplacementAfterAdmission() throws {
+        var record = try prepareMove(unverified: true)
+        remote.files[NameKey(record.source)] = FileRenameEvidence(version: try version(identity: 89), name: record.oldName)
+        XCTAssertThrowsError(try FileRenameTransaction.publish(&record, outbox: outbox, remote: remote))
+        XCTAssertEqual(record.state, .refused)
+        XCTAssertEqual(remote.moves, 0)
+    }
+
+    func testMoveReplayIncludesTheDestinationParent() throws {
+        let record = try prepareMove()
+        let view = try XCTUnwrap(record.views.first)
+        let request = try FileRenameRequest(item: row.id, parent: view.targetParent, name: record.name,
+                                            contentVersion: row.contentVersion, metadataVersion: row.metadataVersion)
+        XCTAssertEqual(try outbox.replay(owner: domain, request: request), record)
+        let wrongParent = try FileRenameRequest(item: row.id, parent: view.parent, name: record.name,
+                                                contentVersion: row.contentVersion, metadataVersion: row.metadataVersion)
+        XCTAssertThrowsError(try outbox.replay(owner: domain, request: wrongParent))
+    }
+
+    func testStaleSingleFieldCallbacksCannotUndoAnotherViewOrganization() throws {
+        var record = try prepareMove()
+        let view = try XCTUnwrap(record.views.first)
+        let rename = try FileRenameRequest(item: row.id, parent: view.parent, name: "renamed.txt",
+                                           contentVersion: row.contentVersion, metadataVersion: row.metadataVersion,
+                                           changesName: true, changesParent: false)
+        let moveOnly = try FileRenameRequest(item: row.id, parent: view.targetParent, name: row.name,
+                                             contentVersion: row.contentVersion, metadataVersion: row.metadataVersion,
+                                             changesName: false, changesParent: true)
+        try rename.validateUnchangedFields(in: row)
+        try moveOnly.validateUnchangedFields(in: row)
+        try FileRenameTransaction.publish(&record, outbox: outbox, remote: remote)
+        let move = try CatalogFileMove(item: row.id, sourceParent: view.parent, sourceName: row.name,
+                                       contentVersion: row.contentVersion, sourceNativeID: view.nativeID,
+                                       destinationParent: view.targetParent, destinationName: record.name)
+        try catalog.commitFileMove(move, fingerprint: ContentFingerprint(size: 10, mtimeNs: 1_000, ctimeNs: 3_000),
+                                    nativeID: 88)
+        let current = try XCTUnwrap(catalog.item(id: row.id))
+        let decodedRename = try JSONDecoder().decode(FileRenameRequest.self, from: JSONEncoder().encode(rename))
+        let decodedMove = try JSONDecoder().decode(FileRenameRequest.self, from: JSONEncoder().encode(moveOnly))
+        XCTAssertThrowsError(try decodedRename.validateUnchangedFields(in: current))
+        XCTAssertThrowsError(try decodedMove.validateUnchangedFields(in: current))
+        XCTAssertEqual(current.parentID, view.targetParent)
+        XCTAssertEqual(current.name, record.name)
+        record.state = .completed
+        try outbox.save(record)
+        let replay = try FileRenameRequest(item: row.id, parent: view.targetParent, name: record.name,
+                                           contentVersion: row.contentVersion, metadataVersion: row.metadataVersion)
+        XCTAssertEqual(try outbox.replay(owner: domain, request: replay), record)
+        XCTAssertEqual(remote.moves, 1)
+    }
+
+    func testLegacyOrganizationMessagesMeanRenameOnly() throws {
+        var message = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(request())) as? [String: Any])
+        message["changesName"] = nil
+        message["changesParent"] = nil
+        let decoded = try JSONDecoder().decode(FileRenameRequest.self, from: JSONSerialization.data(withJSONObject: message))
+        XCTAssertTrue(decoded.changesName)
+        XCTAssertFalse(decoded.changesParent)
+        XCTAssertThrowsError(try FileRenameRequest(item: row.id, parent: Catalog.rootItemID, name: "new.txt",
+                                                   contentVersion: row.contentVersion, metadataVersion: row.metadataVersion,
+                                                   changesName: false, changesParent: false))
+    }
+
+    func testIncompleteParentEvidenceFailsClosedOnDisk() throws {
+        var record = try prepareMove()
+        record.parents = Array(remote.parents.prefix(1))
+        XCTAssertThrowsError(try outbox.save(record))
+        record.parents = remote.parents + [remote.parents[0]]
+        XCTAssertThrowsError(try outbox.save(record))
+        XCTAssertEqual(try outbox.records().first?.parents, remote.parents)
     }
 }
 
@@ -241,8 +398,14 @@ private final class RenameRemote: FileRenameRemote {
     var moves = 0
     var failAfterMove = false
     var beforeMove: (() -> Void)?
+    var parents: [FileRenameParent] = []
+    var inspections = 0
 
-    func inspectRename(path: String) throws -> FileRenameEvidence? { files[NameKey(path)] }
+    func protectRenameParents(source: String, destination: String) throws -> [FileRenameParent] { parents }
+    func inspectRename(path: String) throws -> FileRenameEvidence? {
+        inspections += 1
+        return files[NameKey(path)]
+    }
     func releaseRename(path: String) throws {}
 
     func move(source: String, destination: String) throws {
@@ -251,7 +414,7 @@ private final class RenameRemote: FileRenameRemote {
         guard let file = files[old] else { throw posixError("rename", code: ENOENT) }
         guard old == new || files[new] == nil else { throw posixError("rename", code: EEXIST) }
         files[old] = nil
-        files[new] = FileRenameEvidence(version: file.version, name: destination)
+        files[new] = FileRenameEvidence(version: file.version, name: RelativePath(destination)!.components.last!)
         moves += 1
         if failAfterMove { throw posixError("lost reply", code: EIO) }
     }

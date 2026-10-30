@@ -600,7 +600,9 @@ private struct UploadStatus: View {
             }
             ForEach(renames, id: \.id) { rename in
                 VStack(alignment: .leading) {
-                    Text(UIText.pendingRename(from: rename.oldName, to: rename.name))
+                    Text(rename.views.contains(where: { $0.targetParent != $0.parent })
+                         ? UIText.pendingMove(from: rename.oldName, to: rename.destination)
+                         : UIText.pendingRename(from: rename.oldName, to: rename.name))
                     Text(UIText.renameNeedsRecovery).font(.callout).foregroundStyle(.secondary)
                 }
             }

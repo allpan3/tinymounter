@@ -61,6 +61,12 @@ final class EditNamespace: @unchecked Sendable {
         }
     }
 
+    func affectedSources(source: RelativePath, destination: RelativePath) throws -> [LocationSource] {
+        let old = try affectedSources(path: source), new = try affectedSources(path: destination)
+        guard old.map(\.domainID) == new.map(\.domainID) else { throw UploadError.readOnly }
+        return old
+    }
+
     func perform<T>(_ operation: () throws -> T) rethrows -> T { try lock.withLock(operation) }
 
     func requireSettled(excluding rename: UUID? = nil) throws {

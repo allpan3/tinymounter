@@ -959,10 +959,16 @@ final class LocationController {
         let domain = domain(for: record)
         domains[record.domainID] = domain
         let domainID = record.domainID
-        let source = LocationSource(domainID: domainID, folder: folder, catalog: catalog, access: share(for: grant)) {
-            NSFileProviderManager(for: domain)?.signalEnumerator(for: .workingSet) { error in
-                guard let error else { return }
-                Self.listingLog.error("signal domain=\(domainID, privacy: .public) \(logFields(error), privacy: .public)")
+        let source = LocationSource(domainID: domainID, folder: folder, catalog: catalog, access: share(for: grant),
+                                    renameSettings: { [weak self] rename in
+            guard let self else { throw LocationError.catalogClosed }
+            try await self.commitRenameSettings(rename, host: grant.host, share: grant.share)
+        }) { folders in
+            for item in Set(folders.map { NSFileProviderItemIdentifier($0) } + [.workingSet]) {
+                NSFileProviderManager(for: domain)?.signalEnumerator(for: item) { error in
+                    guard let error else { return }
+                    Self.listingLog.error("signal domain=\(domainID, privacy: .public) \(logFields(error), privacy: .public)")
+                }
             }
         }
         try? source.configureWriteMode(record.activeWriteBookmark, confirmed: record.smbOnlyEditing == true)
@@ -983,6 +989,22 @@ final class LocationController {
             }
         }
         return source
+    }
+
+    private func commitRenameSettings(_ rename: PendingFileRename, host: String, share: String) throws {
+        guard let current = try LocationSource.renameOutbox().records().first(where: { $0.id == rename.id }),
+              current.state == .verified || current.state == .completed else { throw UploadError.unresolved }
+        if current.state == .completed { return }
+        try store.update { settings in
+            try settings.moveKeptFile(from: rename.source, to: rename.destination, host: host, share: share)
+        }
+        for view in rename.views {
+            if let record = store.settings?.locations.first(where: { $0.domainID == view.domain }) {
+                notOnServer[record.id] = nil
+            }
+            onLocationChange?(view.domain)
+        }
+        onChange?()
     }
 
     private static var discoveryNow: Duration { .nanoseconds(DispatchTime.now().uptimeNanoseconds) }

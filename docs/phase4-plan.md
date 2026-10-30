@@ -659,7 +659,7 @@ match an old row. On 2026-10-29 the user accepted binding unverified files and s
 to the current objects at admission, after matching known details. Record protected identity
 and full-content evidence for the operation and recovery; preserve the evidence level of local
 copies. Verified files retain their historical identity/content checks. This boundary is
-accepted but not yet enabled.
+implemented; signed Finder verification remains.
 
 This accepted scope expands libsmb2 use to user-requested cross-folder moves and the protected parent
 identity queries needed for recovery. It adds no dependency or server component. The existing

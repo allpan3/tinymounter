@@ -298,13 +298,16 @@ public struct FileRenameRequest: Codable, Sendable {
     public let name: String
     public let contentVersion: String
     public let metadataVersion: String
+    public let changesName: Bool
+    public let changesParent: Bool
 
     public init(id: UUID = UUID(), item: String, parent: String, name: String,
-                contentVersion: String, metadataVersion: String) throws {
+                contentVersion: String, metadataVersion: String,
+                changesName: Bool = true, changesParent: Bool = true) throws {
         guard ReaderMessage.isItemID(item), item != Catalog.rootItemID, ReaderMessage.isItemID(parent),
-              Self.supportsName(name), contentVersion.hasPrefix("e1:"),
-              UUID(uuidString: String(contentVersion.dropFirst(3)))?.uuidString == String(contentVersion.dropFirst(3)),
-              metadataVersion.utf8.count <= 20, Int64(metadataVersion).map({ $0 >= 0 }) == true else {
+              Self.supportsName(name), !contentVersion.isEmpty, contentVersion.utf8.count <= 128,
+              metadataVersion.utf8.count <= 20, Int64(metadataVersion).map({ $0 >= 0 }) == true,
+              changesName || changesParent else {
             throw UploadError.invalidRequest
         }
         self.id = id
@@ -313,6 +316,8 @@ public struct FileRenameRequest: Codable, Sendable {
         self.name = name
         self.contentVersion = contentVersion
         self.metadataVersion = metadataVersion
+        self.changesName = changesName
+        self.changesParent = changesParent
     }
 
     public init(from decoder: Decoder) throws {
@@ -320,7 +325,14 @@ public struct FileRenameRequest: Codable, Sendable {
         try self.init(id: values.decode(UUID.self, forKey: .id), item: values.decode(String.self, forKey: .item),
                       parent: values.decode(String.self, forKey: .parent), name: values.decode(String.self, forKey: .name),
                       contentVersion: values.decode(String.self, forKey: .contentVersion),
-                      metadataVersion: values.decode(String.self, forKey: .metadataVersion))
+                      metadataVersion: values.decode(String.self, forKey: .metadataVersion),
+                      changesName: values.decodeIfPresent(Bool.self, forKey: .changesName) ?? true,
+                      changesParent: values.decodeIfPresent(Bool.self, forKey: .changesParent) ?? false)
+    }
+
+    public func validateUnchangedFields(in row: CatalogRow) throws {
+        guard row.id == item, changesParent || row.parentID == parent,
+              changesName || row.name.utf8.elementsEqual(name.utf8) else { throw SourceFailure.versionChanged }
     }
 
     public static func supportsName(_ name: String) -> Bool {

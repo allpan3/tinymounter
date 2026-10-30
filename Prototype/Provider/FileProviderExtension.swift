@@ -436,8 +436,10 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             return modifyContents(item, baseVersion: version, changedFields: changedFields, contents: newContents,
                                   options: options, completion: completionHandler)
         }
-        if changedFields == .filename, newContents == nil, Self.kind(of: item) == .file {
-            return renameFile(item, baseVersion: version, completion: completionHandler)
+        let organization: NSFileProviderItemFields = [.filename, .parentItemIdentifier]
+        if !changedFields.isEmpty, changedFields.subtracting(organization).isEmpty,
+           newContents == nil, Self.kind(of: item) == .file {
+            return renameFile(item, baseVersion: version, changedFields: changedFields, completion: completionHandler)
         }
         let metadata: NSFileProviderItemFields = [.lastUsedDate, .contentModificationDate, .extendedAttributes]
         if newContents == nil, !changedFields.isEmpty, changedFields.subtracting(metadata).isEmpty {
@@ -479,6 +481,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
     }
 
     private func renameFile(_ item: NSFileProviderItem, baseVersion: NSFileProviderItemVersion,
+                            changedFields: NSFileProviderItemFields,
                             completion: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void) -> Progress {
         countMutation("modify", "result=file_rename")
         let progress = Progress(totalUnitCount: Int64.max)
@@ -493,13 +496,15 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 let content = String(data: baseVersion.contentVersion, encoding: .utf8)
                 let metadata = String(data: baseVersion.metadataVersion, encoding: .utf8)
                 catalogLogger.info("rename_base verified=\(content?.hasPrefix("e1:") == true) metadata=\(metadata.flatMap(Int64.init) != nil) editing=\(row.allowsEditing) parent=\(row.parentID == item.parentItemIdentifier.rawValue)")
-                guard row.allowsEditing, row.kind == .file, row.parentID == item.parentItemIdentifier.rawValue,
+                guard row.allowsEditing, row.kind == .file,
                       item.contentType?.conforms(to: .package) != true,
-                      let content, content.hasPrefix("e1:"), let metadata else {
+                      let content, let metadata else {
                     throw CocoaError(.fileWriteNoPermission)
                 }
                 let message = try FileRenameRequest(item: row.id, parent: item.parentItemIdentifier.rawValue,
-                                                    name: item.filename, contentVersion: content, metadataVersion: metadata)
+                                                    name: item.filename, contentVersion: content, metadataVersion: metadata,
+                                                    changesName: changedFields.contains(.filename),
+                                                    changesParent: changedFields.contains(.parentItemIdentifier))
                 let receipt = try sourceReader.renameFile(message, progress: progress)
                 progress.completedUnitCount = progress.totalUnitCount
                 finish(CatalogItem(try catalog.liveRow(receipt.item)), nil)

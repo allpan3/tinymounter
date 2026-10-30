@@ -26,14 +26,15 @@ enum UIText {
     static let confirmWriteSetup = "Confirm Write Access"
     static let writeRequirements = "Use write access only in folders where every program changes files through SMB. New files can be visible before upload finishes. Programs must leave tinymounter’s temporary save files alone. The original file is unavailable during a save. An interrupted save can leave it unavailable until recovery."
     static let incompleteWriteSetup = "Complete setup to edit and rename files. Existing creation access stays available."
-    static let writeModeHint = "Read only prevents changes to files on the server. Turn it off to create items, edit files and rename supported files. Moving, deleting and replacing items remain unavailable."
+    static let writeModeHint = "Read only prevents changes to files on the server. Turn it off to create items, edit files, and rename or move ordinary files within this location. Folder moves, deleting and replacing items remain unavailable."
     static let exportEdit = "Export Local Copy…"
     static let retryEdits = "Retry Pending Changes"
     static let editNeedsRecovery = "Save pending or needs recovery"
     static let retiredEdit = "Older save kept for recovery. It will not upload. Newer saves can continue."
     static let pendingStatusUnavailable = "Cannot read pending change status. Local copies are retained."
-    static let renameNeedsRecovery = "Rename pending or needs recovery. Keep this location until it finishes."
+    static let renameNeedsRecovery = "File change pending or needs recovery. Keep this location until it finishes."
     static func pendingRename(from: String, to: String) -> String { "Rename \(from) to \(to)" }
+    static func pendingMove(from: String, to: String) -> String { "Move \(from) to \(to)" }
     static let conflictSaved = "Saved as a conflict copy"
     static let writeGrantMessage = "Select the root of this share to confirm write access."
     static let pendingUploadHint = "Keep this location and its source until the changes finish. Pending content stays on this Mac. An interrupted change may need recovery."
