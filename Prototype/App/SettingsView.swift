@@ -583,7 +583,7 @@ private struct UploadStatus: View {
     @Bindable var model: AppModel
     @State private var count: Int?
     @State private var edits: [PendingEdit] = []
-    @State private var renames: [PendingFileRename] = []
+    @State private var renames: [RenameIntent] = []
     @State private var savedBytes: Int64 = 0
     @State private var statusUnavailable = false
 
@@ -605,9 +605,7 @@ private struct UploadStatus: View {
             }
             ForEach(renames, id: \.id) { rename in
                 VStack(alignment: .leading) {
-                    Text(rename.views.contains(where: { $0.targetParent != $0.parent })
-                         ? UIText.pendingMove(from: rename.oldName, to: rename.destination)
-                         : UIText.pendingRename(from: rename.oldName, to: rename.name))
+                    Text(description(rename))
                     Text(UIText.renameNeedsRecovery).font(.callout).foregroundStyle(.secondary)
                 }
             }
@@ -637,6 +635,20 @@ private struct UploadStatus: View {
                 }
                 try? await Task.sleep(for: .seconds(2))
             }
+        }
+    }
+
+    private func description(_ rename: RenameIntent) -> String {
+        switch rename {
+        case .file(let record):
+            return record.views.contains(where: { $0.targetParent != $0.parent })
+                ? UIText.pendingMove(from: record.oldName, to: record.destination)
+                : UIText.pendingRename(from: record.oldName, to: record.name)
+        case .folder(let record):
+            let moved = RelativePath(record.source)?.components.dropLast()
+                != RelativePath(record.destination)?.components.dropLast()
+            return moved ? UIText.pendingMove(from: record.oldName, to: record.destination)
+                : UIText.pendingRename(from: record.oldName, to: record.name)
         }
     }
 

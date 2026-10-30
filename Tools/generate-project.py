@@ -45,6 +45,7 @@ app_paths = ["Sources/TransferCore/FileRename.swift", "Sources/TransferCore/Cata
              "Sources/TransferCore/CatalogEdits.swift",
              "Sources/TransferCore/FolderCreation.swift",
              "Prototype/App/LocationUploads.swift", "Prototype/App/LocationFolderNaming.swift",
+             "Prototype/App/LocationFolderMoves.swift",
              "Prototype/App/TinyMounterApp.swift", "Prototype/App/SourceReaderHost.swift",
              "Prototype/App/DirectoryWatch.swift", "Sources/TransferCore/DirectoryRefresh.swift",
              "Prototype/App/SettingsStore.swift", "Prototype/App/ShareAccess.swift",

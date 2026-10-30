@@ -116,9 +116,9 @@ Directory parsing retains unsupported entries so a complete listing cannot mista
 absence. Native lookup checks compare full metadata and mount identity with the protected SMB
 objects. Historical e1 receipt selection remains the admission caller's responsibility.
 
-This adapter has no app or provider caller yet. Its native metadata queries while the root
-DELETE handle stays open require a signed VM check. No transport or dependency was added;
-the existing deletion adapter is unchanged. Required VM checks pass with 490 tests, one optional
+The app caller below is prepared; provider routing remains disabled. Native metadata queries
+while the root and descendant handles stay open require a signed VM check. No transport or
+dependency was added; the existing deletion adapter is unchanged. Required VM checks pass with 490 tests, one optional
 skip, no failures or Swift warnings, six encoder cases and 57 SMB-status cases. Evidence:
 `.local/phase4/m21-20261029/m22-recovery-adapter-checks.log`. This compiles the real adapter but
 does not exercise it against SMB; signed adapter and app checks remain.
@@ -132,6 +132,23 @@ warnings, six encoder cases and 57 SMB-status cases. Evidence:
 `.local/phase4/m21-20261029/m22-adapter-review-checks.log`. Signed SMB checks remain blocked
 by the fixture recovery described in the [restart report](2026-10-30-vm-graphics-interruption.md).
 
+## App integration preparation
+
+The app now has a folder-move entry point and retries durable folder intents. It checks
+configured location roots and pending recovery data, reserves both endpoints, then drains
+native reads and directory watches before admission. Verified files retain historical receipts;
+unverified files retain their existing content versions. Completion stores receipts before
+catalog updates and rewrites saved keep paths while the SMB protection remains held.
+
+Namespace checks, pending counts, recovery display and location removal now read the shared
+file/folder intent inventory. Edits to deleted catalog rows are refused. The first integrated
+candidate passed all required VM checks with 491 tests, one optional skip and no failures or
+Swift warnings, plus six encoder and 57 SMB-status cases (`m22-app-integration-checks.log`).
+An additional mixed-inventory regression awaits checks; source review is running.
+Provider routing and folder capabilities remain disabled;
+draining, protected native queries, local-copy invalidation and interruption recovery still
+need signed VM evidence.
+
 ## Saved keep paths
 
 Settings now has a caller-invoked folder-path rewrite for pending and saved Keep Downloaded
@@ -139,7 +156,8 @@ requests on the affected share. It moves the selected folder's request and typed
 preserves descendant spelling, and leaves other shares and neighboring names unchanged.
 Case and Unicode aliases use the existing NameKey comparison. The rewrite is idempotent and
 refuses overlapping or overlong destinations before changing Settings. There is no format
-change or runtime caller yet. Three focused tests cover aliases, typed descendants, replay,
-Settings reload and refusal without partial changes. All required VM checks pass with 475
+change. The prepared app caller applies this rewrite during completion. Three focused tests
+cover aliases, typed descendants, replay, Settings reload and refusal without partial changes.
+All required VM checks pass with 475
 tests, one optional skip, no failures or Swift warnings, six encoder cases and 57 SMB-status
 cases. Evidence: `.local/phase4/m21-20261029/m22-keeps-checks.log`.

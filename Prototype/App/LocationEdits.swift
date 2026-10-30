@@ -11,7 +11,7 @@ extension LocationSource {
 
     static func pendingWrites(domainID: String) throws -> Int {
         try outbox(domainID: domainID).pendingCount + editOutbox(domainID: domainID).pendingCount
-            + renameOutbox().pendingCount(domain: domainID)
+            + renameOutbox().pendingIntentCount(domain: domainID)
     }
 
     func establishUploadedEditBase(_ upload: PendingUpload, row: CatalogRow, bookmark: Data,
@@ -70,7 +70,8 @@ extension LocationSource {
                 try uploadLock.withLock {
                     guard !mutationsSuspended, writeBookmark != nil else { throw UploadError.readOnly }
                     let path = try withCatalog { catalog -> RelativePath in
-                        guard let row = try catalog.item(id: request.item), row.allowsEditing,
+                        // A retired folder-move binding is a tombstone; its old name may hold another object.
+                        guard let row = try catalog.item(id: request.item), !row.deleted, row.allowsEditing,
                               row.kind == .file, row.parentID == request.parent,
                               row.name == request.name,
                               let parent = try catalog.relativePath(of: request.parent),

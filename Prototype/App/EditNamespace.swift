@@ -11,6 +11,10 @@ final class EditNamespace: @unchecked Sendable {
         init(_ value: LocationSource) { self.value = value }
     }
     private var sources: [String: Source] = [:]
+    private var reservations: [UUID: [RelativePath]] = [:]
+    // Native range reads run outside `lock`, so their lifetimes are tracked under a separate condition.
+    private let reads = NSCondition()
+    private var activeReads: [UUID: RelativePath] = [:]
 
     static func key(_ mountFrom: String) -> String {
         guard let address = ShareAddress(mountFrom) else { return mountFrom.lowercased() }
@@ -69,9 +73,17 @@ final class EditNamespace: @unchecked Sendable {
 
     func perform<T>(_ operation: () throws -> T) rethrows -> T { try lock.withLock(operation) }
 
+    /// Every configured location root in this namespace, including locations without an open source.
+    func locationRoots() -> [RelativePath] { lock.withLock { Array(domains.values) } }
+
+    static func contains(_ ancestor: RelativePath, _ path: RelativePath) -> Bool {
+        path.components.count >= ancestor.components.count
+            && path.components.prefix(ancestor.components.count).map(NameKey.init) == ancestor.components.map(NameKey.init)
+    }
+
     func requireSettled(excluding rename: UUID? = nil) throws {
-        let pendingRenames = try LocationSource.renameOutbox().records().filter {
-            $0.isPending && $0.id != rename && $0.views.contains { domains[$0.domain] != nil }
+        let pendingRenames = try LocationSource.renameOutbox().intents().filter {
+            $0.isPending && $0.id != rename && $0.domains.contains { domains[$0] != nil }
         }
         guard pendingRenames.isEmpty else { throw UploadError.pendingWrites }
         for domain in domains.keys {
@@ -86,10 +98,18 @@ final class EditNamespace: @unchecked Sendable {
 
     func requireUncontested(path: RelativePath, excluding id: UUID,
                             retaining: (domain: String, item: String)? = nil) throws {
-        for record in try LocationSource.renameOutbox().records() where record.isPending && record.id != id {
-            guard !record.views.contains(where: { domains[$0.domain] != nil }) ||
-                (NameKey(record.source) != NameKey(path.string) && NameKey(record.destination) != NameKey(path.string)) else {
-                throw UploadError.pendingWrites
+        guard !isReserved(path) else { throw UploadError.pendingWrites }
+        for intent in try LocationSource.renameOutbox().intents() where intent.isPending && intent.id != id {
+            guard intent.domains.contains(where: { domains[$0] != nil }) else { continue }
+            switch intent {
+            case .file(let record):
+                guard NameKey(record.source) != NameKey(path.string),
+                      NameKey(record.destination) != NameKey(path.string) else { throw UploadError.pendingWrites }
+            case .folder(let record):
+                guard let source = RelativePath(record.source), let destination = RelativePath(record.destination),
+                      !Self.contains(source, path), !Self.contains(destination, path) else {
+                    throw UploadError.pendingWrites
+                }
             }
         }
         for (domain, folder) in domains {
@@ -100,6 +120,40 @@ final class EditNamespace: @unchecked Sendable {
                       NameKey(full.string) != NameKey(path.string) else {
                     throw UploadError.pendingWrites
                 }
+            }
+        }
+    }
+
+    // A folder move reserves both endpoints before draining, so no new read or watch starts below them.
+    func reserve(_ id: UUID, paths: [RelativePath]) { lock.withLock { reservations[id] = paths } }
+
+    func release(_ id: UUID) { lock.withLock { reservations[id] = nil } }
+
+    func isReserved(_ path: RelativePath) -> Bool {
+        lock.withLock { reservations.values.contains { $0.contains { Self.contains($0, path) } } }
+    }
+
+    /// Call inside `perform`; end it with `endRead` only after the descriptor has closed.
+    func beginRead(_ path: RelativePath) throws -> UUID {
+        guard !isReserved(path) else { throw UploadError.pendingWrites }
+        let id = UUID()
+        reads.withLock { activeReads[id] = path }
+        return id
+    }
+
+    func endRead(_ id: UUID) {
+        reads.withLock {
+            activeReads[id] = nil
+            reads.broadcast()
+        }
+    }
+
+    /// Waits without the namespace lock: a running transfer can still need it to record a change.
+    func drainReads(below paths: [RelativePath], timeout: Duration = .seconds(10)) throws {
+        let deadline = Date.now.addingTimeInterval(Double(timeout.components.seconds))
+        try reads.withLock {
+            while activeReads.values.contains(where: { path in paths.contains { Self.contains($0, path) } }) {
+                guard reads.wait(until: deadline) else { throw UploadError.pendingWrites }
             }
         }
     }
