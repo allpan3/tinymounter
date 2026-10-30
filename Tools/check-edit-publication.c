@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <sys/stat.h>
 #include <smb2/smb2.h>
 #include <smb2/libsmb2.h>
 #include <smb2/libsmb2-raw.h>
@@ -20,6 +21,19 @@ struct probe_reply {
 
 static _Thread_local uint32_t last_status;
 uint32_t probe_status(void) { return last_status; }
+
+int probe_native_info(const char *path, uint64_t values[5])
+{
+    struct stat info;
+    if (lstat(path, &info) < 0) return errno;
+    if (!S_ISREG(info.st_mode) && !S_ISDIR(info.st_mode)) return EINVAL;
+    values[0] = info.st_ino;
+    values[1] = info.st_size;
+    values[2] = (uint64_t)info.st_mtimespec.tv_sec * 1000000 + info.st_mtimespec.tv_nsec / 1000;
+    values[3] = (uint64_t)info.st_ctimespec.tv_sec * 1000000 + info.st_ctimespec.tv_nsec / 1000;
+    values[4] = (uint64_t)info.st_birthtimespec.tv_sec * 1000000 + info.st_birthtimespec.tv_nsec / 1000;
+    return 0;
+}
 
 static void done(struct smb2_context *smb, int status, void *data, void *context)
 {

@@ -231,7 +231,9 @@ and first disposable VM test session. Each implementation still has to pass its 
   and matching timestamps cannot distinguish an earlier replacement. The organization probe
   tests protected operations and recovery, but cannot supply that missing history. Binding a
   move to the object currently at the path would be a weaker boundary and needs a user decision;
-  it is not approved or implemented. Existing verified-file admission remains unchanged.
+  it is not approved or implemented. The [protocol results and concrete proposal](results/2026-10-29-file-organization-protocol.md#admission-decision)
+  retain full-content recovery and existing verified-file admission. All nine isolated protocol
+  cases pass, but cannot establish the missing history.
 
 - **Remaining milestones, accepted 2026-10-29.** The user requested one forward plan and
   approved parallel agents/worktrees. The [roadmap](roadmap.md) defines M21 to M28, completion
