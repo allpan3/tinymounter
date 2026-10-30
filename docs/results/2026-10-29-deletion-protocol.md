@@ -88,8 +88,9 @@ stops the current call, including failures after the durable write may have succ
 The core accepts caller-supplied evidence, a remote interface and atomic persistence callbacks.
 It adds no disk format, adapter, catalog mutation or File Provider capability. Endpoint binding,
 root and pending-write exclusions, older-reader refusal, recursive progress and UI remain
-integration work. The current-name selection exception approved for Rename/Move has not been
-extended to deleting unverified files.
+integration work. On 2026-10-30 the user extended current-name selection to unverified-file
+deletion: known details must match, and the admitted object must be protected and verified.
+Previously verified files retain historical checks. Recovery never targets a later replacement.
 
 Twenty-seven simulated-remote tests cover request/close/checkpoint interruption, stale callers,
 changed or replaced objects, incomplete listings, exact absence classification and arriving
