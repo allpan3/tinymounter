@@ -24,6 +24,7 @@ it wrong.
 
 ## Results logs
 
+- [Permanent-deletion protocol checks](results/2026-10-29-deletion-protocol.md) — deletion and eleven crash scenarios complete; concurrent attached data needs a decision, and lost replies remain unconfirmed.
 - [Pending-save ordering](results/2026-10-29-pending-save-order.md) — baseline bug reproduced and core fix passes 332 VM tests; signed workflows and remaining M23 work are open.
 - [SMB file organization checks](results/2026-10-29-file-organization-protocol.md) — nine protocol cases pass; admission of older catalog rows and signed Finder integration remain open.
 - [SMB rename request encoding](results/2026-10-29-smb-rename-encoding.md) — handle corruption reproduced and fixed; six packet checks and required VM checks pass.

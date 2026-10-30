@@ -226,6 +226,16 @@ and first disposable VM test session. Each implementation still has to pass its 
 
 ## 11. Open decisions for the first experiment
 
+- **M23 interrupted uploads.** The [ordering core](results/2026-10-29-pending-save-order.md)
+  passes 332 VM tests. Unknown or partial older artifacts still block successors under the
+  accepted policy. Allowing a newer save after durable retirement of the older publication,
+  while retaining its recovery data and visible unresolved status, is proposed and not enabled.
+- **M24 attached data during deletion.** The [VM probe](results/2026-10-29-deletion-protocol.md)
+  completed file/folder deletion and eleven crash scenarios. SMB permits adding streams under
+  a deny-all main-file handle. Deleting all attached data present at removal, including such
+  concurrent additions, needs a decision. Lost-reply absence remains unconfirmed as already
+  required. No app deletion capability is enabled.
+
 - **M21 admission for ordinary catalog rows.** Source review on 2026-10-29 found that legacy
   downloaded and never-downloaded rows lack historical server identity. Name-derived native IDs
   and matching timestamps cannot distinguish an earlier replacement. The organization probe
