@@ -173,6 +173,36 @@ screen sequences, 82 frames each, are in host results/m23-cleanup-20261030/{befo
 This does not establish low-space admission, stale callback delivery, lost cleanup replies,
 or offline editing, and does not complete M23.
 
+## Signed callback observation, 2026-10-30
+
+The prepared-save interruption recovered to the final TextEdit contents without a conflict.
+This single run establishes the observed sequence, not a general File Provider replay contract.
+Setup was macOS VM 1, macOS 27.0.1, the approved disposable loopback Samba fixture and the
+signed Currency archive with isolated trace and stop hooks. Cache state was uncontrolled;
+there is no performance claim.
+
+TextEdit saved A. The app stopped after durably preparing A and before publication; all five
+server files still matched their initial complete contents. The stopped task app was killed.
+TextEdit then saved B and C while the app remained absent. A Finder copy of the document
+matched C byte for byte before recovery. The provider recorded A, A, A, B, C and C callbacks;
+each staged copy matched its callback contents, and each completion reported unavailable.
+Only the first A reached app admission during that interval.
+
+On relaunch, the app first completed its retained A. A subsequent callback carried C, which
+became generation 2 and completed without conflict. The final server file matched C, with no
+extra files in the fixture folder. The app audit found both generations completed, zero pending
+saves, no retained payloads, unchanged item IDs and unchanged keep flags. The untouched neighbor
+and fixture marker matched their baseline full versions.
+
+Evidence is in the same private VM session: `m23-currency-prepared-stop2.json`,
+`m23-currency-after-{b,c}-state.json`, the Finder snapshot in `m23-before-recovery-c`,
+`m23-currency-prepared-recovery.jsonl` and `m23-prepared-complete-inspection/M23Currency`.
+The last directory contains the immutable callback events and final local/catalog/remote audits.
+Repeated equal contents do not identify an OS retry, and a completion trace precedes the
+completion call, not OS acknowledgement. Event uptime must not be sorted across the earlier
+VM reboot as though it were one clock epoch. Lost-publication replies and low-space admission
+remain separate checks.
+
 ## Verification and remaining work
 
 Tools/run-checks.sh passes on the integrated source including retirement: 336 tests, one optional native-fixture skip,

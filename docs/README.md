@@ -24,10 +24,10 @@ it wrong.
 
 ## Results logs
 
-- [VM graphics interruption during save checks](results/2026-10-30-vm-graphics-interruption.md) — no save checkpoint reached; synthetic server files unchanged, graphical checks blocked.
+- [VM graphics interruption during save checks](results/2026-10-30-vm-graphics-interruption.md) — the frozen attempt reached no save checkpoint; the approved restart and fixture recovery restored testing.
 - [Folder-move catalog and transaction preparation](results/2026-10-30-folder-move-catalog.md) — recovery and adapter pass required VM checks; runtime integration and signed checks remain.
 - [Permanent-deletion protocol checks](results/2026-10-29-deletion-protocol.md) — protocol and initial transaction-core checks pass; whole-object deletion is accepted and lost replies remain unconfirmed. App deletion is unavailable.
-- [Pending-save ordering](results/2026-10-29-pending-save-order.md) — baseline bug reproduced and core fix passes 332 VM tests; signed workflows and remaining M23 work are open.
+- [Pending-save ordering](results/2026-10-29-pending-save-order.md) — ordering, retained recovery and cleanup checks pass; a signed callback interruption reaches the final save. M23 remains incomplete.
 - [SMB file organization checks](results/2026-10-29-file-organization-protocol.md) — protocol, signed Finder moves, overlapping-view recovery and five app-API boundary cases pass; remaining M21 checks are open.
 - [SMB rename request encoding](results/2026-10-29-smb-rename-encoding.md) — handle corruption reproduced and fixed; six packet checks and required VM checks pass.
 - [Catalog preparation for file moves](results/2026-10-29-move-catalog.md) — migration and core checks pass; app integration and signed Finder moves remain unverified.
