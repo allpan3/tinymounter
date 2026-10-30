@@ -250,3 +250,13 @@ successful rename; process boundaries were clean exits. Child changes used the f
 backing disk. Finder callbacks, downloaded-copy invalidation, saved keeps, watch/read draining,
 real process crashes and ambiguous directory contents remain unverified. Folder capabilities
 remain disabled.
+
+## App-level probe preparation, 2026-10-30
+
+`Tools/check-folder-move-app.swift` calls the real `LocationSource.moveFolder` path with
+private catalogs and settings. Its companion Python driver prepares a bounded synthetic tree
+and checks the backing files between app processes. The suite covers read/watch draining,
+pending-write and root exclusions, overlapping catalogs, keeps, and recovery after an injected
+error following settings persistence. It does not enable provider capabilities or establish
+Finder behavior. Parent review corrected its intent-ID comparison and its assumption that
+the fixture's mapped SMB login was a macOS account. Compilation and execution are pending.
