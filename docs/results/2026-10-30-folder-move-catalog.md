@@ -169,3 +169,23 @@ cover aliases, typed descendants, replay, Settings reload and refusal without pa
 All required VM checks pass with 475
 tests, one optional skip, no failures or Swift warnings, six encoder cases and 57 SMB-status
 cases. Evidence: `.local/phase4/m21-20261029/m22-keeps-checks.log`.
+
+## Signed adapter attempt, 2026-10-30
+
+After fixture recovery, the signed helper passed its initial tree and full-content checks but
+deadlocked before renaming a folder. Its root-protection check opened a second production client
+in the same process. A process sample showed that call waiting on the transport's existing
+client mutex, which the first client holds until disconnect. The task app was stopped with
+the source still present and destination absent. This is a helper defect and supplies no
+completed folder-move evidence.
+
+The helper now pauses with the root protected while a separate process tests the competing
+open through the same production library. The driver must record the exact sharing-violation
+status before resuming the app. A second nested client in the collision case now reuses its
+existing client. Production transport and locking are unchanged. The corrected helper compiles
+in VM 1 without Swift diagnostics. It uses a new fixture and evidence directory; the earlier
+attempt remains intact.
+
+Evidence in `.local/phase4/m21-20261029`: `m22-adapter-gate.jsonl`,
+`m22-adapter-gate-sample.txt`, `m22-adapter-gate-deadlock.json` and `m22-adapter3-build.log`.
+The fixture is synthetic and cache state is uncontrolled. No performance claim follows.
