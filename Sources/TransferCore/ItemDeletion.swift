@@ -110,6 +110,12 @@ public struct PendingItemDeletion: Codable, Equatable, Sendable {
         try validate()
     }
 
+    init(id: UUID, path: RelativePath, selected: ItemDeletionEvidence, parents: [ItemDeletionParent],
+         state: State) throws {
+        try self.init(id: id, path: path, selected: selected, parents: parents)
+        self.state = state
+    }
+
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         let storedPath = try values.decode(String.self, forKey: .path)

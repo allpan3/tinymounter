@@ -211,3 +211,23 @@ registration were restored, both builds and all reports were retained, and only 
 synthetic subtree was removed. `m24-test-app-restored.json` and `m24-adapter-cleanup.json`
 record that cleanup. The broader approved fixture session remains open for other checks;
 its final removal and SMB-service restoration are still owed. The physical Mac was unchanged.
+
+## Durable recursive core, 2026-10-30
+
+The integrated deletion outbox and recursive transaction compile and pass all 22 new tests in
+macOS VM 1. The complete required checks also pass with 520 tests, one optional skip, the release
+CLI checks, the generated project, an unsigned app build without Swift warnings, six encoder
+cases and 57 SMB-status cases. Evidence is in `m24-core-tests.log` and `m24-core-checks.log`
+under the private session directory. These tests use temporary local storage and a simulated
+server. They make no SMB runtime or performance claim; cache state was uncontrolled.
+
+The outbox stores an immutable admitted tree and durable per-node progress. The tests cover
+child-before-parent processing, arriving and changed children, replacement objects, interrupted
+checkpoints, lost close replies, stop, replay, overlapping views and malformed storage. Each
+recursive node invokes the existing one-object transaction in a fresh simulated session.
+
+App traversal, catalog settlement, lifecycle and recovery controls remain to be connected.
+Compatibility guard paths still default to empty; the app's current readers do not yet recognize
+deletion guards. The guard tests simulate older decoders, not real older app builds. Independent
+source review is pending. No app caller can start a durable recursive deletion, and no Finder
+Delete capability is enabled. Signed recursive SMB and Finder checks remain required.
