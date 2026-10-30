@@ -4,9 +4,10 @@ A macOS app that brings a network disk, such as a NAS, into Apple's file system:
 
 Save recovery, 2026-10-30: signed TextEdit checks recovered from stops before publication and before its reply. A simulated mid-copy space failure preserved the earlier exportable save; the complete newer save uploaded after retry. Item IDs, server identities and keep flags survived, with no final pending copies or false conflicts. [The observed callbacks and limits are recorded](docs/results/2026-10-29-pending-save-order.md#signed-callback-observation-2026-10-30). Actual disk exhaustion and broader editor workflows remain unverified; M23 is incomplete.
 
-Folder-move source work, 2026-10-30: directory preflight and app integration pass all required VM
-checks, with 492 tests and one optional skip. [Source review is complete; signed runtime checks remain](docs/results/2026-10-30-folder-move-catalog.md#app-integration-preparation);
-Finder folder moves are still disabled.
+Folder moves, 2026-10-30: signed adapter checks pass for populated and case-only moves,
+destination collisions, lost-reply recovery and partial-catalog recovery. Two ambiguous-name
+cases could not run on the fixture. [Finder integration remains unverified and disabled](docs/results/2026-10-30-folder-move-catalog.md#signed-adapter-checks-2026-10-30).
+Required VM checks pass with 492 tests and one optional skip.
 
 Status, 2026-10-11: verified NAS-cold full downloads reached **183.3 MB/s versus 192.7 MB/s native SMB (95.1%)**; with the file in NAS RAM, **229.0 versus 247.2 MB/s (92.6%)**. Each condition has five matched pairs, server cache/disk-read evidence, and representative complete-file checksum verification. Fully downloaded local reads also pass, though an unexplained speed gap to a local APFS control remains. See [verified cache results](docs/results/2026-10-11-cache-states.md), [full-download attribution](docs/results/2026-10-11-full-download.md), and [range-delay diagnosis](docs/results/2026-10-11-provider-delay.md).
 
