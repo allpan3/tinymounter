@@ -128,7 +128,7 @@ public final class Catalog {
     /// `NSFileProviderItemIdentifier.rootContainer.rawValue`; core doesn't import FileProvider.
     public static let rootItemID = "NSFileProviderRootContainerItemIdentifier"
     static let maxDepth = 256
-    static let schemaVersion: Int64 = 6
+    static let schemaVersion: Int64 = 7
     // No real number of writes reaches it, so a writer's `seq += 1` can't overflow.
     static let maxLastSeq = Int64.max / 2
     private static let busyTimeoutMilliseconds = 2000
@@ -166,7 +166,18 @@ public final class Catalog {
         CREATE UNIQUE INDEX items_live_name ON items(parent_id, name_key) WHERE deleted = 0;
         CREATE INDEX items_kept ON items(row) WHERE keep = 1 AND deleted = 0;
         CREATE INDEX items_listing ON items(parent_id, enumeration_key, row) WHERE deleted = 0;
-        PRAGMA user_version = 6;
+        \(departuresSchema)
+        PRAGMA user_version = 7;
+        """
+
+    // One departure per item and former parent keeps repeated moves from growing history.
+    static let departuresSchema = """
+        CREATE TABLE departures (
+          item TEXT NOT NULL REFERENCES items(id),
+          parent TEXT NOT NULL REFERENCES items(id),
+          seq INTEGER NOT NULL,
+          PRIMARY KEY (item, parent));
+        CREATE INDEX departures_parent ON departures(parent, seq);
         """
 
     public let domainID: String
@@ -242,12 +253,16 @@ public final class Catalog {
                 try statement.bind(2, limit)
             }
         }
-        // The immutable enumeration key survives naming and tombstones.
-        let parent = try database.prepare("SELECT parent_id FROM items WHERE row = ?") { statement in
+        // The immutable enumeration key survives naming, moves and tombstones.
+        let placed = try database.prepare("""
+            SELECT 1 FROM items WHERE row = ?1
+              AND (parent_id = ?2 OR EXISTS (SELECT 1 FROM departures WHERE item = items.id AND parent = ?2))
+            """) { statement in
             try statement.bind(1, afterRow)
-            return try statement.step() && !statement.isNull(0) ? statement.text(0) : nil
+            try statement.bind(2, folderID)
+            return try statement.step()
         }
-        guard parent == folderID else { throw CatalogError.pageExpired }
+        guard placed else { throw CatalogError.pageExpired }
         return try items("""
             SELECT \(CatalogRow.columns) FROM items WHERE parent_id = ? AND deleted = 0
             AND (enumeration_key, row) > (SELECT enumeration_key, row FROM items WHERE row = ?)
@@ -282,7 +297,7 @@ public final class Catalog {
         CatalogCursor.anchor(epoch: epoch, changeSeq: try lastSeq())
     }
 
-    /// A short batch ends at `last_seq`, so an up-to-date anchor comes back unchanged.
+    // Departure sequences keep old-parent anchors independent of later item changes.
     public func changes(after anchor: Data, limit: Int, scope: ChangeScope = .all) throws -> ChangeBatch {
         precondition(limit > 0)
         return try database.read {
@@ -290,24 +305,35 @@ public final class Catalog {
             guard let since = CatalogCursor.anchorSeq(anchor, epoch: epoch, lastSeq: lastSeq) else {
                 throw CatalogError.anchorExpired
             }
-            let condition: String
+            let sql: String
             switch scope {
-            case .all: condition = ""
-            case .parent: condition = "AND parent_id = ?3"
-            case .item: condition = "AND id = ?3"
+            case .all:
+                sql = "SELECT \(CatalogRow.columns), change_seq AS event FROM items WHERE change_seq > ?1"
+            case .item:
+                sql = "SELECT \(CatalogRow.columns), change_seq AS event FROM items WHERE change_seq > ?1 AND id = ?3"
+            case .parent:
+                sql = """
+                    SELECT \(CatalogRow.columns), change_seq AS event FROM items
+                    WHERE change_seq > ?1 AND parent_id = ?3
+                    UNION ALL
+                    SELECT \(CatalogRow.columns), seq FROM departures JOIN items ON items.id = departures.item
+                    WHERE seq > ?1 AND parent = ?3
+                    """
             }
-            let rows = try items("""
-                SELECT \(CatalogRow.columns) FROM items WHERE change_seq > ?1 \(condition) ORDER BY change_seq LIMIT ?2
-                """) { statement in
+            let events = try database.prepare(sql + " ORDER BY event LIMIT ?2") { statement in
                 try statement.bind(1, since)
                 try statement.bind(2, limit)
                 switch scope {
                 case .all: break
                 case .parent(let id), .item(let id): try statement.bind(3, id)
                 }
+                var events: [(row: CatalogRow, seq: Int64)] = []
+                while try statement.step() { events.append((try CatalogRow(statement), statement.int64(19))) }
+                return events
             }
-            let moreComing = rows.count == limit
-            let end = moreComing ? rows[rows.count - 1].changeSeq : lastSeq
+            let rows = events.map { $0.row }
+            let moreComing = events.count == limit
+            let end = moreComing ? events[events.count - 1].seq : lastSeq
             return ChangeBatch(updated: rows.filter { !$0.deleted }, deletedIDs: rows.filter(\.deleted).map(\.id),
                                anchor: CatalogCursor.anchor(epoch: epoch, changeSeq: end), moreComing: moreComing)
         }

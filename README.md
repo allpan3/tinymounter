@@ -174,6 +174,12 @@ by daily-use and release validation. The user approved permanent deletion, paral
 worktrees, and the first disposable VM test session. Implementation is starting with M21 and
 M23; their safety gates and runtime checks are not yet passed. Installation is deferred.
 
+File-move catalog preparation, 2026-10-29: the catalog preserves item identity, versions and keeps
+across a proven move, and records departures for the old folder. Migration and core checks pass
+in VM 1: 294 tests, one optional skip, no failures or Swift warnings, and all required builds.
+The app does not call the move API yet; SMB safety and signed Finder checks remain. See the
+[catalog results](docs/results/2026-10-29-move-catalog.md).
+
 ## Run the prototype
 
 See [prototype setup and validation](docs/prototype.md). Build the benchmark with `swift build -c release`; run `.build/release/transfer-bench --help`. Open `TinyMounter.xcodeproj` to configure signing for the Finder prototype.
