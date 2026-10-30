@@ -437,9 +437,11 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                                   options: options, completion: completionHandler)
         }
         let organization: NSFileProviderItemFields = [.filename, .parentItemIdentifier]
+        let folderOrganization = SourceReaderBridge.folderOrganizationEnabled && Self.kind(of: item) == .folder
+            && (try? catalog.liveRow(item.itemIdentifier.rawValue).allowsEditing) == true
         if !changedFields.isEmpty, changedFields.subtracting(organization).isEmpty,
-           newContents == nil, Self.kind(of: item) == .file {
-            return renameFile(item, baseVersion: version, changedFields: changedFields, completion: completionHandler)
+           newContents == nil, Self.kind(of: item) == .file || folderOrganization {
+            return organizeItem(item, baseVersion: version, changedFields: changedFields, completion: completionHandler)
         }
         let metadata: NSFileProviderItemFields = [.lastUsedDate, .contentModificationDate, .extendedAttributes]
         if newContents == nil, !changedFields.isEmpty, changedFields.subtracting(metadata).isEmpty {
@@ -480,10 +482,10 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         return progress
     }
 
-    private func renameFile(_ item: NSFileProviderItem, baseVersion: NSFileProviderItemVersion,
+    private func organizeItem(_ item: NSFileProviderItem, baseVersion: NSFileProviderItemVersion,
                             changedFields: NSFileProviderItemFields,
                             completion: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void) -> Progress {
-        countMutation("modify", "result=file_rename")
+        countMutation("modify", Self.kind(of: item) == .folder ? "result=folder_move" : "result=file_rename")
         let progress = Progress(totalUnitCount: Int64.max)
         let once = Once()
         let finish = { (item: NSFileProviderItem?, error: Error?) in
@@ -496,7 +498,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 let content = String(data: baseVersion.contentVersion, encoding: .utf8)
                 let metadata = String(data: baseVersion.metadataVersion, encoding: .utf8)
                 catalogLogger.info("rename_base verified=\(content?.hasPrefix("e1:") == true) metadata=\(metadata.flatMap(Int64.init) != nil) editing=\(row.allowsEditing) parent=\(row.parentID == item.parentItemIdentifier.rawValue)")
-                guard row.allowsEditing, row.kind == .file,
+                guard row.allowsEditing, row.kind == .file || SourceReaderBridge.folderOrganizationEnabled,
                       item.contentType?.conforms(to: .package) != true,
                       let content, let metadata else {
                     throw CocoaError(.fileWriteNoPermission)
@@ -505,7 +507,9 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                                                     name: item.filename, contentVersion: content, metadataVersion: metadata,
                                                     changesName: changedFields.contains(.filename),
                                                     changesParent: changedFields.contains(.parentItemIdentifier))
-                let receipt = try sourceReader.renameFile(message, progress: progress)
+                let receipt = try row.kind == .folder
+                    ? sourceReader.moveFolder(message, progress: progress)
+                    : sourceReader.renameFile(message, progress: progress)
                 progress.completedUnitCount = progress.totalUnitCount
                 finish(CatalogItem(try catalog.liveRow(receipt.item)), nil)
             } catch {

@@ -269,6 +269,18 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
         } catch { reply(nil, Self.mutationError(error)) }
     }
     func renameFile(_ data: Data, reply: @escaping (Data?, NSError?) -> Void) {
+        organize(data, folder: false, reply: reply)
+    }
+
+    func moveFolder(_ data: Data, reply: @escaping (Data?, NSError?) -> Void) {
+        guard SourceReaderBridge.folderOrganizationEnabled else {
+            reply(nil, CocoaError(.fileWriteNoPermission) as NSError)
+            return
+        }
+        organize(data, folder: true, reply: reply)
+    }
+
+    private func organize(_ data: Data, folder: Bool, reply: @escaping (Data?, NSError?) -> Void) {
         do {
             let request = try ReaderMessage.decode(FileRenameRequest.self, from: data)
             guard let source else { throw LocationError.catalogClosed }
@@ -281,14 +293,17 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
             }
             guard accepted else { throw CocoaError(.fileReadUnknown) }
             let timer = progressTimer(request.id, job)
-            source.renameFile(request, progress: job.progress, started: { [weak self] in
+            let started: @Sendable () -> Void = { [weak self] in
                 try? self?.registration()?.started(ReaderMessage.encode(SourceReadStarted(id: request.id)))
-            }) { [self] result in
+            }
+            let finish: @Sendable (Result<CreateReceipt, Error>) -> Void = { [self] result in
                 timer.cancel()
                 lock.withLock { jobs[request.id] = nil }
                 do { reply(try ReaderMessage.encode(result.get()), nil) }
                 catch { reply(nil, Self.mutationError(error)) }
             }
+            if folder { source.moveFolder(request, progress: job.progress, started: started, reply: finish) }
+            else { source.renameFile(request, progress: job.progress, started: started, reply: finish) }
         } catch { reply(nil, Self.mutationError(error)) }
     }
 

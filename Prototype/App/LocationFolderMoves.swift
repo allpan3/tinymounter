@@ -1,8 +1,9 @@
 import Darwin
 import Foundation
 import OSLog
+import UniformTypeIdentifiers
 
-/// M22 folder rename and move. No provider callback routes here until the signed gate passes.
+/// M22 folder rename and move; provider routing stays gated until the signed Finder checks pass.
 extension LocationSource {
     private static let folderMoveLog = Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
 
@@ -94,6 +95,9 @@ extension LocationSource {
                   let relative = try catalog.relativePath(of: row.id), let path = folder.appending(relative),
                   let target = try catalog.relativePath(of: parent.id)?.appending(request.name),
                   let destination = folder.appending(target) else { throw SourceFailure.versionChanged }
+            guard ![row.name, request.name].contains(where: {
+                UTType(filenameExtension: ($0 as NSString).pathExtension)?.conforms(to: .package) == true
+            }) else { throw UploadError.readOnly }
             try request.validateUnchangedFields(in: row)
             guard target.components.count <= relative.components.count || !EditNamespace.contains(relative, target) else {
                 throw UploadError.invalidRequest
