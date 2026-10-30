@@ -5,6 +5,9 @@ Date: 2026-10-23. Decision status: accepted. M18 starts phase 4 of
 and folders, then adds editing and conflict handling in later milestones. The remaining phase 3
 checks are still open; starting this design does not mark them passed.
 
+The [remaining roadmap](roadmap.md) proposes the full sequence after M20 and its parallel
+workstreams. New scopes remain proposed; the accepted M18 to M20 contracts below still apply.
+
 Native upload decision, 2026-10-23: the user accepted exclusive creation through native SMB.
 Other devices can see a new file while it uploads, including a partial file after interruption.
 Keep the complete local pending copy until remote completion is verified. Existing destinations
@@ -559,3 +562,113 @@ and opt-in enforcement, interaction with pending saves, overlapping locations, r
 and preserved IDs, keeps, downloads and pagination. Include migrations if persistent formats
 change. Record matched before/after Finder actions, run Tools/run-checks.sh in the VM, and update
 the affected docs, results log and README in the implementation commits.
+
+## M21: organize ordinary files
+
+Date: 2026-10-29. Decision status: proposed. The [remaining roadmap](roadmap.md) expands the
+earlier verified-file move proposal to online rename and move for ordinary files, including
+files never downloaded. The identity gate below is part of this milestone. Scope acceptance
+and a fresh disposable VM fixture are pending. M20 remains the verified development build;
+the physical Mac still runs M19. Installation is deferred.
+
+### What the user gets
+
+Rename an ordinary file or move it between existing folders in Finder, for example from Inbox
+to Archive within the same location. Keep its contents, permissions, attached data, item ID
+and downloaded copy. An explicit Keep Downloaded request follows the file. Retention inherited
+from a folder follows the destination folder's setting; moving does not explicitly evict a
+downloaded copy. Use the existing write mode, without another feature switch.
+
+Existing M19 verified revisions provide the first implementation path. Completion also needs
+safe admission of never-downloaded files and legacy downloaded copies, without silently hydrating
+or evicting those copies. The move may include a new filename, but cannot include changed contents.
+Refuse a destination collision without overwriting or automatically choosing another name.
+Pending uploads, edits or renames involving either path must settle first. Read-only access
+remains enforced. Folder moves belong to M22. Moves between locations or shares, deletion,
+Replace, offline moves and combined move/content saves remain outside M21.
+
+For overlapping locations, initially allow only moves whose old and new paths remain within
+the same set of registered location roots. Every affected catalog must be available and able
+to represent both parents. A move that crosses another location's boundary is refused before
+remote mutation. This keeps each location's existing item ID and downloads intact; entering or
+leaving an overlapping location needs a later identity and retention design.
+
+### Publication and recovery
+
+First prove how fresh catalog observation binds a selected ordinary file to a protected server
+object without mistaking a replacement for the prior item. An old downloaded copy, a fresh
+pathname lookup or matching timestamps alone cannot establish that binding. Preserve existing
+IDs and cached contents through the transition; use verified byte comparisons where needed.
+If this cannot meet the safety contract, report the failed gate before narrowing the milestone.
+
+Extend the protected rename transaction to include the source and destination parents. Resolve
+both from catalog item IDs, validate them against fresh listings, and hold both ancestor chains
+against deletion or replacement. Capture the server identities of the protected directories
+at admission and retain them with the operation. Native pathname-derived inodes alone cannot
+prove parent identity after interruption. If a selected parent cannot be bound to the protected
+directory without guessing, refuse the move. This does not add general external-rename matching.
+
+Check the original file's server identity and complete contents against its established revision.
+Durably record both paths, parent identities and all affected catalog views before one SMB
+handle rename with replacement disabled. The server moves the original object; no payload
+upload, copy/delete fallback or permission rewriting is allowed. Unsupported cross-filesystem
+or server behavior must fail clearly.
+
+Verify the destination's exact name, original file identity and complete contents before
+committing local success. Update parent, name and native lookup metadata under the original
+item ID, preserve its content version and enumeration key, and recompute inherited retention.
+Each catalog updates the move atomically. Deliver departure to the old parent's enumerator and
+arrival to the new one, then signal the working set without deleting/recreating the global item.
+The current change query filters on the row's current parent, so signaling both folders alone
+is insufficient. A durable receipt covers partial completion across catalogs and repeated
+provider callbacks.
+
+After interruption, revalidate the recorded directories as well as both file paths. Complete
+only when the destination proves the original object and contents. Retry only when the original
+still exists at the source and the recorded destination remains safe. A renamed or replaced
+parent, changed source or ambiguous result retains the pending intent and reports the problem.
+Never infer success just because the old path is absent, move another object's contents, or
+undo a competing client's change. Pending work protects both paths and blocks source changes,
+write-mode revocation and removal of every affected location.
+
+Keep M20's existing pending and completed receipts readable. If the persistent contract expands,
+migrate it without resetting locations, item IDs, keeps or downloads, and make older writers
+refuse state whose pending moves they cannot honor. Add a format change only for that concrete
+compatibility need.
+
+### Transport and acceptance gates
+
+Source inspection found that the existing SMB rename wrapper accepts a destination path and
+sets replacement to false. The provider and durable intent deliberately reject a changed parent,
+and the catalog commit updates only the name. The VM's installed File Provider SDK exposes
+allowsReparenting for moving an item between folders. These establish an implementation route,
+not a runtime result. Cross-folder publication, ordinary-file admission and directory recovery
+identities remain untested. The current rename path hashes complete contents repeatedly; no
+large-file move performance result is claimed. Metadata-only recovery after losing protection
+is not an approved substitute. Any reduction of the content-verification guarantee needs its
+own evidence and decision.
+
+This proposal expands libsmb2 use to user-requested cross-folder moves and the protected parent
+identity queries needed for recovery. It adds no dependency or server component. The existing
+requirement that files change only through SMB still applies. Native reads and file uploads,
+macOS-managed credentials, encryption and existing licence obligations remain.
+First prove that cross-folder rename preserves original identity, complete contents, live
+permissions and attached streams, including between folders with different permissions. Check
+destination races, denied access, source changes, replacement of either parent and interruption
+before and after server completion. A failed safety gate requires a decision before app integration.
+
+Then verify normal signed Finder Rename, drag and Move Item Here for verified, legacy downloaded
+and never-downloaded files. Cover repeated moves, collisions, read-only refusal, pending-save
+exclusion, both explicit and inherited keeps, overlapping locations, pagination and interrupted
+recovery. Include same-size/timestamp changes and identical-byte replacement. Compare item IDs,
+local and remote identities and full downloaded bytes before and after, including an untouched
+neighbor. Record matched M20/M21
+workflows and run Tools/run-checks.sh in macOS VM 1.
+
+The requested fixture is a new session of the disposable loopback-only Samba setup used for
+M20, with synthetic files, temporary dependencies and a private disposable Keychain credential.
+Do not create a macOS account, alter Apple's sharing settings, restart a shared daemon or VM,
+or cut the network. Snapshot affected state, then remove task-owned server processes, mounts,
+data, credentials, dependencies, apps/windows and obsolete builds; verify restoration and keep
+useful evidence. The original NAS stays read-only. No physical-Mac installation, push,
+publication or merge is included.
