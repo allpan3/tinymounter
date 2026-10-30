@@ -89,3 +89,16 @@ and accidentally move a file back after another view moved it. The provider now 
 changed fields to app admission, which refuses mismatches in fields the user did not change.
 Matching durable intents still replay before new admission. Core regressions cover both a stale
 parent on rename and a stale name on move; signed overlapping-view checks remain.
+
+The first signed Finder rename of a never-downloaded file initially returned serverUnreachable,
+then recovered automatically and renamed the server object. Admission opened a protected SMB
+connection, persisted its evidence, then released that connection before opening another for
+publication. The fixture's roughly 20 s authentication exceeded the unchanged 15 s health
+threshold, so the second session admission failed. Initial publication now keeps the admission
+connection and guards. Recovery still opens a fresh connection and revalidates recorded evidence.
+Required checks and the signed repeated rename and cross-folder Move Item Here pass after this
+correction. The moved file retains its server identity and complete contents; the neighbor is
+unchanged. The next case-only rename exposed a second delete-capable handle against the same
+object and returned ETXTBSY before mutation. Case-only admission now releases that file handle
+before the transaction reopens and fully revalidates it; parent guards and the connection stay
+held. This follow-up awaits the next required checks and signed run.
