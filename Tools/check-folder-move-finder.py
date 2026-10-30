@@ -86,6 +86,13 @@ Run sequence
   the hashing thread before lstat/open/full SHA-256. Dataless/unreadable files
   remain explicitly unverified. No snapshot downloads a file to make it pass.
 
+  If VM command access cannot read the app group, use Finder to copy the entire
+  channel into SESSION/m22-finder-captured-LABEL/. Pass its copied path with
+  --channel-copy for request or audit, retaining --channel as the original path.
+  A request is then written only into that copy; copy the new request file back
+  with Finder. For audit, take a new complete copy after the result is captured.
+  Keep the earlier copy separately; never overwrite evidence or bypass privacy.
+
   Capture baseline, then do exactly these parent-operated gestures in order:
     renamed          rename Source/Tree to Renamed
     moved            move Source/Renamed into Dest, preserving its name
@@ -254,6 +261,12 @@ def channel(args):
     path = Path(args.channel)
     require(path.is_absolute() and path.parent.parent == GROUPS
             and path.name == "M22Finder-" + args.run, "task-app-group-channel")
+    if args.channel_copy:
+        copied = Path(args.channel_copy)
+        require(copied.is_absolute() and copied.parent.parent == SESSION
+                and copied.parent.name == "m22-finder-captured-" + args.label
+                and copied.name == path.name, "task-Finder-channel-copy")
+        path = copied
     info = checked_directory(path)
     require(info.st_uid == user.pw_uid and stat.S_IMODE(info.st_mode) == 0o700, "private-channel-owner")
     config = load(path / "config.json")
@@ -594,6 +607,7 @@ def main():
             command.add_argument("--fixture-inode", type=int, required=True)
         if name != "prepare":
             command.add_argument("--channel", required=True)
+            command.add_argument("--channel-copy")
             command.add_argument("--label", choices=STAGES, required=True)
     args = parser.parse_args()
     try:
