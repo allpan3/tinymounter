@@ -58,6 +58,65 @@ final class UploadTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: retained), payload)
     }
 
+    func testIncompleteLocalPreparationCanBeRemovedAfterInterruption() throws {
+        let request = try CreateRequest(template: UUID().uuidString, parent: Catalog.rootItemID,
+                                        name: "new.bin", kind: .file, staging: nil)
+        XCTAssertThrowsError(try outbox.prepare(request, path: XCTUnwrap(RelativePath("new.bin")), contents: input,
+                                               progress: Progress()) { _ in throw CocoaError(.fileWriteOutOfSpace) })
+        let record = try XCTUnwrap(outbox.records().first)
+        let staged = root.appending(path: "pending/\(record.id.uuidString).data")
+        XCTAssertLessThan(try Data(contentsOf: staged).count, payload.count)
+        outbox = try UploadOutbox(directory: root.appending(path: "pending"))
+        XCTAssertFalse(try outbox.recoverLocalPreparation(record.id, size: record.size, digest: record.digest))
+        XCTAssertFalse(try outbox.recoverLocalPreparation(record.id, size: record.size, digest: record.digest))
+        XCTAssertEqual(try outbox.pendingCount, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staged.path))
+        XCTAssertEqual(try Data(contentsOf: input), payload)
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: remote.path).isEmpty)
+    }
+
+    func testCompletePayloadSurvivesLostStagingStateAndReplayWithoutAnotherCopy() throws {
+        var record = try prepared()
+        let staged = root.appending(path: "pending/\(record.id.uuidString).data")
+        let original = try ReadOnlyFile(url: staged).snapshot
+        record.state = .staging
+        try outbox.save(record)
+        let request = try CreateRequest(template: record.template, parent: record.parent,
+                                        name: record.name, kind: record.kind, staging: nil)
+        let replay = try outbox.prepare(request, path: XCTUnwrap(RelativePath(record.path)), contents: input,
+                                       progress: Progress()) { _ in throw CocoaError(.fileWriteOutOfSpace) }
+        XCTAssertEqual(replay.state, .prepared)
+        XCTAssertEqual(try ReadOnlyFile(url: staged).snapshot.inode, original.inode)
+        record.state = .staging
+        try outbox.save(record)
+        XCTAssertTrue(try outbox.recoverLocalPreparation(record.id, size: record.size, digest: record.digest))
+        XCTAssertEqual(try outbox.records().first?.state, .prepared)
+        XCTAssertEqual(try Data(contentsOf: staged), payload)
+        XCTAssertEqual(try ReadOnlyFile(url: staged).snapshot.inode, original.inode)
+    }
+
+    func testLocalPreparationRecoveryRetainsPreparedAndUncertainPayloads() throws {
+        var record = try prepared()
+        let staged = root.appending(path: "pending/\(record.id.uuidString).data")
+        XCTAssertEqual(chmod(staged.path, 0o600), 0)
+        try Data("short".utf8).write(to: staged)
+        XCTAssertThrowsError(try outbox.recoverLocalPreparation(record.id, size: record.size, digest: record.digest))
+        XCTAssertEqual(try Data(contentsOf: staged), Data("short".utf8))
+        record.state = .attempting
+        try outbox.save(record)
+        XCTAssertThrowsError(try outbox.recoverLocalPreparation(record.id, size: record.size, digest: record.digest))
+        XCTAssertEqual(try outbox.records().first?.state, .attempting)
+        record.state = .staging
+        try outbox.save(record)
+        let changed = Data(repeating: 7, count: payload.count)
+        try changed.write(to: staged)
+        XCTAssertThrowsError(try outbox.recoverLocalPreparation(record.id, size: record.size, digest: record.digest))
+        XCTAssertEqual(try Data(contentsOf: staged), changed)
+        try FileManager.default.removeItem(at: root.appending(path: "pending/\(record.id.uuidString).json"))
+        XCTAssertThrowsError(try outbox.recoverLocalPreparation(record.id, size: record.size, digest: record.digest))
+        XCTAssertEqual(try Data(contentsOf: staged), changed)
+    }
+
     func testRemovalKeepsPendingDataAndDeletesOnlyCompletedReceipts() throws {
         var record = try prepared()
         XCTAssertThrowsError(try outbox.removeIfCompleted())
