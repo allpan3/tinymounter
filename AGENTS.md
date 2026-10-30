@@ -69,6 +69,12 @@ Never break these without an explicit task to do so.
   their folder. Its single write mode defaults on for new locations after scoped access and
   safety confirmation; existing read-only locations remain read-only. Agent tests still use
   only the approved disposable VM fixture. Moves, general deletion and replacement stay denied.
+  The user accepted the [remaining roadmap](docs/roadmap.md) on 2026-10-29, authorizing M21
+  through M28 in dependency order after their protocol gates. This includes ordinary-file and
+  folder organization, pending-save recovery, permanent deletion without a custom Trash,
+  safe replacement and bounded offline editing. These remain denied in the current build until
+  implemented and verified. The first disposable VM protocol session is approved; subsequent
+  sessions need fresh approval. Installation and publication remain separate decisions.
 - **Never present incomplete data as complete.** An uncached range fails clearly and is never filled
   with zeroes. A requested pin is not "available offline" until the download is verified.
 - **No secrets in the repo, logs or chat.** Credentials go through Keychain or the user's own Finder
