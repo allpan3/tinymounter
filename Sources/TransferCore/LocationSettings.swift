@@ -263,6 +263,45 @@ public struct SavedKeepList: Codable, Equatable, Sendable {
 }
 
 extension AppSettings {
+    public mutating func moveKeptFolder(from source: String, to destination: String, host: String, share: String) throws {
+        guard let sourcePath = RelativePath(source), !sourcePath.isRoot,
+              let destinationPath = RelativePath(destination), !destinationPath.isRoot else {
+            throw UploadError.invalidRequest
+        }
+        let prefix = sourcePath.components.map(NameKey.init)
+        guard destinationPath.components.count <= prefix.count
+            || destinationPath.components.prefix(prefix.count).map(NameKey.init) != prefix else {
+            throw UploadError.invalidRequest
+        }
+        guard destinationPath.components.count >= prefix.count
+            || Array(prefix.prefix(destinationPath.components.count)) != destinationPath.components.map(NameKey.init) else {
+            throw UploadError.invalidRequest
+        }
+        func moved(_ paths: [KeepPath]) throws -> [KeepPath] {
+            var seen: Set<KeepPath> = []
+            return try paths.map { keep in
+                guard let path = RelativePath(keep.path) else { throw UploadError.invalidRequest }
+                guard path.components.count >= prefix.count,
+                      path.components.prefix(prefix.count).map(NameKey.init) == prefix,
+                      path.components.count > prefix.count || keep.kind == .folder else { return keep }
+                let suffix = path.components.dropFirst(prefix.count)
+                guard let target = RelativePath((destinationPath.components + Array(suffix)).joined(separator: "/")) else {
+                    throw UploadError.invalidRequest
+                }
+                return KeepPath(path: target.string, kind: keep.kind)
+            }.filter { seen.insert($0).inserted }
+        }
+        var updated = self
+        let related = Set(shares.filter { ServerGrant.isSameShare($0.host, $0.share, host, share) }.map(\.id))
+        for index in locations.indices where related.contains(locations[index].serverID) {
+            updated.locations[index].pendingKeeps = try moved(locations[index].pendingKeeps)
+        }
+        for index in savedKeeps.indices where savedKeeps[index].isFor(host: host, share: share) {
+            updated.savedKeeps[index].paths = try moved(savedKeeps[index].paths)
+        }
+        self = updated
+    }
+
     public mutating func moveKeptFile(from source: String, to destination: String, host: String, share: String) throws {
         guard let sourcePath = RelativePath(source), !sourcePath.isRoot,
               let destinationPath = RelativePath(destination), !destinationPath.isRoot else {
