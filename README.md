@@ -199,12 +199,13 @@ Pending saves (M23), 2026-10-29: a focused VM regression reproduces an older sav
 while a newer complete copy waits. The core fix and retirement pass required checks. A signed
 app update recovered an interrupted upload, published the latest TextEdit save and kept the
 older copy exportable. Recovery cleanup and clearer status reporting pass all required VM
-checks, including 373 tests with one optional skip and no failures or Swift warnings. Their
-signed workflows and storage checks remain. See the
+checks, including 373 tests with one optional skip and no failures or Swift warnings. Signed
+retained-save cleanup and export now pass; storage admission checks remain. See the
 [ordering results](docs/results/2026-10-29-pending-save-order.md).
 The 2026-10-30 follow-up extends uncertain-removal retention to already published saves and
 corrects cleanup handle lifetime. All required VM checks pass, including 404 tests with one
-optional skip and no failures or Swift warnings; signed checks remain.
+optional skip and no failures or Swift warnings. Signed cleanup, a subsequent TextEdit save
+and app restart pass with unchanged item identity and keeps; M23 remains incomplete.
 
 Deletion protocol (M24), 2026-10-29: the disposable VM probe completed deletion, competing-access
 and eleven crash scenarios, then cleaned up its test subtree. The user accepted deleting the
