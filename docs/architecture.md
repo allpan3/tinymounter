@@ -226,22 +226,24 @@ and first disposable VM test session. Each implementation still has to pass its 
 
 ## 11. Open decisions for the first experiment
 
-- **M23 interrupted uploads.** The [ordering core](results/2026-10-29-pending-save-order.md)
+- **M23 interrupted uploads, accepted 2026-10-29.** The [ordering core](results/2026-10-29-pending-save-order.md)
   passes 332 VM tests. Unknown or partial older artifacts still block successors under the
-  accepted policy. Allowing a newer save after durable retirement of the older publication,
-  while retaining its recovery data and visible unresolved status, is proposed and not enabled.
-- **M24 attached data during deletion.** The [VM probe](results/2026-10-29-deletion-protocol.md)
+  previous policy. The user now permits a newer save after durably preventing an older save
+  from publishing, provided it is proved not to have started changing the original. Retain its
+  uncertain artifacts and local copy, visible and exportable. Implementation remains pending.
+- **M24 attached data during deletion, accepted 2026-10-29.** The [VM probe](results/2026-10-29-deletion-protocol.md)
   completed file/folder deletion and eleven crash scenarios. SMB permits adding streams under
   a deny-all main-file handle. Deleting all attached data present at removal, including such
-  concurrent additions, needs a decision. Lost-reply absence remains unconfirmed as already
+  concurrent additions, is accepted. Lost-reply absence remains unconfirmed as already
   required. No app deletion capability is enabled.
 
-- **M21 admission for ordinary catalog rows.** Source review on 2026-10-29 found that legacy
+- **M21 admission for ordinary catalog rows, accepted 2026-10-29.** Source review found that legacy
   downloaded and never-downloaded rows lack historical server identity. Name-derived native IDs
   and matching timestamps cannot distinguish an earlier replacement. The organization probe
   tests protected operations and recovery, but cannot supply that missing history. Binding a
-  move to the object currently at the path would be a weaker boundary and needs a user decision;
-  it is not approved or implemented. The [protocol results and concrete proposal](results/2026-10-29-file-organization-protocol.md#admission-decision)
+  move to the object currently at the path, after matching known details and establishing
+  protected identity/content evidence, is accepted but not yet implemented. An indistinguishable
+  prior replacement may therefore be moved. The [protocol results and accepted boundary](results/2026-10-29-file-organization-protocol.md#admission-decision)
   retain full-content recovery and existing verified-file admission. All nine isolated protocol
   cases pass, but cannot establish the missing history.
 

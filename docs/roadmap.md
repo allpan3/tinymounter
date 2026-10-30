@@ -64,8 +64,11 @@ fallback, permission rewrite or automatic movement of configured roots is includ
 
 First reproduce the repeated-save ordering issue below. Add a durable per-file order and retain
 the latest fully staged generation. Earlier local-only generations can be consolidated after
-the newer copy is durable; this is not a history-of-every-save feature. Resolve any operation
-that may have reached the server before publishing a successor. A conflict must contain the
+the newer copy is durable; this is not a history-of-every-save feature. Resolve any publication
+that may have changed the original before publishing a successor. Accepted on 2026-10-29:
+an older save proved not to have started changing the original may be durably prevented from
+publishing, allowing a newer save to continue. Keep its uncertain temporary files and local
+copy visible and exportable; retirement does not authorize their deletion. A conflict must contain the
 latest accepted local contents, without treating the app's own earlier save as another device's
 edit. Retry on reconnect needs explicit evidence rather than reliance on untested system replay.
 
@@ -86,7 +89,9 @@ Deleting removes the selected file's contents and attached data from the server 
 views. A server's own backups or recycle bin are outside tinymounter's guarantee. The UI must
 make that permanent effect clear; Finder's actual warning and callback behavior is a protocol/UI
 gate. Do not advertise Move to Trash or Put Back without implementing their different semantics.
-The user accepted this product choice with the roadmap on 2026-10-29.
+The user accepted this product choice with the roadmap on 2026-10-29. The user also accepted
+that Delete removes attached data added by another device while deletion is underway. SMB
+cannot exclude that race. Main-content protection and visibly unconfirmed lost replies remain.
 
 Start implementation with ordinary files and empty directories; the milestone also includes
 populated-folder deletion so users can finish normal cleanup. Resolve selected-object identity
@@ -155,9 +160,9 @@ install, notarize, publish or buy a developer account.
 
 Current protocol evidence: [file organization](results/2026-10-29-file-organization-protocol.md)
 and [permanent deletion](results/2026-10-29-deletion-protocol.md). Their operation checks pass,
-but initial identity admission and concurrent attached data still need decisions. These probes
+with current-object admission and whole-file deletion boundaries accepted on 2026-10-29. These probes
 enable no Finder capability. The [M23 ordering core](results/2026-10-29-pending-save-order.md)
-passes required VM checks; remaining recovery policy and signed workflows are open.
+passes required VM checks; the accepted retirement policy and signed workflows still need implementation.
 
 M18 creation, M19 same-object editing and M20 verified-file renaming have signed VM evidence.
 M20 is the development baseline; the physical Mac runs M19. Existing read-only locations stay
@@ -173,9 +178,11 @@ IDs, keep requests and downloads except when the user explicitly requests their 
 ## Dependencies found in the review
 
 File and folder operations need identities that remain meaningful after a pathname changes.
-M20 has that evidence for fully verified files, but ordinary catalog rows and selected parent
-folders still need a proven binding to protected server objects. Solve that once before
-broadening rename, move or delete. A fresh lookup of the same name alone is not enough.
+M20 has historical evidence for fully verified files. For ordinary catalog rows and selected
+parents, the user accepted binding to the objects currently at the selected paths on 2026-10-29.
+Known details must match; protected identity and complete-content evidence govern the operation
+and recovery. An earlier replacement with indistinguishable details may be moved. Preserve
+the evidence level of local copies; verified files retain their stricter historical checks.
 
 Queued saves need their own ordering rule. A [VM regression](results/2026-10-29-pending-save-order.md)
 reproduced the baseline publishing an older save while a newer complete local copy waited.
@@ -185,8 +192,10 @@ This is core regression evidence, not a signed Finder or offline-editing result.
 
 Do not solve ordering by discarding uncertain transactions. A missing remote identity does not
 prove no remote request was sent. Consolidation is safe only when a complete newer local copy
-is durable and the older operation is proven never to have started a remote mutation. Operations
-that may have reached the server must be resolved first. A failed new save must leave the last
+is durable and the older operation is proven never to have started a remote mutation. An older
+save that touched only its temporary files can instead be durably retired with those files and
+its local copy retained. Operations that may have changed the original must resolve first.
+A failed new save must leave the last
 durable save available, including its document metadata.
 
 These dependencies justify two implementation tracks: identity and organization, and pending

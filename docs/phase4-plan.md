@@ -655,8 +655,11 @@ identities, full bytes, permission and stream preservation, collisions, replacem
 interrupted publication. A passing protocol run alone cannot prove the
 historical identity of a legacy catalog row: those rows have no recorded server identity, and
 native lookup IDs can be derived from names. A replacement with identical metadata can therefore
-match an old row. Binding only the current object at admission would change the accepted safety
-boundary and is not enabled. That admission decision remains open in architecture section 11.
+match an old row. On 2026-10-29 the user accepted binding unverified files and selected parents
+to the current objects at admission, after matching known details. Record protected identity
+and full-content evidence for the operation and recovery; preserve the evidence level of local
+copies. Verified files retain their historical identity/content checks. This boundary is
+accepted but not yet enabled.
 
 This accepted scope expands libsmb2 use to user-requested cross-folder moves and the protected parent
 identity queries needed for recovery. It adds no dependency or server component. The existing
