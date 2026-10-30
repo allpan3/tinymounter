@@ -203,24 +203,17 @@ public enum EditTransaction {
                   matchesEdit(stageVersion, record) else { throw UploadError.unresolved }
             guard let stage = try remote.inspect(path: record.stagePath, original: false),
                   stage == stageVersion else { throw UploadError.unresolved }
-            var backup: EditFileVersion?
             if [.creatingBackup, .backedUp].contains(record.state) {
                 guard let backupVersion = record.backupVersion, backupVersion.identity == record.backupIdentity,
                       let previous = record.previous, backupVersion.size == previous.size,
                       backupVersion.digest == previous.digest else { throw UploadError.unresolved }
-                backup = try remote.inspect(path: record.recoveryPath, original: false)
-                guard backup == backupVersion else { throw UploadError.unresolved }
+                guard try remote.inspect(path: record.recoveryPath, original: false) == backupVersion else {
+                    throw UploadError.unresolved
+                }
             }
-            try remote.removeArtifact(path: record.stagePath, version: stage)
-            if let backup { try remote.removeArtifact(path: record.recoveryPath, version: backup) }
-            record.state = .prepared
-            record.stageIdentity = nil
-            record.stageVersion = nil
-            record.backupIdentity = nil
-            record.backupVersion = nil
-            record.previous = nil
-            record.conflict = false
-            try outbox.save(record)
+            try outbox.retainSuperseded(&record)
+            try cleanupRetired(&record, outbox: outbox, remote: remote)
+            return
         }
         try outbox.discard(record)
     }
