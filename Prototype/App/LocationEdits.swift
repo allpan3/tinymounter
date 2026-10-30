@@ -11,7 +11,7 @@ extension LocationSource {
 
     static func pendingWrites(domainID: String) throws -> Int {
         try outbox(domainID: domainID).pendingCount + editOutbox(domainID: domainID).pendingCount
-            + renameOutbox().pendingIntentCount(domain: domainID)
+            + renameOutbox().pendingIntentCount(domain: domainID) + deletionOutbox().pendingCount(domain: domainID)
     }
 
     func establishUploadedEditBase(_ upload: PendingUpload, row: CatalogRow, bookmark: Data,

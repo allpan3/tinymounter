@@ -212,7 +212,9 @@ public final class EditOutbox {
     }
 
     public func records() throws -> [PendingEdit] {
-        try files(ending: "edit").filter { $0.lastPathComponent != Self.orderingGuardName }.map { url in
+        try files(ending: "edit").filter {
+            $0.lastPathComponent != Self.orderingGuardName && !DeletionGuard.isExact($0, named: Self.deletionGuardName)
+        }.map { url in
             let record = try JSONDecoder().decode(PendingEdit.self, from: Data(contentsOf: url))
             guard record.id.uuidString == url.deletingPathExtension().lastPathComponent,
                   ReaderMessage.isItemID(record.item), record.item != Catalog.rootItemID,
@@ -448,6 +450,8 @@ public final class EditOutbox {
     }
 
     static let orderingGuardName = "Ordering.edit"
+    /// Earlier builds fail to decode this empty file, so they stay out while a deletion is pending.
+    static let deletionGuardName = "Deletion.edit"
     private var orderingGuard: URL { directory.appending(path: Self.orderingGuardName) }
     private var hasOrderingGuard: Bool { FileManager.default.fileExists(atPath: orderingGuard.path) }
 
@@ -906,5 +910,14 @@ public final class EditOutbox {
         guard fd >= 0 else { throw posixError("open edit directory") }
         defer { close(fd) }
         guard fsync(fd) == 0 else { throw posixError("sync edit directory") }
+    }
+}
+
+/// Readers skip only the empty file DeletionOutbox creates; anything else there fails to decode.
+enum DeletionGuard {
+    static func isExact(_ url: URL, named name: String) -> Bool {
+        var info = stat()
+        return url.lastPathComponent.utf8.elementsEqual(name.utf8) && lstat(url.path, &info) == 0
+            && info.st_mode & S_IFMT == S_IFREG && info.st_size == 0 && info.st_nlink == 1
     }
 }

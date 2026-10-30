@@ -165,6 +165,11 @@ final class LocationController {
             launch_reconciliation records=\(settings.locations.count) catalogs=\(catalogs.count) \
             domains=\(registered.count) unknown_domains=\(plan.unknownDomains.count) failed_sequences=\(failed)
             """)
+        let locations = store.settings?.locations ?? []
+        let configured = locations.map(\.domainID) + locations.compactMap(\.retiredDomainID)
+        // Locations without an open catalog keep their guards too; an unreadable inventory changes none.
+        do { try await Self.offMain { try LocationSource.deletionOutbox().reconcileGuards(domains: configured) } }
+        catch { Self.catalogLog.error("deletion_guards ok=0 \(logFields(error), privacy: .public)") }
         openSources()
         await refreshDomains()
         // Posted only after a first domains() call, such as refreshDomains made.
@@ -444,6 +449,7 @@ final class LocationController {
         try LocationSource.outbox(domainID: record.domainID).removeIfCompleted()
         try LocationSource.editOutbox(domainID: record.domainID).removeIfCompleted()
         try LocationSource.renameOutbox().removeCompletedIntents(removedDomain: record.domainID)
+        try LocationSource.deletionOutbox().removeSettled(domain: record.domainID)
         previousSource?.editNamespace.unregister(record.domainID)
         try store.update { settings in
             guard let index = settings.locations.firstIndex(where: { $0.id == recordID }) else { return }
@@ -488,6 +494,7 @@ final class LocationController {
         try LocationSource.outbox(domainID: record.domainID).removeIfCompleted()
         try LocationSource.editOutbox(domainID: record.domainID).removeIfCompleted()
         try LocationSource.renameOutbox().removeCompletedIntents(removedDomain: record.domainID)
+        try LocationSource.deletionOutbox().removeSettled(domain: record.domainID)
         previousSource?.editNamespace.unregister(record.domainID)
         try store.update { $0.locations.removeAll { $0.id == recordID } }
         Self.catalogLog.info("""
@@ -916,6 +923,7 @@ final class LocationController {
             try LocationSource.outbox(domainID: id).removeIfCompleted()
             try LocationSource.editOutbox(domainID: id).removeIfCompleted()
             try LocationSource.renameOutbox().removeCompletedIntents(removedDomain: id)
+            try LocationSource.deletionOutbox().removeSettled(domain: id)
         case .deleteRecord(let id):
             try store.update { $0.locations.removeAll { $0.id == id } }
         case .clearRetiredDomain(let id):
