@@ -4,8 +4,9 @@ Date: 2026-10-29. M23 implementation in progress; not a completed milestone.
 
 The baseline VM regression reproduced an older save publishing while a newer complete local
 save was waiting. The ordering fix passes the required VM checks, including the same regression.
-The signed update-recovery check below also passes. Recovery cleanup and clearer status reporting
-pass the required VM checks. Their signed workflows and the storage policy need runtime evidence.
+The signed update-recovery and retained-save cleanup checks below also pass. Recovery cleanup and
+clearer status reporting pass the required VM checks. Storage admission and the remaining
+interruption cases still need runtime evidence.
 
 ## Reproduction
 
@@ -115,8 +116,8 @@ notices with no retained recovery; the publication receipt remains available for
 
 These changes pass Tools/run-checks.sh in macOS VM 1: 373 tests, one optional skip, no failures
 or Swift warnings, project generation, release CLI checks, unsigned app build and six encoder
-cases. Evidence is m23-cleanup-checks.log in the same session. Signed cleanup, status and storage
-checks remain.
+cases. Evidence is m23-cleanup-checks.log in the same session. Signed cleanup and recovery status
+are checked below; storage admission remains.
 
 ## Completed-publication cleanup follow-up
 
@@ -138,8 +139,39 @@ before cleanup, then checks the recorded complete version again. Otherwise its o
 reader could defer removal beyond the delete handle's close reply. An absent artifact now
 fails cleanup. Tools/run-checks.sh passes in macOS VM 1: 404 tests, one optional skip, no failures
 or Swift warnings, project generation, release CLI validation, unsigned app build and six
-encoder cases. Evidence is m23-completed-cleanup-checks.log. Signed checks must establish this
-handle behavior on the fixture.
+encoder cases. Evidence is m23-completed-cleanup-checks.log. The signed ordinary-save check below
+exercises this handle behavior on the fixture; lost cleanup replies remain unit-test evidence.
+
+## Signed cleanup comparison, 2026-10-30
+
+On the same retained-save state, the older signed build exported the first save but left its
+temporary file and recovery notice after Retry. The new signed build exported identical bytes,
+then Retry removed the verified temporary file and recovery entry. The latest server document's
+complete bytes and identity stayed unchanged. An app restart preserved its item ID, content
+version and explicit keep, with zero pending saves.
+
+The setup first interrupted an upload after creating its private stage, before writing bytes.
+A newer TextEdit save reached the original while the older local copy and empty stage remained.
+The experiment then filled that same stage with the exact first-save bytes after checking its
+identity. This simulates late stage completion; it is not evidence that a disconnected SMB
+upload completed. Both builds used this completed stage for the matched Export/Retry workflow.
+
+A further ordinary TextEdit save through the new build reached the same server object and
+finished with no stage or backup left. Its receipt was completed without retained recovery.
+After restart, the item ID and explicit keep survived, the content version changed, and pending
+saves remained zero. This exercises cleanup in the upload session, including closing the
+upload verifier before reacquiring exclusive artifact protection.
+
+Setup: macOS VM 1, macOS 27.0.1, disposable loopback Samba fixture, one synthetic text document,
+uncontrolled cache state. Production source passed the 404-test check above; signed test archives
+add only isolated stop and audit hooks, with unchanged entitlements. No performance claim.
+Evidence in .local/phase4/m21-20261029: m23-cleanup-before-result.json,
+m23-cleanup-after-result.json, m23-cleanup-stage-completed.json,
+m23-cleanup-after-audit-log.jsonl, m23-cleanup-ordinary-save-result.json and
+m23-cleanup-ordinary-save-log.jsonl. Both exported copies are retained there. Matched 90-second
+screen sequences, 82 frames each, are in host results/m23-cleanup-20261030/{before,after}-frames.
+This does not establish low-space admission, stale callback delivery, lost cleanup replies,
+or offline editing, and does not complete M23.
 
 ## Verification and remaining work
 
