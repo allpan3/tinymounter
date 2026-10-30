@@ -15,6 +15,9 @@ public enum EditTransaction {
         if record.state == .completed { return }
         try outbox.validateContents(record)
         let order = try outbox.order(item: record.item)
+        guard order.head?.id == record.id || order.predecessors.contains(where: { $0.id == record.id }) else {
+            throw UploadError.unresolved
+        }
         if record.hasStartedPublication {
             try recover(&record, outbox: outbox, remote: remote)
             return
@@ -91,7 +94,11 @@ public enum EditTransaction {
     }
 
     public static func recover(_ record: inout PendingEdit, outbox: EditOutbox, remote: EditRemote) throws {
-        guard record.hasStartedPublication else { throw UploadError.unresolved }
+        let order = try outbox.order(item: record.item)
+        guard record.hasStartedPublication,
+              order.head?.id == record.id || order.predecessors.contains(where: { $0.id == record.id }) else {
+            throw UploadError.unresolved
+        }
         if record.conflict, record.failOnConflict { throw UploadError.editConflict }
         if let final = try remote.inspect(path: record.destination, original: !record.conflict) {
             if record.conflict, final.identity != record.stageIdentity {

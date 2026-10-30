@@ -30,6 +30,7 @@ enum UIText {
     static let exportEdit = "Export Local Copy…"
     static let retryEdits = "Retry Pending Changes"
     static let editNeedsRecovery = "Save pending or needs recovery"
+    static let retiredEdit = "Older save kept for recovery. It will not upload. Newer saves can continue."
     static let pendingStatusUnavailable = "Cannot read pending change status. Local copies are retained."
     static let renameNeedsRecovery = "Rename pending or needs recovery. Keep this location until it finishes."
     static func pendingRename(from: String, to: String) -> String { "Rename \(from) to \(to)" }

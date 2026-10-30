@@ -227,10 +227,10 @@ and first disposable VM test session. Each implementation still has to pass its 
 ## 11. Open decisions for the first experiment
 
 - **M23 interrupted uploads, accepted 2026-10-29.** The [ordering core](results/2026-10-29-pending-save-order.md)
-  passes 332 VM tests. Unknown or partial older artifacts still block successors under the
-  previous policy. The user now permits a newer save after durably preventing an older save
-  from publishing, provided it is proved not to have started changing the original. Retain its
-  uncertain artifacts and local copy, visible and exportable. Implementation remains pending.
+  and retirement change pass 336 VM tests. The user permits a newer save after durably preventing
+  an older save from publishing, provided it is proved not to have started changing the original.
+  Retain its uncertain artifacts and local copy, visible and exportable. Signed workflows,
+  bounded storage and evidence-based recovery cleanup remain.
 - **M24 attached data during deletion, accepted 2026-10-29.** The [VM probe](results/2026-10-29-deletion-protocol.md)
   completed file/folder deletion and eleven crash scenarios. SMB permits adding streams under
   a deny-all main-file handle. Deleting all attached data present at removal, including such

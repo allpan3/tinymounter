@@ -236,7 +236,7 @@ final class EditTransactionTests: XCTestCase {
         XCTAssertEqual(remote.updates, 2)
     }
 
-    func testUncertainSupersededStageCreationBlocksTheNewerSave() throws {
+    func testUncertainStageCreationAllowsTheNewerSaveOnlyAfterDurableRetirement() throws {
         edit.state = .creatingStage
         try outbox.save(edit)
         var latest = try save("latest version")
@@ -252,6 +252,24 @@ final class EditTransactionTests: XCTestCase {
         try outbox.validateContents(edit)
         try outbox.validateContents(latest)
         XCTAssertEqual(try outbox.pendingCount, 2)
+        let stale = edit!
+        try outbox.retainSuperseded(&edit)
+        outbox = try EditOutbox(directory: directory.appending(path: "Outbox"))
+        XCTAssertEqual(try stored(edit).state, .retired)
+        XCTAssertEqual(try outbox.order(item: edit.item).superseded, [])
+        var replay = stale
+        XCTAssertThrowsError(try EditTransaction.publish(&replay, outbox: outbox, remote: remote))
+        XCTAssertThrowsError(try outbox.save(stale))
+        try finish(&latest)
+        XCTAssertEqual(remote.files["file.txt"]?.digest, latest.digest)
+        XCTAssertFalse(latest.conflict)
+        XCTAssertEqual(remote.updates, 1)
+        XCTAssertEqual(try outbox.pendingCount, 1)
+        XCTAssertTrue(try stored(edit).recoveryRetained)
+        let exported = directory.appending(path: "retained.txt")
+        try outbox.export(edit, to: exported)
+        XCTAssertEqual(try Data(contentsOf: exported), try Data(contentsOf: outbox.contentURL(edit)))
+        XCTAssertThrowsError(try outbox.removeIfCompleted())
     }
 
     func testPartiallyUploadedNewestSaveKeepsTheArtifactAndCompleteLocalCopy() throws {
@@ -298,7 +316,7 @@ final class EditTransactionTests: XCTestCase {
         try outbox.validateContents(edit)
     }
 
-    func testPartialSupersededStageRetainsBothSavesAndBlocksPublication() throws {
+    func testPartialSupersededStageStaysUntouchedAfterNewerSavePublishes() throws {
         remote.failure = .partialStage
         XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))
         var latest = try save("latest version")
@@ -311,6 +329,67 @@ final class EditTransactionTests: XCTestCase {
         XCTAssertThrowsError(try EditTransaction.retire(&edit, outbox: outbox, remote: remote))
         XCTAssertThrowsError(try finish(&latest))
         XCTAssertEqual(remote.files, before)
+        try outbox.validateContents(edit)
+        try outbox.validateContents(latest)
+        try outbox.retainSuperseded(&edit)
+        try finish(&latest)
+        XCTAssertEqual(remote.files[edit.stagePath], before[edit.stagePath])
+        XCTAssertEqual(remote.files["file.txt"]?.digest, latest.digest)
+        XCTAssertEqual(remote.updates, 1)
+        XCTAssertEqual(try stored(edit).state, .retired)
+        try outbox.validateContents(edit)
+        XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))
+        XCTAssertThrowsError(try EditTransaction.retire(&edit, outbox: outbox, remote: remote))
+    }
+
+    func testRetiredPartialBackupKeepsRecoveryDataWhileLaterSavesContinue() throws {
+        remote.failure = .partialBackup
+        XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))
+        let stage = remote.files[edit.stagePath], backup = remote.files[edit.recoveryPath]
+        var latest = try save("latest version")
+        XCTAssertThrowsError(try EditTransaction.retire(&edit, outbox: outbox, remote: remote))
+        try outbox.retainSuperseded(&edit)
+        try finish(&latest)
+        var next = try save("another save")
+        try finish(&next)
+        XCTAssertEqual(remote.files["file.txt"]?.digest, next.digest)
+        XCTAssertFalse(next.conflict)
+        XCTAssertEqual(remote.files[edit.stagePath], stage)
+        XCTAssertEqual(remote.files[edit.recoveryPath], backup)
+        XCTAssertEqual(remote.updates, 2)
+        XCTAssertEqual(try outbox.pendingCount, 1)
+        try outbox.validateContents(edit)
+    }
+
+    func testReplayedContentsUseFreshStageAfterInterruptedUpload() throws {
+        remote.failure = .partialStage
+        XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))
+        let partial = remote.files[edit.stagePath]
+        var replay = try outbox.prepare(item: edit.item, parent: edit.parent,
+                                        path: XCTUnwrap(RelativePath(edit.path)), baseVersion: edit.baseVersion,
+                                        failOnConflict: edit.failOnConflict, contents: outbox.contentURL(edit),
+                                        progress: Progress())
+        XCTAssertNotEqual(replay.id, edit.id)
+        XCTAssertEqual(replay.digest, edit.digest)
+        XCTAssertEqual(try outbox.order(item: edit.item).superseded.map(\.id), [edit.id])
+        try outbox.retainSuperseded(&edit)
+        try finish(&replay)
+        XCTAssertEqual(remote.files[edit.stagePath], partial)
+        XCTAssertEqual(remote.files[edit.path]?.digest, edit.digest)
+        XCTAssertEqual(remote.updates, 1)
+        XCTAssertFalse(replay.conflict)
+        try outbox.validateContents(edit)
+    }
+
+    func testRetirementNeverBypassesAnUncertainOriginalWrite() throws {
+        remote.failure = .partialCopy
+        XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))
+        var latest = try save("latest version")
+        let before = remote.files
+        XCTAssertThrowsError(try outbox.retainSuperseded(&edit))
+        XCTAssertThrowsError(try finish(&latest))
+        XCTAssertEqual(remote.files, before)
+        XCTAssertEqual(try stored(edit).state, .copying)
         try outbox.validateContents(edit)
         try outbox.validateContents(latest)
     }
