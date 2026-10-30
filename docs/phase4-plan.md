@@ -595,11 +595,11 @@ leaving an overlapping location needs a later identity and retention design.
 
 ### Publication and recovery
 
-First prove how fresh catalog observation binds a selected ordinary file to a protected server
-object without mistaking a replacement for the prior item. An old downloaded copy, a fresh
-pathname lookup or matching timestamps alone cannot establish that binding. Preserve existing
-IDs and cached contents through the transition; use verified byte comparisons where needed.
-If this cannot meet the safety contract, report the failed gate before narrowing the milestone.
+For a previously verified file, bind the selected item to its recorded server identity and
+complete contents. For an unverified file, the accepted admission rule below binds the operation
+to the current object after known catalog details match. It does not establish historical
+identity or compare a legacy downloaded copy. Preserve existing IDs, cached contents and their
+evidence level through the transition.
 
 Extend the protected rename transaction to include the source and destination parents. Resolve
 both from catalog item IDs, validate them against fresh listings, and hold both ancestor chains
@@ -608,7 +608,8 @@ at admission and retain them with the operation. Native pathname-derived inodes 
 prove parent identity after interruption. If a selected parent cannot be bound to the protected
 directory without guessing, refuse the move. This does not add general external-rename matching.
 
-Check the original file's server identity and complete contents against its established revision.
+Check the original file's server identity and complete contents against its verified revision,
+or record that evidence under protection at admission for an unverified file.
 Durably record both paths, parent identities and all affected catalog views before one SMB
 handle rename with replacement disabled. The server moves the original object; no payload
 upload, copy/delete fallback or permission rewriting is allowed. Unsupported cross-filesystem
@@ -638,12 +639,11 @@ compatibility need.
 
 ### Transport and acceptance gates
 
-Source inspection found that the existing SMB rename wrapper accepts a destination path and
-sets replacement to false. The provider and durable intent deliberately reject a changed parent,
-and the catalog commit updates only the name. The VM's installed File Provider SDK exposes
-allowsReparenting for moving an item between folders. These establish an implementation route,
-not a runtime result. Cross-folder publication and recorded directory recovery identities pass
-the isolated protocol checks below; ordinary-file admission remains open. The current rename
+The SMB rename wrapper accepts a destination path with replacement disabled. The provider,
+durable intent and catalog now support parent changes. The installed File Provider SDK exposes
+allowsReparenting for moving an item between folders. The integrated implementation passes
+required VM checks; signed Finder checks remain. Cross-folder publication and recorded directory
+recovery identities pass the isolated protocol checks below. The current rename
 path hashes complete contents repeatedly; no
 large-file move performance result is claimed. Metadata-only recovery after losing protection
 is not an approved substitute. Any reduction of the content-verification guarantee needs its

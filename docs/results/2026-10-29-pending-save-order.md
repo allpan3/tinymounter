@@ -4,7 +4,8 @@ Date: 2026-10-29. M23 implementation in progress; not a completed milestone.
 
 The baseline VM regression reproduced an older save publishing while a newer complete local
 save was waiting. The ordering fix passes the required VM checks, including the same regression.
-Signed workflows, the storage bound and recovery interface are still incomplete.
+The signed update-recovery check below also passes. Broader signed workflows, the storage bound
+and recovery interface are still incomplete.
 
 ## Reproduction
 
@@ -50,6 +51,31 @@ complete contents. The previous attempt is cleaned up with full evidence or reta
 This avoids retrying the same incomplete stage indefinitely. A publication that may already
 have changed the original still follows recovery before any successor can publish.
 
+## Signed interrupted-save recovery
+
+A signed baseline app stopped after recording ownership of a private stage, before writing its
+bytes. The original server file stayed unchanged. After restarting the app, another TextEdit
+save did not advance past that empty stage. Export Local Copy returned the complete first save.
+
+Installing the corrected signed candidate over this pending state let the later TextEdit save
+reach the original server file. The old stage remained empty and untouched. The app showed
+"Older save kept for recovery. It will not upload. Newer saves can continue." Export Local Copy
+still returned the first save byte for byte. After an app restart, an app-owned audit found one
+retired first save and one completed latest save. The server bytes matched the latest save.
+
+Setup: macOS VM 1, disposable loopback Samba fixture, one synthetic text document, TextEdit,
+uncontrolled cache state. The stop and audit hooks exist only in isolated test archives.
+Evidence is in .local/phase4/m21-20261029: m23-before-current.json, m23-update-recovery.json,
+m23-after-audit.json and the before/after exported copies. This is update-recovery evidence,
+not a matched before/after recording or a disconnected editing check. It does not establish
+callback currency for every retry or editor. Slow fixture authentication and temporary
+Unresponsive status remain observed limitations.
+
+The stage's initial access permissions also prevented the fixture cleanup helper from reopening
+it. After both exports and the final server contents were saved as evidence, fixture cleanup
+removed that known empty stage through the backing directory. This does not add a production
+cleanup route or authorize deleting uncertain user artifacts.
+
 ## Verification and remaining work
 
 Tools/run-checks.sh passes on the integrated source including retirement: 336 tests, one optional native-fixture skip,
@@ -63,6 +89,10 @@ restart/export, downgrade refusal and refusal to bypass an uncertain original wr
 review found no blocking issue. Retired records still block share-wide organization and
 location lifecycle changes; an evidence-based recovery-cleanup action remains to be implemented.
 
+The final integrated M21/M23 candidate passes 346 tests with one optional skip, no failures or
+Swift warnings, and all required checks, including six encoder cases. Evidence:
+m21-final-checks-01.log. Its personalized app build also passes in m21-final-build.log.
+
 Complete interrupted-upload recovery within the accepted retention policy.
 Complete bounded storage, distinct waiting/conflict/recovery states, signed repeated-save and
 interruption tests, and matched recordings before calling M23 complete. No physical-Mac
@@ -73,5 +103,5 @@ publication may be durably marked never to publish, while its uncertain temporar
 local copy remain visible and exportable. A newer save may then proceed with the normal
 original-file protection. This replaces the requirement that every uncertain remote operation
 resolve before any successor publishes. The core implementation and required checks pass;
-the signed workflow remains unverified. Merely missing
+the signed update-recovery check above passes. Merely missing
 a stage identity would still never authorize deletion or imply that no remote request occurred.

@@ -80,7 +80,9 @@ to a verified editing base or claim that an old copy was compared when it was no
 editing still requires a verified full download. This decision changes initial selection
 semantics only; it does not permit metadata-only recovery, overwrites or copy/delete fallback.
 Production admission, durable parent evidence, file moves and saved keep-path updates are
-implemented. Compilation and signed Finder checks remain; this protocol run predates that code.
+implemented. The integrated candidate passes all required VM checks: 346 tests, one optional
+skip, no failures or Swift warnings, and six encoder cases. Evidence is in the session's
+m21-final-checks-01.log. Signed Finder checks remain; this protocol run predates that code.
 
 Source review found a stale-callback defect: a filename-only callback could carry an old parent
 and accidentally move a file back after another view moved it. The provider now carries the

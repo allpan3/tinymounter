@@ -188,14 +188,16 @@ write operation; signed SMB runtime checks and installation remain pending. See 
 
 File organization protocol, 2026-10-29: all nine disposable VM cases pass, including protected
 moves, collisions, permission/stream preservation and crash recovery. File-organization
-integration is written under the accepted current-object admission rule for unverified rows;
-compilation and signed Finder checks remain. The approved fixture session is
-still open. See the [protocol results](docs/results/2026-10-29-file-organization-protocol.md).
+integration uses the accepted current-object admission rule for unverified rows and passes all
+required VM checks: 346 tests, one optional skip and no Swift warnings. Signed Finder checks
+remain. The approved fixture session is still open. See the
+[protocol results](docs/results/2026-10-29-file-organization-protocol.md).
 
 Pending saves (M23), 2026-10-29: a focused VM regression reproduces an older save publishing
-while a newer complete copy waits. The core fix, retained retirement and required checks pass:
-336 tests, one optional skip and no Swift warnings. Signed workflows, storage bounds and recovery
-cleanup remain incomplete. See the
+while a newer complete copy waits. The core fix and retirement pass required checks. A signed
+app update recovered an interrupted upload, published the latest TextEdit save and kept the
+older copy exportable. Broader signed workflows, storage bounds and recovery cleanup remain
+incomplete. See the
 [ordering results](docs/results/2026-10-29-pending-save-order.md).
 
 Deletion protocol (M24), 2026-10-29: the disposable VM probe completed deletion, competing-access
