@@ -1,7 +1,8 @@
 # Folder-move catalog preparation
 
-Date: 2026-10-30. M22 catalog support passes the required VM checks.
-Folder rename and move remain unavailable in the app.
+Date: 2026-10-30. M22 passes required VM checks and selected signed adapter checks for moves,
+collisions and recovery. Two ambiguous-name cases could not run on the fixture. Folder rename
+and move remain unavailable in the app pending signed integration checks.
 
 The catalog can snapshot a known subtree and commit a caller-proved move atomically. It keeps
 item IDs, enumeration keys and file content versions, including the distinction between f1 and
@@ -153,7 +154,7 @@ remain disabled; draining, protected native queries, local-copy invalidation and
 recovery still need signed VM evidence.
 
 An isolated adapter/core helper also compiles without Swift diagnostics
-(`m22-adapter-helper-build2.log`). It has not been signed or launched. Its planned checks cover
+(`m22-adapter-helper-build2.log`). The signed attempts are recorded below. Its checks cover
 protected native metadata, moves, collisions, simulated lost replies and partial-catalog
 recovery; they do not replace the app and Finder checks.
 
@@ -189,3 +190,63 @@ attempt remains intact.
 Evidence in `.local/phase4/m21-20261029`: `m22-adapter-gate.jsonl`,
 `m22-adapter-gate-sample.txt`, `m22-adapter-gate-deadlock.json` and `m22-adapter3-build.log`.
 The fixture is synthetic and cache state is uncontrolled. No performance claim follows.
+
+## Signed adapter checks, 2026-10-30
+
+The corrected helper passes its first gate in the signed, sandboxed app in macOS VM 1.
+The fixture's starting names and complete contents match. While the app holds the root,
+a separate process using the production library receives `STATUS_SHARING_VIOLATION` for a
+competing rename-capable open. Native metadata queries succeed with the root alone protected,
+with descendant handles held, after source verification and after settlement.
+
+The transaction moves a populated folder once, completes its private catalog and relists it.
+All four known items retain their IDs and content versions. The untouched neighbor's identities
+and contents match. This closes the protected-native-query gate on this fixture; it does not
+verify File Provider callbacks, downloaded copies, watch draining or saved keep paths.
+
+Evidence in `.local/phase4/m21-20261029`: `m22-adapter3-gate.jsonl`,
+`m22-adapter3-gate-competitor.json` and the Finder-copied reports in
+`m22-adapter3-gate-inspection/M22Adapter-trial3`. The copy was made while the later cases ran;
+only its completed gate reports are evidence here.
+
+The next phase passed all 11 cases. Populated and case-only moves completed and retained item
+IDs and content versions through relisting. File and folder collisions were refused before
+sending a rename. A simulated lost reply left one real move at the durable `moved` checkpoint.
+The overlapping-view case updated only its owner catalog. Admission for the two unseen-name
+cases stayed `prepared`. Reports copied after the app closed are in
+`m22-adapter3-run-inspection/M22Adapter-trial3`.
+
+Between processes, the driver changed two files in place, moved selected original children
+outside the moved folder and created a distinct replacement. Its exclusive renames retained
+the originals for the preservation check. APFS refused every second name in the three proposed
+ambiguous pairs, so neither unseen-name case has a usable collision fixture. Those cases cannot
+establish the adapter's refusal of ambiguous directory contents. The setup observations are in
+`m22-adapter3-between.json`.
+
+Recovery completed in a fresh app process. Nine cases passed; the two unseen-name cases failed
+with `ambiguous-fixture-unavailable`, before any publication attempt. The phase therefore
+exited with failure and is not an all-pass result. Its reports are in
+`m22-adapter3-resume-inspection/M22Adapter-trial3`.
+
+After the simulated lost reply, recovery sent no second rename. It preserved the unchanged
+file's version, assigned the changed file a new version and retired the old bindings for
+missing or replaced children. The replacement received a new item ID during relisting.
+The original children moved outside the folder retained their identities.
+
+For overlapping views, the first fresh verification refused the stale settlement. Recovery
+created a new plan, updated the second catalog, ended its SMB session, then rechecked and
+completed both catalogs. The original settlements remained unchanged, and the second recovery
+plan retained the first plan's target versions. Completed replays made no adapter calls.
+
+The final audit passed in a fourth app process. Expected tree contents matched, and the
+neighbor files and marker retained their complete recorded versions. All five completed
+operations replayed without an adapter call. The two unavailable ambiguity cases remained
+`prepared`; the audit checked their retained state, not collision behavior. Final reports are in
+`m22-adapter3-final-inspection/M22Adapter-trial3`. The task app is closed. The disposable fixture
+remains open for the other approved checks, with final teardown and SMB-service restoration owed.
+
+These are adapter/core checks using private catalogs. Reply loss was simulated after a real
+successful rename; process boundaries were clean exits. Child changes used the fixture's
+backing disk. Finder callbacks, downloaded-copy invalidation, saved keeps, watch/read draining,
+real process crashes and ambiguous directory contents remain unverified. Folder capabilities
+remain disabled.

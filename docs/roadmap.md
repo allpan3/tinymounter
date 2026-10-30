@@ -178,13 +178,15 @@ also pass; storage admission and remaining interruption/callback checks remain.
 
 M18 creation, M19 same-object editing and M20 verified-file renaming have signed VM evidence.
 M20 is the development baseline; the physical Mac runs M19. Existing read-only locations stay
-read-only. Folder organization, deletion, Finder Replace and deliberate offline editing are
-not implemented. M21 now handles ordinary files in signed VM checks, including unverified files,
+read-only. Folder organization, deletion, Finder Replace and deliberate offline editing remain
+unavailable. M21 now handles ordinary files in signed VM checks, including unverified files,
 preserved downloads, overlapping views and interrupted moves. Its remaining acceptance checks
 are recorded in the organization results; this does not complete the milestone.
 M22's [catalog, transaction and app preparation](results/2026-10-30-folder-move-catalog.md) passes
 required VM checks, including recovery after partial catalog completion and the watch-close
-correction found in source review. Provider enablement and signed runtime checks remain.
+correction found in source review. Selected signed adapter checks pass for moves, collisions
+and recovery. Two ambiguous-name cases lack a usable fixture. Provider enablement and signed
+app/Finder integration checks remain.
 
 The supported write boundary remains folders whose writers use SMB and leave tinymounter's
 transaction files alone. All milestones preserve complete pending content, refuse silent

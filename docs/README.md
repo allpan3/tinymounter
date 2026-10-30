@@ -25,7 +25,7 @@ it wrong.
 ## Results logs
 
 - [VM graphics interruption during save checks](results/2026-10-30-vm-graphics-interruption.md) — the frozen attempt reached no save checkpoint; the approved restart and fixture recovery restored testing.
-- [Folder-move catalog and transaction preparation](results/2026-10-30-folder-move-catalog.md) — recovery and adapter pass required VM checks; runtime integration and signed checks remain.
+- [Folder-move preparation and adapter checks](results/2026-10-30-folder-move-catalog.md) — selected signed move and recovery checks pass; ambiguous-name fixtures and Finder integration remain unverified.
 - [Permanent-deletion protocol checks](results/2026-10-29-deletion-protocol.md) — protocol and initial transaction-core checks pass; whole-object deletion is accepted and lost replies remain unconfirmed. App deletion is unavailable.
 - [Pending-save ordering](results/2026-10-29-pending-save-order.md) — ordering, retained recovery and cleanup checks pass; a signed callback interruption reaches the final save. M23 remains incomplete.
 - [SMB file organization checks](results/2026-10-29-file-organization-protocol.md) — protocol, signed Finder moves, overlapping-view recovery and five app-API boundary cases pass; remaining M21 checks are open.
