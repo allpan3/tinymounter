@@ -71,6 +71,7 @@ extension LocationSource {
         }
         if path.string.utf8.elementsEqual(destination.string.utf8) { return nil }
         let sources = try editNamespace.affectedSources(source: path, destination: destination)
+        for source in sources { try source.requireRenamePathsSettled(source: path, destination: destination) }
         for source in sources { try source.prepareRenameFolders(source: path, destination: destination) }
         return try withWriteSession(bookmark, progress: progress) { session, _ in
             guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
@@ -159,23 +160,30 @@ extension LocationSource {
         }
     }
 
-    private func renameView(path: RelativePath, destination: RelativePath, version: EditFileVersion,
-                            parents: [FileRenameParent], session: ShareSession?) throws -> FileRenameView {
+    private func requireRenamePathsSettled(source: RelativePath, destination: RelativePath) throws {
         try uploadLock.withLock {
             guard !mutationsSuspended else { throw UploadError.pendingWrites }
             let uploads = try Self.outbox(domainID: domainID), edits = try Self.editOutbox(domainID: domainID)
-            guard try uploads.pendingCount == uploads.records().filter(\.isPending).count,
-                  try edits.pendingCount == edits.records().filter(\.isPending).count else { throw UploadError.pendingWrites }
-            for pending in try uploads.records().filter(\.isPending).map(\.path)
-                + edits.records().filter(\.isPending).map(\.path) {
+            let pendingUploads = try uploads.records().filter(\.isPending)
+            let pendingEdits = try edits.records().filter(\.isPending)
+            guard try uploads.pendingCount == pendingUploads.count,
+                  try edits.pendingCount == pendingEdits.count else { throw UploadError.pendingWrites }
+            for pending in pendingUploads.map(\.path) + pendingEdits.map(\.path) {
                 guard let relative = RelativePath(pending), let full = folder.appending(relative) else {
                     throw UploadError.unresolved
                 }
                 let key = NameKey(full.string).value
-                guard [path, destination].allSatisfy({
+                guard [source, destination].allSatisfy({
                     NameKey($0.string).value != key && !NameKey($0.string).value.hasPrefix(key + "/")
                 }) else { throw UploadError.pendingWrites }
             }
+        }
+    }
+
+    private func renameView(path: RelativePath, destination: RelativePath, version: EditFileVersion,
+                            parents: [FileRenameParent], session: ShareSession?) throws -> FileRenameView {
+        try uploadLock.withLock {
+            guard !mutationsSuspended else { throw UploadError.pendingWrites }
             let relative = RelativePath(path.components.dropFirst(folder.components.count).joined(separator: "/"))!
             let target = RelativePath(destination.components.dropFirst(folder.components.count).dropLast().joined(separator: "/"))!
             let (row, actual, identity, destinationParent) = try withCatalog { catalog in
@@ -213,7 +221,8 @@ extension LocationSource {
             }
             guard native.inode == identity else { throw SourceFailure.versionChanged }
             if row.contentVersion.hasPrefix("e1:") {
-                guard let receipt = try edits.base(item: row.id, contentVersion: row.contentVersion),
+                guard let receipt = try Self.editOutbox(domainID: domainID)
+                    .base(item: row.id, contentVersion: row.contentVersion),
                       receipt.version.hasSameContents(as: version) else { throw SourceFailure.versionChanged }
             } else {
                 guard native.fingerprint == ContentFingerprint(size: row.size, mtimeNs: row.mtimeNs, ctimeNs: row.ctimeNs),
