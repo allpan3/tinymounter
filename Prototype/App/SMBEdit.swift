@@ -2,6 +2,7 @@ import CryptoKit
 import Darwin
 import Foundation
 import OSLog
+import UniformTypeIdentifiers
 
 /// One protected transaction, with the existing cached credential and native payload upload.
 final class SMBEdit: EditRemote, FileRenameRemote {
@@ -27,6 +28,8 @@ final class SMBEdit: EditRemote, FileRenameRemote {
     private var folderMoveRoots: [String: Handle] = [:]
     private var folderMoveFiles: [String: Handle] = [:]
     private var folderMoveParents: Set<String> = []
+    /// Set when a deletion traversal starts; that session never deletes.
+    private var deletionTraversalFiles: [String: Handle]?
     private static let read: UInt32 = 0x20081
     private static let write: UInt32 = 2
     private static let delete: UInt32 = 0x10000
@@ -893,10 +896,16 @@ extension SMBEdit: DeletionRemote {
 
     func protectParents(of path: String) throws -> [ItemDeletionParent] {
         guard folder.isRoot, handles.isEmpty, stageVerifiers.isEmpty,
-              originals.isEmpty, hiddenOriginals.isEmpty, deletionTarget == nil else {
+              originals.isEmpty, hiddenOriginals.isEmpty, deletionTarget == nil, deletionTraversalFiles == nil else {
             throw ItemDeletionError.invalidRequest
         }
-        let parents = try protectRenameParents(source: path, destination: path)
+        let parents: [FileRenameParent]
+        do { parents = try protectRenameParents(source: path, destination: path) } catch {
+            switch Self.serverStatus(error).flatMap(DeletionStatus.init(rawValue:)) {
+            case .nameNotFound, .pathNotFound: throw ItemDeletionError.parentChanged
+            default: throw error
+            }
+        }
         deletionTarget = path
         return parents.map { ItemDeletionParent(path: $0.path, name: $0.name, identity: $0.identity) }
     }
@@ -977,5 +986,198 @@ extension SMBEdit: DeletionRemote {
         case .cannotDelete: return ItemDeletionError.cannotDelete
         default: return error
         }
+    }
+}
+
+/// One catalog row's claim about the object at its share-root path; every claim must still hold.
+struct DeletionExpectation {
+    let path: RelativePath
+    let kind: CatalogRow.Kind
+    let nativeID: UInt64
+    let fingerprint: ContentFingerprint
+    /// Present exactly for e1 files, whose recorded identity, contents and mtime must still hold.
+    let receipt: EditBaseReceipt?
+
+    init(path: RelativePath, row: CatalogRow, nativeID: UInt64, receipt: EditBaseReceipt?) throws {
+        guard !row.deleted, row.parentID != nil, nativeID != 0,
+              path.components.last.map({ $0.utf8.elementsEqual(row.name.utf8) }) == true else {
+            throw ItemDeletionError.invalidRequest
+        }
+        let verified = row.kind == .file && row.contentVersion.hasPrefix("e1:")
+        guard verified == (receipt != nil),
+              receipt.map({ $0.item == row.id && $0.contentVersion == row.contentVersion }) != false else {
+            throw SourceFailure.versionChanged
+        }
+        self.path = path
+        kind = row.kind
+        self.nativeID = nativeID
+        fingerprint = ContentFingerprint(size: row.size, mtimeNs: row.mtimeNs, ctimeNs: row.ctimeNs)
+        self.receipt = receipt
+    }
+}
+
+/// M24 admission. A fresh session captures the tree; separate fresh sessions delete its nodes.
+extension SMBEdit {
+    /// Holds the parent chain, every directory and every file until releaseDeletionTraversal.
+    /// Expectations must cover the selected path and lie at or below it.
+    func captureDeletionTraversal(of selected: RelativePath, recursive: Bool,
+                                  expecting expectations: [DeletionExpectation]) throws -> DeletionTraversal {
+        let below = Array((selected.string + "/").utf8)
+        var expected: [Data: [DeletionExpectation]] = [:]
+        for expectation in expectations {
+            guard expectation.path.string.utf8.elementsEqual(selected.string.utf8)
+                    || expectation.path.string.utf8.starts(with: below) else { throw ItemDeletionError.invalidRequest }
+            expected[Data(expectation.path.string.utf8), default: []].append(expectation)
+        }
+        guard folder.isRoot, deletionTraversalFiles == nil, deletionTarget == nil, handles.isEmpty,
+              stageVerifiers.isEmpty, originals.isEmpty, hiddenOriginals.isEmpty, directories.isEmpty,
+              folderMoveParents.isEmpty, folderMoveRoots.isEmpty, folderMoveFiles.isEmpty, !selected.isRoot,
+              expected[Data(selected.string.utf8)] != nil else { throw ItemDeletionError.invalidRequest }
+        deletionTraversalFiles = [:]
+        guard expected.count <= DeletionPlan.maxNodes else { throw SourceFailure.tooManyEntries }
+        let name = selected.components.last!
+        guard selected.components.allSatisfy(FileRenameRequest.supportsName), !Self.isPackage(name) else {
+            throw ItemDeletionError.unsupported
+        }
+        _ = try folderMoveMountIdentity()
+        let chain: [FileRenameParent]
+        do { chain = try protectRenameParents(source: selected.string, destination: selected.string) }
+        catch { throw Self.traversalFailure(error) }
+        guard chain.count == selected.components.count,
+              zip(chain, [""] + selected.components.dropLast()).allSatisfy({ $0.name.utf8.elementsEqual($1.utf8) }) else {
+            throw SourceFailure.versionChanged
+        }
+        let parent = chain.last!.path
+        func selectedEntry() throws -> RenameDirectoryEntry {
+            let entry: RenameDirectoryEntry?
+            do { entry = try renameEntry(parent: parent, name: name) }
+            catch UploadError.collision { throw ItemDeletionError.unsupported }
+            guard let entry, entry.name.utf8.elementsEqual(name.utf8) else { throw SourceFailure.versionChanged }
+            return entry
+        }
+        let root = try selectedEntry()
+
+        // Structure first, so every limit and unsupported entry refuses before any contents are read.
+        var objects: [DeletionTraversal.Object] = [], listings: [DeletionTraversal.Listing] = []
+        var captured: [(String, [RenameDirectoryEntry])] = [], files: [(RelativePath, RenameDirectoryEntry)] = []
+        var kinds: [Data: CatalogRow.Kind] = [:], pending = [(selected, root)], total = 1
+        var seen = Set(chain.map { [$0.identity.fileID, $0.identity.birthMicroseconds] })
+        while let next = pending.popLast() {
+            try cancellation()
+            let (path, entry) = next
+            guard let kind = entry.kind,
+                  seen.insert([entry.identity.fileID, entry.identity.birthMicroseconds]).inserted else {
+                throw ItemDeletionError.unsupported
+            }
+            kinds[Data(path.string.utf8)] = kind
+            guard kind == .folder else {
+                files.append((path, entry))
+                continue
+            }
+            let handle = Handle()
+            do { try handle.use { try check(tm_edit_open_directory(client, path.string, 0x81, 3, $0)) } }
+            catch { throw Self.traversalFailure(error) }
+            directories[path.string] = handle
+            let values = try info(handle)
+            guard try folderMoveIdentity(values) == entry.identity else { throw SourceFailure.versionChanged }
+            guard values[4] & 0x450 == 0x10 else { throw UploadError.unresolved }
+            try requireDeletionExpectations(expected[Data(path.string.utf8)] ?? [], path: path, kind: kind,
+                                            values: values)
+            let children = try folderMoveListing(path.string)
+            if !recursive, path.string.utf8.elementsEqual(selected.string.utf8), !children.isEmpty {
+                throw ItemDeletionError.directoryNotEmpty
+            }
+            total += children.count
+            guard total <= DeletionPlan.maxNodes else { throw SourceFailure.tooManyEntries }
+            for child in children {
+                // Unsupported entries stay in the tree, so they refuse the whole request.
+                guard FileRenameRequest.supportsName(child.name), !Self.isPackage(child.name),
+                      let childPath = path.appending(child.name) else { throw ItemDeletionError.unsupported }
+                pending.append((childPath, child))
+            }
+            captured.append((path.string, children))
+            listings.append(DeletionTraversal.Listing(path: path, listing: ItemDeletionListing(
+                entries: children.map { ItemDeletionEntry(name: $0.name, identity: $0.identity) }, isComplete: true)))
+            objects.append(DeletionTraversal.Object(path: path, evidence: .directory(entry.identity)))
+        }
+        for (key, claims) in expected {
+            guard let kind = kinds[key], claims.allSatisfy({ $0.kind == kind }) else { throw SourceFailure.versionChanged }
+        }
+
+        for (path, entry) in files {
+            let handle: Handle
+            do { handle = try open(path: path.string, access: Self.read, sharing: 1) }
+            catch { throw Self.traversalFailure(error) }
+            deletionTraversalFiles?[path.string] = handle
+            let values = try info(handle)
+            guard try folderMoveIdentity(values) == entry.identity else { throw SourceFailure.versionChanged }
+            guard values[4] & 0x450 == 0 else { throw UploadError.unresolved }
+            guard values[3] == 1 else { throw ItemDeletionError.unsupported }
+            let claims = expected[Data(path.string.utf8)] ?? []
+            try requireDeletionExpectations(claims, path: path, kind: .file, values: values)
+            let version = try version(handle)
+            let after = try info(handle)
+            guard version.identity == entry.identity, version.modifiedMicroseconds == values[5],
+                  after[0...2] == values[0...2], after[4...6] == values[4...6] else { throw SourceFailure.versionChanged }
+            for receipt in claims.compactMap(\.receipt) {
+                guard receipt.version.hasSameContents(as: version),
+                      receipt.version.modifiedMicroseconds == version.modifiedMicroseconds else {
+                    throw SourceFailure.versionChanged
+                }
+            }
+            objects.append(DeletionTraversal.Object(path: path, evidence: .file(version)))
+        }
+
+        // Held children cannot leave or be replaced, so only arrivals can change these listings.
+        for (path, children) in captured {
+            let before = Dictionary(uniqueKeysWithValues: children.map { (Data($0.name.utf8), $0.identity) })
+            let again = try folderMoveListing(path)
+            guard again.count == children.count, again.allSatisfy({ before[Data($0.name.utf8)] == $0.identity }) else {
+                throw SourceFailure.versionChanged
+            }
+        }
+        guard try selectedEntry().identity == root.identity else { throw SourceFailure.versionChanged }
+        return DeletionTraversal(selected: selected, parents: chain.map {
+            ItemDeletionParent(path: $0.path, name: $0.name, identity: $0.identity)
+        }, objects: objects, listings: listings)
+    }
+
+    /// Call once prepare has persisted, before any per-node session: their deny-all opens would
+    /// meet these handles. Acknowledged closes avoid relying on the server's disconnect cleanup.
+    func releaseDeletionTraversal() throws {
+        guard let files = deletionTraversalFiles else { throw ItemDeletionError.invalidRequest }
+        for path in files.keys.sorted() {
+            try files[path]!.use { try check(tm_edit_close(client, $0)) }
+            deletionTraversalFiles?[path] = nil
+        }
+        for path in directories.keys.sorted(by: { $0.utf8.count > $1.utf8.count }) {
+            try directories[path]!.use { try check(tm_edit_close(client, $0)) }
+            directories[path] = nil
+        }
+    }
+
+    /// Folders bind by native ID only: their fresh complete listing, not the row, governs children.
+    private func requireDeletionExpectations(_ claims: [DeletionExpectation], path: RelativePath,
+                                             kind: CatalogRow.Kind, values: [UInt64]) throws {
+        guard !claims.isEmpty else { return }
+        let (nativeID, fingerprint) = try folderMoveNative(path: path, kind: kind, values: values)
+        guard claims.allSatisfy({
+            $0.kind == kind && $0.nativeID == nativeID && (kind == .folder || $0.fingerprint == fingerprint)
+        }) else { throw SourceFailure.versionChanged }
+    }
+
+    /// A name this traversal just listed disappearing means the tree changed, not that it was deleted.
+    private static func traversalFailure(_ error: Error) -> Error {
+        switch serverStatus(error).flatMap(DeletionStatus.init(rawValue:)) {
+        case .nameNotFound, .pathNotFound: return SourceFailure.versionChanged
+        default: return deletionFailure(error)
+        }
+    }
+
+    /// Any registered type with the extension counts, not only the data-conforming one.
+    private static func isPackage(_ name: String) -> Bool {
+        let suffix = (name as NSString).pathExtension
+        return !suffix.isEmpty && UTType.types(tag: suffix, tagClass: .filenameExtension, conformingTo: nil)
+            .contains { $0.conforms(to: .package) }
     }
 }
