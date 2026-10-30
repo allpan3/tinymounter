@@ -4,8 +4,8 @@ Date: 2026-10-29. Within the approved M21–M26 disposable VM session.
 
 The isolated deletion probe completed successfully, including eleven process-interruption
 scenarios and guarded cleanup. It also confirmed a safety limitation: another SMB client can
-add attached data while the main file is protected. M24 is not enabled. Accepting deletion of
-the whole object, including data added during the operation, still needs a decision.
+add attached data while the main file is protected. The user accepted deletion of the whole
+object, including data added during the operation, on 2026-10-29. M24 is not enabled.
 
 After a lost reply, absence cannot distinguish deletion from a move elsewhere. The probe
 reports that state as absent, unconfirmed. This matches the roadmap's existing requirement
@@ -55,7 +55,7 @@ after a final check would still be possible, so another read cannot close this r
 Decision status: accepted on 2026-10-29. Permanent Delete removes the selected object and all its attached
 data at deletion time, including attached data added during the operation. The main contents
 still require protected complete-content verification, and in-use files still refuse deletion.
-This is not implemented. Without that boundary, the current transport cannot prove the full
+App deletion is not implemented. Without that boundary, the current transport cannot prove the full
 concurrent-attached-data guarantee.
 
 ## Cleanup and remaining work
@@ -71,3 +71,30 @@ no Swift warnings. These two probe files add no production capability and need n
 generation. Signed Finder deletion, warning/callback semantics, recursive deletion, runtime
 identity admission and exact-status production wiring remain unverified. No installation,
 publication or original-NAS write occurred.
+
+## Transaction core, 2026-10-30
+
+A one-object deletion core now models the protected request and its recovery checkpoints.
+It reloads durable state on every call and requires identity, complete main-file contents,
+the exact name and a complete parent listing before marking deletion. Empty directories also
+require a complete empty listing. Changed attached data follows the accepted whole-object policy.
+
+A successful close reply must be durably recorded before later absence can confirm deletion.
+Without that acknowledgement, absence remains unconfirmed. Once close is acknowledged, retries
+only verify the outcome; they never issue another deletion. A replacement, changed contents,
+changed parents or movement to another name prevents automatic retry. Every persistence failure
+stops the current call, including failures after the durable write may have succeeded.
+
+The core accepts caller-supplied evidence, a remote interface and atomic persistence callbacks.
+It adds no disk format, adapter, catalog mutation or File Provider capability. Endpoint binding,
+root and pending-write exclusions, older-reader refusal, recursive progress and UI remain
+integration work. The current-name selection exception approved for Rename/Move has not been
+extended to deleting unverified files.
+
+Twenty-seven simulated-remote tests cover request/close/checkpoint interruption, stale callers,
+changed or replaced objects, incomplete listings, exact absence classification and arriving
+children. Source review found no blocking defect. Tools/run-checks.sh passes on the integrated
+source in macOS VM 1: 441 tests, one optional skip, no failures or Swift warnings, project
+generation, release CLI validation, unsigned app build and six encoder cases. Evidence:
+.local/phase4/m21-20261029/m24-core-checks.log. These are simulated-remote tests, not signed
+deletion or SMB adapter evidence; M24 remains incomplete.
