@@ -180,6 +180,12 @@ in VM 1: 294 tests, one optional skip, no failures or Swift warnings, and all re
 The app does not call the move API yet; SMB safety and signed Finder checks remain. See the
 [catalog results](docs/results/2026-10-29-move-catalog.md).
 
+SMB rename encoding, 2026-10-29: a VM packet regression reproduced a vendor bug that could
+change the file handle in a rename request. The fix passes six encoding cases and all required
+checks, including 294 tests with one optional skip and no Swift warnings. It enables no new
+write operation; signed SMB runtime checks and installation remain pending. See the
+[encoding results](docs/results/2026-10-29-smb-rename-encoding.md).
+
 ## Run the prototype
 
 See [prototype setup and validation](docs/prototype.md). Build the benchmark with `swift build -c release`; run `.build/release/transfer-bench --help`. Open `TinyMounter.xcodeproj` to configure signing for the Finder prototype.

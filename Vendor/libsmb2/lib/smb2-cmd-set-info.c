@@ -15,6 +15,7 @@
    You should have received a copy of the GNU Lesser General Public License
    along with this program; if not, see <http://www.gnu.org/licenses/>.
 */
+/* Local change, 2026-10-29: convert rename separators without changing the FileId. */
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -61,7 +62,6 @@ smb2_encode_set_info_request(struct smb2_context *smb2,
                              struct smb2_set_info_request *req)
 {
         int i, len;
-        uint16_t ch;
         uint8_t *buf;
         struct smb2_iovec *iov;
         struct smb2_file_end_of_file_info *eofi;
@@ -144,9 +144,8 @@ smb2_encode_set_info_request(struct smb2_context *smb2,
                         }
                         /* Convert '/' to '\' */
                         for (i = 0; i < name->len; i++) {
-                                smb2_get_uint16(iov, i * 2, &ch);
-                                if (ch == 0x002f) {
-                                        smb2_set_uint16(iov, i * 2, 0x005c);
+                                if (name->val[i] == 0x002f) {
+                                        name->val[i] = 0x005c;
                                 }
                         }
 

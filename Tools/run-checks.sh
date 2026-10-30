@@ -21,3 +21,9 @@ if grep -E '\.swift:[0-9]+:[0-9]+: warning:' "$log"; then
     echo "The app build has Swift warnings." >&2
     exit 1
 fi
+
+smb_products="$PWD/.build/xcode/Build/Products/Release"
+xcrun clang -std=gnu11 -Wall -Wextra -Werror -IVendor/libsmb2/include \
+    Tools/check-set-info-encoding.c -L"$smb_products" -lTinyMounterSMB -Wl,-rpath,"$smb_products" \
+    -o .build/check-set-info-encoding
+.build/check-set-info-encoding
