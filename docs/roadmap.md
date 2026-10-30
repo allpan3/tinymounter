@@ -171,13 +171,11 @@ M20 has that evidence for fully verified files, but ordinary catalog rows and se
 folders still need a proven binding to protected server objects. Solve that once before
 broadening rename, move or delete. A fresh lookup of the same name alone is not enough.
 
-Queued saves need their own ordering rule. Source inspection found that
-[EditOutbox](../Sources/TransferCore/EditOutbox.swift) retains different contents against the same
-base as separate records, sorts records by UUID, and only resolves equivalent contents.
-[LocationEdits](../Prototype/App/LocationEdits.swift) retries those records without a durable save
-order. This could put an intermediate save at the original name and the latest save in a conflict copy.
-It is a regression-test target, not a reproduced runtime result. Share recovery also retries
-renames explicitly while edits currently depend on File Provider replay or manual retry.
+Queued saves need their own ordering rule. A [VM regression](results/2026-10-29-pending-save-order.md)
+reproduced the baseline publishing an older save while a newer complete local copy waited.
+The integrated M23 core adds durable arrival order and explicit edit retry on share recovery.
+Required core checks pass. Bounded storage, the recovery interface and signed workflows remain.
+This is core regression evidence, not a signed Finder or offline-editing result.
 
 Do not solve ordering by discarding uncertain transactions. A missing remote identity does not
 prove no remote request was sent. Consolidation is safe only when a complete newer local copy

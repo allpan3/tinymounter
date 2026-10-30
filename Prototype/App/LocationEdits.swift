@@ -66,18 +66,20 @@ extension LocationSource {
                         return path
                     }
                     guard let fullPath = folder.appending(path) else { throw UploadError.invalidRequest }
-                    try editNamespace.requireUncontested(path: fullPath, excluding: request.id)
                     let outbox = try Self.editOutbox(domainID: domainID)
+                    // Retain this file's new save before resolving any of its earlier publications.
+                    try editNamespace.requireUncontested(path: fullPath, excluding: request.id,
+                                                          retaining: (domainID, request.item))
                     var record = try outbox.prepare(item: request.item, parent: request.parent, path: path,
                                                     baseVersion: request.baseVersion, failOnConflict: request.failOnConflict,
                                                     contents: contents, progress: progress, checkSpace: checkSpace)
-                    try finishEdit(&record, outbox: outbox, progress: progress)
-                    if record.state == .completed, !record.recoveryRetained, !record.conflict {
-                        for var previous in try outbox.records() where previous.id != record.id && previous.isPending {
-                            if (try? outbox.resolveEquivalent(&previous, with: record)) != nil {
-                                try? finishEdit(&previous, outbox: outbox, progress: progress)
-                            }
-                        }
+                    if record.state == .completed {
+                        try finishEdit(&record, outbox: outbox, progress: progress)
+                    } else {
+                        try finishItem(request.item, outbox: outbox, progress: progress)
+                        guard let current = try outbox.records().first(where: { $0.id == record.id }),
+                              current.state == .completed else { throw UploadError.pendingWrites }
+                        record = current
                     }
                     return EditReceipt(item: record.completedItem ?? record.item, conflict: record.conflict,
                                        contentVersion: record.published?.contentVersion ?? "")
@@ -104,21 +106,75 @@ extension LocationSource {
                     guard !mutationsSuspended, writeBookmark != nil,
                           try withCatalog({ try $0.item(id: Catalog.rootItemID)?.allowsEditing }) == true else { return }
                     let outbox = try Self.editOutbox(domainID: domainID)
-                    let pending = try outbox.records().filter(\.isPending).sorted {
-                        $0.state == .completed && $1.state != .completed
-                    }
-                    for var record in pending {
+                    let pending = try outbox.records().filter(\.isPending)
+                    for var record in pending where record.state == .completed {
                         do { try finishEdit(&record, outbox: outbox, progress: Progress()) }
                         catch {
                             logger.error("edit_retry id=\(record.id.uuidString, privacy: .public) failed \(logFields(error), privacy: .public)")
                         }
                     }
+                    for item in Set(pending.filter { $0.state != .completed }.map(\.item)).sorted() {
+                        do { try finishItem(item, outbox: outbox, progress: Progress()) }
+                        catch {
+                            logger.error("edit_retry item=\(item, privacy: .public) failed \(logFields(error), privacy: .public)")
+                        }
+                    }
+                    try outbox.releaseOrderingGuardIfSettled()
                 }
             } }
             if case .failure(let error) = result {
                 logger.error("edit_retry failed \(logFields(error), privacy: .public)")
             }
             scheduleSignal()
+        }
+    }
+
+    /// Earlier work resolves before the newest complete save; superseded saves never publish.
+    private func finishItem(_ item: String, outbox: EditOutbox, progress: Progress) throws {
+        for var earlier in try outbox.order(item: item).predecessors {
+            do { try finishResolvingEquivalents(&earlier, outbox: outbox, progress: progress) }
+            catch {
+                // Restoring the old original ends that publication without completing it.
+                if try outbox.order(item: item).predecessors.contains(where: { $0.id == earlier.id }) { throw error }
+            }
+        }
+        for var old in try outbox.order(item: item).superseded {
+            do {
+                if old.isLocalOnly { try outbox.discard(old) }
+                else { try retireEdit(&old, outbox: outbox, progress: progress) }
+            } catch {
+                // Without evidence the superseded save stays retained, and the head waits for it.
+                Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
+                    .error("edit_superseded id=\(old.id.uuidString, privacy: .public) retained \(logFields(error), privacy: .public)")
+            }
+        }
+        let order = try outbox.order(item: item)
+        guard order.predecessors.isEmpty, order.superseded.isEmpty else { throw UploadError.pendingWrites }
+        guard order.unordered.isEmpty else { throw UploadError.unresolved }
+        guard var head = order.head else { return }
+        try finishResolvingEquivalents(&head, outbox: outbox, progress: progress)
+    }
+
+    /// Unordered saves with the contents this one just published need no publication of their own.
+    private func finishResolvingEquivalents(_ record: inout PendingEdit, outbox: EditOutbox,
+                                            progress: Progress) throws {
+        try finishEdit(&record, outbox: outbox, progress: progress)
+        guard record.state == .completed, !record.conflict, !record.recoveryRetained else { return }
+        for var other in try outbox.records()
+            where other.id != record.id && other.item == record.item && other.state != .completed {
+            if (try? outbox.resolveEquivalent(&other, with: record)) != nil {
+                try? finishEdit(&other, outbox: outbox, progress: progress)
+            }
+        }
+    }
+
+    private func retireEdit(_ record: inout PendingEdit, outbox: EditOutbox, progress: Progress) throws {
+        guard let bookmark = writeBookmark else { throw UploadError.readOnly }
+        try withWriteSession(bookmark, progress: progress) { session, root in
+            guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
+            let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: root, progress: progress)
+            try remote.protectAncestors(of: record.path)
+            try EditTransaction.retire(&record, outbox: outbox, remote: remote)
         }
     }
 

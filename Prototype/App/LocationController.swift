@@ -1188,6 +1188,7 @@ final class LocationController {
             """)
         for domainID in affected {
             sources[domainID]?.retryRenames()
+            sources[domainID]?.retryEdits()
             await signalResolved(domainID, failures)
         }
         relist(grantID)

@@ -14,10 +14,14 @@ public enum EditTransaction {
     public static func publish(_ record: inout PendingEdit, outbox: EditOutbox, remote: EditRemote) throws {
         if record.state == .completed { return }
         try outbox.validateContents(record)
-        if [.movingOriginal, .copying, .restoring, .publishing, .published].contains(record.state) {
+        let order = try outbox.order(item: record.item)
+        if record.hasStartedPublication {
             try recover(&record, outbox: outbox, remote: remote)
             return
         }
+        guard order.head?.id == record.id else { throw UploadError.unresolved }
+        // Earlier generations resolve first: some may have reached the server; order(item:) needs it.
+        guard order.predecessors.isEmpty, order.superseded.isEmpty else { throw UploadError.pendingWrites }
         if record.state == .prepared {
             record.state = .creatingStage
             try outbox.save(record)
@@ -42,8 +46,11 @@ public enum EditTransaction {
         }
         let original = try remote.inspect(path: record.path, original: true)
         let base = try outbox.base(item: record.item, contentVersion: record.baseVersion)
-        guard let original, let base, original.hasSameContents(as: base.version),
-              original.modifiedMicroseconds == base.version.modifiedMicroseconds else {
+        // The app's own earlier save on this base is the newer save's predecessor, not a conflict.
+        let accepted = try [base?.version].compactMap { $0 } + outbox.ownPublications(before: record)
+        guard let original, accepted.contains(where: {
+            original.hasSameContents(as: $0) && original.modifiedMicroseconds == $0.modifiedMicroseconds
+        }) else {
             guard record.state == .staged else { throw UploadError.unresolved }
             try publishConflict(&record, outbox: outbox, remote: remote)
             return
@@ -84,9 +91,7 @@ public enum EditTransaction {
     }
 
     public static func recover(_ record: inout PendingEdit, outbox: EditOutbox, remote: EditRemote) throws {
-        guard [.movingOriginal, .copying, .restoring, .publishing, .published].contains(record.state) else {
-            throw UploadError.unresolved
-        }
+        guard record.hasStartedPublication else { throw UploadError.unresolved }
         if record.conflict, record.failOnConflict { throw UploadError.editConflict }
         if let final = try remote.inspect(path: record.destination, original: !record.conflict) {
             if record.conflict, final.identity != record.stageIdentity {
@@ -144,6 +149,40 @@ public enum EditTransaction {
         }
         record.recoveryRetained = false
         try outbox.complete(&record, item: item)
+    }
+
+    // Retirement uses recorded complete versions, never a fresh version of changed contents.
+    public static func retire(_ record: inout PendingEdit, outbox: EditOutbox, remote: EditRemote) throws {
+        guard let stored = try outbox.order(item: record.item).superseded.first(where: { $0.id == record.id }) else {
+            throw UploadError.unresolved
+        }
+        record = stored
+        if !record.isLocalOnly {
+            // Without a recorded identity, the create request may still have reached the server.
+            guard let stageVersion = record.stageVersion, stageVersion.identity == record.stageIdentity,
+                  matchesEdit(stageVersion, record) else { throw UploadError.unresolved }
+            let stage = try remote.inspect(path: record.stagePath, original: false)
+            guard stage.map({ $0 == stageVersion }) != false else { throw UploadError.unresolved }
+            var backup: EditFileVersion?
+            if [.creatingBackup, .backedUp].contains(record.state) {
+                guard let backupVersion = record.backupVersion, backupVersion.identity == record.backupIdentity,
+                      let previous = record.previous, backupVersion.size == previous.size,
+                      backupVersion.digest == previous.digest else { throw UploadError.unresolved }
+                backup = try remote.inspect(path: record.recoveryPath, original: false)
+                guard backup.map({ $0 == backupVersion }) != false else { throw UploadError.unresolved }
+            }
+            if let stage { try remote.removeArtifact(path: record.stagePath, version: stage) }
+            if let backup { try remote.removeArtifact(path: record.recoveryPath, version: backup) }
+            record.state = .prepared
+            record.stageIdentity = nil
+            record.stageVersion = nil
+            record.backupIdentity = nil
+            record.backupVersion = nil
+            record.previous = nil
+            record.conflict = false
+            try outbox.save(record)
+        }
+        try outbox.discard(record)
     }
 
     private static func publishConflict(_ record: inout PendingEdit, outbox: EditOutbox, remote: EditRemote) throws {

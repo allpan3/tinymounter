@@ -192,6 +192,11 @@ enable moves. Admitting older catalog rows needs a decision because their histor
 identity was not recorded; signed Finder checks also remain. The approved fixture session is
 still open. See the [protocol results](docs/results/2026-10-29-file-organization-protocol.md).
 
+Pending saves (M23), 2026-10-29: a focused VM regression reproduces an older save publishing
+while a newer complete copy waits. The core fix and required checks pass: 332 tests, one optional
+skip and no Swift warnings. Signed workflows, storage bounds and recovery UI remain incomplete. See the
+[ordering results](docs/results/2026-10-29-pending-save-order.md).
+
 ## Run the prototype
 
 See [prototype setup and validation](docs/prototype.md). Build the benchmark with `swift build -c release`; run `.build/release/transfer-bench --help`. Open `TinyMounter.xcodeproj` to configure signing for the Finder prototype.

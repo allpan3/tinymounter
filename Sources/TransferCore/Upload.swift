@@ -21,7 +21,7 @@ public struct PendingUpload: Codable, Sendable {
     public var isPending: Bool { state != .completed || initialName?.isPending == true }
 }
 
-/// Private app storage; callers serialize operations and never delete pending records.
+/// Private app storage; callers serialize operations and preserve unresolved remote attempts.
 public final class UploadOutbox {
     private let directory: URL
 
@@ -160,6 +160,22 @@ public final class UploadOutbox {
     public func removeIfCompleted() throws {
         guard try pendingCount == 0 else { throw UploadError.pendingWrites }
         try FileManager.default.removeItem(at: directory)
+    }
+
+    // EditOutbox proves supersession before retiring a payload that never started a remote upload.
+    func discardUnpublishedPayload(_ id: UUID) throws {
+        if let record = try records().first(where: { $0.id == id }) {
+            guard record.kind == .file, [.staging, .prepared].contains(record.state),
+                  record.remoteID == nil, record.item == nil,
+                  record.initialName == nil, record.serverFolder == nil else { throw UploadError.unresolved }
+        }
+        for url in [contentURL(id), directory.appending(path: id.uuidString + ".json")] {
+            guard unlink(url.path) == 0 || errno == ENOENT else { throw posixError("discard superseded payload") }
+        }
+        let fd = open(directory.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard fd >= 0 else { throw posixError("open payload directory") }
+        defer { close(fd) }
+        guard fsync(fd) == 0 else { throw posixError("sync payload removal") }
     }
 
     /// An interrupted existing file is read and proved complete, never reopened for writing.

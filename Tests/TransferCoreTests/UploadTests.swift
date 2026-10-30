@@ -43,6 +43,21 @@ final class UploadTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: orphan), payload)
     }
 
+    func testSupersededPayloadRemovalIsRepeatableAndRefusesAttemptedUploads() throws {
+        var attempted = try prepared()
+        attempted.state = .attempting
+        try outbox.save(attempted)
+        XCTAssertThrowsError(try outbox.discardUnpublishedPayload(attempted.id))
+        let retained = root.appending(path: "pending/\(attempted.id.uuidString).data")
+        XCTAssertEqual(try Data(contentsOf: retained), payload)
+        let local = try prepared(name: "superseded.bin")
+        try outbox.discardUnpublishedPayload(local.id)
+        try outbox.discardUnpublishedPayload(local.id)
+        XCTAssertEqual(try outbox.records().map(\.id), [attempted.id])
+        XCTAssertEqual(try outbox.pendingCount, 1)
+        XCTAssertEqual(try Data(contentsOf: retained), payload)
+    }
+
     func testRemovalKeepsPendingDataAndDeletesOnlyCompletedReceipts() throws {
         var record = try prepared()
         XCTAssertThrowsError(try outbox.removeIfCompleted())
