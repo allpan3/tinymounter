@@ -17,6 +17,23 @@ running audit with the same arguments and a new final.json evidence file. The au
 requires exact latest/neighbor contents and the retained artifacts' complete bytes.
 Keep the fixture and recovery copies until the parent reviews and removes them.
 
+If c02 stopped after retiring its partial stage, or c03 after its retired cleanup, do
+not reseed or rerun that case. From an archive built as above with this helper, run
+its continuation once. It adopts the case's exact outbox and never admits a new save:
+  TinyMounterPrototype --m23-continue c02 UUID LOCATION_UUID
+  TinyMounterPrototype --m23-inspect c03 UUID LOCATION_UUID RETIRED_ID RETIRED_STAGE OCCUPANT
+c02 copies its outbox, then publishes the already prepared newest save. c03 only
+inspects. Its pins come from separately kept parent evidence: the retired record UUID,
+then SMB identities as FILEID:BIRTH_MICROSECONDS. Pass "-" where that evidence is
+missing; the report then lists the limit. Reports go to <case>/continue or
+<case>/inspect, and a second continuation of a case is refused. c02's continuation
+can verify completion while retaining its original failure report. c03 reports
+inspectionPassed for its final-state checks and always leaves passed false:
+historical occupant preservation through cleanup remains unverified, even with
+identity pins. Its inspection never replaces the original case's missing result.
+Require successful process exit and an independent comparison of original Settings
+as well as the report; the helper's final Settings check follows report creation.
+
 c01 injects reserve loss; c02 cancels a native stage upload after 1 MiB; c03 fails
 after one acknowledged cleanup; c04 simulates a lost cleanup reply. These are
 core/adapter checks, not File Provider callbacks or real disk exhaustion. The
