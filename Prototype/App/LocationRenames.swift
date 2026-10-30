@@ -29,10 +29,11 @@ extension LocationSource {
             let result = Result { try editNamespace.perform { () -> PendingFileRename? in
                 _ = try renameAccess()
                 let outbox = try Self.renameOutbox()
-                guard var record = try outbox.replay(owner: domainID, request: request)
-                    ?? prepareRename(request, outbox: outbox, progress: progress) else { return nil }
-                try finishRename(&record, outbox: outbox, progress: progress)
-                return record
+                if var record = try outbox.replay(owner: domainID, request: request) {
+                    try finishRename(&record, outbox: outbox, progress: progress)
+                    return record
+                }
+                return try startRename(request, outbox: outbox, progress: progress)
             } }
             switch result {
             case .success(let record):
@@ -48,8 +49,8 @@ extension LocationSource {
         }
     }
 
-    private func prepareRename(_ request: FileRenameRequest, outbox: FileRenameOutbox,
-                               progress: Progress) throws -> PendingFileRename? {
+    private func startRename(_ request: FileRenameRequest, outbox: FileRenameOutbox,
+                             progress: Progress) throws -> PendingFileRename? {
         try editNamespace.requireSettled()
         let bookmark = try renameAccess()
         let (path, destination) = try withCatalog { catalog -> (RelativePath, RelativePath) in
@@ -91,8 +92,12 @@ extension LocationSource {
             guard let source = RelativePath((path.components.dropLast() + [evidence.name]).joined(separator: "/")) else {
                 throw UploadError.unresolved
             }
-            return try outbox.prepare(owner: domainID, request: request, base: base, source: source, views: views,
-                                      destination: destination, parents: parents)
+            var record = try outbox.prepare(owner: domainID, request: request, base: base, source: source, views: views,
+                                            destination: destination, parents: parents)
+            // Case aliases need one delete-capable handle; publication revalidates after reopening.
+            if NameKey(source.string) == NameKey(destination.string) { try remote.releaseRename(path: source.string) }
+            try finishRename(&record, outbox: outbox, progress: progress, session: session, remote: remote)
+            return record
         }
     }
 
@@ -245,6 +250,15 @@ extension LocationSource {
     private func finishRename(_ record: inout PendingFileRename, outbox: FileRenameOutbox, progress: Progress) throws {
         if record.state == .completed { return }
         let bookmark = try renameAccess()
+        try withWriteSession(bookmark, progress: progress) { session, _ in
+            guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
+            let remote = try SMBEdit(endpoint: endpoint, folder: .root, root: session.root, progress: progress)
+            try finishRename(&record, outbox: outbox, progress: progress, session: session, remote: remote)
+        }
+    }
+
+    private func finishRename(_ record: inout PendingFileRename, outbox: FileRenameOutbox, progress: Progress,
+                              session: ShareSession, remote: SMBEdit) throws {
         guard record.owner == domainID, let sourcePath = RelativePath(record.source),
               let destination = RelativePath(record.destination),
               record.views.contains(where: { $0.domain == domainID && $0.folder == folder.string }) else {
@@ -264,40 +278,36 @@ extension LocationSource {
             }
             return (view, source)
         }
-        try withWriteSession(bookmark, progress: progress) { session, _ in
-            guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
-            let remote = try SMBEdit(endpoint: endpoint, folder: .root, root: session.root, progress: progress)
-            try FileRenameTransaction.publish(&record, outbox: outbox, remote: remote)
-            guard let version = record.verified else { throw UploadError.unresolved }
-            try remote.allowPublishedReads(path: record.destination, expected: version)
-            guard let evidence = try remote.inspectRename(path: record.destination),
-                  evidence.name.utf8.elementsEqual(record.name.utf8), evidence.version.hasSameContents(as: version) else {
-                throw UploadError.unresolved
-            }
-            let sourceEntry = try NameKey(record.source) != NameKey(record.destination)
-                ? remote.renameSourceEntry(path: record.source) : nil
-            for (view, source) in participants {
-                let relative = RelativePath(destination.components.dropFirst(source.folder.components.count).joined(separator: "/"))!
-                if NameKey(record.source) != NameKey(record.destination) {
-                    guard let oldPath = RelativePath(view.path) else { throw UploadError.unresolved }
-                    if source.access === access {
+        try FileRenameTransaction.publish(&record, outbox: outbox, remote: remote)
+        guard let version = record.verified else { throw UploadError.unresolved }
+        try remote.allowPublishedReads(path: record.destination, expected: version)
+        guard let evidence = try remote.inspectRename(path: record.destination),
+              evidence.name.utf8.elementsEqual(record.name.utf8), evidence.version.hasSameContents(as: version) else {
+            throw UploadError.unresolved
+        }
+        let sourceEntry = try NameKey(record.source) != NameKey(record.destination)
+            ? remote.renameSourceEntry(path: record.source) : nil
+        for (view, source) in participants {
+            let relative = RelativePath(destination.components.dropFirst(source.folder.components.count).joined(separator: "/"))!
+            if NameKey(record.source) != NameKey(record.destination) {
+                guard let oldPath = RelativePath(view.path) else { throw UploadError.unresolved }
+                if source.access === access {
+                    try source.refreshRenameSource(oldPath, entry: sourceEntry, session: session)
+                } else {
+                    try source.access.withSession { session, _ in
                         try source.refreshRenameSource(oldPath, entry: sourceEntry, session: session)
-                    } else {
-                        try source.access.withSession { session, _ in
-                            try source.refreshRenameSource(oldPath, entry: sourceEntry, session: session)
-                        }
                     }
                 }
-                let native = try source.access === access
-                    ? source.renameSnapshot(path: relative, version: version, refresh: true, session: session,
-                                             progressed: { progress.completedUnitCount += 1 })
-                    : source.renameSnapshot(path: relative, version: version, refresh: true)
-                guard let oldName = RelativePath(view.path)?.components.last else { throw UploadError.unresolved }
-                let move = try CatalogFileMove(item: view.item, sourceParent: view.parent, sourceName: oldName,
-                                                contentVersion: view.contentVersion, sourceNativeID: view.nativeID,
-                                                destinationParent: view.targetParent, destinationName: record.name)
-                try source.withCatalog { try $0.commitFileMove(move, fingerprint: native.fingerprint, nativeID: native.inode) }
             }
+            let native = try source.access === access
+                ? source.renameSnapshot(path: relative, version: version, refresh: true, session: session,
+                                         progressed: { progress.completedUnitCount += 1 })
+                : source.renameSnapshot(path: relative, version: version, refresh: true)
+            guard let oldName = RelativePath(view.path)?.components.last else { throw UploadError.unresolved }
+            let move = try CatalogFileMove(item: view.item, sourceParent: view.parent, sourceName: oldName,
+                                            contentVersion: view.contentVersion, sourceNativeID: view.nativeID,
+                                            destinationParent: view.targetParent, destinationName: record.name)
+            try source.withCatalog { try $0.commitFileMove(move, fingerprint: native.fingerprint, nativeID: native.inode) }
         }
     }
 
