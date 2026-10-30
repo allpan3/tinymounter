@@ -186,6 +186,12 @@ checks, including 294 tests with one optional skip and no Swift warnings. It ena
 write operation; signed SMB runtime checks and installation remain pending. See the
 [encoding results](docs/results/2026-10-29-smb-rename-encoding.md).
 
+File organization protocol, 2026-10-29: all nine disposable VM cases pass, including protected
+moves, collisions, permission/stream preservation and crash recovery. The app still does not
+enable moves. Admitting older catalog rows needs a decision because their historical server
+identity was not recorded; signed Finder checks also remain. The approved fixture session is
+still open. See the [protocol results](docs/results/2026-10-29-file-organization-protocol.md).
+
 ## Run the prototype
 
 See [prototype setup and validation](docs/prototype.md). Build the benchmark with `swift build -c release`; run `.build/release/transfer-bench --help`. Open `TinyMounter.xcodeproj` to configure signing for the Finder prototype.

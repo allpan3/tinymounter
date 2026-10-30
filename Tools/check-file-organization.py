@@ -36,6 +36,7 @@ OWNED = re.compile(r"probe-org-[0-9a-f]{16}(/probe-[^/\\:\x00]+)*")
 CONTENTS = bytes(range(256)) * 257
 EVERYONE = bytes.fromhex("010100000000000100000000")
 LIMIT = 16 * 1024 * 1024
+NATIVE_INFO = None
 
 
 def load_production(path):
@@ -230,12 +231,17 @@ def exact(chain):
 def native(path):
     try:
         # Enumerate first, as catalog listings do; native caches remain uncontrolled.
-        os.listdir(path.parent)
-        info = os.stat(path, follow_symlinks=False)
+        names = [name for name in os.listdir(path.parent)
+                 if unicodedata.normalize("NFC", name) == unicodedata.normalize("NFC", path.name)]
+        if len(names) != 1:
+            return {"errno": errno.ENOENT if not names else errno.EEXIST}
+        values = (C.c_uint64 * 5)()
+        error = NATIVE_INFO(os.fsencode(path.parent / names[0]), values)
+        if error:
+            return {"errno": error}
     except OSError as error:
         return {"errno": error.errno}
-    return {"ino": info.st_ino, "size": info.st_size, "mtime_us": info.st_mtime_ns // 1000,
-            "ctime_us": info.st_ctime_ns // 1000, "birth_us": round(info.st_birthtime * 1e6)}
+    return dict(zip(("ino", "size", "mtime_us", "ctime_us", "birth_us"), values))
 
 
 def direct_fingerprint(values):
@@ -324,12 +330,23 @@ class Fixture:
         self.probe_library, self.smb_library = probe_library, smb_library
         self.seed = top + "/probe-seed"
         self.a = self.b = self.moved = None
+        self.prepared_folders = set()
+
+    def prepare_folders(self):
+        names = ["move-src", "move-dst", "col-src", "col-dst", "deny-src", "deny-dst",
+                 "chg", "par-src", "par-dst", "ob-target", "ob-dir"]
+        names += ["int-" + point + "-" + side for point in ("before", "after") for side in ("src", "dst")]
+        for name in names:
+            self.folder(name)
+        self.prepared_folders = set(names)
 
     def folder(self, name):
-        # The fixture's SMB folder creation produced mode 000 folders, so setup uses the backing folder.
         path = self.top + "/probe-" + name
-        (BACKING / path).mkdir(mode=0o777)
-        os.chmod(BACKING / path, 0o777)
+        if name in self.prepared_folders:
+            self.prepared_folders.remove(name)
+        else:
+            (BACKING / path).mkdir(mode=0o777)
+            os.chmod(BACKING / path, 0o777)
         return path
 
     def write(self, path, payload):
@@ -400,7 +417,7 @@ def move_case(case, fixture):
                           ("native_parent_rename", dst, top + "/probe-move-escape")):
         code = publication.attempt(lambda: os.rename(root / old, root / new))
         case.observe(key + "_errno", code)
-        case.require(key + "_denied", code != 0)
+        case.require(key + "_denied", code == errno.EBUSY)
     case.require("guarded_paths_unmoved", a.stored_name(src, identity) == split(source)[1]
                  and a.stored_name(top, parents["destination"]) == split(dst)[1])
     case.observe("native_stat_under_guard", native(root / source))
@@ -456,7 +473,8 @@ def move_case(case, fixture):
     case.observe("native_after_move", {"file": moved, "old_path": native(root / source),
                                        "source_parent": native(root / src), "destination_parent": native(root / dst)})
     case.observe("native_changes_from_move", {
-        key: moved.get(key) != staged.get(key) for key in ("ino", "mtime_us", "ctime_us", "birth_us")})
+        key: moved[key] != staged[key] if key in moved and key in staged else None
+        for key in ("ino", "mtime_us", "ctime_us", "birth_us")})
     fixture.moved = {"path": destination, "identity": identity, "digest": digest(CONTENTS),
                      "parents": {"source": [src, parents["source"]], "destination": [dst, parents["destination"]]}}
 
@@ -636,7 +654,8 @@ def open_below_case(case, fixture):
     identity = a.identity(a.held[folder])
     code = publication.attempt(lambda: os.rename(root / folder, root / escape))
     case.observe("native_rename_of_held_folder_errno", code)
-    case.require("held_folder_rename_denied", code != 0 and a.stored_name(top, identity) == split(folder)[1])
+    case.require("held_folder_rename_denied", code == errno.EBUSY
+                 and a.stored_name(top, identity) == split(folder)[1])
     a.release()
 
     a.hold(target)
@@ -792,16 +811,22 @@ def crash(args):
 
 
 def probe(args):
+    global NATIVE_INFO
     root = in_place.validate_fixture()
     if BACKING.is_symlink() or not BACKING.is_dir():
         raise ValueError("requires the disposable fixture's backing folder")
     top = "probe-org-" + uuid.uuid4().hex[:16]
     report = {"macos": platform.mac_ver()[0], "cache_state": "uncontrolled", "file_bytes": len(CONTENTS),
               "fixture_prefix": top, "historical_catalog_binding_proven": False, "passed": False, "cases": {}}
-    fixture = Fixture(args, root, top, publication.load(args.library, True, args.fixture_keychain),
+    probe_library = publication.load(args.library, True, args.fixture_keychain)
+    NATIVE_INFO = probe_library.probe_native_info
+    NATIVE_INFO.argtypes, NATIVE_INFO.restype = [C.c_char_p, C.POINTER(C.c_uint64)], C.c_int
+    fixture = Fixture(args, root, top, probe_library,
                       load_production(args.smb_library))
     (BACKING / top).mkdir(mode=0o777)
     os.chmod(BACKING / top, 0o777)
+    # Populate setup before native SMB caches the directory's children.
+    fixture.prepare_folders()
     if not (root / top).is_dir():
         raise ValueError("the backing folder is not the mounted fixture")
     publication.native_write(root / fixture.seed, CONTENTS, True)

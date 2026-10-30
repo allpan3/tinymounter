@@ -642,15 +642,17 @@ Source inspection found that the existing SMB rename wrapper accepts a destinati
 sets replacement to false. The provider and durable intent deliberately reject a changed parent,
 and the catalog commit updates only the name. The VM's installed File Provider SDK exposes
 allowsReparenting for moving an item between folders. These establish an implementation route,
-not a runtime result. Cross-folder publication, ordinary-file admission and directory recovery
-identities remain untested. The current rename path hashes complete contents repeatedly; no
+not a runtime result. Cross-folder publication and recorded directory recovery identities pass
+the isolated protocol checks below; ordinary-file admission remains open. The current rename
+path hashes complete contents repeatedly; no
 large-file move performance result is claimed. Metadata-only recovery after losing protection
 is not an approved substitute. Any reduction of the content-verification guarantee needs its
 own evidence and decision.
 
-The isolated Tools/check-file-organization.py probe is written but has not run. It checks
-protected file/parent identities, full bytes, permission and stream preservation, collisions,
-replacement races and interrupted publication. A passing protocol run alone cannot prove the
+The isolated Tools/check-file-organization.py probe passes all nine cases in the
+[VM protocol run](results/2026-10-29-file-organization-protocol.md), including protected file/parent
+identities, full bytes, permission and stream preservation, collisions, replacement races and
+interrupted publication. A passing protocol run alone cannot prove the
 historical identity of a legacy catalog row: those rows have no recorded server identity, and
 native lookup IDs can be derived from names. A replacement with identical metadata can therefore
 match an old row. Binding only the current object at admission would change the accepted safety
