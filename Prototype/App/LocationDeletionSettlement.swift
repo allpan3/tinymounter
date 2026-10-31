@@ -173,7 +173,7 @@ extension LocationSource {
                   folder.string.utf8.elementsEqual(view.folder.utf8) else { throw UploadError.unresolved }
             // Reopen the configured path; a cached location descriptor may now name a moved folder.
             let root = try session.openFolder(folder)
-            defer { close(root) }
+            defer { Darwin.close(root) }
             var info = stat()
             while fstat(root, &info) != 0 {
                 guard errno == EINTR else { throw posixError("fstat deletion root") }
