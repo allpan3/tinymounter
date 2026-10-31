@@ -498,3 +498,36 @@ Cancellation, delayed confirmation, remounts, actual controller Settings persist
 controls, File Provider callbacks and real crash/network-loss checks remain open. These checks
 do not enable Finder Delete or complete M24.
 
+## Signed cancellation and settlement recovery, 2026-10-30
+
+All seven phases passed with independent backing audits in run
+`C1B34BF5-38CF-4F4B-8121-CF679E9406BA`. The corrected standalone `m24-cancel-probe2` helper
+built with zero Swift warnings and passed strict signature and unchanged-entitlement checks.
+It used the same approved VM fixture with uncontrolled caches and was not installed. An
+independent Finder copy confirms that original Settings remains byte-identical.
+
+- Cancellation after durable admission stopped every node before deletion and returned cancelled.
+- Cancelling a joined request while Settings was suspended delivered both replies once, after
+  confirmed deletion and completed settlement. It made one Settings call and write.
+- Closing the source after admission left the plan unsettled and created no token-driven Stop.
+- Automatic recovery left that unsettled plan alone. Two explicit Stops survived closure with
+  observed counts of 2, 1 and 0; both replies arrived once.
+- Reopening completed the stopped record's catalog and Settings work. Replay remained cancelled
+  and made no new Settings call.
+- An injected lost close reply followed by Stop retained uncertainty. A later process completed
+  catalog settlement while preserving the unconfirmed outcome, saved keep and guard. Replay
+  remained unresolved.
+
+Every phase checked exact reply and Settings counts after a two-second observation window,
+drained recovery state, unchanged foreign records, catalog outcomes, keeps and guards. The
+uncertain phase deferred native absence to the independent backing audit; the following phase
+checked it after production reconciliation. Raw reports and audits remain under
+`m24-cancellation-C1B34BF5-38CF-4F4B-8121-CF679E9406BA*`, with build/signing evidence under
+`m24-cancel-probe2-*` in the private session.
+
+These are forced orderings, not exhaustive race coverage. Cancellation inside an active protected
+node, the KVO/completion race, closure during delayed Settings, explicit unsettled Retry, Dismiss,
+controller lifecycle callbacks, remounts and real storage/network failures remain unverified.
+The helper uses private Settings, so it does not validate the controller's actual persistence
+callback. Recovery controls and provider routing remain disabled.
+

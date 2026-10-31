@@ -203,7 +203,8 @@ wiring and its cancellation repair pass required VM checks. Signed recursive che
 two-view deletion, lost-reply restart recovery, competing changes and replacement preservation,
 with independent backing audits. Native replacement reads can need a second open to match the
 settled catalog identity. Automatic recovery only settles records whose remote work has ended.
-Signed cancellation, recovery controls and Finder integration remain; no deletion capability is enabled.
+Signed admission and joined cancellation, close, counted Stop and automatic settlement also pass.
+Recovery controls and Finder integration remain; no deletion capability is enabled.
 
 The supported write boundary remains folders whose writers use SMB and leave tinymounter's
 transaction files alone. All milestones preserve complete pending content, refuse silent
