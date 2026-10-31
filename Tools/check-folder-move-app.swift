@@ -101,6 +101,7 @@ private final class Probe: @unchecked Sendable {
     let directory: URL
     let store: SettingsStore
     let access: ShareAccess
+    private let settingsAccess: ShareAccess
     let bookmark: Data
     let originalSettingsURL: URL
     let originalSettings: Data
@@ -163,6 +164,7 @@ private final class Probe: @unchecked Sendable {
         try Data((ISO8601DateFormatter().string(from: .now) + "\n").utf8)
             .write(to: directory.appending(path: phase + "-started.txt"), options: .withoutOverwriting)
         access = ShareAccess(grant: grant, store: store, onRecovery: { _ in })
+        settingsAccess = ShareAccess(grant: grant, store: store, onRecovery: { _ in })
     }
 
     private static func oldKeeps(_ root: RelativePath) -> [KeepPath] {
@@ -206,7 +208,7 @@ private final class Probe: @unchecked Sendable {
         } catch {
             let ns = error as NSError
             try? note("phase", "failed", details: ["errorDomain": ns.domain, "errorCode": String(ns.code),
-                "probe": (error as? ProbeFailure)?.label ?? "unexpected"])
+                "probe": (error as? ProbeFailure)?.label ?? "unexpected", "failure": logFields(error)])
             throw error
         }
         for source in sources { source.close(); access.editNamespace.unregister(source.domainID) }
@@ -245,8 +247,9 @@ private final class Probe: @unchecked Sendable {
             try settings.moveKeptFolder(from: durable.source, to: durable.destination,
                                         host: Self.host, share: Self.share)
         }
-        try access.editNamespace.perform {
-            try access.withSession { session, _ in
+        try note("settings-lock-release", "started")
+        try settingsAccess.editNamespace.perform {
+            try settingsAccess.withSession { session, _ in
                 guard let endpoint = ShareAddress(session.identity.mountFrom),
                       endpoint.host == Self.host, endpoint.share == Self.share else {
                     throw ProbeFailure.check("settings-lock-check-endpoint")

@@ -155,6 +155,14 @@ on every retry, blocking listing and writes for the share. Changed file contents
 The fresh proof also rereads every admitted file under the namespace and global SMB locks.
 These recovery and latency limits remain gates for normal-build enablement.
 
+The first signed lock probe passed root exclusions and the active-read timeout, then moved its
+first folder and applied the catalog. Its diagnostic connection was refused as `serverUnreachable`
+after the mover's roughly 20-second connect marked that shared activity unresponsive. No lock
+assertion passed. The helper now uses a separate connection manager with the same namespace for
+this assertion; production health handling is unchanged. The failed report, catalog copy and
+fixture remain in `m22-lock-inspection` and `m22-lock-fixture-20261030` in the private session.
+The corrected helper has not yet been built or run.
+
 Namespace checks, pending counts, recovery display and location removal now read the shared
 file/folder intent inventory. Edits to deleted catalog rows are refused. The integrated
 candidate passes all required VM checks with 492 tests, one optional skip and no failures or
