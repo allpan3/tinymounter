@@ -393,7 +393,13 @@ final class CatalogDeletionTests: XCTestCase {
         XCTAssertEqual(admission.sequence, try owner.counts().lastSeq)
         XCTAssertEqual(admission.listingGeneration, try owner.counts().listingGen)
         try owner.setKeep(ids: rows("Tree"), value: true)
-        XCTAssertEqual(try prepare().plan.views, record.plan.views)
+        let changed = try [view(owner, location: "Docs"), view(neighbor, location: "")]
+        XCTAssertNotEqual(changed, record.plan.views)
+        let replay = try fixture.outbox.prepare(endpoint: fixture.endpoint, owner: fixture.owner,
+            request: record.plan.request, traversal: fixture.traversal(), views: changed,
+            protectedRoots: [], recursive: true)
+        XCTAssertEqual(replay.plan.views, record.plan.views)
+        XCTAssertThrowsError(try prepare()) { XCTAssertEqual($0 as? UploadError, .pendingWrites) }
     }
 
     func testSurvivorsKeepRowsAndFlagsWhileConfirmedSiblingsAreTombstoned() throws {
