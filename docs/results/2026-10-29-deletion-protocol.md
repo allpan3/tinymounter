@@ -362,6 +362,10 @@ completion follows the bridge's fresh revalidation. A live selected replacement 
 changed-version error. Stop cancels active progress before queuing its durable checkpoint;
 Dismiss follows the core's uncertainty policy. These APIs are not yet exposed in recovery UI.
 
-The integrated scheduler and Settings callback await compilation, independent source review and
-signed runtime checks. Delayed confirmation, cancellation, remounts and callback races remain
+The integrated scheduler and Settings callback pass all required VM checks: 557 tests, one optional
+skip, no Swift warnings, release CLI validation, project generation, six encoder cases, 57
+edit-status cases and six creation-status cases. The first app build required explicit `self`
+captures in the delayed-pass closure. Both logs remain in the private session as
+`m24-scheduler-checks.log` and `m24-scheduler-fixed-checks.log`. Independent source review and signed
+runtime checks remain. Delayed confirmation, cancellation, remounts and callback races remain
 unverified; these source changes do not complete M24.
