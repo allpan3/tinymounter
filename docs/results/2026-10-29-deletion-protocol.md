@@ -352,8 +352,9 @@ Freshness of the native mount's directory cache remains a signed-runtime gate.
 
 The scheduler now retains settlement attempts across delayed passes and awaits Settings cleanup
 outside the lane and locks. Catalog and Settings failures get three bounded retries; another
-remote attempt requires an explicit recovery trigger. Launch and share recovery resume stored
-plans. New provider Delete requests remain disconnected, so no deletion capability is enabled.
+remote attempt requires explicit Retry or request replay. Launch and share recovery now settle
+only records whose remote work has ended. New provider Delete requests remain disconnected,
+so no deletion capability is enabled.
 
 Admission and resume validate every participant's account, mount and configured root. Settings
 cleanup rechecks the durable record and current locations, waits for older Keep Downloaded
@@ -366,6 +367,18 @@ The integrated scheduler and Settings callback pass all required VM checks: 557 
 skip, no Swift warnings, release CLI validation, project generation, six encoder cases, 57
 edit-status cases and six creation-status cases. The first app build required explicit `self`
 captures in the delayed-pass closure. Both logs remain in the private session as
-`m24-scheduler-checks.log` and `m24-scheduler-fixed-checks.log`. Independent source review and signed
-runtime checks remain. Delayed confirmation, cancellation, remounts and callback races remain
-unverified; these source changes do not complete M24.
+`m24-scheduler-checks.log` and `m24-scheduler-fixed-checks.log`.
+
+Source review found that the original launch/reconnect hook could resume a cancelled deletion.
+The repair restricts automatic recovery to settlement and observes primary and joined request
+cancellation without replacing their Progress handlers. Cancellation queues durable Stop; counted
+Stop requests retain replies until the queued checkpoints run. Failed Stop reloads durable state,
+unchanged settlement attempts retain their confirmation holds, and failure also signals committed
+catalog changes. Storage failure can still prevent durable Stop. Closed sources defer settlement
+until reopened. This repair awaits compilation and independent review.
+
+The bounded recursive runtime helper now uses production admission and the asynchronous scheduler
+with private Settings. Its separate phases cover refusals, overlapping views, an injected lost
+close reply, restart, competing server changes and replacement preservation. It remains unrun.
+Delayed confirmation, cancellation, remounts and callback races remain unverified; these source
+changes do not complete M24.

@@ -8,18 +8,14 @@ extension LocationSource {
     private static let deletionPage = 512
     private typealias DeletionRow = (path: RelativePath, row: CatalogRow, nativeID: UInt64)
 
-    // The owner lane serializes admission and replay; catalog settlement follows remote execution.
-    func deleteOnLane(_ request: DeletionRequest, recursive: Bool, progress: Progress) throws -> PendingDeletion {
-        var record = try prepareDeletionOnLane(request, recursive: recursive, progress: progress)
-        if !record.isSettled { try runDeletion(&record, progress: progress) }
-        return record
-    }
-
-    // The callback only registers cancellation while capture protection and the namespace are held.
+    // The callback only binds recovery and cancellation under capture and namespace protection.
     func prepareDeletionOnLane(_ request: DeletionRequest, recursive: Bool,
-                               progress: Progress, admitted: (PendingDeletion) -> Void = { _ in }) throws
+                               progress: Progress, admitted: (PendingDeletion) -> Void) throws
         -> PendingDeletion {
-        if let replayed = try replayedDeletion(request) { return replayed }
+        if let replayed = try replayedDeletion(request) {
+            admitted(replayed)
+            return replayed
+        }
         let reservation = UUID()
         let (path, affected) = try editNamespace.perform { () -> (RelativePath, [LocationSource]) in
             try editNamespace.requireSettled()
@@ -137,6 +133,7 @@ extension LocationSource {
             guard let endpoint = ShareAddress(share.identity.mountFrom) else { throw UploadError.readOnly }
             let outbox = try Self.deletionOutbox()
             if let replayed = try outbox.replay(endpoint: endpoint, owner: domainID, request: request) {
+                admitted(replayed)
                 return replayed
             }
             try editNamespace.requireSettled()
@@ -317,6 +314,7 @@ extension LocationSource {
     /// One connection per node, ended when this returns or throws.
     private static func deletionNodeSession(endpoint: ShareAddress, root: Int32, progress: Progress,
                                             _ body: (DeletionRemote) throws -> Void) throws {
+        guard !progress.isCancelled else { throw TransferError.cancelled }
         let remote = try SMBEdit(endpoint: endpoint, folder: .root, root: root, progress: progress)
         try body(remote)
     }
