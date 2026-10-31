@@ -303,17 +303,12 @@ private enum M24Files {
 }
 
 private final class M24Probe: @unchecked Sendable {
-    private typealias Claim = (view: DeletionView, expectations: [DeletionExpectation])
-    private typealias ClaimRow = (path: RelativePath, row: CatalogRow, nativeID: UInt64)
-
     private static let mount = "/Volumes/tinymounter-m19-edit-test"
     private static let host = "127.0.0.1"
     private static let share = "tinymounter-m19-edit-test"
     private static let account = "_tinymounter_m19"
     // Below the parent's 600 s action timeout, so the report is written before any kill.
     private static let budget: TimeInterval = 560
-    private static let deletionPage = 512
-    private static let settlementPasses = 12
     private static let ownerFolders = [
         "", "c01", "c01/Tree", "c01/Tree/Nested", "c01/Sibling", "c02", "c02/Stale", "c02/Changed", "c02/Replaced",
         "c02/Populated", "c02/Unsupported", "c02/WithPackage", "c02/Linked", "c02/Symlinked", "c02/Hold",
@@ -334,7 +329,7 @@ private final class M24Probe: @unchecked Sendable {
         "The 10,000-node admission limit.",
         "A real app crash or network reply loss: interruptions are an injected lost close reply and process exits.",
         "Finder warnings and Delete controls, File Provider callbacks, IPC and capability routing.",
-        "The app's lifecycle settlement caller: this helper composes the bridge passes, keep cleanup and finish.",
+        "Launch/reconnect triggers and the controller Settings callback: the helper uses a private Settings callback.",
         "Location pending keeps: keep cleanup is checked only on private saved keeps.",
         "Receipt-only e1 refusal: the changed e1 child also changes the catalog fingerprint.",
         "The missing-folder listing fallback: c03 lists ancestors first, so it may never reach it.",
@@ -356,7 +351,7 @@ private final class M24Probe: @unchecked Sendable {
     let originalSettingsURL: URL
     let originalSettings: Data
     let ledger = M24Ledger()
-    let settlements = M24Counter()
+    let settingsCalls = M24Counter()
     let started = Date()
     private var state: M24State
     private var owner: LocationSource!
@@ -699,7 +694,9 @@ private final class M24Probe: @unchecked Sendable {
         try saveState()
         let remote = try laneDeletion("c05.delete-without-settlement", connections: 2,
                                       resumable: { try self.resumable(c05) }) { [self] in
-            try owner.deleteOnLane(c05, recursive: false, progress: Progress())
+            let progress = Progress()
+            let admitted = try owner.prepareDeletionOnLane(c05, recursive: false, progress: progress)
+            return try owner.resumeDeletionOnLane(admitted.id, progress: progress)
         }
         ledger.record("c05", Self.summary(remote))
         try require(remote.isSettled && !remote.isComplete && remote.plan.nodes.count == 1, "c05-remote-only")
@@ -743,11 +740,11 @@ private final class M24Probe: @unchecked Sendable {
         try require(after.plan == remote.plan && after.progress.exceptions == remote.progress.exceptions,
                     "c05-remote-outcome-unchanged")
         try require(after.selectedOutcome == .deleted, "c05-remote-deletion-kept")
-        let calls = settlements.count
+        let calls = settingsCalls.count
         ledger.enter("c05-replay")
         let again = try delete("c05.replay", c05, recursive: false, connections: 0)
         let final = try storedRecord(remote.plan.id)
-        ledger.record("c05", ["replaySettlementCalls": settlements.count - calls, "completeAfterReplay": final.isComplete])
+        ledger.record("c05", ["replaySettingsCalls": settingsCalls.count - calls, "completeAfterReplay": final.isComplete])
         try requireFailure(again, "c05-replay-refused") { $0 as? SourceFailure == .versionChanged }
         try require(final.plan == remote.plan && final.progress.exceptions == after.progress.exceptions,
                     "c05-replay-no-new-deletion")
@@ -762,43 +759,32 @@ private final class M24Probe: @unchecked Sendable {
         ledger.identity("c05-occupant", occupant)
         try require(occupant != original.nativeID, "c05-new-occupant")
         try require(live && nativeID(owner, item: c05.item) == occupant, "c05-replacement-kept-selected-id")
-        try requireKeeps("c05-keeps", removed: [], observed: "c05/file.txt")
+        try requireKeeps("c05-keeps", removed: ["c05/file.txt"])
         try ledger.record("records", ["pending": viewRecords().filter(\.isPending).map { Self.summary($0) }])
     }
 
     // MARK: Production calls
 
-    /// The lifecycle caller the app lacks: bounded bridge passes, confirmed-node keep cleanup, then finish.
-    private func productionSettlement(_ record: inout PendingDeletion) throws {
-        settlements.add()
-        var attempt: LocationDeletionSettlementAttempt?
-        var passes = 0
-        while let delay = try owner.settleDeletionOnLane(record, attempt: &attempt) {
-            passes += 1
-            try require(passes < Self.settlementPasses, "settlement-pass-bound")
-            // Outside both locks, as the bridge requires; zero asks for another pass at once.
-            if delay > .zero { Thread.sleep(forTimeInterval: Double(delay.components.seconds) + 1) }
-        }
-        ledger.record("settlement-passes", [record.id.uuidString: passes + 1])
-        guard var settled = attempt else { throw M24Check(label: "settlement-attempt") }
+    @MainActor
+    private func cleanupSettings(_ record: PendingDeletion, paths: [KeepPath]) throws {
         let confirmed = record.plan.nodes.indices.filter { record.outcome(at: $0) == .deleted }.map {
             KeepPath(path: record.plan.nodes[$0].path, kind: record.plan.nodes[$0].evidence.kind)
         }
-        try onMain {
-            try store.update { try $0.removeKeptItems(confirmed, host: Self.host, share: Self.share) }
-        }
-        try owner.finishDeletionSettlementOnLane(&record, afterKeepPathCleanup: &settled)
+        try require(record.plan.owner == state.owner && record.isSettled && paths == confirmed,
+                    "settings-confirmed-paths")
+        try require(try LocationSource.deletionOutbox().reload(record) == record, "settings-current-record")
+        try store.update { try $0.removeKeptItems(paths, host: Self.host, share: Self.share) }
+        settingsCalls.add()
     }
 
-    /// The full provider entry. A failed connection leaves no request in flight, so its production
+    /// The app deletion entry. A failed connection leaves no request in flight, so its production
     /// replay is the only repetition; a deletion body is never retried here.
     private func delete(_ label: String, _ request: DeletionRequest, recursive: Bool,
                         connections: Int) throws -> Result<PendingDeletion, Error> {
         var attempt = 1
         while true {
             let reply = M24Reply<PendingDeletion>(), began = Date()
-            owner.deleteItem(request, recursive: recursive, progress: Progress(), started: {},
-                             settle: { [self] record in try productionSettlement(&record) }) { reply.finish($0) }
+            owner.deleteItem(request, recursive: recursive, progress: Progress(), started: {}) { reply.finish($0) }
             let result = try reply.wait(label, seconds: timeout(connections: connections))
             ledger.operation(label, attempt: attempt, began: began, connections: connections,
                              error: M24Errors.failure(result))
@@ -856,7 +842,7 @@ private final class M24Probe: @unchecked Sendable {
     private func replayUnchanged(_ label: String, _ request: DeletionRequest, _ settled: PendingDeletion,
                                  recursive: Bool, expected: ((Error) -> Bool)?) throws {
         ledger.enter(label + "-replay")
-        let calls = settlements.count
+        let calls = settingsCalls.count
         let result = try delete(label + ".replay", request, recursive: recursive, connections: 0)
         if let expected {
             try requireFailure(result, label + "-replay", expected)
@@ -864,147 +850,19 @@ private final class M24Probe: @unchecked Sendable {
             ledger.record(label + "-replay", M24Errors.fields(error))
             throw M24Check(label: label + "-replay-succeeds")
         }
-        try require(try storedRecord(settled.id) == settled && settlements.count == calls, label + "-replay-no-new-work")
+        try require(try storedRecord(settled.id) == settled && settingsCalls.count == calls, label + "-replay-no-new-work")
     }
 
     // MARK: Admission without its run
 
-    /// The app admits and runs in one call, so cases that change the tree between the two compose the
-    /// same production steps here; the run itself stays production or an injected wrapper around it.
+    // Admission is separate so competitor changes and lost replies use the stored production plan.
     private func admitOnly(_ label: String, _ request: DeletionRequest, path: RelativePath,
                            recursive: Bool) throws -> PendingDeletion {
-        try onLane(label + ".admit", connections: 1) { [self] in
-            let namespace = owner.editNamespace, reservation = UUID()
-            let planned = try namespace.perform { () -> [LocationSource] in
-                try namespace.requireSettled()
-                _ = try owner.renameAccess()
-                try require(try catalogPath(request).string.utf8.elementsEqual(path.string.utf8), label + "-catalog-path")
-                let affected = try affectedSources(path)
-                for participant in affected { try participant.prepareRenameFolders(source: path, destination: path) }
-                for participant in affected { try participant.requireFolderMovePathsSettled([path]) }
-                namespace.reserve(reservation, paths: [path])
-                return affected
-            }
-            defer { namespace.release(reservation) }
-            var drained: [ObjectIdentifier] = []
-            for participant in planned where !drained.contains(ObjectIdentifier(participant.access)) {
-                drained.append(ObjectIdentifier(participant.access))
-                try participant.access.drainWatches(below: [path])
-            }
-            try namespace.drainReads(below: [path])
-            return try namespace.perform {
-                let write = try owner.renameAccess()
-                return try owner.withWriteSession(write) { share, _ in
-                    guard let address = ShareAddress(share.identity.mountFrom) else { throw UploadError.readOnly }
-                    let outbox = try LocationSource.deletionOutbox()
-                    try require(try outbox.replay(endpoint: address, owner: owner.domainID, request: request) == nil,
-                                label + "-fresh-admission")
-                    try namespace.requireSettled()
-                    try require(try catalogPath(request).string.utf8.elementsEqual(path.string.utf8),
-                                label + "-catalog-path-after-relisting")
-                    let affected = try affectedSources(path)
-                    try require(affected.elementsEqual(planned, by: { $0 === $1 }), label + "-same-views")
-                    for participant in affected { try participant.requireFolderMovePathsSettled([path]) }
-                    let claims = try affected.map { try deletionClaims($0, path, request: $0 === owner ? request : nil) }
-                    return try capture(label, address: address, shareRoot: share.root, request: request, path: path,
-                                       recursive: recursive, claims: claims, outbox: outbox,
-                                       protectedRoots: namespace.locationRoots())
-                }
-            }
+        try laneDeletion(label + ".admit", connections: 1, resumable: { try self.resumable(request) }) { [self] in
+            let record = try owner.prepareDeletionOnLane(request, recursive: recursive, progress: Progress())
+            try require(record.plan.selected.path.utf8.elementsEqual(path.string.utf8), label + "-admitted-path")
+            return record
         }
-    }
-
-    /// The capture session holds the process-wide SMB client lock, so it ends before any node session.
-    private func capture(_ label: String, address: ShareAddress, shareRoot: Int32, request: DeletionRequest,
-                         path: RelativePath, recursive: Bool, claims: [Claim], outbox: DeletionOutbox,
-                         protectedRoots: [RelativePath]) throws -> PendingDeletion {
-        let remote = try connect(label + ".capture", shareRoot: shareRoot)
-        let traversal = try remote.captureDeletionTraversal(of: path, recursive: recursive,
-                                                            expecting: claims.flatMap { $0.expectations })
-        let record = try outbox.prepare(endpoint: address, owner: owner.domainID, request: request,
-                                        traversal: traversal, views: claims.map { $0.view },
-                                        protectedRoots: protectedRoots, recursive: recursive)
-        try remote.releaseDeletionTraversal()
-        return record
-    }
-
-    private func catalogPath(_ request: DeletionRequest) throws -> RelativePath {
-        let folder = owner.folder
-        return try owner.withCatalog { catalog in
-            guard let row = try catalog.item(id: request.item), !row.deleted, row.allowsEditing,
-                  row.contentVersion == request.contentVersion, row.metadataVersion == request.metadataVersion,
-                  let relative = try catalog.relativePath(of: row.id), !relative.isRoot,
-                  let path = folder.appending(relative) else { throw SourceFailure.versionChanged }
-            return path
-        }
-    }
-
-    private func affectedSources(_ path: RelativePath) throws -> [LocationSource] {
-        let namespace = owner.editNamespace
-        guard !namespace.locationRoots().contains(where: { EditNamespace.contains(path, $0) }) else {
-            throw UploadError.readOnly
-        }
-        let affected = try namespace.affectedSources(path: path)
-        try require(affected.contains { $0 === owner }, "owner-view-affected")
-        return affected
-    }
-
-    private func deletionClaims(_ source: LocationSource, _ path: RelativePath, request: DeletionRequest?) throws -> Claim {
-        try source.uploadLock.withLock {
-            guard !source.mutationsSuspended else { throw UploadError.pendingWrites }
-            guard let relative = RelativePath(path.components.dropFirst(source.folder.components.count)
-                    .joined(separator: "/")), !relative.isRoot else { throw UploadError.unresolved }
-            let (rows, view) = try source.withCatalog { catalog -> ([ClaimRow], DeletionView) in
-                let rows = try Self.claimRows(relative, catalog: catalog)
-                if let request {
-                    guard let selected = rows.first?.row, selected.id == request.item,
-                          selected.contentVersion == request.contentVersion,
-                          selected.metadataVersion == request.metadataVersion else { throw SourceFailure.versionChanged }
-                }
-                let items = rows.map {
-                    DeletionViewItem(item: $0.row.id, path: $0.path, contentVersion: $0.row.contentVersion)
-                }
-                return (rows, try catalog.deletionView(locationRoot: source.folder, items: items))
-            }
-            let edits = try LocationSource.editOutbox(domainID: source.domainID)
-            let expectations = try rows.map { entry -> DeletionExpectation in
-                guard let full = source.folder.appending(entry.path) else { throw UploadError.unresolved }
-                let receipt = try entry.row.kind == .file && entry.row.contentVersion.hasPrefix("e1:")
-                    ? edits.base(item: entry.row.id, contentVersion: entry.row.contentVersion) : nil
-                return try DeletionExpectation(path: full, row: entry.row, nativeID: entry.nativeID, receipt: receipt)
-            }
-            return (view, expectations)
-        }
-    }
-
-    private static func claimRows(_ relative: RelativePath, catalog: Catalog) throws -> [ClaimRow] {
-        var id = Catalog.rootItemID
-        var selected: CatalogRow?
-        for component in relative.components {
-            guard let child = try catalog.liveChild(parent: id, nameKey: NameKey(component)) else { return [] }
-            guard child.name.utf8.elementsEqual(component.utf8) else { throw UploadError.unresolved }
-            selected = child
-            id = child.id
-        }
-        guard let selected else { throw UploadError.unresolved }
-        var pending = [(path: relative, row: selected)], rows: [ClaimRow] = []
-        while let next = pending.popLast() {
-            guard let nativeID = try catalog.remoteIdentity(next.row.id) else { throw UploadError.unresolved }
-            rows.append((next.path, next.row, nativeID))
-            guard next.row.kind == .folder else { continue }
-            var after: Int64?
-            while true {
-                let page = try catalog.children(of: next.row.id, afterRow: after, limit: deletionPage)
-                for child in page {
-                    guard let childPath = next.path.appending(child.name) else { throw SourceFailure.pathRejected }
-                    pending.append((childPath, child))
-                }
-                guard rows.count + pending.count <= DeletionPlan.maxNodes else { throw SourceFailure.tooManyEntries }
-                guard page.count == deletionPage, let last = page.last else { break }
-                after = last.row
-            }
-        }
-        return rows
     }
 
     /// RecursiveDeletionTransaction with fresh helper sessions; only the target's close reply is lost.
@@ -1133,7 +991,11 @@ private final class M24Probe: @unchecked Sendable {
         let catalog = try fresh ? Catalog.create(at: url, domainID: domain, rootName: "M24 runtime probe")
             : Catalog.openWriter(at: url, domainID: domain)
         let source = LocationSource(domainID: domain, folder: folder, catalog: catalog, access: access,
-                                    renameSettings: { _ in throw UploadError.readOnly }, signal: { _ in })
+                                    renameSettings: { _ in throw UploadError.readOnly },
+                                    deletionSettings: { [weak self] record, paths in
+            guard let self else { throw M24Check(label: "settings-probe-ended") }
+            try await self.cleanupSettings(record, paths: paths)
+        }, signal: { _ in })
         try source.configureWriteMode(bookmark, confirmed: true)
         return source
     }
@@ -1199,14 +1061,9 @@ private final class M24Probe: @unchecked Sendable {
         try owner.withWriteSession(bookmark) { _, locationRoot in try body(locationRoot) }
     }
 
-    private func requireKeeps(_ label: String, removed: [String], observed: String? = nil) throws {
+    private func requireKeeps(_ label: String, removed: [String]) throws {
         state.keeps.removeAll { removed.contains($0) }
         let actual = try keptPaths()
-        if let observed {
-            // A same-kind replacement can occupy a confirmed node's name; record what cleanup did.
-            ledger.record(label, ["savedKeepRetained": actual.contains(observed)])
-            if !actual.contains(observed) { state.keeps.removeAll { $0 == observed } }
-        }
         try require(actual == Set(state.keeps), label)
         try saveState()
     }
@@ -1356,7 +1213,7 @@ private final class M24Probe: @unchecked Sendable {
         report["date"] = ISO8601DateFormatter().string(from: .now)
         report["os"] = ProcessInfo.processInfo.operatingSystemVersionString
         report["cache"] = "uncontrolled"
-        report["entry"] = "LocationSource deletion API and settlement bridge in the signed app module"
+        report["entry"] = "LocationSource admission, deletion scheduler and settlement bridge in the signed app module"
         report["seconds"] = (Date().timeIntervalSince(started) * 10).rounded() / 10
         report["passed"] = failure == nil
         report["requiresSuccessfulProcessExit"] = true
