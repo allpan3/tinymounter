@@ -164,8 +164,27 @@ final class FolderMoveTests: XCTestCase {
         })
         remote.roots[NameKey(record.destination)] = nil
         remote.roots[NameKey(record.source)] = FolderMoveEvidence(identity: record.identity, name: record.oldName)
-        XCTAssertThrowsError(try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote))
-        XCTAssertEqual(record.state, .moved)
+        remote.settlement = { record in
+            try self.departedRoot(record).map { refresh in
+                let view = record.views.first { $0.domain == refresh.domain }!
+                return FolderMoveSettlement(domain: view.domain, settlement: CatalogFolderMoveSettlement(
+                    proofs: view.proofs, resolutions: view.move.entries.map { .removed(item: $0.item) },
+                    listings: refresh.listings))
+            }
+        }
+        try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote)
+        XCTAssertEqual(record.state, .verified)
+        XCTAssertTrue(record.rootRetired)
+        let view = record.views[0]
+        try catalog.settleFolderMove(view.move, settlement: XCTUnwrap(record.settlements?.first).settlement)
+        XCTAssertTrue(try record.latestTarget(domain: domain).entries.allSatisfy(\.retired))
+        for entry in view.move.entries { XCTAssertEqual(try catalog.item(id: entry.item)?.deleted, true) }
+        try FolderMoveTransaction.finishDomain(domain, record: &record, outbox: outbox)
+        XCTAssertThrowsError(try record.requireMoved()) { XCTAssertEqual($0 as? SourceFailure, .versionChanged) }
+        let completed = record, events = remote.events
+        try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote)
+        XCTAssertEqual(record, completed)
+        XCTAssertEqual(remote.events, events)
         XCTAssertEqual(remote.moves, 1)
     }
 
@@ -1057,17 +1076,158 @@ final class FolderMoveTests: XCTestCase {
         XCTAssertEqual(try catalog.currentAnchor(), before)
     }
 
-    func testReplanNeverFollowsReplacementRootOrAcceptsUnclassifiedLocalState() throws {
+    func testRootRetirementRequiresListingAndClassifiedLocalState() throws {
         var record = try prepare()
         try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote)
         let original = record, expected = try classified(record)
         remote.roots[NameKey(record.destination)] = FolderMoveEvidence(identity: try identity(999), name: record.name)
+        remote.refresh = { record in
+            try self.departedRoot(record).map {
+                FolderMoveRefresh(domain: $0.domain, observations: $0.observations, listings: [])
+            }
+        }
         XCTAssertThrowsError(try FolderMoveTransaction.replan(&record, outbox: outbox, expected: expected, remote: remote))
         XCTAssertEqual(try saved(), original)
         remote.roots[NameKey(record.destination)] = FolderMoveEvidence(identity: record.identity, name: record.name)
         XCTAssertThrowsError(try FolderMoveTransaction.replan(&record, outbox: outbox, expected: [:], remote: remote))
         XCTAssertEqual(try saved(), original)
         XCTAssertEqual(remote.moves, 1)
+    }
+
+    func testRootDepartureProofRejectsIncompleteChangedParentAndSurvivingBinding() throws {
+        var record = try prepare()
+        try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote)
+        let original = record, expected = try classified(record)
+        let good = try departedRoot(record)[0], listing = good.listings[0]
+        let bad = [
+            CatalogFolderMoveListing(parent: listing.parent, path: RelativePath(listing.path)!,
+                identity: listing.identity, complete: false, children: []),
+            CatalogFolderMoveListing(parent: listing.parent, path: RelativePath(listing.path)!,
+                identity: try identity(999), complete: true, children: []),
+            CatalogFolderMoveListing(parent: listing.parent, path: .root,
+                identity: listing.identity, complete: true, children: []),
+            CatalogFolderMoveListing(parent: listing.parent, path: RelativePath(listing.path)!,
+                identity: listing.identity, complete: true,
+                children: [.init(name: record.name, identity: record.identity, kind: nil)]),
+            CatalogFolderMoveListing(parent: listing.parent, path: RelativePath(listing.path)!,
+                identity: listing.identity, complete: true, children: [
+                    .init(name: "other", identity: try identity(90), kind: .folder),
+                    .init(name: "OTHER", identity: try identity(91), kind: .folder)])]
+        for listing in bad {
+            remote.refresh = { _ in [FolderMoveRefresh(domain: self.domain, observations: good.observations,
+                                                       listings: [listing])] }
+            XCTAssertThrowsError(try FolderMoveTransaction.replan(&record, outbox: outbox, expected: expected, remote: remote))
+            XCTAssertEqual(try saved(), original)
+        }
+        let survivors = try refreshes(record)[0].observations
+        remote.refresh = { _ in [FolderMoveRefresh(domain: self.domain,
+            observations: survivors.map { $0.item == original.views[0].move.item ? .removed(item: $0.item) : $0 },
+            listings: good.listings)] }
+        XCTAssertThrowsError(try FolderMoveTransaction.replan(&record, outbox: outbox, expected: expected, remote: remote))
+        XCTAssertEqual(try saved(), original)
+    }
+
+    func testRootRetirementSurvivesReappearanceAndDiscoveryUsesNewIDs() throws {
+        var record = try prepare()
+        try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote)
+        let view = record.views[0]
+        try catalog.settleFolderMove(view.move, settlement: XCTUnwrap(record.settlements?.first).settlement)
+        let renamed = CatalogFolderMoveListing.Child(name: "MOVED", identity: record.identity, kind: .folder)
+        remote.refresh = { try self.departedRoot($0, children: [renamed]) }
+        try FolderMoveTransaction.replan(&record, outbox: outbox, expected: classified(record), remote: remote)
+        let target = try record.latestTarget(domain: domain)
+        let recovery = try XCTUnwrap(record.recovery?.first)
+        try catalog.applyFolderMoveRecovery(view.move, proofs: view.proofs, expected: recovery.expected, target: target)
+        record = try saved()
+        remote.roots[NameKey(record.destination)] = FolderMoveEvidence(identity: record.identity, name: record.name)
+        remote.refresh = { try self.refreshes($0) }
+        try FolderMoveTransaction.replan(&record, outbox: outbox, expected: classified(record), remote: remote)
+        XCTAssertEqual(try record.latestTarget(domain: domain), target)
+        XCTAssertFalse(try XCTUnwrap(record.recovery?.first).listings.isEmpty)
+        try FolderMoveTransaction.finishDomain(domain, record: &record, outbox: outbox)
+        XCTAssertEqual(try outbox.pendingIntentCount(domain: domain), 0)
+        XCTAssertThrowsError(try record.requireMoved()) { XCTAssertEqual($0 as? SourceFailure, .versionChanged) }
+        try list(destination.id, [folder("Moved", 10)])
+        let discovered = try child(destination.id, "Moved")
+        XCTAssertNotEqual(discovered.id, view.move.item)
+        XCTAssertFalse(discovered.keepRequested)
+        try list(discovered.id, [file("verified", 40)])
+        let fresh = try child(discovered.id, "verified")
+        XCTAssertNotEqual(fresh.id, base.item)
+        XCTAssertFalse(fresh.contentVersion.hasPrefix("e1:"))
+        XCTAssertFalse(fresh.keepRequested)
+        let anchor = try catalog.currentAnchor()
+        try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote)
+        XCTAssertEqual(try catalog.currentAnchor(), anchor)
+        XCTAssertThrowsError(try saved().requireMoved()) { XCTAssertEqual($0 as? SourceFailure, .versionChanged) }
+    }
+
+    func testReplacementRootRetiresOverlappingViewsAfterPartialCompletionAndRestart() throws {
+        let otherDomain = UUID().uuidString
+        let other = try Catalog.create(at: directory.appending(path: "root-overlap"), domainID: otherDomain,
+                                       rootName: "Other")
+        try other.reconcile(folder: Catalog.rootItemID,
+            listing: DirectoryListing([folder("Tree", 10), folder("Archive", 20)])) { _ in true }
+        let otherTree = try XCTUnwrap(other.liveChild(parent: Catalog.rootItemID, nameKey: NameKey("Tree")))
+        let archive = try XCTUnwrap(other.liveChild(parent: Catalog.rootItemID, nameKey: NameKey("Archive")))
+        try other.reconcile(folder: otherTree.id,
+            listing: DirectoryListing([file("plain", 30), file("verified", 40)])) { _ in true }
+        try other.reconcile(folder: archive.id, listing: DirectoryListing([])) { _ in true }
+        let first = try view(), move = try other.prepareFolderMove(item: otherTree.id,
+            destinationParent: archive.id, destinationName: "Moved")
+        let proofs = try move.entries.map { entry -> CatalogFolderMoveProof in
+            if entry.kind == .folder { return .directory(item: entry.item, identity: try identity(entry.nativeID)) }
+            return .file(try EditBaseReceipt(item: entry.item, version: version(entry.nativeID)))
+        }
+        let second = FolderMoveView(domain: otherDomain, folder: .root, move: move, proofs: proofs)
+        var record = try prepare(views: [first, second])
+        try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote)
+        try catalog.settleFolderMove(first.move, settlement: XCTUnwrap(record.settlements?.first).settlement)
+        try FolderMoveTransaction.finishDomain(domain, record: &record, outbox: outbox)
+        let replacement = CatalogFolderMoveListing.Child(name: record.name, identity: try identity(999), kind: .folder)
+        remote.refresh = { try self.departedRoot($0, children: [replacement]) }
+        var expected = try classified(record)
+        expected[otherDomain] = try other.classifyFolderMove(move, proofs: proofs,
+            allowed: record.allowedCatalogStates(domain: otherDomain))
+        try FolderMoveTransaction.replan(&record, outbox: outbox, expected: expected, remote: remote)
+        XCTAssertTrue(record.finishedDomains.isEmpty)
+        let initial = try XCTUnwrap(record.recovery)
+        let owner = try XCTUnwrap(initial.first { $0.domain == domain })
+        try catalog.applyFolderMoveRecovery(first.move, proofs: first.proofs, expected: owner.expected, target: owner.target)
+        record = try FileRenameOutbox(directory: directory.appending(path: "Renames")).reloadFolder(record)
+        expected = try classified(record)
+        expected[otherDomain] = try other.classifyFolderMove(move, proofs: proofs,
+            allowed: record.allowedCatalogStates(domain: otherDomain))
+        remote.refresh = { try self.refreshes($0) }
+        try FolderMoveTransaction.replan(&record, outbox: outbox, expected: expected, remote: remote)
+        for current in try XCTUnwrap(record.recovery) {
+            let view = current.domain == domain ? first : second
+            let catalog = current.domain == domain ? self.catalog! : other
+            XCTAssertEqual(current.target, initial.first { $0.domain == current.domain }?.target)
+            try catalog.applyFolderMoveRecovery(view.move, proofs: view.proofs,
+                expected: current.expected, target: current.target)
+            for entry in view.move.entries { XCTAssertEqual(try catalog.item(id: entry.item)?.deleted, true) }
+            try FolderMoveTransaction.finishDomain(current.domain, record: &record, outbox: outbox)
+        }
+        XCTAssertEqual(record.state, .completed)
+        XCTAssertEqual(try outbox.pendingIntentCount(domain: otherDomain), 0)
+        XCTAssertThrowsError(try record.requireMoved()) { XCTAssertEqual($0 as? SourceFailure, .versionChanged) }
+        try list(destination.id, [folder("Moved", 999)])
+        XCTAssertNotEqual(try child(destination.id, "Moved").id, first.move.item)
+        XCTAssertEqual(remote.moves, 1)
+    }
+
+    private func departedRoot(_ record: PendingFolderMove,
+                              children: [CatalogFolderMoveListing.Child] = []) throws -> [FolderMoveRefresh] {
+        try record.views.map { view in
+            let relative = RelativePath(view.move.destinationParentPath)!
+            let path = RelativePath(view.folder)!.appending(relative)!
+            let parent = try XCTUnwrap(record.destinationParents.first { $0.path == path.string })
+            return FolderMoveRefresh(domain: view.domain,
+                observations: view.move.entries.map { .removed(item: $0.item) }, listings: [
+                    CatalogFolderMoveListing(parent: view.move.destinationParent, path: relative,
+                        identity: parent.identity, complete: true, children: children)])
+        }
     }
 
     func testRecoveryCheckpointAndAmbiguousPersistenceKeepTheMintedTarget() throws {

@@ -283,6 +283,21 @@ extension AppSettings {
         savedKeeps.removeAll { $0.isFor(host: host, share: share) && $0.paths.isEmpty }
     }
 
+    public mutating func removeKeptFolder(at path: String, host: String, share: String) throws {
+        guard let folder = RelativePath(path), !folder.isRoot else { throw UploadError.invalidRequest }
+        let prefix = folder.components.map(NameKey.init)
+        let related = Set(shares.filter { ServerGrant.isSameShare($0.host, $0.share, host, share) }.map(\.id))
+        let paths = locations.filter { related.contains($0.serverID) }.flatMap(\.pendingKeeps)
+            + savedKeeps.filter { $0.isFor(host: host, share: share) }.flatMap(\.paths)
+        let removed = try paths.filter { keep in
+            guard let current = RelativePath(keep.path) else { throw UploadError.invalidRequest }
+            return current.components.count >= prefix.count
+                && current.components.prefix(prefix.count).map(NameKey.init) == prefix
+                && (current.components.count > prefix.count || keep.kind == .folder)
+        }
+        try removeKeptItems(removed, host: host, share: share)
+    }
+
     public mutating func moveKeptFolder(from source: String, to destination: String, host: String, share: String) throws {
         guard let sourcePath = RelativePath(source), !sourcePath.isRoot,
               let destinationPath = RelativePath(destination), !destinationPath.isRoot else {

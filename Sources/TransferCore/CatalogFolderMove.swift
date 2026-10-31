@@ -181,16 +181,23 @@ public enum CatalogFolderMoveRetirement: Codable, Equatable, Sendable {
     static func proved(_ entry: CatalogFolderMoveEntry, identity: EditFileIdentity,
                        parentIdentity: EditFileIdentity, parentPath: RelativePath,
                        listing: CatalogFolderMoveListing) throws -> Self {
-        guard listing.parent == entry.parent, listing.identity == parentIdentity, listing.complete,
+        try proved(parent: entry.parent, name: entry.name, identity: identity,
+                   parentIdentity: parentIdentity, parentPath: parentPath, listing: listing)
+    }
+
+    static func proved(parent: String, name: String, identity: EditFileIdentity,
+                       parentIdentity: EditFileIdentity, parentPath: RelativePath,
+                       listing: CatalogFolderMoveListing) throws -> Self {
+        guard listing.parent == parent, listing.identity == parentIdentity, listing.complete,
               listing.path.utf8.elementsEqual(parentPath.string.utf8),
               listing.children.count <= DirectoryListing.defaultLimit,
               listing.children.allSatisfy({ RelativePath.isValidComponent($0.name) }),
               Set(listing.children.map { NameKey($0.name) }).count == listing.children.count else {
             throw UploadError.unresolved
         }
-        let occupant = listing.children.first { NameKey($0.name) == NameKey(entry.name) }
-        guard occupant?.matches(identity: identity, exactName: entry.name) != true else { throw UploadError.unresolved }
-        return .listed(parent: entry.parent, identity: parentIdentity, name: entry.name, occupant: occupant)
+        let occupant = listing.children.first { NameKey($0.name) == NameKey(name) }
+        guard occupant?.matches(identity: identity, exactName: name) != true else { throw UploadError.unresolved }
+        return .listed(parent: parent, identity: parentIdentity, name: name, occupant: occupant)
     }
 
     public static func == (lhs: Self, rhs: Self) -> Bool {
@@ -276,7 +283,13 @@ public struct CatalogFolderMoveState: Codable, Equatable, Sendable {
             switch results[before.item]! {
             case .removed:
                 let entry = original[before.item]!
-                guard entry.item != move.item, let parent = admitted[entry.parent] else { throw UploadError.unresolved }
+                if entry.item == move.item {
+                    guard let listing = settlement.listings.first(where: { $0.parent == move.destinationParent }),
+                          let path = RelativePath(move.destinationParentPath) else { throw UploadError.unresolved }
+                    return before.retiring(try .proved(parent: move.destinationParent, name: move.destinationName,
+                        identity: before.proof.identity, parentIdentity: listing.identity, parentPath: path, listing: listing))
+                }
+                guard let parent = admitted[entry.parent] else { throw UploadError.unresolved }
                 if case .removed = results[entry.parent]! { return before.retiring(.parent(item: entry.parent)) }
                 guard let listing = settlement.listings.first(where: { $0.parent == entry.parent }),
                       let path = move.destinationPath(for: original[entry.parent]!) else { throw UploadError.unresolved }
@@ -313,8 +326,7 @@ public struct CatalogFolderMoveState: Codable, Equatable, Sendable {
             let before = original[entry.item]!, first = admitted[entry.item]!
             guard entry.proof.item == entry.item, entry.proof.identity == first.proof.identity,
                   entry.nativeID != 0, entry.size >= 0,
-                  !entry.contentVersion.isEmpty, entry.contentVersion.utf8.count <= 128,
-                  entry.item != move.item || !entry.retired else { throw UploadError.unresolved }
+                  !entry.contentVersion.isEmpty, entry.contentVersion.utf8.count <= 128 else { throw UploadError.unresolved }
             if entry.item != move.item {
                 guard let parent = current[before.parent], !parent.retired || entry.retired else {
                     throw UploadError.unresolved
@@ -323,8 +335,10 @@ public struct CatalogFolderMoveState: Codable, Equatable, Sendable {
             if let retirement = entry.retirement {
                 switch retirement {
                 case .listed(let parent, let identity, let name, let occupant):
-                    guard parent == before.parent, identity == admitted[parent]?.proof.identity,
-                          name.utf8.elementsEqual(before.name.utf8),
+                    let isRoot = entry.item == move.item
+                    guard parent == (isRoot ? move.destinationParent : before.parent),
+                          isRoot ? identity != entry.proof.identity : identity == admitted[parent]?.proof.identity,
+                          name.utf8.elementsEqual((isRoot ? move.destinationName : before.name).utf8),
                           occupant?.matches(identity: entry.proof.identity, exactName: name) != true else {
                         throw UploadError.unresolved
                     }
@@ -334,7 +348,8 @@ public struct CatalogFolderMoveState: Codable, Equatable, Sendable {
                         }
                     }
                 case .parent(let parent):
-                    guard parent == before.parent, current[parent]?.retired == true else { throw UploadError.unresolved }
+                    guard entry.item != move.item, parent == before.parent,
+                          current[parent]?.retired == true else { throw UploadError.unresolved }
                 }
             }
             switch entry.proof {
@@ -406,7 +421,8 @@ extension Catalog {
                   destination.kind == .folder, destination.listGen != nil,
                   try relativePath(of: destination.id)?.string.utf8
                     .elementsEqual(move.destinationParentPath.utf8) == true else { throw UploadError.unresolved }
-            if let collision = try liveChild(parent: destination.id, nameKey: NameKey(move.destinationName)),
+            if after[move.item]?.retired != true,
+               let collision = try liveChild(parent: destination.id, nameKey: NameKey(move.destinationName)),
                collision.id != move.item { throw UploadError.collision }
             if try matchesFolderMoveState(move, state: target, paths: paths) { return }
             guard try matchesFolderMoveState(move, state: expected, paths: paths) else { throw UploadError.unresolved }
@@ -534,6 +550,15 @@ extension Catalog {
 
     // Fresh receipts must be durable before their versions become visible in the catalog.
     public func settleFolderMove(_ move: CatalogFolderMove, settlement: CatalogFolderMoveSettlement) throws {
+        if settlement.resolutions.contains(.removed(item: move.item)) {
+            let target = try CatalogFolderMoveState.settled(move, settlement: settlement)
+            guard target.entries.allSatisfy(\.retired), settlement.listings.count == 1 else {
+                throw UploadError.unresolved
+            }
+            try applyFolderMoveRecovery(move, proofs: settlement.proofs,
+                expected: CatalogFolderMoveState.admission(move, proofs: settlement.proofs), target: target)
+            return
+        }
         let results = try folderMoveResults(move, settlement: settlement)
         try write { seq in try applyFolderMove(move, results: results, seq: &seq) }
     }

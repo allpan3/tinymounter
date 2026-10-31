@@ -143,6 +143,24 @@ public struct PendingFolderMove: Codable, Equatable, Sendable {
     public var name: String { RelativePath(destination)?.components.last ?? "" }
     public var oldName: String { RelativePath(source)?.components.last ?? "" }
 
+    public var rootRetired: Bool {
+        if let recovery {
+            return recovery.contains { current in
+                guard let view = views.first(where: { $0.domain == current.domain }) else { return false }
+                return current.target.entries.contains { $0.item == view.move.item && $0.retired }
+            }
+        }
+        return settlements?.contains { current in
+            guard let view = views.first(where: { $0.domain == current.domain }) else { return false }
+            return current.settlement.resolutions.contains(.removed(item: view.move.item))
+        } == true
+    }
+
+    public func requireMoved() throws {
+        guard state == .completed else { throw UploadError.pendingWrites }
+        guard !rootRetired else { throw SourceFailure.versionChanged }
+    }
+
     public var destinationParents: [FileRenameParent] {
         guard let path = RelativePath(destination) else { return [] }
         let required = Set((0..<path.components.count).map {
@@ -260,6 +278,17 @@ public struct PendingFolderMove: Codable, Equatable, Sendable {
         }
         guard settlements.count == views.count, Set(settlements.map(\.domain)) == Set(views.map(\.domain)) else {
             throw UploadError.invalidRequest
+        }
+        if settlements.contains(where: { result in
+            result.settlement.resolutions.contains(.removed(item: views.first { $0.domain == result.domain }!.move.item))
+        }) {
+            try validateRetiredRoots(settlements.map { result in
+                let view = views.first { $0.domain == result.domain }!
+                guard result.settlement.proofs == view.proofs else { throw UploadError.invalidRequest }
+                return (view, try CatalogFolderMoveState.settled(view.move, settlement: result.settlement),
+                        result.settlement.listings)
+            })
+            return
         }
         var physical: [[NameKey]: PhysicalResolution] = [:]
         var knownChildren: [[NameKey]: [NameKey: CatalogFolderMoveListing.Child]] = [:]
@@ -403,6 +432,38 @@ public struct PendingFolderMove: Codable, Equatable, Sendable {
 }
 
 extension PendingFolderMove {
+    private func rootRetirement(_ view: FolderMoveView, listing: CatalogFolderMoveListing) throws
+        -> CatalogFolderMoveRetirement {
+        guard let relative = RelativePath(view.move.destinationParentPath),
+              let path = RelativePath(view.folder)?.appending(relative),
+              let parent = destinationParents.first(where: { $0.path.utf8.elementsEqual(path.string.utf8) }) else {
+            throw UploadError.unresolved
+        }
+        return try .proved(parent: view.move.destinationParent, name: view.move.destinationName,
+                           identity: identity, parentIdentity: parent.identity, parentPath: relative, listing: listing)
+    }
+
+    private func validateRetiredRoots(_ targets: [(FolderMoveView, CatalogFolderMoveState, [CatalogFolderMoveListing])]) throws {
+        var previous: [NameKey: CatalogFolderMoveListing.Child]?
+        var remaining = DirectoryListing.defaultLimit
+        for (view, target, listings) in targets {
+            guard target.entries.allSatisfy(\.retired), listings.count == 1,
+                  let root = target.entries.first(where: { $0.item == view.move.item }),
+                  root.retirement == (try rootRetirement(view, listing: listings[0])),
+                  listings[0].children.count <= remaining else { throw UploadError.unresolved }
+            remaining -= listings[0].children.count
+            let children = Dictionary(uniqueKeysWithValues: listings[0].children.map { (NameKey($0.name), $0) })
+            if let previous {
+                guard previous.count == children.count, children.allSatisfy({ key, child in
+                    guard let old = previous[key] else { return false }
+                    return old.identity == child.identity && old.kind == child.kind
+                        && old.name.utf8.elementsEqual(child.name.utf8)
+                }) else { throw UploadError.unresolved }
+            }
+            previous = children
+        }
+    }
+
     public func allowedCatalogStates(domain: String) throws -> [CatalogFolderMoveState] {
         guard let view = views.first(where: { $0.domain == domain }) else { throw UploadError.invalidRequest }
         var states = [try CatalogFolderMoveState.admission(view.move, proofs: view.proofs)]
@@ -485,6 +546,15 @@ extension PendingFolderMove {
 
     private func validateRecoveryEvidence(_ recovery: [FolderMoveRecoveryView],
                                           previousTargets: [String: CatalogFolderMoveState]?) throws {
+        if recovery.contains(where: { current in
+            let view = views.first { $0.domain == current.domain }!
+            return current.target.entries.contains { $0.item == view.move.item && $0.retired }
+        }) {
+            try validateRetiredRoots(recovery.map { current in
+                (views.first { $0.domain == current.domain }!, current.target, current.listings)
+            })
+            return
+        }
         struct Known {
             let name: String
             let kind: CatalogRow.Kind
@@ -593,6 +663,15 @@ extension PendingFolderMove {
             let observations = Dictionary(uniqueKeysWithValues: refresh.observations.map { ($0.item, $0) })
             let original = Dictionary(uniqueKeysWithValues: view.move.entries.map { ($0.item, $0) })
             let priorEntries = Dictionary(uniqueKeysWithValues: prior.entries.map { ($0.item, $0) })
+            if priorEntries[view.move.item]?.retired == true {
+                guard refresh.observations.allSatisfy({ if case .removed = $0 { true } else { false } }),
+                      let listings = recovery?.first(where: { $0.domain == view.domain })?.listings
+                        ?? settlements?.first(where: { $0.domain == view.domain })?.settlement.listings else {
+                    throw UploadError.unresolved
+                }
+                return FolderMoveRecoveryView(domain: view.domain, expected: expected[view.domain]!,
+                                              target: prior, listings: listings)
+            }
             let entries = try prior.entries.map { before -> CatalogFolderMoveState.Entry in
                 let observed = observations[before.item]!
                 if before.retired {
@@ -603,9 +682,13 @@ extension PendingFolderMove {
                 switch observed {
                 case .removed:
                     let entry = original[before.item]!
-                    guard entry.item != view.move.item, let parent = priorEntries[entry.parent] else {
-                        throw UploadError.unresolved
+                    if entry.item == view.move.item {
+                        guard let listing = refresh.listings.first(where: { $0.parent == view.move.destinationParent }) else {
+                            throw UploadError.unresolved
+                        }
+                        return before.retiring(try rootRetirement(view, listing: listing))
                     }
+                    guard let parent = priorEntries[entry.parent] else { throw UploadError.unresolved }
                     if case .removed = observations[parent.item]! {
                         return before.retiring(.parent(item: parent.item))
                     }
@@ -748,6 +831,10 @@ public enum FolderMoveTransaction {
         guard try remote.protectFolderMoveParents(source: awaitingMove ? record.source : record.destination,
                                                   destination: record.destination)
             == (awaitingMove ? record.parents : record.destinationParents) else { throw UploadError.unresolved }
+        if !awaitingMove {
+            try settle(&record, outbox: outbox, remote: remote, checkpoint: checkpoint)
+            return
+        }
         let destination = try inspectDestination(record.destination, remote: remote)
         let target = destination.evidence
         if let target, target.identity == record.identity, target.name.utf8.elementsEqual(record.name.utf8) {
@@ -838,9 +925,7 @@ public enum FolderMoveTransaction {
         record = try outbox.reloadFolder(record)
         guard record.state == .verified || record.state == .recovering,
               try remote.protectFolderMoveParents(source: record.destination, destination: record.destination)
-                == record.destinationParents,
-              let root = try remote.inspectFolderMoveRoot(path: record.destination), root.identity == record.identity,
-              root.name.utf8.elementsEqual(record.name.utf8) else { throw UploadError.unresolved }
+                == record.destinationParents else { throw UploadError.unresolved }
         var planned = record
         planned.recovery = try record.makeRecovery(expected: expected, refreshes: remote.refreshFolderMove(record))
         planned.state = .recovering

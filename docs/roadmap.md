@@ -192,8 +192,12 @@ failed on the fixture, and parent-scoped enumeration, real crashes and stale-bas
 remain unverified. Signed Settings-gap checks cover case-only descendant retirement, source-only
 ancestor changes and retry after root or destination restoration, including injected partial
 catalog completion. The native listing rewrites the Unicode case's initial name, so that case
-remains unavailable. Two earlier ambiguous-name cases also lack a usable fixture. Provider
-enablement remains gated.
+remains unavailable. Two earlier ambiguous-name cases also lack a usable fixture. On 2026-10-30
+the user approved retiring a durably moved root and its old subtree IDs when a fresh complete
+listing of the unchanged destination parent proves departure. Completion and replay return
+`versionChanged`; discovery uses new IDs, with downloads and per-item keeps reset. Destination
+ancestor changes remain pending. The implementation and probe are updated; signed validation
+of this new behavior remains. Provider enablement remains gated.
 
 M24's signed production-adapter checks pass for ordinary files, empty directories, paginated
 confirmation, changed/replaced-file refusal and recovery after injected interruptions. Lost

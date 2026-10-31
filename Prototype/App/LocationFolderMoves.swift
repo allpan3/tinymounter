@@ -30,7 +30,8 @@ extension LocationSource {
         }
         if let replayed {
             // Completed replay is only a receipt; its settlement must never be applied again.
-            if replayed.isPending, try retryFolderMove(replayed.id).state != .completed { throw UploadError.pendingWrites }
+            let completed = try replayed.isPending ? retryFolderMove(replayed.id) : replayed
+            try completed.requireMoved()
             return CreateReceipt(item: request.item)
         }
         let reservation = UUID()
@@ -59,7 +60,7 @@ extension LocationSource {
             try completeFolderMove(&record, session: session, progress: progress)
             return record
         }
-        guard record.state == .completed else { throw UploadError.pendingWrites }
+        try record.requireMoved()
         return CreateReceipt(item: request.item)
     }
 
@@ -71,7 +72,10 @@ extension LocationSource {
                   record.owner == domainID else { throw UploadError.unresolved }
             return (record, try record.views.map { try editNamespace.source($0.domain) })
         }
-        guard record.isPending else { return record }
+        guard record.isPending else {
+            try record.requireMoved()
+            return record
+        }
         guard let source = RelativePath(record.source), let destination = RelativePath(record.destination) else {
             throw UploadError.unresolved
         }
@@ -86,6 +90,7 @@ extension LocationSource {
                 }
             }
             try completeFolderMove(&current, session: session, progress: progress)
+            try current.requireMoved()
             return current
         }
     }
@@ -264,21 +269,26 @@ extension LocationSource {
         let outbox = try Self.renameOutbox()
         var current = record
         defer { record = current }
-        try waitForFolderMoveSettings(current)
-        try withFolderMoveRemote(session: session, progress: progress) { remote in
-            try publishFolderMove(&current, remote: remote)
-            guard current.state != .completed else { return }
-            try requireFolderMoveProtection(current, remote: remote)
-            let participants = try folderMoveParticipants(current)
-            for (view, source) in participants where !current.finishedDomains.contains(view.domain) {
-                let state = try source.withCatalog {
-                    try $0.classifyFolderMove(view.move, proofs: view.proofs,
-                                              allowed: current.allowedCatalogStates(domain: view.domain))
+        while current.state != .completed {
+            let retiredKeeps = current.rootRetired
+            try waitForFolderMoveSettings(current)
+            try withFolderMoveRemote(session: session, progress: progress) { remote in
+                try publishFolderMove(&current, remote: remote)
+                guard current.state != .completed else { return }
+                // A newly retired root needs Settings cleanup outside these locks before finishing.
+                guard current.rootRetired == retiredKeeps else { return }
+                try requireFolderMoveProtection(current, remote: remote)
+                let participants = try folderMoveParticipants(current)
+                for (view, source) in participants where !current.finishedDomains.contains(view.domain) {
+                    let state = try source.withCatalog {
+                        try $0.classifyFolderMove(view.move, proofs: view.proofs,
+                                                  allowed: current.allowedCatalogStates(domain: view.domain))
+                    }
+                    guard try state == current.latestTarget(domain: view.domain) else { throw UploadError.unresolved }
+                    try FolderMoveTransaction.finishDomain(view.domain, record: &current, outbox: outbox)
                 }
-                guard try state == current.latestTarget(domain: view.domain) else { throw UploadError.unresolved }
-                try FolderMoveTransaction.finishDomain(view.domain, record: &current, outbox: outbox)
+                signalFolderMove(current, participants: participants)
             }
-            signalFolderMove(current, participants: participants)
         }
     }
 
@@ -373,8 +383,9 @@ extension LocationSource {
     private func requireFolderMoveProtection(_ record: PendingFolderMove, remote: SMBEdit) throws {
         guard [.verified, .recovering].contains(record.state),
               try remote.protectFolderMoveParents(source: record.destination, destination: record.destination)
-                == record.destinationParents,
-              let root = try remote.inspectFolderMoveRoot(path: record.destination), root.identity == record.identity,
+                == record.destinationParents else { throw UploadError.unresolved }
+        if record.rootRetired { return }
+        guard let root = try remote.inspectFolderMoveRoot(path: record.destination), root.identity == record.identity,
               root.name.utf8.elementsEqual(record.name.utf8) else { throw UploadError.unresolved }
     }
 

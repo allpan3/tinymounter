@@ -673,6 +673,7 @@ final class LocationController {
             restoring.remove(recordID)
             for participant in sources.values where participant.editNamespace === source.editNamespace {
                 participant.retryDeletions()
+                participant.retryRenames()
             }
         }
         var listed: Set<String> = []
@@ -1065,7 +1066,16 @@ final class LocationController {
             if record.state == .completed { return }
             // Idempotent: a retry after a crash finds no saved path left below the source.
             try store.update { settings in
-                try settings.moveKeptFolder(from: record.source, to: record.destination, host: host, share: share)
+                if record.rootRetired {
+                    let domains = Set(record.views.map(\.domain))
+                    guard !settings.locations.contains(where: {
+                        domains.contains($0.domainID) && restoring.contains($0.id)
+                    }) else { throw UploadError.pendingWrites }
+                    try settings.removeKeptFolder(at: record.source, host: host, share: share)
+                    try settings.removeKeptFolder(at: record.destination, host: host, share: share)
+                } else {
+                    try settings.moveKeptFolder(from: record.source, to: record.destination, host: host, share: share)
+                }
             }
         }
         for domain in current.domains {

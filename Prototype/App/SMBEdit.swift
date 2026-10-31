@@ -705,7 +705,6 @@ extension SMBEdit: FolderMoveRemote {
                     physical[path.string] = try folderMoveCurrent(path: path, kind: entry.kind, expected: before.proof.identity)
                 }
                 guard let current = physical[path.string] else {
-                    guard entry.item != view.move.item else { throw SourceFailure.versionChanged }
                     observations[entry.item] = .removed(item: entry.item)
                     absent.insert(path.string)
                     continue
@@ -727,6 +726,19 @@ extension SMBEdit: FolderMoveRemote {
                             CatalogFolderMoveListing.Child(name: $0.name, identity: $0.identity, kind: $0.kind)
                         }))
                 }
+            }
+            if case .removed? = observations[view.move.item], expected[view.move.item]?.retired == false {
+                guard [.moved, .verified, .recovering].contains(record.state),
+                      let relative = RelativePath(view.move.destinationParentPath),
+                      let parent = RelativePath(view.folder)?.appending(relative),
+                      folderMoveParents.contains(parent.string), let handle = directories[parent.string] else {
+                    throw UploadError.unresolved
+                }
+                if complete[parent.string] == nil { complete[parent.string] = try folderMoveListing(parent.string) }
+                listings.append(CatalogFolderMoveListing(parent: view.move.destinationParent, path: relative,
+                    identity: try folderMoveIdentity(info(handle)), complete: true, children: complete[parent.string]!.map {
+                        CatalogFolderMoveListing.Child(name: $0.name, identity: $0.identity, kind: $0.kind)
+                    }))
             }
             return FolderMoveRefresh(domain: view.domain, observations: try view.move.entries.map {
                 guard let value = observations[$0.item] else { throw UploadError.unresolved }
