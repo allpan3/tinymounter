@@ -189,6 +189,8 @@ private final class CancellationProbe: @unchecked Sendable {
         "Finder, File Provider, IPC, controller launch/reconnect triggers and the controller Settings callback.",
         "Cancellation within an active protected node or the KVO-before-lock race; no production hook forces either.",
         "A completion racing an unqueued Stop; the counted-Stop case forces queued checkpoints only.",
+        "Source closure during delayed Settings, or primary cancellation while a joined request waits.",
+        "Explicit retryDeletion resuming an unsettled plan, and Dismiss.",
         "Real crash, network loss, remount, storage failure, multiple catalog views and active read/watch draining.",
         "Late duplicate replies beyond the bounded observation window or after process exit.",
         "Network request counts: unchanged progress and inventory establish no resumed deletion, not zero SMB traffic."
@@ -296,6 +298,7 @@ private final class CancellationProbe: @unchecked Sendable {
             try verifyInventory()
             try verifyCatalog()
             try observeReplies()
+            try verifyRecoveryDrained()
             try demand(try records().filter { $0.plan.owner != identity.owner } == foreign,
                        "other-deletion-records-unchanged")
         } catch { failure = error }
@@ -316,12 +319,16 @@ private final class CancellationProbe: @unchecked Sendable {
         source.onChange { [self] in
             guard once.add() == 1 else { return }
             observed.finish(Result {
+                if close { source.close() } else { progress.cancel() }
+                try demand(progress.isCancelled, "admission-progress-cancelled")
+                if close {
+                    try demand(source.deletionRecoveryLock.withLock { source.deletionStops.isEmpty },
+                               "close-does-not-queue-token-stop-in-callback")
+                }
                 let admitted = try record(path)
                 try demand(!admitted.isSettled && admitted.progress.next == 0
                     && admitted.progress.current == .prepared && admitted.progress.stopped == nil,
                     "admission-before-any-node")
-                if close { source.close() } else { progress.cancel() }
-                try demand(progress.isCancelled, "admission-progress-cancelled")
                 return admitted
             })
         }
@@ -574,6 +581,10 @@ private final class CancellationProbe: @unchecked Sendable {
             let fd = try session.openFolder(root)
             defer { Darwin.close(fd) }
             for name in Self.files {
+                if phase == .uncertain && name == "uncertain/file.txt" {
+                    details["nativeAbsenceDeferredToBackingAudit"] = true
+                    continue
+                }
                 if removed.contains(name) {
                     var info = stat()
                     try demand(fstatat(fd, name, &info, AT_SYMLINK_NOFOLLOW_ANY) != 0 && errno == ENOENT,
@@ -738,7 +749,21 @@ private final class CancellationProbe: @unchecked Sendable {
         try pause(2)
         try barrier()
         for (label, count) in replies { try demand(count() == 1, "exactly-once:" + label) }
+        let expected = [.cancel, .joined, .stopped, .reconcile].contains(phase) ? 1 : 0
+        try demand(settingsCalls.count == expected && settingsWrites.count == expected,
+                   "exact-settings-call-and-write-counts")
         details["replyObservationSeconds"] = 2
+    }
+
+    private func verifyRecoveryDrained() throws {
+        try lane { [self] in
+            try demand(source.deletionRecoveries.isEmpty, "recoveries-drained")
+            try demand(source.deletionRecoveryLock.withLock {
+                source.deletionStops.isEmpty && source.deletionCancellations.isEmpty
+                    && source.deletionProgress.isEmpty
+            }, "recovery-observers-and-progress-drained")
+        }
+        details["recoveryStateDrained"] = true
     }
 
     private func lane<T: Sendable>(_ body: @escaping @Sendable () throws -> T) throws -> T {

@@ -11,7 +11,8 @@ Use the accepted macOS VM 1 session at SESSION below, the existing native mount
 The endpoint is 127.0.0.1/tinymounter-m19-edit-test, account _tinymounter_m19.
 Keep the normal app closed. Run this probe and the existing recursive probe
 sequentially. Each run owns one new UUID subtree and one private catalog;
-other deletion records must remain equal. Existing shared guards may stay present.
+other deletion records must remain equal. The shared guard must match the pending
+inventory; production reconciliation removes a stale guard when no record needs it.
 
 Parent execution
 ---------------
@@ -41,8 +42,8 @@ Run Python as root in the VM, with these arguments for every action:
 
 Phases and forced orderings
 --------------------------
-cancel: The source's synchronous onChange callback observes durable admission,
-then cancels the primary Progress before the scheduler can execute a node. All
+cancel: The source's synchronous onChange callback cancels the primary Progress,
+then checks durable admission before the scheduler can execute a node. All
 three tree nodes must be stopped, their bytes retained, Settings complete, and
 the reply cancelled. This exercises deleteItem, not a manually edited journal.
 
@@ -74,6 +75,7 @@ RecursiveDeletionTransaction with the real SMBEdit adapter, wrapping closeTarget
 to throw after the real close. Destroy that client before any later namespace
 acquisition. Queue explicit Stop, close the source and release the lane. The
 record must become settled but unconfirmed, with its guard and keep retained.
+Native absence is deferred to the backing audit until the next phase settles it.
 This injects a lost reply; it does not simulate a real network failure.
 
 reconcile: In a new process call retryDeletions to complete the unconfirmed
@@ -324,8 +326,14 @@ def app_report(args):
     require(report.get("passed") is True and report.get("requiresSuccessfulProcessExit") is True, "app-report-pass")
     require(report.get("forced") == FORCED[args.phase], "race-prerequisites-not-forced")
     require(report.get("replyCounts") == {name: 1 for name in REPLIES[args.phase]}, "exactly-once-reply-counts")
+    expected_settings = int(args.phase in ("cancel", "joined", "stopped", "reconcile"))
+    require(report.get("settingsCalls") == report.get("settingsWrites") == expected_settings,
+            "exact-settings-call-and-write-counts")
+    require(report.get("nativeAbsenceDeferredToBackingAudit", False) == (args.phase == "uncertain"),
+            "native-absence-deferral")
     require(all(report.get(name) is True for name in ("originalSettingsEqual", "nativeFixtureMatches",
-                "keepsMatchOutcomes", "guardsMatchInventory", "catalogMatchesOutcomes")), "app-evidence-incomplete")
+                "keepsMatchOutcomes", "guardsMatchInventory", "catalogMatchesOutcomes",
+                "recoveryStateDrained")), "app-evidence-incomplete")
     require(isinstance(report.get("untested"), list) and report["untested"], "missing-limitations")
     require(isinstance(report.get("seconds"), (int, float)) and 0 <= report["seconds"] < 550,
             "app-time-budget")
