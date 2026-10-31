@@ -406,5 +406,11 @@ the assertion did not retain its errno. The helper now uses the existing protect
 no-replace rename, verifies the moved object's identity and contents, closes its session, then
 creates the identical-byte occupant exclusively. The failed run remains under
 `m24-recursive-AB759313-41B0-4CA5-B0EA-8A95A5678E53*`; it is not a deletion pass.
+A third run verified the protected move, then failed with native ENOENT before creating its
+replacement. The backing audit found the original intact under its held name, with one added
+Samba DOS attribute. The helper now refreshes both native parent listings before opening the
+moved file, matching production move verification. Its audit permits that single attribute
+addition only on the deliberately moved fixture file. The failed report and exact differences
+remain under `m24-recursive-6445276F-23DB-469D-9EAC-9F722F3EAC8C*`.
 Delayed confirmation, cancellation, remounts and callback races remain unverified; these source
 changes do not complete M24.

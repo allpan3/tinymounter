@@ -73,8 +73,9 @@ Backing audits require exact neighbor metadata. The two deliberate native conten
 changes may add Samba DOS attributes and quarantine metadata; existing attributes
 must remain equal, and no other additions are accepted. The identical replacement
 is prepared with protected SMB no-replace rename, followed by native exclusive
-creation; native SMB exclusive rename is unsupported. These additions occurred
-before deletion admission in the first failed refusal run and remain in its evidence.
+creation; native SMB exclusive rename is unsupported. The moved original may add
+only a Samba DOS attribute. The helper refreshes both native parent listings before
+opening the moved file. These metadata effects remain in the failed runs' evidence.
 
 Not tested: pagination beyond one listing buffer, the 10,000-node limit, a real
 crash or network loss, Finder controls, provider callbacks, launch/reconnect
@@ -295,25 +296,29 @@ def transformed(baseline, deleted=(), moved=None):
     return result
 
 
-def verify(baseline, expected, current, run, user, changed=(), created=None, server_side=False):
+def verify(baseline, expected, current, run, user, changed=(), created=None, server_side=False, smb_moved=()):
     """Unchanged objects match exactly; deliberate native writes may add known SMB attributes."""
     created = created or {}
     require(set(current) == set(expected) | set(created), "unexpected-fixture-entries")
     for path, item in expected.items():
         actual = current[path]
-        if path in changed:
-            mutable = {"digest", "mtime_ns"}
+        if path in changed or path in smb_moved:
+            mutable = {"digest", "mtime_ns"} if path in changed else set()
             if not server_side:
                 mutable.add("xattrs")
                 require(all(actual["xattrs"].get(key) == value for key, value in item["xattrs"].items()),
                         "changed-file-existing-attributes:" + path)
                 added = set(actual["xattrs"]) - set(item["xattrs"])
-                require(added <= {"user.DOSATTRIB", "user.DosStream.com.apple.quarantine:$DATA"},
+                allowed = {"user.DOSATTRIB"}
+                if path in changed:
+                    allowed.add("user.DosStream.com.apple.quarantine:$DATA")
+                require(added <= allowed,
                         "changed-file-unexpected-attributes:" + path)
             stable = {key: value for key, value in item.items() if key not in mutable}
             require(set(actual) == set(item) and {key: actual[key] for key in stable} == stable,
                     "changed-file-identity:" + path)
-            require(actual["digest"] == digest(changed_bytes(run, path)), "changed-file-contents:" + path)
+            if path in changed:
+                require(actual["digest"] == digest(changed_bytes(run, path)), "changed-file-contents:" + path)
         else:
             require(actual == item, "fixture-identity-or-contents-changed:" + path)
     previous = {(item["device"], item["inode"]) for item in baseline.values()}
@@ -487,7 +492,7 @@ def audit(args):
     changes = app_changes(args.run, args.phase)
     expected = transformed(baseline, deleted=changes.get("deleted", ()), moved=changes.get("moved"))
     verify(baseline, expected, current, args.run, user, changed=changes.get("changed", ()),
-           created=changes.get("created"))
+           created=changes.get("created"), smb_moved=changes.get("moved", {}).values())
     write_new(evidence / ("audit-" + args.phase + ".json"), {"run": args.run, "phase": args.phase, "date": now(),
         "result": "passed", "after": current, "app_seconds": report.get("seconds"),
         "app_connections": len(report.get("connections", [])), "app_cases": report.get("cases"),
