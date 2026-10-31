@@ -307,5 +307,47 @@ for reserve loss, native partial staging and cleanup interruption. The standalon
 private settings/catalogs and a marked fixture; the driver checks retained artifact contents.
 The Swift helper compiles without Swift diagnostics, and the Python driver passes syntax
 compilation in VM 1. Its signed bundle passes strict verification with unchanged sandbox
-entitlements (`m23-final-helper-build.log`). Execution and independent probe review remain
-pending; no runtime claim follows from the build.
+entitlements (`m23-final-helper-build.log`). The reviewed runs and continuation are recorded below.
+
+## Bounded recovery probes, 2026-10-30
+
+Reserve admission and lost-cleanup-reply checks pass in the signed standalone helper. The partial
+native-upload case passes after one continuation of its existing prepared successor. The replaced
+cleanup-artifact case has matching final-state evidence but remains incomplete: its original run
+did not persist the occupant's full version before cleanup.
+
+These checks used macOS VM 1, the existing loopback Samba session, private settings/catalogs and
+the marked `probe-m23-final` fixture. Cache state was uncontrolled. The first case asserted the
+accepted 2 GiB reserve. Its injected capacity refusal preserved the earlier save and allowed the
+complete newer save after capacity recovered. This does not simulate actual disk exhaustion.
+
+The second case stopped with POSIX error 1 after retiring a partial native stage. The original
+cause remains unknown. A reviewed continuation validated its exact durable state, copied its
+outbox, exported both complete local payloads and published only the existing prepared head.
+The signed continuation exited successfully. The original document identity survived with the
+latest bytes; the 1 MiB partial stage retained its recorded SMB identity, complete contents and
+metadata. The full 2 MiB superseded payload remained exportable before and after publication.
+The final inventory contained one retired record and one completed record. Neighbor identity
+and version equality are established only across the continuation, not the original interrupted run.
+
+The third case timed out after publication and cleanup. A later read-only inspection exited
+successfully and verified the final document, empty pending count, retained 13-byte occupant and
+absence of the successor's artifacts. It made no cleanup or publication request. Its report sets
+`inspectionPassed` true and `passed` false: timing, name and contents cannot prove that cleanup
+preserved the original occupant's full version. No native inode was substituted for an SMB pin.
+
+The fourth case passed its injected lost-removal-reply check. An absent stage did not become a
+cleanup acknowledgement. The newest save published while the uncertain backup and complete local
+recovery copy remained. Independent backing audits matched the expected contents and artifacts.
+
+The continuation helper compiled without Swift warnings and passed strict signature verification
+with unchanged entitlements. Both continuation processes exited successfully, and independent
+before/after Settings copies were byte-identical. Direct SMB connection attempts took about
+20 seconds each; this is a fixture observation, not a physical-Mac performance claim.
+
+Private evidence is under `.local/phase4/m21-20261029`: `probe-m23-final/inspection`,
+`m23-continuation-inspection`, `m23-continuation-helper-build.log`, the `m23-c02-continue-*` and
+`m23-c03-inspect-*` process records, `m23-continuation-backing-audit.json` and
+`m23-continuation-settings-comparison.json`. Original reports and all recovery copies remain.
+M23 still lacks the third case's historical preservation proof, broader editor callbacks and
+real disk-exhaustion evidence.
