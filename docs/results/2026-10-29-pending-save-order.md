@@ -351,3 +351,9 @@ Private evidence is under `.local/phase4/m21-20261029`: `probe-m23-final/inspect
 `m23-continuation-settings-comparison.json`. Original reports and all recovery copies remain.
 M23 still lacks the third case's historical preservation proof, broader editor callbacks and
 real disk-exhaustion evidence.
+
+A fresh c03 mode now uses a separate UUID-named fixture and private output directory. It flushes
+the complete occupant version before successor publication and retired cleanup, then saves the
+version again after the equality check. The original interrupted fixture and its incomplete
+historical evidence remain unchanged. This additional helper mode awaits compilation and a signed
+run; preparing it does not close the preservation gate.
