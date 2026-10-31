@@ -339,5 +339,7 @@ outside locks instead of waiting inside a namespace or catalog lock.
 Completion is separate from reconciliation so confirmed-node keep cleanup can be saved in
 Settings without either lock held. It then revalidates roots, endpoints and all catalog
 obligations before finishing domains. No bridge result alone authorizes provider success.
-This bridge is not yet compiled, independently reviewed or connected to lifecycle controls.
+The bridge compiles and passes all required VM checks with 557 tests, one optional skip and no
+Swift warnings (`m24-settlement-bridge-fixed-checks.log`). Its first app build required qualifying
+the descriptor close as `Darwin.close`. Independent review and lifecycle wiring remain pending.
 Freshness of the native mount's directory cache remains a signed-runtime gate.
