@@ -518,6 +518,85 @@ final class CatalogFolderMoveTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(catalog.item(id: tree.id)).listingComplete)
     }
 
+    func testRenamedDescendantsRetireExactBindingsWithoutTransferringKeeps() throws {
+        try list(tree.id, [file("plain", 20), file("explicit", 21), folder("Nested", 22), file("Café", 23)])
+        let plain = try child(tree.id, "plain"), cafe = try child(tree.id, "Café")
+        try catalog.setKeep(ids: [plain.id, cafe.id], value: true)
+        let move = try prepare(), proofs = try proofs(move)
+        let names = [plain.id: "PLAIN", cafe.id: "Cafe\u{301}"]
+        let replacements = try names.mapValues { name -> CatalogFolderMoveListing.Child in
+            let entry = try XCTUnwrap(move.entries.first { NameKey($0.name) == NameKey(name) })
+            return CatalogFolderMoveListing.Child(name: name,
+                identity: try XCTUnwrap(proofs.first { $0.item == entry.item }).identity, kind: .file)
+        }
+        let listing = try moveListing(move, parent: tree.id, proofs: proofs, replacements: replacements)
+        try refusesSettlement(move, settlement(move, proofs: proofs, listings: [listing]))
+        let accepted = try settlement(move, proofs: proofs, removed: Set(names.keys), listings: [listing])
+        let state = try CatalogFolderMoveState.settled(move, settlement: accepted)
+        let restored = try JSONDecoder().decode(CatalogFolderMoveState.self, from: JSONEncoder().encode(state))
+        try restored.validate(move, admission: CatalogFolderMoveState.admission(move, proofs: proofs))
+        try catalog.settleFolderMove(move, settlement: accepted)
+        for (id, name) in names {
+            let entry = try XCTUnwrap(restored.entries.first { $0.item == id })
+            guard case .listed(_, _, _, let occupant) = try XCTUnwrap(entry.retirement) else {
+                return XCTFail("Expected a recorded parent-listing occupant")
+            }
+            XCTAssertEqual(occupant?.identity, entry.proof.identity)
+            XCTAssertTrue(try XCTUnwrap(occupant).name.utf8.elementsEqual(name.utf8))
+            XCTAssertTrue(try XCTUnwrap(catalog.item(id: id)).deleted)
+            XCTAssertNil(try catalog.liveChild(parent: tree.id, nameKey: NameKey(name)))
+        }
+        let children = try observations(move).filter { observed in
+            move.entries.first { $0.item == observed.item }!.parent == tree.id
+        }.map { observed -> Parsed in
+            .entry(.init(name: names[observed.item] ?? RelativePath(observed.path)!.components.last!,
+                kind: observed.kind == .file ? .file : .folder, size: observed.size,
+                mtimeNs: observed.mtimeNs, ctimeNs: observed.ctimeNs, fileID: observed.nativeID))
+        }
+        try list(tree.id, children)
+        for (id, name) in names {
+            let discovered = try child(tree.id, name)
+            XCTAssertNotEqual(discovered.id, id)
+            XCTAssertFalse(discovered.keepRequested)
+            XCTAssertFalse(discovered.keep)
+            XCTAssertNil(discovered.editVersion)
+        }
+    }
+
+    func testRenamedDirectoryRetiresItsDescendantsFromTheParentListing() throws {
+        let move = try prepare(), proofs = try proofs(move), deep = try child(nested.id, "deep")
+        let renamed = CatalogFolderMoveListing.Child(name: "NESTED",
+            identity: try XCTUnwrap(proofs.first { $0.item == nested.id }).identity, kind: .folder)
+        let listing = try moveListing(move, parent: tree.id, proofs: proofs, replacements: [nested.id: renamed])
+        try refusesSettlement(move, settlement(move, proofs: proofs, removed: [nested.id], listings: [listing]))
+        let accepted = try settlement(move, proofs: proofs, removed: [nested.id, deep.id], listings: [listing])
+        let state = try CatalogFolderMoveState.settled(move, settlement: accepted)
+        XCTAssertEqual(state.entries.first { $0.item == deep.id }?.retirement, .parent(item: nested.id))
+        try catalog.settleFolderMove(move, settlement: accepted)
+        for id in [nested.id, deep.id] { XCTAssertTrue(try XCTUnwrap(catalog.item(id: id)).deleted) }
+        XCTAssertFalse(try XCTUnwrap(catalog.item(id: tree.id)).deleted)
+    }
+
+    func testRecordedRetirementRejectsTheSameIdentityAndExactNameRegardlessOfKind() throws {
+        let move = try prepare(), proofs = try proofs(move)
+        let admission = try CatalogFolderMoveState.admission(move, proofs: proofs)
+        let first = try CatalogFolderMoveState.settled(move, settlement: settlement(move, proofs: proofs))
+        let plain = try child(tree.id, "plain"), parent = try XCTUnwrap(proofs.first { $0.item == tree.id })
+        let kinds: [CatalogRow.Kind?] = [.file, .folder, nil]
+        for kind in kinds {
+            let invalid = CatalogFolderMoveState(moved: true, entries: first.entries.map { entry in
+                guard entry.item == plain.id else { return entry }
+                return entry.retiring(.listed(parent: tree.id, identity: parent.identity, name: plain.name,
+                    occupant: .init(name: plain.name, identity: entry.proof.identity, kind: kind)))
+            })
+            XCTAssertThrowsError(try invalid.validate(move, admission: admission))
+            let before = try dump()
+            XCTAssertThrowsError(try catalog.applyFolderMoveRecovery(move, proofs: proofs,
+                                                                      expected: admission, target: invalid))
+            XCTAssertEqual(try dump(), before)
+        }
+    }
+
     func testSettlementChangePagesDeliverEveryTombstoneAndTheRootDeparture() throws {
         let move = try prepare(), proofs = try proofs(move)
         let gone: Set<String> = [try child(tree.id, "plain").id, try child(tree.id, "explicit").id]

@@ -143,6 +143,14 @@ public struct PendingFolderMove: Codable, Equatable, Sendable {
     public var name: String { RelativePath(destination)?.components.last ?? "" }
     public var oldName: String { RelativePath(source)?.components.last ?? "" }
 
+    public var destinationParents: [FileRenameParent] {
+        guard let path = RelativePath(destination) else { return [] }
+        let required = Set((0..<path.components.count).map {
+            Data(path.components.prefix($0).joined(separator: "/").utf8)
+        })
+        return parents.filter { required.contains(Data($0.path.utf8)) }
+    }
+
     func validate() throws {
         guard kind == .folder, UUID(uuidString: owner)?.uuidString == owner,
               metadataVersion.utf8.count <= 20, Int64(metadataVersion).map({ $0 >= 0 }) == true,
@@ -359,7 +367,9 @@ public struct PendingFolderMove: Codable, Equatable, Sendable {
                 for child in children[entry.item] ?? [] {
                     let found = listed[NameKey(child.name)]
                     if case .removed = resolutions[child.item]! {
-                        guard found?.identity != proofs[child.item]!.identity else { throw UploadError.invalidRequest }
+                        guard found?.matches(identity: proofs[child.item]!.identity, exactName: child.name) != true else {
+                            throw UploadError.invalidRequest
+                        }
                     } else {
                         guard let found, found.identity == proofs[child.item]!.identity, found.kind == child.kind,
                               found.name.utf8.elementsEqual(child.name.utf8) else { throw UploadError.invalidRequest }
@@ -380,7 +390,9 @@ public struct PendingFolderMove: Codable, Equatable, Sendable {
                 guard let resolution = physical[parent + [key]] else { throw UploadError.invalidRequest }
                 let found = listed[key]
                 if case .removed = resolution {
-                    guard found?.identity != known.identity else { throw UploadError.invalidRequest }
+                    guard found?.matches(identity: known.identity, exactName: known.name) != true else {
+                        throw UploadError.invalidRequest
+                    }
                 } else {
                     guard let found, found.identity == known.identity, found.kind == known.kind,
                           found.name.utf8.elementsEqual(known.name.utf8) else { throw UploadError.invalidRequest }
@@ -557,7 +569,9 @@ extension PendingFolderMove {
             guard let listing = listed[parentPath] else { continue }
             let found = listing[key]
             if child.newlyRetired {
-                guard found?.identity != child.entry.proof.identity else { throw UploadError.unresolved }
+                guard found?.matches(identity: child.entry.proof.identity, exactName: child.name) != true else {
+                    throw UploadError.unresolved
+                }
             } else if !child.entry.retired {
                 guard let found, found.identity == child.entry.proof.identity, found.kind == child.kind,
                       found.name.utf8.elementsEqual(child.name.utf8) else { throw UploadError.unresolved }
@@ -730,8 +744,10 @@ public enum FolderMoveTransaction {
         try record.validate()
         if record.state == .completed { return }
         if record.state == .refused { throw refusalError(record.refusal) }
-        guard try remote.protectFolderMoveParents(source: record.source, destination: record.destination)
-            == record.parents else { throw UploadError.unresolved }
+        let awaitingMove = record.state == .prepared || record.state == .attempting
+        guard try remote.protectFolderMoveParents(source: awaitingMove ? record.source : record.destination,
+                                                  destination: record.destination)
+            == (awaitingMove ? record.parents : record.destinationParents) else { throw UploadError.unresolved }
         let destination = try inspectDestination(record.destination, remote: remote)
         let target = destination.evidence
         if let target, target.identity == record.identity, target.name.utf8.elementsEqual(record.name.utf8) {
@@ -821,8 +837,8 @@ public enum FolderMoveTransaction {
                               checkpoint: (PendingFolderMove.State) throws -> Void = { _ in }) throws {
         record = try outbox.reloadFolder(record)
         guard record.state == .verified || record.state == .recovering,
-              try remote.protectFolderMoveParents(source: record.source, destination: record.destination)
-                == record.parents,
+              try remote.protectFolderMoveParents(source: record.destination, destination: record.destination)
+                == record.destinationParents,
               let root = try remote.inspectFolderMoveRoot(path: record.destination), root.identity == record.identity,
               root.name.utf8.elementsEqual(record.name.utf8) else { throw UploadError.unresolved }
         var planned = record

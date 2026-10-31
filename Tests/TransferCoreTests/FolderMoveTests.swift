@@ -297,6 +297,95 @@ final class FolderMoveTests: XCTestCase {
         XCTAssertEqual(remote.moves, 0)
     }
 
+    func testSourceOnlyAncestorChangesRequireDurablyMovedState() throws {
+        var record = try prepareNestedMove()
+        let originalParents = remote.parents
+        remote.parents[2] = FileRenameParent(path: "Tree", name: "Tree", identity: try identity(999))
+        record.state = .moved
+        XCTAssertThrowsError(try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote))
+        XCTAssertEqual(record.state, .prepared)
+        XCTAssertEqual(remote.protectedSources.last, record.source)
+        XCTAssertEqual(remote.moves, 0)
+        remote.parents = originalParents
+        remote.disconnectAfterMove = true
+        XCTAssertThrowsError(try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote))
+        XCTAssertEqual(record.state, .attempting)
+        XCTAssertEqual(remote.moves, 1)
+        remote.disconnected = false
+        remote.parents.removeLast()
+        XCTAssertThrowsError(try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote))
+        XCTAssertEqual(record.state, .attempting)
+        XCTAssertEqual(remote.protectedSources.last, record.source)
+        remote.parents = originalParents
+        XCTAssertThrowsError(try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote) { state in
+            if state == .moved { throw UploadError.unresolved }
+        })
+        XCTAssertEqual(try saved().state, .moved)
+        remote.parents.removeLast()
+        try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote)
+        XCTAssertEqual(record.state, .verified)
+        XCTAssertEqual(remote.protectedSources.last, record.destination)
+        XCTAssertEqual(record.parents, originalParents)
+        remote.parents = originalParents
+        remote.parents[2] = FileRenameParent(path: "Tree", name: "TREE", identity: try identity(999))
+        try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote)
+        XCTAssertEqual(remote.settlementVerifications, 1)
+        let expected = try classified(record)
+        try FolderMoveTransaction.replan(&record, outbox: outbox, expected: expected, remote: remote)
+        XCTAssertEqual(record.state, .recovering)
+        try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote)
+        XCTAssertTrue(remote.events.contains("verify recovery"))
+        XCTAssertEqual(remote.protectedSources.last, record.destination)
+        XCTAssertEqual(remote.moves, 1)
+    }
+
+    func testDestinationAncestorsRemainStrictAfterMoveAndDuringRecovery() throws {
+        var record = try prepareNestedMove()
+        XCTAssertThrowsError(try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote) { state in
+            if state == .moved { throw UploadError.unresolved }
+        })
+        let parents = record.destinationParents
+        for state in [PendingFolderMove.State.moved, .verified, .recovering] {
+            let durable = try saved()
+            XCTAssertEqual(durable.state, state)
+            for index in parents.indices {
+                remote.parents = parents
+                let parent = parents[index]
+                remote.parents[index] = FileRenameParent(path: parent.path, name: parent.name, identity: try identity(999))
+                XCTAssertThrowsError(try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote))
+                if state != .moved {
+                    let expected = try classified(record)
+                    XCTAssertThrowsError(try FolderMoveTransaction.replan(&record, outbox: outbox,
+                                                                          expected: expected, remote: remote))
+                }
+                XCTAssertEqual(try saved(), durable)
+            }
+            remote.parents = [parents[0], FileRenameParent(path: "Archive", name: "ARCHIVE", identity: parents[1].identity)]
+            XCTAssertThrowsError(try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote))
+            XCTAssertEqual(try saved(), durable)
+            remote.parents = parents
+            if state == .verified {
+                let expected = try classified(record)
+                try FolderMoveTransaction.replan(&record, outbox: outbox, expected: expected, remote: remote)
+            } else {
+                try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote)
+            }
+        }
+        XCTAssertEqual(remote.moves, 1)
+    }
+
+    func testDestinationParentSubsetUsesExactComponentPrefixes() throws {
+        let original = try prepare()
+        let paths = ["", "Archive", "Archive/Café", "Archive/Cafe\u{301}", "Archive/CaféExtra", "archive"]
+        let parents = try paths.enumerated().map { index, path in
+            FileRenameParent(path: path, name: RelativePath(path)!.components.last ?? "", identity: try identity(UInt64(index + 1)))
+        }
+        let record = PendingFolderMove(kind: .folder, id: original.id, owner: original.owner,
+            metadataVersion: original.metadataVersion, source: original.source, destination: "Archive/Café/Moved",
+            identity: original.identity, parents: parents, views: original.views)
+        XCTAssertEqual(record.destinationParents, Array(parents.prefix(3)))
+    }
+
     func testUncertainRootMissingOrReplacedStaysPending() throws {
         var record = try prepare()
         remote.disconnectAfterMove = true
@@ -895,6 +984,52 @@ final class FolderMoveTests: XCTestCase {
         XCTAssertNil(try catalog.liveChild(parent: tree.id, nameKey: NameKey(plain.name)))
     }
 
+    func testSettlementRetiresRenamedBindingsAcrossOverlappingViews() throws {
+        let first = try view(), other = UUID().uuidString
+        let second = FolderMoveView(domain: other, folder: .root, move: first.move, proofs: first.proofs)
+        var record = try prepare(views: [first, second])
+        remote.settlement = { try self.settlements($0, renamed: ["plain": "PLAIN", "Café": "Cafe\u{301}"]) }
+        try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote)
+        XCTAssertEqual(record.state, .verified)
+        XCTAssertEqual(try saved(), record)
+        for view in record.views {
+            let target = try record.latestTarget(domain: view.domain)
+            let retired = Set(target.entries.filter(\.retired).map(\.item))
+            XCTAssertEqual(retired, Set(view.move.entries.filter { ["plain", "Café"].contains($0.name) }.map(\.item)))
+        }
+        try catalog.settleFolderMove(first.move, settlement: XCTUnwrap(record.settlements?.first).settlement)
+        XCTAssertTrue(try XCTUnwrap(catalog.item(id: childID("plain", in: first))).deleted)
+        XCTAssertTrue(try XCTUnwrap(catalog.item(id: childID("Café", in: first))).deleted)
+    }
+
+    func testRecoveryRetiresRenamedFilesAndDirectoryDescendantsAcrossViews() throws {
+        let first = try view(), other = UUID().uuidString
+        let second = FolderMoveView(domain: other, folder: .root, move: first.move, proofs: first.proofs)
+        var record = try prepare(views: [first, second])
+        try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote)
+        try catalog.settleFolderMove(first.move, settlement: XCTUnwrap(record.settlements?.first).settlement)
+        let original = record
+        let expected = try Dictionary(uniqueKeysWithValues: record.views.map {
+            ($0.domain, try record.latestTarget(domain: $0.domain))
+        })
+        remote.refresh = { try self.refreshes($0, renamed: ["plain": "plain"]) }
+        XCTAssertThrowsError(try FolderMoveTransaction.replan(&record, outbox: outbox, expected: expected, remote: remote))
+        XCTAssertEqual(try saved(), original)
+        remote.refresh = { try self.refreshes($0, removed: ["deep"],
+            renamed: ["plain": "PLAIN", "Café": "Cafe\u{301}", "Nested": "NESTED"]) }
+        try FolderMoveTransaction.replan(&record, outbox: outbox, expected: expected, remote: remote)
+        XCTAssertEqual(record.state, .recovering)
+        XCTAssertEqual(try saved(), record)
+        let current = try XCTUnwrap(record.recovery?.first)
+        let nested = try childID("Nested", in: first), deep = try childID("deep", in: first)
+        XCTAssertEqual(current.target.entries.first { $0.item == deep }?.retirement, .parent(item: nested))
+        try catalog.applyFolderMoveRecovery(first.move, proofs: first.proofs, expected: current.expected, target: current.target)
+        for entry in first.move.entries {
+            let retired = ["plain", "Café", "Nested", "deep"].contains(entry.name)
+            XCTAssertEqual(try catalog.item(id: entry.item)?.deleted, retired)
+        }
+    }
+
     func testNewRetirementNeedsCompleteProofAndParentWitnessCannotCycle() throws {
         var record = try prepare()
         try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote)
@@ -978,6 +1113,19 @@ final class FolderMoveTests: XCTestCase {
                                          identity: identity(10), parents: remote.parents, views: views)
     }
 
+    private func prepareNestedMove() throws -> PendingFolderMove {
+        tree = try child(tree.id, "Nested")
+        remote.parents.append(FileRenameParent(path: "Tree", name: "Tree", identity: try identity(10)))
+        remote.roots[NameKey("Tree/Nested")] = FolderMoveEvidence(identity: try identity(50), name: "Nested")
+        return try outbox.prepareFolder(owner: domain, request: request(),
+            source: XCTUnwrap(RelativePath("Tree/Nested")), destination: XCTUnwrap(RelativePath("Archive/Moved")),
+            identity: identity(50), parents: remote.parents, views: [view()])
+    }
+
+    private func childID(_ name: String, in view: FolderMoveView) throws -> String {
+        try XCTUnwrap(view.move.entries.first { $0.name == name }).item
+    }
+
     private func view(to parent: String? = nil, name: String = "Moved") throws -> FolderMoveView {
         let move = try catalog.prepareFolderMove(item: tree.id, destinationParent: parent ?? destination.id,
                                                  destinationName: name)
@@ -1005,10 +1153,10 @@ final class FolderMoveTests: XCTestCase {
     }
 
     private func settlements(_ record: PendingFolderMove, changed: String? = nil,
-                             removed: String? = nil) throws -> [FolderMoveSettlement] {
+                             removed: String? = nil, renamed: [String: String] = [:]) throws -> [FolderMoveSettlement] {
         try record.views.map { view in
             let resolutions = try view.move.entries.map { entry -> CatalogFolderMoveResolution in
-                if entry.name == removed { return .removed(item: entry.item) }
+                if entry.name == removed || renamed[entry.name] != nil { return .removed(item: entry.item) }
                 let isChanged = entry.name == changed
                 let fingerprint = ContentFingerprint(size: entry.size, mtimeNs: isChanged ? 3_000 : entry.mtimeNs,
                                                        ctimeNs: isChanged ? 4_000 : entry.ctimeNs)
@@ -1025,10 +1173,11 @@ final class FolderMoveTests: XCTestCase {
             }
             let proofs = Dictionary(uniqueKeysWithValues: view.proofs.map { ($0.item, $0) })
             var listings: [CatalogFolderMoveListing] = []
-            if removed != nil {
+            if removed != nil || !renamed.isEmpty {
                 for parent in view.move.entries where parent.kind == .folder {
                     let children = view.move.entries.filter { $0.parent == parent.item && $0.name != removed }.map {
-                        CatalogFolderMoveListing.Child(name: $0.name, identity: proofs[$0.item]!.identity, kind: $0.kind)
+                        CatalogFolderMoveListing.Child(name: renamed[$0.name] ?? $0.name,
+                            identity: proofs[$0.item]!.identity, kind: $0.kind)
                     }
                     listings.append(CatalogFolderMoveListing(parent: parent.item,
                         path: try XCTUnwrap(view.destinationPath(for: parent)), identity: proofs[parent.item]!.identity,
@@ -1042,13 +1191,16 @@ final class FolderMoveTests: XCTestCase {
 
     private func refreshes(_ record: PendingFolderMove, contents: [String: Character] = [:],
                            modified: [String: UInt64] = [:], changedTime: UInt64? = nil,
-                           removed: Set<String> = [], reappeared: Set<String> = []) throws -> [FolderMoveRefresh] {
+                           removed: Set<String> = [], reappeared: Set<String> = [],
+                           renamed: [String: String] = [:]) throws -> [FolderMoveRefresh] {
         try record.views.map { view in
             let previous = try record.latestTarget(domain: view.domain)
             let prior = Dictionary(uniqueKeysWithValues: previous.entries.map { ($0.item, $0) })
             let observations = try view.move.entries.map { entry -> FolderMoveObservation in
                 let before = prior[entry.item]!
-                if before.retired || removed.contains(entry.name) { return .removed(item: entry.item) }
+                if before.retired || removed.contains(entry.name) || renamed[entry.name] != nil {
+                    return .removed(item: entry.item)
+                }
                 let path = try XCTUnwrap(view.destinationPath(for: entry))
                 switch before.proof {
                 case .directory(_, let identity):
@@ -1072,14 +1224,15 @@ final class FolderMoveTests: XCTestCase {
                 }
             }
             var listings: [CatalogFolderMoveListing] = []
-            if !removed.isEmpty || !reappeared.isEmpty {
+            if !removed.isEmpty || !reappeared.isEmpty || !renamed.isEmpty {
                 for parent in view.move.entries where parent.kind == .folder
-                    && !prior[parent.item]!.retired && !removed.contains(parent.name) {
+                    && !prior[parent.item]!.retired && !removed.contains(parent.name) && renamed[parent.name] == nil {
                     let children = view.move.entries.filter { entry in
                         entry.parent == parent.item && (!prior[entry.item]!.retired || reappeared.contains(entry.name))
                             && !removed.contains(entry.name)
                     }.map {
-                        CatalogFolderMoveListing.Child(name: $0.name, identity: prior[$0.item]!.proof.identity, kind: $0.kind)
+                        CatalogFolderMoveListing.Child(name: renamed[$0.name] ?? $0.name,
+                            identity: prior[$0.item]!.proof.identity, kind: $0.kind)
                     }
                     listings.append(CatalogFolderMoveListing(parent: parent.item,
                         path: try XCTUnwrap(view.destinationPath(for: parent)), identity: prior[parent.item]!.proof.identity,
@@ -1146,6 +1299,7 @@ private final class FolderRemote: FolderMoveRemote {
     var nonDirectories: Set<NameKey> = []
     var parents: [FileRenameParent] = []
     var events: [String] = []
+    var protectedSources: [String] = []
     var moves = 0
     var disconnectAfterMove = false
     var disconnected = false
@@ -1161,7 +1315,12 @@ private final class FolderRemote: FolderMoveRemote {
 
     func protectFolderMoveParents(source: String, destination: String) throws -> [FileRenameParent] {
         events.append("parents")
-        return parents
+        protectedSources.append(source)
+        let required = Set(try [source, destination].flatMap { path in
+            let components = try XCTUnwrap(RelativePath(path)).components
+            return (0..<components.count).map { Data(components.prefix($0).joined(separator: "/").utf8) }
+        })
+        return parents.filter { required.contains(Data($0.path.utf8)) }
     }
 
     func inspectFolderMoveRoot(path: String) throws -> FolderMoveEvidence? {

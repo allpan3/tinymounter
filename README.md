@@ -8,12 +8,13 @@ Folder moves, 2026-10-30: signed adapter checks pass for populated and case-only
 destination collisions, lost-reply recovery and partial-catalog recovery. Signed app checks also
 pass for read/watch draining, pending-write exclusions, overlapping views, keeps and recovery
 after settings persistence. Two ambiguous-name cases could not run on the fixture.
-The repaired lock scopes also pass signed Settings-callback and fresh-process recovery checks;
-outside renames during Settings can still leave recovery unresolved.
+The repaired lock scopes also pass signed Settings-callback and fresh-process recovery checks.
+A source repair for descendant spelling and source-only ancestor changes awaits checks; moved-root
+and destination-ancestor changes during Settings still leave recovery unresolved.
 [Signed Finder rename, move and case-only checks preserve the downloaded copies](docs/results/2026-10-30-folder-move-catalog.md#signed-finder-checks-2026-10-30).
 New-folder creation failed on the fixture; parent-scoped enumeration and interruption checks
 remain open. Folder organization stays disabled in the normal build.
-Required VM checks pass with 557 tests and one optional skip, including save recovery,
+The preceding candidate passed required VM checks with 557 tests and one optional skip, including save recovery,
 recursive deletion, catalog settlement, keep-path cleanup and the gated app caller.
 
 Deletion adapter, 2026-10-30: signed file and empty-folder deletion, paginated confirmation,

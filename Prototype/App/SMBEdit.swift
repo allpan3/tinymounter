@@ -739,7 +739,9 @@ extension SMBEdit: FolderMoveRemote {
                                    expected: EditFileIdentity?) throws -> FolderMoveCurrent? {
         let parent = path.components.dropLast().joined(separator: "/"), name = path.components.last!
         guard let entry = try folderMoveListing(parent).first(where: { NameKey($0.name) == NameKey(name) }),
-              expected == nil || entry.identity == expected else { return nil }
+              expected == nil || (entry.identity == expected && entry.name.utf8.elementsEqual(name.utf8)) else {
+            return nil
+        }
         guard entry.kind == kind, entry.name.utf8.elementsEqual(name.utf8) else { throw UploadError.unresolved }
         let handle: Handle
         if kind == .folder {
