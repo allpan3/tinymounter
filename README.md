@@ -25,8 +25,9 @@ Protected traversal admission compiles and passes the required VM checks; its si
 remain. Deletion inventory, downgrade guards, catalog settlement and gated app admission pass
 required VM checks. The fresh-listing settlement bridge also passes source review and VM checks;
 the connected recovery scheduler and cancellation repair also pass the required VM checks.
-Follow-up recovery fixes also pass checks. The first signed recursive probe stopped during refusals,
-before deletion; its evidence is preserved. Recursive SMB checks and recovery controls remain
+Follow-up recovery fixes also pass checks. Signed recursive refusals, two-view deletion and lost-reply
+restart recovery pass. The competing-change case failed a helper identity check after catalog
+settlement; its evidence is partial. Replacement, cancellation and recovery-control checks remain
 pending. Finder deletion remains unavailable.
 
 Status, 2026-10-11: verified NAS-cold full downloads reached **183.3 MB/s versus 192.7 MB/s native SMB (95.1%)**; with the file in NAS RAM, **229.0 versus 247.2 MB/s (92.6%)**. Each condition has five matched pairs, server cache/disk-read evidence, and representative complete-file checksum verification. Fully downloaded local reads also pass, though an unexplained speed gap to a local APFS control remains. See [verified cache results](docs/results/2026-10-11-cache-states.md), [full-download attribution](docs/results/2026-10-11-full-download.md), and [range-delay diagnosis](docs/results/2026-10-11-provider-delay.md).
