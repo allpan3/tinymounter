@@ -145,8 +145,8 @@ protected session verifies or replans the catalogs before completing the intent.
 A later source review found that keeping the SMB client across namespace reacquisition could
 deadlock another lane. The revised lock scopes compile and pass the required VM checks with
 555 tests and one optional skip (`m24-admission-fixed-checks.log`). A new signed-probe assertion
-opens a protected client from the Settings callback while the mover waits; it has not run yet.
-Earlier signed results below predate this lock repair.
+opens a protected client from the Settings callback while the mover waits. Its corrected run
+passes below; the earlier signed results predate this lock repair.
 
 Independent review found no remaining lock-order blocker or false-completion path. The unlocked
 Settings interval exposes an existing recovery limit during normal operation: an outside rename
@@ -161,7 +161,29 @@ after the mover's roughly 20-second connect marked that shared activity unrespon
 assertion passed. The helper now uses a separate connection manager with the same namespace for
 this assertion; production health handling is unchanged. The failed report, catalog copy and
 fixture remain in `m22-lock-inspection` and `m22-lock-fixture-20261030` in the private session.
-The corrected helper has not yet been built or run.
+
+The corrected signed helper passes both phases on a new marked fixture in macOS VM 1,
+macOS 27.0.1. It builds without Swift warnings, passes strict signature verification and uses
+unchanged app/provider entitlements. The installed app remains restored and stopped. Cache state
+is uncontrolled; this is a correctness check, not a performance measurement.
+
+The main-actor Settings callback acquired the namespace and a fresh protected SMB session three
+times while the mover waited. Read/watch draining and the expected admission refusals pass.
+The quiet move completes with no recovery plan. The two-view move reaches the injected error
+after Settings persistence. Between clean exits, the driver changes one child's contents and
+moves another into Hold. Fresh-process recovery completes both domains, preserves unchanged
+versions and refuses the stale read and retired-item edit. The independent backing audit matches
+the complete expected tree; the moved-out original remains in Hold. Independently copied original
+Settings files are byte-identical.
+
+These checks cover a competing protected SMB operation during Settings, not simultaneous deletion
+admission, location Add/Close, cancellation during final verification or a one-view-only crash.
+They do not exercise the outside-rename gap above or close the remaining Finder gates. Evidence in
+the same private session: `m22-lock-probe2-build.log`, `m22-lock2-run.json`,
+`m22-lock2-fixture-20261030`, `m22-lock2-inspection`, `m22-lock2-final-inspection`,
+`m22-lock2-quiet-receipt.json`, both phase process records and
+`m22-lock2-settings-comparison.json`. Both helper processes have exited; evidence and recovery
+artifacts remain for the ongoing session.
 
 Namespace checks, pending counts, recovery display and location removal now read the shared
 file/folder intent inventory. Edits to deleted catalog rows are refused. The integrated
@@ -374,7 +396,7 @@ Source inspection found that the adapter cleared creation uncertainty after acce
 permission-denied replies. A server can leave a created directory despite such a reply. The
 adapter now retains uncertainty for those responses after sending CREATE. This change does
 not establish ownership of the existing directory or repair its permissions. Six deterministic
-response/encoding checks are prepared; compilation and execution remain pending.
+response/encoding cases now pass in the required VM checks (`m24-admission-fixed-checks.log`).
 
 Direct SMB connections in this run took about 20 seconds and triggered the share's 15-second
 unresponsive status. Finder's initial transient error recovered with Try Again. These are
