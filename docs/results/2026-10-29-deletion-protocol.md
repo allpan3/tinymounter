@@ -464,3 +464,37 @@ immediate native consistency or alter the production settlement gate. A final na
 still match that identity and the complete expected bytes, followed by the independent backing
 audit. Reports now also replace the pre-settlement summary with the completed record.
 
+## Signed recursive checks, 2026-10-30
+
+All eight phases passed with successful process exit and independent backing audits in run
+`2503A259-BB74-4B98-966E-C9C6F9833A6B`. This used the same VM, loopback fixture and uncontrolled
+caches described above. The standalone `m24-recursive6` helper built with zero Swift warnings,
+passed strict signature and entitlement-equality checks, and was not installed. Original Settings
+remains byte-identical after an independent Finder copy.
+
+| Case | Verified result |
+| --- | --- |
+| Refusals | Eight expected refusals, with no deletion plan and unchanged neighbors |
+| Populated tree | Four confirmed deletions; both overlapping views complete; keeps cleaned; replay unchanged |
+| Lost close reply | Restart completes catalog settlement but keeps the selected outcome unconfirmed and retains guards |
+| Competing changes | All eight expected outcomes; moved subtree, changed file, replacement and arrival survive; replay unchanged |
+| Same-name replacement | Completed settlement retains the live selected ID; completion and replay return `versionChanged`; replay makes no Settings call |
+
+The competing-change phase took 141.4 seconds. Its first native replacement open reported the
+old inode; the second matched the fixed settled-catalog identity and complete expected bytes.
+The final replacement case needed no observation retry. These results establish the bounded
+native observation described above, not immediate cache consistency. The full reports, process
+records, backing audits and source archive remain in the private session under
+`m24-recursive-2503A259-BB74-4B98-966E-C9C6F9833A6B*` and `m24-recursive6-*`.
+
+The first signed cancellation attempt stopped before admission after 0.4 seconds. Its generic
+change callback also receives admission's parent-listing notifications and tried to inspect a
+deletion record too early. The fixture inventory is unchanged. The helper now waits for the
+scheduler to register the request's Progress before forcing cancellation or close, and reports
+an early request failure without waiting for the admission watchdog. The failed report remains
+under `m24-cancellation-E48A3264-F023-4C1B-8FCA-4ABBEC93798E*`.
+
+Cancellation, delayed confirmation, remounts, actual controller Settings persistence, recovery
+controls, File Provider callbacks and real crash/network-loss checks remain open. These checks
+do not enable Finder Delete or complete M24.
+

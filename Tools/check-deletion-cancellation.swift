@@ -316,7 +316,11 @@ private final class CancellationProbe: @unchecked Sendable {
         try listRootAndTree(path)
         let request = try request(path), progress = Progress()
         let observed = CancellationReply<PendingDeletion>(), once = CancellationCount()
+        let beforeAdmission = CancellationCount()
         source.onChange { [self] in
+            guard source.deletionRecoveryLock.withLock({
+                source.deletionProgress.values.contains { $0 === progress }
+            }) else { beforeAdmission.add(); return }
             guard once.add() == 1 else { return }
             observed.finish(Result {
                 if close { source.close() } else { progress.cancel() }
@@ -334,7 +338,15 @@ private final class CancellationProbe: @unchecked Sendable {
         }
         step = close ? "close-at-admission" : "cancel-at-admission"
         let reply = start(request, progress: progress, label: "primary", recursive: true)
+        try waitUntil("admission-or-reply") { observed.count > 0 || reply.count > 0 }
+        if observed.count == 0 {
+            if case .failure(let error) = try reply.wait("before-admission", until: deadline()) {
+                details["beforeAdmissionError"] = cancellationError(error)
+            }
+            throw CancellationCheck(label: "request-ended-before-admission-callback")
+        }
         let admitted = try observed.wait("admission-callback", until: deadline()).get()
+        details["preAdmissionNotifications"] = beforeAdmission.count
         try demand(admitted.plan.nodes.count == 3, "three-node-plan")
         let result = try reply.wait("primary", until: deadline())
         try failure(result, label: "primary") { error in

@@ -21,14 +21,14 @@ Deletion adapter, 2026-10-30: signed file and empty-folder deletion, paginated c
 changed/replaced-file refusal and recovery checks pass. Lost close replies remain unconfirmed.
 [The results and simulated-interruption limits are recorded](docs/results/2026-10-29-deletion-protocol.md#signed-adapter-continuation-2026-10-30).
 The durable recursive-deletion core also passes 28 simulated-server and storage tests in VM 1.
-Protected traversal admission compiles and passes the required VM checks; its signed runtime checks
-remain. Deletion inventory, downgrade guards, catalog settlement and gated app admission pass
+Protected traversal admission passes required VM checks and bounded signed recursive checks.
+Deletion inventory, downgrade guards, catalog settlement and gated app admission pass
 required VM checks. The fresh-listing settlement bridge also passes source review and VM checks;
 the connected recovery scheduler and cancellation repair also pass the required VM checks.
-Follow-up recovery fixes also pass checks. Signed recursive refusals, two-view deletion and lost-reply
-restart recovery pass. The competing-change case failed a helper identity check after catalog
-settlement; its evidence is partial. Replacement, cancellation and recovery-control checks remain
-pending. Finder deletion remains unavailable.
+Follow-up recovery fixes also pass checks. Signed recursive refusals, two-view deletion, lost-reply
+restart recovery, competing changes and replacement preservation pass with independent backing
+audits. Native replacement reads can need a second open to observe the settled catalog identity.
+Cancellation and recovery-control checks remain pending. Finder deletion remains unavailable.
 
 Status, 2026-10-11: verified NAS-cold full downloads reached **183.3 MB/s versus 192.7 MB/s native SMB (95.1%)**; with the file in NAS RAM, **229.0 versus 247.2 MB/s (92.6%)**. Each condition has five matched pairs, server cache/disk-read evidence, and representative complete-file checksum verification. Fully downloaded local reads also pass, though an unexplained speed gap to a local APFS control remains. See [verified cache results](docs/results/2026-10-11-cache-states.md), [full-download attribution](docs/results/2026-10-11-full-download.md), and [range-delay diagnosis](docs/results/2026-10-11-provider-delay.md).
 
