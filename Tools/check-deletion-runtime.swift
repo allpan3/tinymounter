@@ -358,6 +358,7 @@ private final class M24Probe: @unchecked Sendable {
         "Symbolic-link handling beyond one capture-only observation.",
         "A descendant unknown to every affected catalog view.",
         "Immediate Finder retry after a slow refusal: the helper waits for normal share-health recovery.",
+        "Immediate native replacement reads: observations retry a fixed settled catalog identity at most three times.",
         "Production connection counts: unchanged replay records do not measure network requests.",
     ]
 
@@ -661,6 +662,7 @@ private final class M24Probe: @unchecked Sendable {
         let settled = try storedRecord(id)
         try require(settled.plan == admitted.plan && settled.isComplete && settled.hasUnconfirmed, "c03-complete")
         try require(settled.progress.exceptions == resumed.progress.exceptions, "c03-settled-unchanged")
+        ledger.record("c03", Self.summary(settled))
 
         ledger.enter("c03-catalog")
         try requireTombstoned(owner, ["c03/Tree/Arrival/z.txt", "c03/Tree/Sub/x.txt", "c03/Tree/Sub", "c03/Tree/y.txt"]
@@ -676,12 +678,12 @@ private final class M24Probe: @unchecked Sendable {
         // Read natively only now, so no earlier lookup could refresh the mount's caches for settlement.
         ledger.enter("c03-native")
         let sub = try tracked("c03/Tree/Sub")
-        var occupant: UInt64 = 0, arrival: UInt64 = 0
+        ledger.enter("c03-native-replacement")
+        let (occupant, occupantBytes) = try readSettledOccupant("c03.native-replacement",
+            path: "c03/Tree/replaced.txt", item: replaced.id, original: replaced.nativeID)
+        try require(occupantBytes == payload("c03/Tree/replaced.txt"), "c03-occupant-bytes")
+        var arrival: UInt64 = 0
         try owner.withWriteSession(bookmark) { _, root in
-            ledger.enter("c03-native-replacement")
-            occupant = try M24Native.identity(root, "c03/Tree/replaced.txt", directory: false)
-            try require(try M24Native.read(root, "c03/Tree/replaced.txt", inode: occupant)
-                == payload("c03/Tree/replaced.txt"), "c03-occupant-bytes")
             ledger.enter("c03-native-arrival")
             arrival = try M24Native.identity(root, "c03/Tree/Arrival/new.txt", directory: false)
             try require(try M24Native.read(root, "c03/Tree/Arrival/new.txt", inode: arrival) == arrivalBytes,
@@ -770,12 +772,9 @@ private final class M24Probe: @unchecked Sendable {
         try require(final == after && settingsCalls.count == calls, "c05-replay-unchanged")
 
         ledger.enter("c05-native")
-        var occupant: UInt64 = 0
-        try owner.withWriteSession(bookmark) { _, root in
-            occupant = try M24Native.identity(root, "c05/file.txt", directory: false)
-            try require(try M24Native.read(root, "c05/file.txt", inode: occupant) == replacementBytes,
-                        "c05-occupant-bytes")
-        }
+        let (occupant, bytes) = try readSettledOccupant("c05.native-replacement", path: "c05/file.txt",
+                                                       item: c05.item, original: original.nativeID)
+        try require(bytes == replacementBytes, "c05-occupant-bytes")
         ledger.identity("c05-occupant", occupant)
         try require(occupant != original.nativeID, "c05-new-occupant")
         try require(live && nativeID(owner, item: c05.item) == occupant, "c05-replacement-kept-selected-id")
@@ -784,6 +783,29 @@ private final class M24Probe: @unchecked Sendable {
     }
 
     // MARK: Production calls
+
+    private func readSettledOccupant(_ label: String, path: String, item: String,
+                                     original: UInt64) throws -> (UInt64, Data) {
+        let expected = try nativeID(owner, item: item)
+        try require(expected != original, label + "-catalog-observed-replacement")
+        for attempt in 1...3 {
+            try awaitShareRecovery(label)
+            let began = Date()
+            do {
+                let bytes = try owner.withWriteSession(bookmark) { _, root in
+                    try M24Native.read(root, path, inode: expected)
+                }
+                ledger.operation(label, attempt: attempt, began: began, connections: 0, error: nil)
+                return (expected, bytes)
+            } catch {
+                ledger.operation(label, attempt: attempt, began: began, connections: 0, error: error)
+                guard attempt < 3, let check = error as? M24Check,
+                      check.label.hasPrefix("fixture-file-identity:") else { throw error }
+            }
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+        throw M24Check(label: label + "-native-observation-budget")
+    }
 
     private func replaceFixture(inode: UInt64) throws -> UInt64 {
         let path = "c02/Replaced/x.txt", hold = "c02/Hold/replaced-x.txt", bytes = payload(path)

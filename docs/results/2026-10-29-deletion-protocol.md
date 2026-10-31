@@ -450,3 +450,17 @@ uncertain phase now defers that check to the backing audit; the next phase tests
 reconciliation. It also checks exact Settings callback counts and drained recovery state.
 Compilation and signed cancellation evidence remain pending.
 
+The fifth run repeated the first five passing phases, then failed at the replacement's native
+read after 141.1 seconds. Its first open reported the original inode; a second open reported the
+replacement inode. The backing audit identifies both values and confirms the complete expected
+final layout, bytes and metadata. Original Settings remains byte-identical. Evidence is retained
+under `m24-recursive-84AAA845-0AEC-4B43-B2EB-D3514365B668*`; neither later phase ran.
+
+The helper now pins replacement reads to the catalog identity captured after completed
+settlement, requires that identity to differ from the admitted original, and allows at most
+three read-only opens with 0.25-second pauses outside sessions. Every mismatch is recorded and
+the pin never changes. This checks eventual native read consistency; it does not establish
+immediate native consistency or alter the production settlement gate. A final native read must
+still match that identity and the complete expected bytes, followed by the independent backing
+audit. Reports now also replace the pre-settlement summary with the completed record.
+
