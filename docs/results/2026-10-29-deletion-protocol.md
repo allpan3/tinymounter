@@ -380,7 +380,10 @@ no Swift warnings (`m24-cancellation-checks.log`). Independent source review fou
 success, lost reply or automatic remote retry after cancellation. Follow-up changes retry
 settlement when pending Keep restoration ends and read Progress cancellation outside the recovery
 lock. Closing a source does not create a new Stop, but already queued Stops still persist.
-These follow-up changes await VM checks.
+The follow-up changes pass all required VM checks with 565 tests, one optional skip, zero failures
+and no Swift warnings (`m24-review-followups-fixed-checks.log`). Release CLI, generated-project
+equality and all encoder/status checks also pass. Runtime cancellation and callback races remain
+unverified.
 
 The bounded recursive runtime helper now uses production admission and the asynchronous scheduler
 with private Settings. Its separate phases cover refusals, overlapping views, an injected lost
@@ -392,5 +395,8 @@ no added or removed entries and only the two intentional content changes, which 
 Samba DOS and quarantine attributes. The revised audit allows only those additions on deliberate
 native writes; neighbors still require exact metadata equality. This is failed-run evidence,
 not a recursive-deletion pass.
+An independent Finder copy confirms that original Settings remains byte-identical to the saved
+baseline. The failed report, process output, exact attribute differences and partial backing audit
+remain in the private session under `m24-recursive-5262C027-B5BB-458E-80CD-571EB4549CC7*`.
 Delayed confirmation, cancellation, remounts and callback races remain unverified; these source
 changes do not complete M24.

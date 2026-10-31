@@ -428,6 +428,11 @@ redundant first proof; completion still obtains fresh protection and verifies or
 catalog after Settings. No persisted format changed.
 
 Eight regression tests cover spelling changes, directory-descendant retirement, refusal of
-unproven retirement and ancestor checks before and after move proof. These source changes await
-VM checks, independent review and signed Settings-gap validation. Root departure and changes to
-destination ancestors still remain unresolved; retiring the moved root is not authorized.
+unproven retirement and ancestor checks before and after move proof. Independent source review
+found no blocker. Required VM checks pass with 565 tests, one optional skip and no Swift warnings
+(`m24-review-followups-fixed-checks.log`). The first run found one older assertion that still
+rejected proved case-only retirement; it now rejects preservation of that old binding. The new
+retirement tests cover discovery with fresh IDs and no transferred keeps. The signed probe's
+Settings hook now checks destination parents, matching production. Signed Settings-gap validation
+remains. Root departure and destination-ancestor changes still remain unresolved; retiring the
+moved root is not authorized.

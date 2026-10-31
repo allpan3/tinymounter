@@ -9,12 +9,12 @@ destination collisions, lost-reply recovery and partial-catalog recovery. Signed
 pass for read/watch draining, pending-write exclusions, overlapping views, keeps and recovery
 after settings persistence. Two ambiguous-name cases could not run on the fixture.
 The repaired lock scopes also pass signed Settings-callback and fresh-process recovery checks.
-A source repair for descendant spelling and source-only ancestor changes awaits checks; moved-root
+A source repair for descendant spelling and source-only ancestor changes passes VM checks; moved-root
 and destination-ancestor changes during Settings still leave recovery unresolved.
 [Signed Finder rename, move and case-only checks preserve the downloaded copies](docs/results/2026-10-30-folder-move-catalog.md#signed-finder-checks-2026-10-30).
 New-folder creation failed on the fixture; parent-scoped enumeration and interruption checks
 remain open. Folder organization stays disabled in the normal build.
-The preceding candidate passed required VM checks with 557 tests and one optional skip, including save recovery,
+The current candidate passes required VM checks with 565 tests and one optional skip, including save recovery,
 recursive deletion, catalog settlement, keep-path cleanup and the gated app caller.
 
 Deletion adapter, 2026-10-30: signed file and empty-folder deletion, paginated confirmation,
@@ -25,7 +25,7 @@ Protected traversal admission compiles and passes the required VM checks; its si
 remain. Deletion inventory, downgrade guards, catalog settlement and gated app admission pass
 required VM checks. The fresh-listing settlement bridge also passes source review and VM checks;
 the connected recovery scheduler and cancellation repair also pass the required VM checks.
-Follow-up recovery fixes await checks. The first signed recursive probe stopped during refusals,
+Follow-up recovery fixes also pass checks. The first signed recursive probe stopped during refusals,
 before deletion; its evidence is preserved. Recursive SMB checks and recovery controls remain
 pending. Finder deletion remains unavailable.
 
