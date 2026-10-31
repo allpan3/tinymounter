@@ -758,8 +758,15 @@ final class LocationSource: @unchecked Sendable {
     /// Signals the domain's working set; `scheduleSignal` debounces it.
     private let signal: @Sendable ([String]) -> Void
     let renameSettings: @Sendable (RenameIntent) async throws -> Void
+    let deletionSettings: DeletionSettings?
     // The share lane owns these replies while settings completion awaits the main actor.
     var renameCompletions: [UUID: [RenameReply]] = [:]
+    var deletionRecoveries: [UUID: LocationDeletionRecovery] = [:]
+    // Stop and close must cancel remote work without waiting for the owner's lane.
+    let deletionRecoveryLock = NSLock()
+    var deletionProgress: [UUID: Progress] = [:]
+    var deletionStops: Set<UUID> = []
+    var deletionClosed = false
     // The system SQLite can't share a connection between threads, so every use takes this lock.
     private let catalogLock = NSLock()
     private var catalog: Catalog?
@@ -784,6 +791,7 @@ final class LocationSource: @unchecked Sendable {
 
     init(domainID: String, folder: RelativePath, catalog: Catalog, access: ShareAccess,
          renameSettings: @escaping @Sendable (RenameIntent) async throws -> Void,
+         deletionSettings: DeletionSettings? = nil,
          signal: @escaping @Sendable ([String]) -> Void) {
         self.domainID = domainID
         self.folder = folder
@@ -791,11 +799,13 @@ final class LocationSource: @unchecked Sendable {
         self.access = access
         self.signal = signal
         self.renameSettings = renameSettings
+        self.deletionSettings = deletionSettings
         editNamespace.register(self)
     }
 
     /// Closes the writer connection; later calls fail with `catalogClosed`.
     func close() {
+        closeDeletionRecovery()
         editNamespace.perform {
             catalogLock.withLock { catalog = nil }
             editNamespace.detach(domainID)
@@ -807,6 +817,11 @@ final class LocationSource: @unchecked Sendable {
 
     /// Called when `isRootMissing` or the kept files change, on the queue that changed them.
     func onChange(_ handler: @escaping @Sendable () -> Void) { lock.withLock { changeHandler = handler } }
+
+    func deletionStateChanged() {
+        scheduleSignal()
+        lock.withLock { changeHandler }?()
+    }
 
     func onDirectoryChange(_ handler: @escaping @Sendable ([String]) -> Void) {
         lock.withLock { directoryHandler = handler }
