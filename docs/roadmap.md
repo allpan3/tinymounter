@@ -185,8 +185,10 @@ are recorded in the organization results; this does not complete the milestone.
 M22's [catalog, transaction and app preparation](results/2026-10-30-folder-move-catalog.md) passes
 required VM checks, including recovery after partial catalog completion and the watch-close
 correction found in source review. Selected signed adapter checks pass for moves, collisions
-and recovery. Two ambiguous-name cases lack a usable fixture. Provider enablement and signed
-app/Finder integration checks remain.
+and recovery. Signed app checks cover draining, overlapping views, keeps and settings recovery.
+Signed Finder rename, move and case-only checks preserve downloaded copies. New-folder creation
+failed on the fixture, and parent-scoped enumeration, real crashes and stale-base publication
+remain unverified. Two ambiguous-name cases lack a usable fixture. Provider enablement remains gated.
 
 M24's signed production-adapter checks pass for ordinary files, empty directories, paginated
 confirmation, changed/replaced-file refusal and recovery after injected interruptions. Lost

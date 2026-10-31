@@ -32,3 +32,8 @@ xcrun clang -std=gnu11 -Wall -Wextra -Werror -Wno-unused-parameter -IVendor/libs
     Tools/check-edit-status.c -L"$smb_products" -lTinyMounterSMB -Wl,-rpath,"$smb_products" \
     -o .build/check-edit-status
 .build/check-edit-status
+
+xcrun clang -std=gnu11 -Wall -Wextra -Werror -Wno-unused-parameter -IVendor/libsmb2/include \
+    Tools/check-folder-create-status.c -L"$smb_products" -lTinyMounterSMB -Wl,-rpath,"$smb_products" \
+    -framework CoreFoundation -framework GSS -o .build/check-folder-create-status
+.build/check-folder-create-status

@@ -304,4 +304,66 @@ packages and package destinations are refused. `SourceReaderBridge.folderOrganiz
 stays false in the normal build; only an isolated disposable Finder candidate may enable it
 for the remaining runtime checks. The routing change passes all required VM checks with 492
 tests, one optional skip, no Swift warnings, six encoder and 57 SMB-status cases. Evidence:
-`m22-provider-routing-checks.log`. Its enabled Finder behavior remains unverified.
+`m22-provider-routing-checks.log`. The isolated enabled candidate's results follow.
+
+## Signed Finder checks, 2026-10-30
+
+Finder rename, move and case-only rename passed on the disposable loopback SMB fixture.
+The normal build remains disabled. New-folder creation failed, and the run did not establish
+parent-scoped departure/arrival enumeration, real callback replay or interruption recovery.
+
+The normal app candidate used its original sandbox entitlements, a new location and 11 small
+fixture files in macOS VM 1, macOS 27.0.1. Its required checks passed before signing, and strict
+signature verification passed before the approved temporary installation. Cache state was
+uncontrolled. No physical-Mac or NAS performance claim follows.
+
+The parent browsed the complete fixture, downloaded one ordinary child and the root neighbor,
+and kept an independent child and a descendant folder. Baseline fetch callbacks completed
+before the first snapshot. Finder then renamed the populated folder, moved it to another
+parent, changed only its name's case, and refused both occupied destination names. Both
+collision refusals happened in Finder before a provider callback, so they do not establish
+provider collision handling in this run.
+
+Independent backing audits through the relisted snapshot matched identities, file contents,
+mtimes, modes and attributes. Catalog item IDs, content versions and independent/inherited
+keep flags matched. Four downloaded files retained their local device, inode, size and complete
+digest with materialization disabled. The fetch hook recorded their initial downloads and no
+affected fetch during the preservation interval. The unopened child remained dataless.
+All three organization callbacks completed successfully and matched the production
+`folder_move` route. There were no trace-failure logs.
+
+The immediate move snapshot lacked completed old-parent departure and new-parent arrival
+enumerations. Browsing both parents and the moved descendants again did not supply those
+parent-scoped callbacks. Working-set updates and correct visible contents do not close that
+gate. No identical repeated mutation callback was observed. Stale changed-base and preserved-base
+save publication, a real crash, one-view-only interruption and ambiguous names also remain open.
+Before/after recording is unavailable: automatic approval review rejected interaction with
+the screen-recording permission prompt. No permission was granted.
+
+New Folder at the location root produced Finder placeholders named `Named` and `untitled folder`.
+The first create callback failed with Cocoa error 513 after a successful SMB connection; an
+automatic follow-up failed with File Provider error -2005. No initial-name route completed.
+The backing tree contained one new empty `untitled folder` with mode 000, but the outbox held
+only a `prepared` record without a server identity. The named-stage audit failed with
+`newly-named-folder-missing`. This is incomplete creation, not a naming pass. Earlier M19/M20
+fixtures also showed mode-000 directory creation; this run did not isolate its server cause.
+
+Source inspection found that the adapter cleared creation uncertainty after access-denied or
+permission-denied replies. A server can leave a created directory despite such a reply. The
+adapter now retains uncertainty for those responses after sending CREATE. This change does
+not establish ownership of the existing directory or repair its permissions. Six deterministic
+response/encoding checks are prepared; compilation and execution remain pending.
+
+Direct SMB connections in this run took about 20 seconds and triggered the share's 15-second
+unresponsive status. Finder's initial transient error recovered with Try Again. These are
+observed loopback connection delays, not a transfer-rate measurement. No server settings changed.
+
+The saved app was restored and re-registered with unchanged entitlements, and remains stopped.
+The task location, uncertain create record, empty server directory and all evidence remain for
+investigation. The pending-create policy prevents ordinary location removal. Apple SMB-service
+restoration and final fixture cleanup remain owed for the ongoing test session.
+
+Private evidence in `.local/phase4/m21-20261029` includes `m22-finder-candidate-checks3.log`,
+`m22-finder-runtime.jsonl`, `m22-finder-fixture-20261030`, the `m22-finder-captured-*` snapshots,
+`m22-finder-failed-create-inspection` and `m22-finder-app-restore.json`. The failed named audit,
+backing metadata and parent-enumeration follow-up are retained beside the successful audits.

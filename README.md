@@ -8,7 +8,9 @@ Folder moves, 2026-10-30: signed adapter checks pass for populated and case-only
 destination collisions, lost-reply recovery and partial-catalog recovery. Signed app checks also
 pass for read/watch draining, pending-write exclusions, overlapping views, keeps and recovery
 after settings persistence. Two ambiguous-name cases could not run on the fixture.
-[Finder integration remains unverified and disabled](docs/results/2026-10-30-folder-move-catalog.md#signed-app-checks-2026-10-30).
+[Signed Finder rename, move and case-only checks preserve the downloaded copies](docs/results/2026-10-30-folder-move-catalog.md#signed-finder-checks-2026-10-30).
+New-folder creation failed on the fixture; parent-scoped enumeration and interruption checks
+remain open. Folder organization stays disabled in the normal build.
 Required VM checks pass with 526 tests and one optional skip, including queued save-space
 checks, durable save-cleanup acknowledgements and the recursive-deletion core.
 
