@@ -209,11 +209,15 @@ extension Catalog {
     }
 
     private func deletionListingOrder(_ ids: [String]) throws -> [String] {
-        let paths = try deletionUnique(ids).map { id -> (String, RelativePath) in
+        var paths: [(String, RelativePath)] = try deletionUnique(ids).map { id in
             guard let path = try relativePath(of: id) else { throw ItemDeletionError.unresolved }
             return (id, path)
-        }.sorted { $0.1.components.count == $1.1.components.count ? $0.0 < $1.0
-            : $0.1.components.count < $1.1.components.count }
+        }
+        paths.sort { left, right in
+            let leftDepth = left.1.components.count
+            let rightDepth = right.1.components.count
+            return leftDepth == rightDepth ? left.0 < right.0 : leftDepth < rightDepth
+        }
         var selected: [(String, RelativePath)] = []
         for candidate in paths where !selected.contains(where: {
             LocationRecord.path(candidate.1.string, inside: $0.1) != nil
