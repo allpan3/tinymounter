@@ -267,10 +267,10 @@ extension LocationSource {
         let seconds = max(0, delay / .seconds(1))
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + seconds) { [weak self, weak recovery] in
             guard let self, let recovery else { return }
-            access.enqueue { [self] in
-                guard deletionRecoveries[id] === recovery, recovery.scheduled == token else { return }
+            self.access.enqueue { [self] in
+                guard self.deletionRecoveries[id] === recovery, recovery.scheduled == token else { return }
                 recovery.scheduled = nil
-                continueDeletionOnLane(recovery)
+                self.continueDeletionOnLane(recovery)
             }
         }
     }
