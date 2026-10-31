@@ -123,6 +123,35 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(try AppSettings.load(from: url), completed)
     }
 
+    func testRootRetirementClearsSubtreeKeepsWithoutChangingAncestorsOrOtherShares() throws {
+        let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "smb://fixture")))
+        let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//account@fixture/share",
+                                address: try XCTUnwrap(ShareAddress("//account@fixture/share")))
+        let paths = [KeepPath(path: "Archive", kind: .folder), KeepPath(path: "Archive/Café", kind: .folder),
+                     KeepPath(path: "archive/Cafe\u{301}/Nested/file", kind: .file),
+                     KeepPath(path: "Archive/Café-other/file", kind: .file)]
+        var location = LocationRecord(name: "Location", serverID: grant.id, folder: .root)
+        location.pendingKeeps = paths
+        var settings = AppSettings(servers: [server], shares: [grant], locations: [location], savedKeeps: [
+            SavedKeepList(host: "fixture", share: "share", paths: paths),
+            SavedKeepList(host: "fixture", share: "other", paths: paths)])
+        let original = settings
+        for invalid in ["", "../Archive"] {
+            XCTAssertThrowsError(try settings.removeKeptFolder(at: invalid, host: grant.host, share: grant.share))
+            XCTAssertEqual(settings, original)
+        }
+        try settings.removeKeptFolder(at: "Archive/Café", host: grant.host, share: grant.share)
+        let retained = [paths[0], paths[3]]
+        XCTAssertEqual(settings.locations[0].pendingKeeps, retained)
+        XCTAssertEqual(settings.savedKeeps.map(\.paths), [retained, paths])
+        let completed = settings
+        try settings.removeKeptFolder(at: "Archive/Café", host: grant.host, share: grant.share)
+        XCTAssertEqual(settings, completed)
+        let url = directory.appending(path: "Settings.json")
+        try settings.save(to: url)
+        XCTAssertEqual(try AppSettings.load(from: url), completed)
+    }
+
     func testFolderKeepCaseRenamePreservesCombiningMarkComponentsAndReplays() throws {
         let paths = [KeepPath(path: "Folder/\u{301}child/file", kind: .file),
                      KeepPath(path: "Folder", kind: .folder), KeepPath(path: "Neighbor/file", kind: .file)]

@@ -38,13 +38,13 @@ Every Python step runs as root with the same arguments:
   spelling   case: child.txt to CHILD.txt; nfd: NFC Cafe name to NFD        8
   ancestors  ancestor: src/Old renamed and replaced; destination: dst
              replaced, restored and retried                                 9
-  retry      root: one view finished, root renamed, restored and retried;
+  retry      root: one view finished, root renamed, retired and rediscovered;
              recover: injected Settings error, direct replan, retry         12
 
 Each Settings call uses one protected SMB connection, after the mover released
 its namespace and SMB scopes. Its lock check requires
 protectFolderMoveParents(source: destination, destination: destination) to equal
-the durable destinationParents and the root identity and exact name to match.
+the durable destinationParents and, unless retired, the root identity and exact name to match.
 Then the call makes its outside change with the production no-replace SMB
 renames; it never uses native renames. The destination-replacement call skips
 its lock check, because its own parent handle would deny the rename; the retry's
@@ -59,15 +59,16 @@ Expected. case and nfd: the move completes with a recovery plan; the respelled
 child's exact binding is retired; a relisting gives it a new discovery ID with no
 keep, no e1 version and no edit base; the other descendant keeps its ID, version
 and path; the saved keep holds the admitted spelling under the destination.
-ancestor: completes without recovery. destination and root: the first attempt
+ancestor: completes without recovery. destination: the first attempt
 fails with UploadError.unresolved, stays verified without recovery, keeps the root
 bindings at the destination and blocks the namespace; after the restore a verified
-retry completes. Root metadata changes may require a replan and finishing both
-views again; an unchanged target finishes only the overlap view. recover: the
+retry completes. root: fresh parent evidence retires all admitted IDs in both views,
+clears saved subtree keeps and completes with versionChanged. Restoring the server
+folder produces new discovery IDs without per-item keeps or e1 versions. recover: the
 injected error leaves a verified intent; a direct replan saves a recovering plan
 that retires the child; the retry applies that plan unchanged. Replays of
-completed intents change nothing and make no Settings call. Root retirement is
-pending a user decision and is never attempted.
+completed intents change nothing and make no Settings call; retired-root replay
+still returns versionChanged. Root retirement was approved on 2026-10-30.
 
 Exact bytes. A spelling case passes only if the native listing showed the admitted
 bytes before the move and the protected SMB listing shows the exact target bytes

@@ -223,7 +223,7 @@ private final class GapProbe: @unchecked Sendable {
     private static let budget: TimeInterval = 555
     private static let nfc = "Caf\u{E9}.txt"
     private static let nfd = "Cafe\u{301}.txt"
-    private static let seededKeeps = ["spelling/src/Tree/child.txt", "nfd/src/Tree/" + nfc]
+    private static let seededKeeps = ["spelling/src/Tree/child.txt", "nfd/src/Tree/" + nfc, "root/src/Tree/a.txt"]
     private static let untested: [String] = [
         "Finder, File Provider callbacks, IPC and capability routing, including departure and arrival enumeration.",
         "Invalidation of a downloaded copy of a retired binding: the helper materializes no copy.",
@@ -233,8 +233,7 @@ private final class GapProbe: @unchecked Sendable {
         "A recovering intent left by a natural failure between replan and completion: that needs timing or a crash.",
         "Retry in a fresh process: every retry runs in the process that made the failed attempt.",
         "Respelled directory descendants: only file descendants are respelled.",
-        "Spelling-only changes of the moved root or a destination ancestor. Root retirement is unauthorized "
-            + "and never attempted.",
+        "Spelling-only changes of the moved root or a destination ancestor; root removal or replacement.",
         "A destination ancestor that disappears without replacement, or a destination change that is never restored.",
         "Source-chain changes before durable move proof, and outside changes during completion's protected window.",
         "Overlapping views for the spelling, ancestor and recovery cases: only the root case has two views.",
@@ -441,26 +440,38 @@ private final class GapProbe: @unchecked Sendable {
         ledger.record(label, ["outcome": "passed", "moved": true, "changed": true])
     }
 
-    /// Root departure stays pending; restoring it may require a metadata-only replan.
+    /// Proved root departure retires both views; reappearance must never revive their old bindings.
     private func rootCase() throws {
         let label = "root", folder = "root", tree = "root/src/Tree", moved = folder + "/Moved"
         guard let overlap else { throw GapCheck(label: "overlap-source") }
         ledger.enter(label + "-setup")
         for path in [folder, folder + "/src", tree, tree + "/Nested"] { try list(owner, path) }
         for path in ["src", "src/Tree", "src/Tree/Nested"] { try list(overlap, path) }
+        _ = try owner.keep([catalogRow(owner, tree + "/a.txt").id], value: true)
+        _ = try overlap.keep([catalogRow(overlap, "src/Tree/a.txt").id], value: true)
         let ownerSaved = try snapshot(owner, [tree, tree + "/a.txt", tree + "/Nested", tree + "/Nested/b.txt"])
         let overlapSaved = try snapshot(overlap, ["src/Tree", "src/Tree/a.txt", "src/Tree/Nested",
                                                   "src/Tree/Nested/b.txt"])
         let request = try moveRequest(owner, tree, to: folder)
-        let overlapRoot = try catalogRow(overlap, "src/Tree").id
 
         ledger.enter(label + "-move")
         plan.plan(GapStep(label: label, destination: try full(moved), change: .root(finishFirst: owner.domainID),
                           inject: false))
-        let first = try move(label, request, connections: 3)
-        let pending = try requirePending(label, first, request, finished: [owner.domainID],
-                                         roots: [(owner, request.item, moved), (overlap, overlapRoot, "Moved")])
-        try require(pending.views.count == 2, label + "-two-views")
+        let first = try move(label, request, connections: 5)
+        try require(GapErrors.failure(first) as? SourceFailure == .versionChanged, label + "-changed-version")
+        let record = try durable(request)
+        try require(record.state == .completed && record.rootRetired && record.views.count == 2
+            && Set(record.finishedDomains) == Set([owner.domainID, overlap.domainID]), label + "-retired-both-views")
+        try owner.editNamespace.perform { try owner.editNamespace.requireSettled() }
+        for (source, saved) in [(owner!, ownerSaved), (overlap, overlapSaved)] {
+            for row in saved { try require(try item(source, row.id)?.deleted == true, label + "-old-id-retired") }
+        }
+        let keeps = try onMain { store.settings?.savedKeeps.flatMap(\.paths) ?? [] }
+        for keep in keeps {
+            guard let path = RelativePath(keep.path) else { throw GapCheck(label: "saved-keep-path") }
+            try require(!EditNamespace.contains(RelativePath(record.source)!, path)
+                && !EditNamespace.contains(RelativePath(record.destination)!, path), label + "-retired-keeps-cleared")
+        }
 
         ledger.enter(label + "-restore")
         let parent = try full(folder)
@@ -468,34 +479,20 @@ private final class GapProbe: @unchecked Sendable {
             _ = try renameFolder(remote, parent + "/MovedAway", parent + "/Moved")
         }
 
-        ledger.enter(label + "-verified-retry")
-        plan.plan(GapStep(label: label, destination: try full(moved), change: .none, inject: false))
-        _ = try move(label + ".retry", request, connections: 3).get()
-        let record = try durable(request)
-        try require(record.state == .completed
-            && Set(record.finishedDomains) == Set([owner.domainID, overlap.domainID]), label + "-retry-finished-views")
-        for view in record.views {
-            let before = try pending.latestTarget(domain: view.domain)
-            let after = try record.latestTarget(domain: view.domain)
-            try require(before.moved && after.moved
-                && Set(before.entries.map(\.item)) == Set(after.entries.map(\.item)), label + "-same-target-bindings")
-            for entry in after.entries {
-                guard let prior = before.entries.first(where: { $0.item == entry.item }) else {
-                    throw GapCheck(label: label + "-missing-target-binding")
-                }
-                if entry.item == view.move.item {
-                    try require(entry.nativeID == prior.nativeID && entry.size == prior.size
-                        && entry.contentVersion == prior.contentVersion && entry.proof == prior.proof
-                        && entry.retirement == nil && prior.retirement == nil, label + "-root-metadata-only")
-                } else { try require(entry == prior, label + "-descendant-target-unchanged") }
+        for (source, saved, before, after) in [(owner!, ownerSaved, tree, moved),
+                                              (overlap, overlapSaved, "src/Tree", "Moved")] {
+            for path in [source === owner ? folder : "", after, after + "/Nested"] { try list(source, path) }
+            for row in saved {
+                let path = after + row.path.dropFirst(before.count)
+                let discovered = try catalogRow(source, path)
+                try require(discovered.id != row.id && !discovered.deleted
+                    && !discovered.keep && !discovered.keepRequested
+                    && !discovered.contentVersion.hasPrefix("e1:"), label + "-independent-discovery")
             }
         }
-        try requirePreserved(owner, ownerSaved, from: tree, to: moved, label: label)
-        try requirePreserved(overlap, overlapSaved, from: "src/Tree", to: "Moved", label: label)
         try replayUnchanged(label, request, record)
         ledger.record(label, ["outcome": "passed", "moved": true, "changed": true,
-                              "metadataOnlyReplan": record.recovery != nil,
-                              "unchangedTargetPartialFinish": record.recovery == nil])
+                              "rootRetired": true, "namespaceUnblocked": true, "rediscoveredWithNewIDs": true])
     }
 
     /// Retry from a durable recovery plan whose catalog work never started.
@@ -588,7 +585,12 @@ private final class GapProbe: @unchecked Sendable {
         entry["state"] = durable.state.rawValue
         entry["finishedBefore"] = durable.finishedDomains.count
         try store.update {
-            try $0.moveKeptFolder(from: durable.source, to: durable.destination, host: Self.host, share: Self.share)
+            if durable.rootRetired {
+                try $0.removeKeptFolder(at: durable.source, host: Self.host, share: Self.share)
+                try $0.removeKeptFolder(at: durable.destination, host: Self.host, share: Self.share)
+            } else {
+                try $0.moveKeptFolder(from: durable.source, to: durable.destination, host: Self.host, share: Self.share)
+            }
         }
         try probeSession("settings." + step.label, inSettings: true) { remote in
             if case .destinationReplacement = step.change {
@@ -609,6 +611,7 @@ private final class GapProbe: @unchecked Sendable {
     private func lockCheck(_ remote: SMBEdit, _ durable: PendingFolderMove) throws {
         let parents = try remote.protectFolderMoveParents(source: durable.destination, destination: durable.destination)
         try require(parents == durable.destinationParents, "settings-lock-check-parents")
+        if durable.rootRetired { return }
         guard let moved = try remote.inspectFolderMoveRoot(path: durable.destination), moved.identity == durable.identity,
               moved.name.utf8.elementsEqual(durable.name.utf8) else { throw GapCheck(label: "settings-lock-check-root") }
     }
@@ -636,6 +639,7 @@ private final class GapProbe: @unchecked Sendable {
             try finishFirst(domain, durable)
             let renamed = try renameFolder(remote, durable.destination, parent + "/MovedAway")
             try require(renamed == durable.identity, "root-change-identity")
+            plan.plan(GapStep(label: step.label, destination: durable.destination, change: .none, inject: false))
             return ["finishedFirst": "owner", "rootRenamed": true]
         }
     }
@@ -744,7 +748,12 @@ private final class GapProbe: @unchecked Sendable {
 
     private func replayUnchanged(_ label: String, _ request: FileRenameRequest, _ completed: PendingFolderMove) throws {
         ledger.enter(label + "-replay")
-        try require(try move(label + ".replay", request, connections: 0).get().item == request.item, label + "-replay")
+        let calls = (ledger.snapshot()["settingsCalls"] as? [[String: Any]])?.count
+        let result = try move(label + ".replay", request, connections: 0)
+        if completed.rootRetired {
+            try require(GapErrors.failure(result) as? SourceFailure == .versionChanged, label + "-replay-changed-version")
+        } else { try require(try result.get().item == request.item, label + "-replay") }
+        try require((ledger.snapshot()["settingsCalls"] as? [[String: Any]])?.count == calls, label + "-replay-no-settings")
         try require(try durable(request) == completed, label + "-replay-unchanged")
     }
 

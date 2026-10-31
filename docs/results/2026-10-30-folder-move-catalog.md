@@ -98,7 +98,8 @@ Changed contents or modification times require fresh edit receipts. Reverting to
 also receives a new version. A missing or replaced descendant's old catalog binding stays
 retired, even if the same object later reappears. A bounded immutable witness records the first
 complete-listing proof, or the retirement of its parent; it does not claim server deletion.
-The original moved root can never retire, and replacing it leaves recovery unresolved.
+At this stage the original moved root could not retire, and replacement left recovery unresolved.
+The later approved root-retirement change is recorded below.
 
 Older readers reject an active `recovering` state. Completed replay remains a no-op; callers
 must never apply the original settlement again. Runtime integration must store new receipts
@@ -434,8 +435,8 @@ found no blocker. Required VM checks pass with 565 tests, one optional skip and 
 rejected proved case-only retirement; it now rejects preservation of that old binding. The new
 retirement tests cover discovery with fresh IDs and no transferred keeps. The signed probe's
 Settings hook now checks destination parents, matching production. Selected signed Settings-gap
-results follow. Root departure and destination-ancestor changes remain unresolved until restored; retiring the
-moved root is not authorized.
+results follow. These runs used the earlier contract: root departure and destination-ancestor
+changes remained unresolved until restored. Root retirement was approved afterward, as recorded below.
 
 ## Settings-gap runtime checks, 2026-10-30
 
@@ -483,7 +484,7 @@ normalization-only result cannot hide an unexpected sibling rename.
 
 Directory-descendant spelling changes, a usable Unicode-spelling fixture, fresh-process gap
 retry, actual controller Settings work, downloaded-copy invalidation, parent-scoped provider
-enumeration and real crashes remain unverified. Moved-root retirement remains unauthorized.
+enumeration and real crashes remain unverified. These runs did not exercise moved-root retirement.
 These results do not enable folder organization or complete M22.
 
 The final integrated source passes all required VM checks with 565 tests, one optional skip and
@@ -491,3 +492,27 @@ no failures or Swift warnings. The fixture is unmounted, the task server is stop
 is restored. Uncertain records and evidence remain; the shared
 [validation and restoration record](2026-10-29-deletion-protocol.md#final-validation-and-service-restoration-2026-10-30)
 lists the retained artifacts and remaining cleanup.
+
+## Proved root retirement, 2026-10-30
+
+Decision status: approved. After durable move proof, a fresh complete listing of the unchanged
+protected destination parent may prove departure of the moved root's exact name and identity.
+Rename, replacement and removal retire all admitted subtree IDs, complete catalog settlement and
+unblock the namespace. Completion and replay return `versionChanged`. Discovery creates new IDs;
+downloads and per-item keeps do not transfer. An ancestor's Keep Downloaded request still applies.
+Destination-ancestor changes and attempts without durable move proof remain unresolved.
+
+The implementation reuses the existing listed-retirement evidence, checks it against the admitted
+destination parent in every view, and preserves it across retries. A retired root never revives,
+even if its server object returns. Saved subtree keeps at both move endpoints are cleared before
+domains finish; this can require another Settings pass outside the namespace and SMB locks.
+Cleanup waits for any older Keep restoration to finish, then retries, so its saved snapshot
+cannot reapply a keep to a newly discovered ID.
+Existing receipts remain bound to their retired IDs. No Settings or catalog format changes.
+Earlier readers reject root-retirement records through their existing validation.
+
+Regression coverage includes departure after the moved checkpoint, incomplete or contradictory
+parent evidence, permanent retirement, rediscovery and completed-replay refusal. The gap helper
+now expects root retirement after partial view completion and checks keep cleanup and rediscovery.
+Required VM checks are pending for this change. Signed root-retirement, provider invalidation and
+actual controller Settings behavior remain unverified; the previous fixture session is closed.

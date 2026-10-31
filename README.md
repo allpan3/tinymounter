@@ -11,8 +11,9 @@ after settings persistence. Two ambiguous-name cases could not run on the fixtur
 The repaired lock scopes also pass signed Settings-callback and fresh-process recovery checks.
 Signed Settings-gap checks cover case-only descendant retirement, source-only ancestor changes
 and retry after restoring a changed root or destination ancestor. The Unicode-spelling case is
-unavailable because the native listing rewrites its initial name. Root departure remains unresolved
-until restored; root retirement is not authorized.
+unavailable because the native listing rewrites its initial name. Proven root retirement is now
+approved: an unchanged destination parent's complete listing can retire departed subtree IDs and
+finish with a changed-version error. Downloads and per-item keeps reset; signed validation remains.
 [Signed Finder rename, move and case-only checks preserve the downloaded copies](docs/results/2026-10-30-folder-move-catalog.md#signed-finder-checks-2026-10-30).
 New-folder creation failed on the fixture; parent-scoped enumeration and interruption checks
 remain open. Folder organization stays disabled in the normal build.
