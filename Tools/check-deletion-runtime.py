@@ -84,6 +84,13 @@ competing opens, stop and dismiss, symlinks beyond one capture, and older builds
 Each report lists them. Directory-cache freshness is tested only for server-side
 changes made between processes.
 
+After settlement, replacement-byte checks pin the catalog's already observed new
+identity and allow at most three native opens, 0.25 s apart, to observe that pin.
+Every mismatch is recorded; the pin never changes. This checks eventual native
+read consistency separately from the preceding catalog-settlement assertions.
+An immediate native open has reported the old inode after the listing already
+found the replacement; immediate native consistency is not a passing claim.
+
 Leftovers for parent teardown: the fixture subtree, EVIDENCE, the private
 directory, edit receipts, and the deletion records. The c03 and c04 records stay
 pending because they are unconfirmed and not dismissed. Their guards stay too,
