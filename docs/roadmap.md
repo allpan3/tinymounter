@@ -195,13 +195,15 @@ M24's signed production-adapter checks pass for ordinary files, empty directorie
 confirmation, changed/replaced-file refusal and recovery after injected interruptions. Lost
 close replies stay unconfirmed. Durable operation storage and the recursive transaction pass
 28 simulated-server and storage tests in VM 1. Protected traversal admission compiles and passes
-required VM checks; its signed runtime checks remain. The app inventory, namespace blocking and
+required VM checks and bounded signed recursive checks. The app inventory, namespace blocking and
 downgrade guards pass required VM checks. Catalog settlement with immutable admission evidence
 and fresh-listing obligations, and gated app admission and execution, also pass required VM checks.
 The owner-lane scheduler now connects settlement, Settings cleanup and lifecycle retry; that
-wiring and its cancellation repair pass required VM checks and await signed validation. Automatic
-recovery only settles records whose remote work has ended. Recursive SMB checks, recovery
-controls and Finder integration remain; no deletion capability is enabled.
+wiring and its cancellation repair pass required VM checks. Signed recursive checks cover refusals,
+two-view deletion, lost-reply restart recovery, competing changes and replacement preservation,
+with independent backing audits. Native replacement reads can need a second open to match the
+settled catalog identity. Automatic recovery only settles records whose remote work has ended.
+Signed cancellation, recovery controls and Finder integration remain; no deletion capability is enabled.
 
 The supported write boundary remains folders whose writers use SMB and leave tinymounter's
 transaction files alone. All milestones preserve complete pending content, refuse silent

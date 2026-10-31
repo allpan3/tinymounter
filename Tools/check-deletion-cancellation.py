@@ -46,6 +46,7 @@ cancel: The source's synchronous onChange callback cancels the primary Progress,
 then checks durable admission before the scheduler can execute a node. All
 three tree nodes must be stopped, their bytes retained, Settings complete, and
 the reply cancelled. This exercises deleteItem, not a manually edited journal.
+Listing notifications before the scheduler registers that Progress are ignored.
 
 joined: Delete one file and suspend the supplied asynchronous Settings callback.
 Join the request, drain its registration, block the otherwise idle share lane and
