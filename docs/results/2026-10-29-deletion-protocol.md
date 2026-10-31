@@ -327,3 +327,17 @@ VM checks: 555 tests, one optional skip, no Swift warnings, release CLI, generat
 encoder cases, 57 edit-status cases and six folder-create status cases. Evidence is
 `m24-admission-fixed-checks.log` in the same private session. Signed execution remains unverified;
 Finder Delete remains disabled.
+
+## App settlement bridge preparation, 2026-10-30
+
+The app now has bounded owner-lane settlement passes over every affected catalog. Each pass
+starts new native listings inside the catalog helper and confirms missing names on the same
+mount. A retained attempt carries observations and the normal 15-second confirmation holds;
+after restart, a new attempt recollects the evidence. The caller schedules returned delays
+outside locks instead of waiting inside a namespace or catalog lock.
+
+Completion is separate from reconciliation so confirmed-node keep cleanup can be saved in
+Settings without either lock held. It then revalidates roots, endpoints and all catalog
+obligations before finishing domains. No bridge result alone authorizes provider success.
+This bridge is not yet compiled, independently reviewed or connected to lifecycle controls.
+Freshness of the native mount's directory cache remains a signed-runtime gate.
