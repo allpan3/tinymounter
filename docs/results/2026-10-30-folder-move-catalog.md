@@ -522,7 +522,7 @@ its persistence round-trip pass. Source review found the older Keep-restore race
 cleanup now waits for those restores and their completion schedules rename recovery.
 
 The updated standalone probe also builds with zero Swift warnings and passes strict signature
-and entitlement-equality verification. It is not installed or launched. Evidence is under
+and entitlement-equality verification. At that checkpoint it was not installed or launched. Evidence is under
 `.local/phase4/m22-root-retirement-20261030`: `checks-01.log`, `checks-02.log`, `probe-build.log`
 and `probe-signature.json`, with the source and app archives. No writable fixture was reopened.
 Signed root-retirement, provider invalidation and actual controller Settings behavior remain
@@ -530,11 +530,59 @@ unverified; the previous fixture session is closed.
 
 ### Runtime follow-up, 2026-10-31
 
-The reopened signed probe found a handle-order regression in surviving-root completion.
+Signed renamed-root retirement, ancestor recovery and stored-plan retry now pass after a
+handle-order repair. The Unicode-spelling case remains unavailable, and the broader provider
+checks still gate folder organization.
+
+The first reopened signed probe found a handle-order regression in surviving-root completion.
 The case-only descendant and source-ancestor cases reached their Settings mutations, then failed
 with `STATUS_SHARING_VIOLATION` (`0xC0000043`, errno 26). Both backing audits found only the
 permitted renames. Completion first opened the root for reading without delete sharing, then
 requested delete access through a second handle during its final protection check. The adapter
 now opens the matching root with delete access first, retaining the original protection until
 the session ends. An absent or replaced exact binding still takes the retirement path.
-The repair requires fresh VM checks and signed validation; the failed reports remain private.
+The first run's root-retirement case passed across two views after one view had already finished:
+completion returned `versionChanged`, tombstoned the admitted subtree, cleared its saved keeps
+and unblocked the namespace. Restoring the folder created new IDs without per-item keeps or
+edit versions; completed replay stayed unchanged and returned `versionChanged`. The later
+recovering-retry case hit the same sharing violation, so all three phase audits are `app-failed`,
+with no unexpected backing changes. Evidence remains under
+`m22-gap-A0E61BA5-A324-4F8C-BE2C-BDB12480D771*` in the private loopback session.
+
+After the repair, all required VM checks pass: 569 tests, one optional skip, no failures or Swift
+warnings, the release CLI and generated-project checks, the unsigned app and all encoder/status
+checks. The rebuilt standalone probe passes strict signature verification and exact baseline
+entitlement comparison. It runs directly without installation, against the loopback Samba fixture
+on macOS 27.0.1 (26A434), with uncontrolled caches and private catalogs and Settings.
+
+Fresh run `E2F0BDDA-3B33-480F-BB17-54C17CB37C01` verifies the repair:
+
+- **Spelling: incomplete.** The case-only descendant case passes, including retirement, fresh
+  discovery, sibling preservation and replay. The native listing rewrites the Unicode case's
+  initial name, so that case remains unavailable and performs no move. The audit verifies both
+  layouts and does not count the phase as passed.
+- **Ancestors: passed.** A source-only ancestor rename and replacement allow completion without
+  recovery. A destination-ancestor replacement leaves the intent pending; restoring it permits
+  completion and unchanged replay. The backing audit passes.
+- **Retry: passed.** Root retirement repeats the two-view, partial-finish checks above. A stored
+  recovery plan also completes unchanged after the injected Settings failure. Both replay checks
+  and the backing audit pass.
+
+All audits compare object identities, bytes and metadata within the permitted rename boundary;
+only Samba's DOS attribute addition is allowed. The original Settings file, copied independently
+through Finder, remains byte-for-byte equal to the prior baseline. The fixture is unmounted, the
+task server is stopped, and Apple SMB is restored loaded and inactive with its prior override.
+The temporary mount directory is removed. Backing fixtures, pending records from the failed run,
+receipts, private catalogs and reports remain for investigation; none were dismissed to clear guards.
+
+Build, check, signature, Settings-comparison and restoration evidence is under
+`.local/phase4/m22-root-retirement-20261031`; phase reports and inventories remain under the two
+`m22-gap-RUN*` directories in `.local/phase4/m21-20261029`. The first signed transport archive
+contained added AppleDouble files and failed strict verification; a clean archive passed before
+launch. No sandbox or entitlement changes were made.
+
+This verifies a renamed-away root through the signed app caller, with injected partial completion.
+Root removal/replacement, respelled directory descendants, usable Unicode-spelling evidence,
+fresh-process gap retry, actual controller Settings and Keep restoration, downloaded-copy
+invalidation, parent-scoped provider enumeration and real crashes remain unverified. M22 remains
+incomplete and folder organization stays disabled in the normal build.

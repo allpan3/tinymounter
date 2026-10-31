@@ -4,16 +4,18 @@ A macOS app that brings a network disk, such as a NAS, into Apple's file system:
 
 Save recovery, 2026-10-30: signed TextEdit checks recovered from stops before publication and before its reply. A simulated mid-copy space failure preserved the earlier exportable save; the complete newer save uploaded after retry. Item IDs, server identities and keep flags survived, with no final pending copies or false conflicts. [The observed callbacks and limits are recorded](docs/results/2026-10-29-pending-save-order.md#signed-callback-observation-2026-10-30). Bounded reserve, partial-stage continuation and lost-cleanup-reply checks also pass. A fresh signed probe verifies full replacement-artifact preservation through cleanup. Actual disk exhaustion and broader editor workflows remain unverified; M23 is incomplete.
 
-Folder moves, 2026-10-30: signed adapter checks pass for populated and case-only moves,
+Folder moves, 2026-10-31: signed adapter checks pass for populated and case-only moves,
 destination collisions, lost-reply recovery and partial-catalog recovery. Signed app checks also
 pass for read/watch draining, pending-write exclusions, overlapping views, keeps and recovery
 after settings persistence. Two ambiguous-name cases could not run on the fixture.
 The repaired lock scopes also pass signed Settings-callback and fresh-process recovery checks.
 Signed Settings-gap checks cover case-only descendant retirement, source-only ancestor changes
 and retry after restoring a changed root or destination ancestor. The Unicode-spelling case is
-unavailable because the native listing rewrites its initial name. Proven root retirement is now
-approved: an unchanged destination parent's complete listing can retire departed subtree IDs and
-finish with a changed-version error. Downloads and per-item keeps reset; signed validation remains.
+unavailable because the native listing rewrites its initial name. Signed root-retirement checks
+now pass after partial catalog completion: old subtree IDs and keeps retire, the share unblocks,
+and completed replay returns a changed-version error. Restoring the folder produces new IDs.
+The run found and fixed a surviving-root handle conflict; all required VM checks pass.
+Root removal/replacement and downloaded-copy invalidation still need signed verification.
 [Signed Finder rename, move and case-only checks preserve the downloaded copies](docs/results/2026-10-30-folder-move-catalog.md#signed-finder-checks-2026-10-30).
 New-folder creation failed on the fixture; parent-scoped enumeration and interruption checks
 remain open. Folder organization stays disabled in the normal build.
