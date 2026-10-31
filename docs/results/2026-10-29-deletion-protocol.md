@@ -312,6 +312,11 @@ including on completed replay. A preserved replacement returns `versionChanged`;
 remains unresolved. Catalog settlement is still supplied by a caller hook. Lifecycle retry,
 settings cleanup, recovery controls and provider routing remain unconnected.
 
+Settings has a typed path-removal helper for pending and saved keeps on the affected share.
+Callers must supply only confirmed-deleted nodes. It preserves uncertain descendants, other kinds
+at the same name and other shares; it does not remove an entire subtree from one folder outcome.
+The helper and its persistence/refusal regressions are not yet verified in the VM or connected.
+
 Source review found a lock inversion in the existing folder-move caller: it can hold the global
 SMB mutex while waiting for the namespace lock, which deletion admission acquires first. That
 is repaired by scoping folder-move clients inside the namespace lock and reopening protection

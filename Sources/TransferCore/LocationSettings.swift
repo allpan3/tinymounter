@@ -263,6 +263,26 @@ public struct SavedKeepList: Codable, Equatable, Sendable {
 }
 
 extension AppSettings {
+    // Only confirmed nodes are supplied; a deleted folder does not prove its children were deleted.
+    public mutating func removeKeptItems(_ items: [KeepPath], host: String, share: String) throws {
+        guard !items.isEmpty else { return }
+        let deleted = try Set(items.map { item -> KeepPath in
+            guard let path = RelativePath(item.path), !path.isRoot else { throw UploadError.invalidRequest }
+            return KeepPath(path: NameKey(path.string).value, kind: item.kind)
+        })
+        func retained(_ paths: [KeepPath]) -> [KeepPath] {
+            paths.filter { !deleted.contains(KeepPath(path: NameKey($0.path).value, kind: $0.kind)) }
+        }
+        let related = Set(shares.filter { ServerGrant.isSameShare($0.host, $0.share, host, share) }.map(\.id))
+        for index in locations.indices where related.contains(locations[index].serverID) {
+            locations[index].pendingKeeps = retained(locations[index].pendingKeeps)
+        }
+        for index in savedKeeps.indices where savedKeeps[index].isFor(host: host, share: share) {
+            savedKeeps[index].paths = retained(savedKeeps[index].paths)
+        }
+        savedKeeps.removeAll { $0.isFor(host: host, share: share) && $0.paths.isEmpty }
+    }
+
     public mutating func moveKeptFolder(from source: String, to destination: String, host: String, share: String) throws {
         guard let sourcePath = RelativePath(source), !sourcePath.isRoot,
               let destinationPath = RelativePath(destination), !destinationPath.isRoot else {

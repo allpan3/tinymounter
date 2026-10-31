@@ -14,6 +14,53 @@ final class SettingsTests: XCTestCase {
         try? FileManager.default.removeItem(at: directory)
     }
 
+    func testDeletionRemovesOnlyConfirmedTypedKeepsOnTheSameShare() throws {
+        let grant = ServerGrant(serverID: UUID(), bookmark: Data([1]), mountFrom: "//account@fixture/share",
+                                address: try XCTUnwrap(ShareAddress("//account@fixture/share")))
+        let other = ServerGrant(serverID: UUID(), bookmark: Data([2]), mountFrom: "//account@fixture/other",
+                                address: try XCTUnwrap(ShareAddress("//account@fixture/other")))
+        let folder = KeepPath(path: "Tree/Café", kind: .folder)
+        let deleted = KeepPath(path: "Tree/Café/deleted", kind: .file)
+        let uncertain = KeepPath(path: "Tree/Café/unconfirmed", kind: .file)
+        let replacementKind = KeepPath(path: folder.path, kind: .file)
+        let neighbor = KeepPath(path: "Tree/Café-other", kind: .folder)
+        let paths = [folder, deleted, uncertain, replacementKind, neighbor]
+        var location = LocationRecord(name: "Location", serverID: grant.id, folder: .root)
+        location.pendingKeeps = paths
+        var otherLocation = LocationRecord(name: "Other", serverID: other.id, folder: .root)
+        otherLocation.pendingKeeps = paths
+        var settings = AppSettings(shares: [grant, other], locations: [location, otherLocation], savedKeeps: [
+            SavedKeepList(host: "FIXTURE", share: "SHARE", paths: paths),
+            SavedKeepList(host: "fixture", share: "other", paths: paths)])
+        let removed = [KeepPath(path: "tree/Cafe\u{301}", kind: .folder), deleted]
+        try settings.removeKeptItems(removed, host: grant.host, share: grant.share)
+        let expected = [uncertain, replacementKind, neighbor]
+        XCTAssertEqual(settings.locations[0].pendingKeeps, expected)
+        XCTAssertEqual(settings.locations[0].domainID, location.domainID)
+        XCTAssertEqual(settings.locations[1], otherLocation)
+        XCTAssertEqual(settings.savedKeeps.map(\.paths), [expected, paths])
+        let completed = settings
+        try settings.removeKeptItems(removed, host: grant.host, share: grant.share)
+        XCTAssertEqual(settings, completed)
+        let url = directory.appending(path: "Settings.json")
+        try settings.save(to: url)
+        XCTAssertEqual(try AppSettings.load(from: url), completed)
+    }
+
+    func testDeletionKeepCleanupRejectsInvalidPathsWithoutPartialChanges() throws {
+        let file = KeepPath(path: "Tree/file", kind: .file)
+        let original = AppSettings(savedKeeps: [SavedKeepList(host: "fixture", share: "share", paths: [file])])
+        for path in ["", "../file"] {
+            var settings = original
+            XCTAssertThrowsError(try settings.removeKeptItems([file, KeepPath(path: path, kind: .folder)],
+                                                            host: "fixture", share: "share"))
+            XCTAssertEqual(settings, original)
+        }
+        var settings = original
+        try settings.removeKeptItems([file], host: "fixture", share: "share")
+        XCTAssertEqual(settings.savedKeeps, [])
+    }
+
     func testFileMoveRewritesOnlyMatchingKeepsOnTheSameShareAndIsIdempotent() throws {
         let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "smb://fixture")))
         let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//account@fixture/share",
