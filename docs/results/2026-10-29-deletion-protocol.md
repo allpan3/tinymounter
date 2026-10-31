@@ -289,10 +289,30 @@ remote deletion from a listing.
 Source review closed the earlier replacement-loss and premature-completion defects. A kind
 mismatch now takes the reconciliation path. If a missing-folder fallback still finds the requested
 folder live, it returns unresolved instead of repeatedly listing it. New tests cover both cases;
-the integrated helper and tests have not yet been compiled or run.
+the integrated helper compiles after splitting an expression that exceeded Swift's type-checking
+limit. The first test run found one replay test rebuilding a changed request; that test now retains
+the original request and also checks that the changed request stays blocked. Verification continues.
 
 Catalog completion can preserve a replacement under the selected ID. The app must additionally
 require an explicit tombstone for that ID before reporting provider Delete success, including on
 completed replay. A live replacement must return a changed-version error. This preserves its
 binding and keep flags without introducing a new identity policy. Signed File Provider behavior
 remains a gate. The helper is not yet connected to an execution caller.
+
+## Gated admission and execution, 2026-10-30
+
+The app has an unconnected owner-lane entry point for protected admission, immutable replay,
+per-node execution, resume and stop. Admission reserves the subtree, drains reads and watches,
+then rechecks every affected source, pending write, configured root and catalog claim. The
+capture client ends before node sessions begin. Each node runs outside the namespace lock;
+the durable record blocks conflicting work while unrelated reads can proceed.
+
+Completion additionally requires the owner's selected catalog row to exist and be tombstoned,
+including on completed replay. A preserved replacement returns `versionChanged`; a missing row
+remains unresolved. Catalog settlement is still supplied by a caller hook. Lifecycle retry,
+settings cleanup, recovery controls and provider routing remain unconnected.
+
+Source review found a lock inversion in the existing folder-move caller: it can hold the global
+SMB mutex while waiting for the namespace lock, which deletion admission acquires first. That
+must be repaired before the paths run together. The new entry point has not yet been compiled
+or exercised in the signed app. Finder Delete remains disabled.
