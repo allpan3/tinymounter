@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 #include <smb2/smb2.h>
 #include <smb2/smb2-errors.h>
 #include <smb2/libsmb2.h>
