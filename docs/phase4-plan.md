@@ -7,6 +7,8 @@ checks are still open; starting this design does not mark them passed.
 
 The [remaining roadmap](roadmap.md), accepted on 2026-10-29, sets the full sequence after M20
 and its parallel workstreams. The accepted M18 to M20 contracts below still apply.
+The user's [standing VM permission](roadmap.md#delivery-and-approval), granted on 2026-10-31,
+supersedes the per-session VM approval limits recorded below; feature and safety gates still apply.
 
 Native upload decision, 2026-10-23: the user accepted exclusive creation through native SMB.
 Other devices can see a new file while it uploads, including a partial file after interruption.
