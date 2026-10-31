@@ -18,6 +18,7 @@ final class LocationDeletionRecovery: @unchecked Sendable {
     let progress: Progress
     var attempt: LocationDeletionSettlementAttempt?
     var replies: [LocationSource.DeletionReply] = []
+    var cancellations: [UUID: (progress: Progress, observation: NSKeyValueObservation)] = [:]
     var scheduled: UUID?
     var settingsPending = false
     var failures = 0
@@ -33,6 +34,13 @@ final class LocationDeletionRecovery: @unchecked Sendable {
             refresh[domain, default: []].formUnion(folders)
         }
     }
+
+    func update(_ record: PendingDeletion) {
+        guard self.record != record else { return }
+        rememberRefresh()
+        self.record = record
+        attempt = nil
+    }
 }
 
 extension LocationSource {
@@ -44,41 +52,54 @@ extension LocationSource {
                     started: @escaping @Sendable () -> Void, reply: @escaping DeletionReply) {
         access.enqueue { [self] in
             started()
-            var admitted: UUID?
+            var recovery: LocationDeletionRecovery?
             defer {
-                if let admitted { deletionRecoveryLock.withLock { deletionProgress[admitted] = nil } }
+                if let recovery { deletionRecoveryLock.withLock { deletionProgress[recovery.record.id] = nil } }
             }
             do {
                 try requireDeletionRecoverySource()
                 guard deletionSettings != nil else { throw UploadError.readOnly }
                 if let running = deletionRecoveries.values.first(where: { $0.record.plan.request == request }) {
-                    running.replies.append(reply)
+                    joinDeletionRecovery(running, progress: progress, reply: reply)
                     return
                 }
-                let record = try prepareDeletionOnLane(request, recursive: recursive, progress: progress) { record in
-                    admitted = record.id
-                    registerDeletionProgress(progress, id: record.id)
+                _ = try prepareDeletionOnLane(request, recursive: recursive, progress: progress) { record in
+                    recovery = beginDeletionRecovery(record, progress: progress, reply: reply)
                 }
-                let recovery = LocationDeletionRecovery(record, progress: progress)
-                recovery.replies.append(reply)
-                deletionRecoveries[record.id] = recovery
+                guard let recovery else { throw UploadError.unresolved }
                 deletionStateChanged()
-                continueDeletionOnLane(recovery)
+                continueDeletionOnLane(recovery, resume: true)
             } catch {
+                // Admission can be visible even when its final directory sync or capture close failed.
+                if recovery == nil {
+                    do {
+                        let record = try editNamespace.perform {
+                            try Self.deletionOutbox().records().first {
+                                $0.plan.owner == domainID && $0.plan.request == request
+                            }
+                        }
+                        if let record { recovery = beginDeletionRecovery(record, progress: progress, reply: reply) }
+                    } catch {
+                        deletionStateChanged()
+                        reply(.failure(error))
+                        return
+                    }
+                }
                 deletionStateChanged()
-                reply(.failure(error))
+                if let recovery { failDeletionRecovery(recovery, error: error) }
+                else { reply(.failure(error)) }
             }
         }
     }
 
-    // Only explicit caller wiring starts recovery; construction and callback installation do not.
+    // Launch and share recovery settle outcomes without issuing another remote deletion request.
     func retryDeletions() {
         access.enqueue { [self] in
             do {
                 try requireDeletionRecoverySource()
                 let records = try editNamespace.perform { try Self.deletionOutbox().records() }
-                for record in records where record.plan.owner == domainID && record.isPending {
-                    retryDeletionOnLane(record.id, reply: nil)
+                for record in records where record.plan.owner == domainID && record.isPending && record.isSettled {
+                    retryDeletionOnLane(record.id, resume: false, reply: nil)
                 }
             } catch {
                 Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
@@ -88,35 +109,61 @@ extension LocationSource {
     }
 
     func retryDeletion(_ id: UUID, reply: @escaping DeletionReply) {
-        access.enqueue { [self] in retryDeletionOnLane(id, reply: reply) }
+        access.enqueue { [self] in retryDeletionOnLane(id, resume: true, reply: reply) }
     }
 
     // Cancellation must reach a node before Stop waits behind that node on the lane.
     func stopDeletion(_ id: UUID, reply: @escaping @Sendable (Result<Void, Error>) -> Void) {
-        let progress = deletionRecoveryLock.withLock {
-            deletionStops.insert(id)
-            return deletionProgress[id]
+        queueDeletionStop(id, reply: reply)
+    }
+
+    private func queueDeletionStop(_ id: UUID, cancellation: UUID? = nil,
+                                   reply: @escaping @Sendable (Result<Void, Error>) -> Void) {
+        let (accepted, progress) = deletionRecoveryLock.withLock { () -> (Bool, Progress?) in
+            if let cancellation {
+                guard deletionCancellations.removeValue(forKey: cancellation) == id else { return (false, nil) }
+            }
+            deletionStops[id, default: 0] += 1
+            return (true, deletionProgress[id])
         }
-        progress?.cancel()
+        guard accepted else { return }
         access.enqueue { [self] in
-            defer { deletionRecoveryLock.withLock { _ = deletionStops.remove(id) } }
+            deletionRecoveryLock.withLock {
+                let remaining = (deletionStops[id] ?? 1) - 1
+                deletionStops[id] = remaining > 0 ? remaining : nil
+            }
             do {
-                try requireDeletionRecoverySource()
+                // Closing a source must not prevent an already requested durable Stop.
                 let record = try stopDeletionOnLane(id)
                 let recovery = deletionRecoveries[id] ?? LocationDeletionRecovery(record, progress: Progress())
-                recovery.rememberRefresh()
-                recovery.record = record
-                recovery.attempt = nil
+                recovery.update(record)
                 recovery.failures = 0
                 deletionRecoveries[id] = recovery
-                if !recovery.settingsPending { enqueueDeletionPass(recovery, after: .zero) }
+                if deletionRecoveryLock.withLock({ deletionClosed }) {
+                    completeDeletionRecovery(recovery, result: .failure(LocationError.catalogClosed))
+                } else if !recovery.settingsPending {
+                    enqueueDeletionPass(recovery, after: .zero)
+                }
                 deletionStateChanged()
                 reply(.success(()))
             } catch {
-                if let recovery = deletionRecoveries[id] { failDeletionRecovery(recovery, error: error) }
-                reply(.failure(error))
+                let stopError = error
+                do {
+                    let record = try editNamespace.perform { try ownedDeletion(id) }
+                    let recovery = deletionRecoveries[id] ?? LocationDeletionRecovery(record, progress: Progress())
+                    recovery.update(record)
+                    deletionRecoveries[id] = recovery
+                    retryDeletionSettlement(recovery, error: stopError)
+                } catch {
+                    if let recovery = deletionRecoveries[id] {
+                        completeDeletionRecovery(recovery, result: .failure(error))
+                    }
+                }
+                deletionStateChanged()
+                reply(.failure(stopError))
             }
         }
+        if let progress, !progress.isCancelled { progress.cancel() }
     }
 
     func dismissDeletion(_ id: UUID, reply: @escaping @Sendable (Result<Void, Error>) -> Void) {
@@ -160,24 +207,49 @@ extension LocationSource {
     private func registerDeletionProgress(_ progress: Progress, id: UUID) {
         let cancelled = deletionRecoveryLock.withLock {
             deletionProgress[id] = progress
-            return deletionClosed || deletionStops.contains(id)
+            return deletionClosed || deletionStops[id] != nil
         }
-        if cancelled { progress.cancel() }
+        if cancelled, !progress.isCancelled { progress.cancel() }
     }
 
-    private func retryDeletionOnLane(_ id: UUID, reply: DeletionReply?) {
+    private func beginDeletionRecovery(_ record: PendingDeletion, progress: Progress,
+                                       reply: @escaping DeletionReply) -> LocationDeletionRecovery {
+        if let recovery = deletionRecoveries[record.id] {
+            recovery.update(record)
+            joinDeletionRecovery(recovery, progress: progress, reply: reply)
+            return recovery
+        }
+        let recovery = LocationDeletionRecovery(record, progress: progress)
+        deletionRecoveries[record.id] = recovery
+        registerDeletionProgress(progress, id: record.id)
+        joinDeletionRecovery(recovery, progress: progress, reply: reply)
+        return recovery
+    }
+
+    private func joinDeletionRecovery(_ recovery: LocationDeletionRecovery, progress: Progress,
+                                      reply: @escaping DeletionReply) {
+        let token = UUID(), id = recovery.record.id
+        recovery.replies.append(reply)
+        deletionRecoveryLock.withLock { deletionCancellations[token] = id }
+        let observation = progress.observe(\.isCancelled, options: [.initial, .new]) { [weak self] observed, _ in
+            guard observed.isCancelled else { return }
+            self?.queueDeletionStop(id, cancellation: token) { _ in }
+        }
+        recovery.cancellations[token] = (progress, observation)
+    }
+
+    private func retryDeletionOnLane(_ id: UUID, resume: Bool, reply: DeletionReply?) {
         do {
             try requireDeletionRecoverySource()
             guard deletionSettings != nil else { throw UploadError.readOnly }
             let record = try editNamespace.perform { try ownedDeletion(id) }
+            guard resume || (record.isPending && record.isSettled) else { return }
             let recovery = deletionRecoveries[id] ?? LocationDeletionRecovery(record, progress: Progress())
-            recovery.rememberRefresh()
-            recovery.record = record
-            recovery.attempt = nil
+            recovery.update(record)
             recovery.failures = 0
             if let reply { recovery.replies.append(reply) }
             deletionRecoveries[id] = recovery
-            if !recovery.settingsPending { enqueueDeletionPass(recovery, after: .zero) }
+            if !recovery.settingsPending { enqueueDeletionPass(recovery, after: .zero, resume: resume) }
         } catch {
             reply?(.failure(error))
             Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
@@ -185,17 +257,15 @@ extension LocationSource {
         }
     }
 
-    private func continueDeletionOnLane(_ recovery: LocationDeletionRecovery) {
+    private func continueDeletionOnLane(_ recovery: LocationDeletionRecovery, resume: Bool = false) {
         guard deletionRecoveries[recovery.record.id] === recovery else { return }
         do {
             try requireDeletionRecoverySource()
+            guard !deletionRecoveryLock.withLock({ deletionStops[recovery.record.id] != nil }) else { return }
             let current = try editNamespace.perform { try ownedDeletion(recovery.record.id) }
-            if current != recovery.record {
-                recovery.rememberRefresh()
-                recovery.attempt = nil
-                recovery.record = current
-            }
+            recovery.update(current)
             if !current.isSettled {
+                guard resume else { throw UploadError.pendingWrites }
                 registerDeletionProgress(recovery.progress, id: current.id)
                 defer { deletionRecoveryLock.withLock { deletionProgress[current.id] = nil } }
                 guard !recovery.progress.isCancelled else { throw TransferError.cancelled }
@@ -261,7 +331,8 @@ extension LocationSource {
         }
     }
 
-    private func enqueueDeletionPass(_ recovery: LocationDeletionRecovery, after delay: Duration) {
+    private func enqueueDeletionPass(_ recovery: LocationDeletionRecovery, after delay: Duration,
+                                     resume: Bool = false) {
         let token = UUID(), id = recovery.record.id
         recovery.scheduled = token
         let seconds = max(0, delay / .seconds(1))
@@ -270,7 +341,7 @@ extension LocationSource {
             self.access.enqueue { [self] in
                 guard self.deletionRecoveries[id] === recovery, recovery.scheduled == token else { return }
                 recovery.scheduled = nil
-                self.continueDeletionOnLane(recovery)
+                self.continueDeletionOnLane(recovery, resume: resume)
             }
         }
     }
@@ -288,11 +359,20 @@ extension LocationSource {
             completeDeletionRecovery(recovery, result: .failure(error))
             return
         }
+        retryDeletionSettlement(recovery, error: error)
+    }
+
+    private func retryDeletionSettlement(_ recovery: LocationDeletionRecovery, error: Error) {
+        if deletionRecoveryLock.withLock({ deletionStops[recovery.record.id] != nil }) { return }
+        if deletionRecoveryLock.withLock({ deletionClosed }) {
+            completeDeletionRecovery(recovery, result: .failure(LocationError.catalogClosed))
+            return
+        }
         // Automatic passes only reconcile settled outcomes; remote retries need an explicit caller.
         if recovery.record.isSettled, recovery.failures < 3, canRetryDeletionSettlement(error) {
             let delay = Duration.seconds(1 << recovery.failures)
             recovery.failures += 1
-            enqueueDeletionPass(recovery, after: delay)
+            if !recovery.settingsPending { enqueueDeletionPass(recovery, after: delay) }
         } else {
             completeDeletionRecovery(recovery, result: .failure(error))
         }
@@ -314,6 +394,29 @@ extension LocationSource {
             try requireDeleted(recovery.record)
             return recovery.record
         }
+        completeDeletionRecovery(recovery, result: result)
+    }
+
+    private func completeDeletionRecovery(_ recovery: LocationDeletionRecovery,
+                                          result: Result<PendingDeletion, Error>) {
+        guard deletionRecoveries[recovery.record.id] === recovery else { return }
+        let id = recovery.record.id
+        let (stopping, cancelled) = deletionRecoveryLock.withLock { () -> (Bool, [UUID]) in
+            // Cancellation can become visible before its KVO callback acquires this lock.
+            let cancelled = recovery.cancellations.compactMap { token, cancellation in
+                deletionCancellations[token] == id && cancellation.progress.isCancelled ? token : nil
+            }
+            guard deletionStops[id] == nil, cancelled.isEmpty else { return (true, cancelled) }
+            for token in recovery.cancellations.keys { deletionCancellations[token] = nil }
+            return (false, [])
+        }
+        for token in cancelled { queueDeletionStop(id, cancellation: token) { _ in } }
+        guard !stopping else { return }
+        deletionRecoveries[recovery.record.id] = nil
+        recovery.scheduled = nil
+        for cancellation in recovery.cancellations.values { cancellation.observation.invalidate() }
+        recovery.cancellations.removeAll()
+        recovery.rememberRefresh()
         let sources = editNamespace.perform {
             recovery.record.plan.views.compactMap { view -> LocationSource? in
                 guard let source = try? editNamespace.source(view.domain),
@@ -325,20 +428,14 @@ extension LocationSource {
             source.signalFolders(Array(recovery.refresh[source.domainID] ?? []))
             source.deletionStateChanged()
         }
-        completeDeletionRecovery(recovery, result: result)
-    }
-
-    private func completeDeletionRecovery(_ recovery: LocationDeletionRecovery,
-                                          result: Result<PendingDeletion, Error>) {
-        guard deletionRecoveries[recovery.record.id] === recovery else { return }
-        deletionRecoveries[recovery.record.id] = nil
-        recovery.scheduled = nil
         let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
         logger.info("deletion id=\(recovery.record.id.uuidString, privacy: .public) ok=\((try? result.get()) != nil)")
         if case .failure(let error) = result {
             logger.error("deletion id=\(recovery.record.id.uuidString, privacy: .public) failed \(logFields(error), privacy: .public)")
         }
         deletionStateChanged()
-        for reply in recovery.replies { reply(result) }
+        let replies = recovery.replies
+        recovery.replies.removeAll()
+        for reply in replies { reply(result) }
     }
 }

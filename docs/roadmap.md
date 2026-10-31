@@ -199,7 +199,8 @@ required VM checks; its signed runtime checks remain. The app inventory, namespa
 downgrade guards pass required VM checks. Catalog settlement with immutable admission evidence
 and fresh-listing obligations, and gated app admission and execution, also pass required VM checks.
 The owner-lane scheduler now connects settlement, Settings cleanup and lifecycle retry; that
-wiring passes required VM checks and awaits signed validation. Recursive SMB checks, recovery
+wiring passes required VM checks and awaits signed validation. A subsequent cancellation repair
+limits automatic recovery to settlement and awaits checks. Recursive SMB checks, recovery
 controls and Finder integration remain; no deletion capability is enabled.
 
 The supported write boundary remains folders whose writers use SMB and leave tinymounter's

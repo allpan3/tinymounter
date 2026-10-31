@@ -695,7 +695,7 @@ private final class M24Probe: @unchecked Sendable {
         let remote = try laneDeletion("c05.delete-without-settlement", connections: 2,
                                       resumable: { try self.resumable(c05) }) { [self] in
             let progress = Progress()
-            let admitted = try owner.prepareDeletionOnLane(c05, recursive: false, progress: progress)
+            let admitted = try owner.prepareDeletionOnLane(c05, recursive: false, progress: progress) { _ in }
             return try owner.resumeDeletionOnLane(admitted.id, progress: progress)
         }
         ledger.record("c05", Self.summary(remote))
@@ -859,7 +859,7 @@ private final class M24Probe: @unchecked Sendable {
     private func admitOnly(_ label: String, _ request: DeletionRequest, path: RelativePath,
                            recursive: Bool) throws -> PendingDeletion {
         try laneDeletion(label + ".admit", connections: 1, resumable: { try self.resumable(request) }) { [self] in
-            let record = try owner.prepareDeletionOnLane(request, recursive: recursive, progress: Progress())
+            let record = try owner.prepareDeletionOnLane(request, recursive: recursive, progress: Progress()) { _ in }
             try require(record.plan.selected.path.utf8.elementsEqual(path.string.utf8), label + "-admitted-path")
             return record
         }
