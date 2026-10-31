@@ -433,8 +433,8 @@ found no blocker. Required VM checks pass with 565 tests, one optional skip and 
 (`m24-review-followups-fixed-checks.log`). The first run found one older assertion that still
 rejected proved case-only retirement; it now rejects preservation of that old binding. The new
 retirement tests cover discovery with fresh IDs and no transferred keeps. The signed probe's
-Settings hook now checks destination parents, matching production. Signed Settings-gap validation
-remains. Root departure and destination-ancestor changes still remain unresolved; retiring the
+Settings hook now checks destination parents, matching production. Selected signed Settings-gap
+results follow. Root departure and destination-ancestor changes remain unresolved until restored; retiring the
 moved root is not authorized.
 
 ## Settings-gap runtime checks, 2026-10-30
@@ -457,3 +457,31 @@ Renaming and replacing the old source-only ancestor allowed completion without a
 Replacing the destination ancestor kept the intent verified and the namespace blocked; restoring
 it allowed retry and unchanged completed replay. Raw evidence remains under
 `m22-gap-BDD7AB53-431C-41D6-8E27-79977095FBE8*` and `m22-gap-probe-*` in the private session.
+
+The retry phase passed after 222.4 seconds, with a passing backing audit. After the helper
+finished the owner view and moved the root away, completion stayed unresolved. Restoring the
+root changed its metadata and triggered a metadata-only replan; both views finished with
+identities, content versions, keeps and paths preserved. This did not exercise an unchanged
+target finishing only its remaining view. A second case injected a Settings failure, saved a
+recovery plan before applying it, then completed from that plan unchanged. Both completed
+replays passed. These checkpoints were injected; they are not real crashes.
+
+The corrected spelling helper passed the case-only case in fresh run
+`0EF3B962-1117-4E6D-8CC2-996BF7D4067C`. It proved exact SMB spelling, retirement of the old ID,
+discovery under a new ID without a keep or edit version, the historical receipt's old binding,
+unchanged sibling state and completed replay. The saved keep retained its admitted spelling
+under the destination. The NFC-to-NFD case was unavailable: the initial native listing already
+returned NFD for the NFC backing name, so no move was attempted. The 81.3-second phase exited
+unsuccessfully and its full backing-layout audit is **incomplete**, not passed. It nevertheless
+checks the passing case's exact layout and the untouched Unicode case.
+
+The corrected `m22-gap-probe2` build and signature checks pass with zero Swift warnings and
+unchanged entitlements. An independent Finder copy after both runs confirms original Settings
+equality. Evidence remains under the two run IDs above, `m22-gap-probe2-*` and
+`m22-gap-settings-comparison.json`. The synthetic audit regression also confirms that a
+normalization-only result cannot hide an unexpected sibling rename.
+
+Directory-descendant spelling changes, a usable Unicode-spelling fixture, fresh-process gap
+retry, actual controller Settings work, downloaded-copy invalidation, parent-scoped provider
+enumeration and real crashes remain unverified. Moved-root retirement remains unauthorized.
+These results do not enable folder organization or complete M22.

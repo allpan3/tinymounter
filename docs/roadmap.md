@@ -189,7 +189,11 @@ correction found in source review. Selected signed adapter checks pass for moves
 and recovery. Signed app checks cover draining, overlapping views, keeps and settings recovery.
 Signed Finder rename, move and case-only checks preserve downloaded copies. New-folder creation
 failed on the fixture, and parent-scoped enumeration, real crashes and stale-base publication
-remain unverified. Two ambiguous-name cases lack a usable fixture. Provider enablement remains gated.
+remain unverified. Signed Settings-gap checks cover case-only descendant retirement, source-only
+ancestor changes and retry after root or destination restoration, including injected partial
+catalog completion. The native listing rewrites the Unicode case's initial name, so that case
+remains unavailable. Two earlier ambiguous-name cases also lack a usable fixture. Provider
+enablement remains gated.
 
 M24's signed production-adapter checks pass for ordinary files, empty directories, paginated
 confirmation, changed/replaced-file refusal and recovery after injected interruptions. Lost

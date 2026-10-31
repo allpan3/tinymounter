@@ -9,8 +9,10 @@ destination collisions, lost-reply recovery and partial-catalog recovery. Signed
 pass for read/watch draining, pending-write exclusions, overlapping views, keeps and recovery
 after settings persistence. Two ambiguous-name cases could not run on the fixture.
 The repaired lock scopes also pass signed Settings-callback and fresh-process recovery checks.
-A source repair for descendant spelling and source-only ancestor changes passes VM checks; moved-root
-and destination-ancestor changes during Settings still leave recovery unresolved.
+Signed Settings-gap checks cover case-only descendant retirement, source-only ancestor changes
+and retry after restoring a changed root or destination ancestor. The Unicode-spelling case is
+unavailable because the native listing rewrites its initial name. Root departure remains unresolved
+until restored; root retirement is not authorized.
 [Signed Finder rename, move and case-only checks preserve the downloaded copies](docs/results/2026-10-30-folder-move-catalog.md#signed-finder-checks-2026-10-30).
 New-folder creation failed on the fixture; parent-scoped enumeration and interruption checks
 remain open. Folder organization stays disabled in the normal build.
