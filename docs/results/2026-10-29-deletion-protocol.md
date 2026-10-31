@@ -273,5 +273,26 @@ retired domain IDs.
 
 Independent source review found no concrete defect. The future caller must serialize admission,
 check mutation suspension in every affected view and retain all configured roots as protected.
-These changes and the new guard regressions have not yet been compiled or run. Historical-reader
-behavior is modeled in tests, not verified in older signed apps. No execution caller is enabled.
+These changes pass all required VM checks with 528 tests, one optional skip and no Swift warnings.
+Evidence is `m24-inventory-checks.log` in the same private session. Historical-reader behavior is
+modeled in tests, not verified in older signed apps. No execution caller is enabled.
+
+## Catalog settlement preparation, 2026-10-30
+
+Deletion views now retain the catalog epoch, sequence and listing generation captured before
+protected admission. Direct tombstones require that state to remain unchanged. Any intervening
+change, missing prior result or unconfirmed outcome requires a fresh checked listing. The helper
+starts those reads itself, rejects incomplete observations and climbs to a reachable ancestor
+when a folder is absent. It retains the normal confirmation policy and never infers a confirmed
+remote deletion from a listing.
+
+Source review closed the earlier replacement-loss and premature-completion defects. A kind
+mismatch now takes the reconciliation path. If a missing-folder fallback still finds the requested
+folder live, it returns unresolved instead of repeatedly listing it. New tests cover both cases;
+the integrated helper and tests have not yet been compiled or run.
+
+Catalog completion can preserve a replacement under the selected ID. The app must additionally
+require an explicit tombstone for that ID before reporting provider Delete success, including on
+completed replay. A live replacement must return a changed-version error. This preserves its
+binding and keep flags without introducing a new identity policy. Signed File Provider behavior
+remains a gate. The helper is not yet connected to an execution caller.

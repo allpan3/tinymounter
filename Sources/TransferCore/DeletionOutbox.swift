@@ -64,21 +64,39 @@ public struct DeletionViewItem: Codable, Equatable, Sendable {
     }
 }
 
+/// Immutable catalog state captured with the admitted view, before any remote deletion.
+public struct DeletionCatalogAdmission: Codable, Equatable, Sendable {
+    public let epoch: Data
+    public let sequence: Int64
+    public let listingGeneration: Int64
+
+    func validate() throws {
+        guard epoch.count == 16, sequence >= 0, sequence <= Catalog.maxLastSeq, listingGeneration >= 0 else {
+            throw ItemDeletionError.invalidRequest
+        }
+    }
+}
+
 /// One location that shows the target; each catalog applies the settled result separately.
 public struct DeletionView: Codable, Equatable, Sendable {
     public let domain: String
     public let folder: String
     /// Catalog rows at admission. A node this location never listed has no row to change.
     public let items: [DeletionViewItem]
+    /// Missing in older isolated records: settlement must obtain fresh listing evidence.
+    public let catalogAdmission: DeletionCatalogAdmission?
 
-    public init(domain: String, folder: RelativePath, items: [DeletionViewItem]) {
+    public init(domain: String, folder: RelativePath, items: [DeletionViewItem],
+                catalogAdmission: DeletionCatalogAdmission? = nil) {
         self.domain = domain
         self.folder = folder.string
         self.items = items
+        self.catalogAdmission = catalogAdmission
     }
 
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.domain == rhs.domain && lhs.folder.utf8.elementsEqual(rhs.folder.utf8) && lhs.items == rhs.items
+            && lhs.catalogAdmission == rhs.catalogAdmission
     }
 }
 
@@ -174,6 +192,7 @@ public struct DeletionPlan: Codable, Equatable, Sendable {
         let directories = directoryIdentities()
         for index in nodes.indices { _ = try item(at: index, state: .prepared, directories: directories) }
         for view in views {
+            try view.catalogAdmission?.validate()
             guard UUID(uuidString: view.domain)?.uuidString == view.domain, let folder = RelativePath(view.folder),
                   root.components.count > folder.components.count,
                   root.components.prefix(folder.components.count).map(NameKey.init) == folder.components.map(NameKey.init),

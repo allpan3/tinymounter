@@ -310,6 +310,30 @@ final class DeletionOutboxTests: XCTestCase {
         XCTAssertEqual(fixture.server.sessions, 0)
     }
 
+    func testCatalogAdmissionSurvivesStorageAndCannotBeReplacedOnReplay() throws {
+        let evidence = DeletionCatalogAdmission(epoch: Data(repeating: 1, count: 16), sequence: 7, listingGeneration: 3)
+        let views = try fixture.views().map {
+            try DeletionView(domain: $0.domain, folder: XCTUnwrap(RelativePath($0.folder)), items: $0.items,
+                             catalogAdmission: evidence)
+        }
+        let record = try fixture.outbox.prepare(endpoint: fixture.endpoint, owner: fixture.owner, request: fixture.request,
+            traversal: fixture.traversal(), views: views, protectedRoots: [], recursive: true)
+        fixture.outbox = try fixture.makeOutbox()
+        XCTAssertEqual(try fixture.outbox.records(), [record])
+        XCTAssertEqual(record.plan.views.map(\.catalogAdmission), [evidence, evidence])
+        XCTAssertEqual(try fixture.prepare(), record)
+    }
+
+    func testOlderViewDecodesWithoutInventingCatalogEvidence() throws {
+        let record = try fixture.prepare()
+        let encoded = try JSONEncoder().encode(record.plan)
+        let values = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let views = try XCTUnwrap(values["views"] as? [[String: Any]])
+        XCTAssertTrue(views.allSatisfy { $0["catalogAdmission"] == nil })
+        XCTAssertTrue(try JSONDecoder().decode(DeletionPlan.self, from: encoded).views
+            .allSatisfy { $0.catalogAdmission == nil })
+    }
+
     func testMalformedStorageFailsClosed() throws {
         let record = try fixture.prepare()
         let planURL = fixture.outboxDirectory.appending(path: record.id.uuidString + ".deletion")
@@ -347,6 +371,20 @@ final class DeletionOutboxTests: XCTestCase {
             values["views"] = views
         }
         try assertRejected()
+        for evidence in [
+            ["epoch": Data(repeating: 1, count: 15).base64EncodedString(), "sequence": 7, "listingGeneration": 3],
+            ["epoch": Data(repeating: 1, count: 16).base64EncodedString(), "sequence": -1, "listingGeneration": 3],
+            ["epoch": Data(repeating: 1, count: 16).base64EncodedString(), "sequence": Catalog.maxLastSeq + 1, "listingGeneration": 3],
+            ["epoch": Data(repeating: 1, count: 16).base64EncodedString(), "sequence": 7, "listingGeneration": -1],
+            ["sequence": 7, "listingGeneration": 3]
+        ] as [[String: Any]] {
+            try rewrite(planURL) { values in
+                var views = values["views"] as! [[String: Any]]
+                views[0]["catalogAdmission"] = evidence
+                values["views"] = views
+            }
+            try assertRejected()
+        }
         try FileManager.default.removeItem(at: progressURL)
         try assertRejected()
         try rewrite(progressURL) { $0["next"] = 8 }

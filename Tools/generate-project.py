@@ -36,6 +36,7 @@ app_paths = ["Sources/TransferCore/FileRename.swift", "Sources/TransferCore/Cata
              "Sources/TransferCore/FolderMove.swift",
              "Sources/TransferCore/ItemDeletion.swift",
              "Sources/TransferCore/DeletionOutbox.swift", "Sources/TransferCore/RecursiveDeletion.swift",
+             "Sources/TransferCore/CatalogDeletion.swift",
              "Sources/TransferCore/CatalogFileMove.swift",
              "Sources/TransferCore/CatalogFolderMove.swift",
              "Sources/TransferCore/RenameDirectoryEntry.swift", "Prototype/App/LocationRenames.swift",

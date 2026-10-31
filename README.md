@@ -11,7 +11,7 @@ after settings persistence. Two ambiguous-name cases could not run on the fixtur
 [Signed Finder rename, move and case-only checks preserve the downloaded copies](docs/results/2026-10-30-folder-move-catalog.md#signed-finder-checks-2026-10-30).
 New-folder creation failed on the fixture; parent-scoped enumeration and interruption checks
 remain open. Folder organization stays disabled in the normal build.
-Required VM checks pass with 526 tests and one optional skip, including queued save-space
+Required VM checks pass with 528 tests and one optional skip, including queued save-space
 checks, durable save-cleanup acknowledgements and the recursive-deletion core.
 
 Deletion adapter, 2026-10-30: signed file and empty-folder deletion, paginated confirmation,
@@ -19,7 +19,8 @@ changed/replaced-file refusal and recovery checks pass. Lost close replies remai
 [The results and simulated-interruption limits are recorded](docs/results/2026-10-29-deletion-protocol.md#signed-adapter-continuation-2026-10-30).
 The durable recursive-deletion core also passes 28 simulated-server and storage tests in VM 1.
 Protected traversal admission compiles and passes the required VM checks; its signed runtime checks
-remain. Deletion inventory and downgrade guards are source-reviewed, with checks pending. App
+remain. Deletion inventory and downgrade guards pass required VM checks. Catalog settlement is
+prepared with admission and replay protection, with its checks pending. App
 execution and recursive SMB checks remain pending; Finder deletion remains unavailable.
 
 Status, 2026-10-11: verified NAS-cold full downloads reached **183.3 MB/s versus 192.7 MB/s native SMB (95.1%)**; with the file in NAS RAM, **229.0 versus 247.2 MB/s (92.6%)**. Each condition has five matched pairs, server cache/disk-read evidence, and representative complete-file checksum verification. Fully downloaded local reads also pass, though an unexplained speed gap to a local APFS control remains. See [verified cache results](docs/results/2026-10-11-cache-states.md), [full-download attribution](docs/results/2026-10-11-full-download.md), and [range-delay diagnosis](docs/results/2026-10-11-provider-delay.md).
