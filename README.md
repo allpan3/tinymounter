@@ -23,8 +23,8 @@ The durable recursive-deletion core also passes 28 simulated-server and storage 
 Protected traversal admission compiles and passes the required VM checks; its signed runtime checks
 remain. Deletion inventory, downgrade guards, catalog settlement and gated app admission pass
 required VM checks. The fresh-listing settlement bridge also passes source review and VM checks;
-the newly connected recovery scheduler still awaits compilation and signed runtime checks.
-Recursive SMB checks and recovery controls remain pending. Finder deletion remains unavailable.
+the connected recovery scheduler also passes the required VM checks. Its signed runtime checks,
+recursive SMB checks and recovery controls remain pending. Finder deletion remains unavailable.
 
 Status, 2026-10-11: verified NAS-cold full downloads reached **183.3 MB/s versus 192.7 MB/s native SMB (95.1%)**; with the file in NAS RAM, **229.0 versus 247.2 MB/s (92.6%)**. Each condition has five matched pairs, server cache/disk-read evidence, and representative complete-file checksum verification. Fully downloaded local reads also pass, though an unexplained speed gap to a local APFS control remains. See [verified cache results](docs/results/2026-10-11-cache-states.md), [full-download attribution](docs/results/2026-10-11-full-download.md), and [range-delay diagnosis](docs/results/2026-10-11-provider-delay.md).
 
