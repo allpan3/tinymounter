@@ -341,5 +341,9 @@ Settings without either lock held. It then revalidates roots, endpoints and all 
 obligations before finishing domains. No bridge result alone authorizes provider success.
 The bridge compiles and passes all required VM checks with 557 tests, one optional skip and no
 Swift warnings (`m24-settlement-bridge-fixed-checks.log`). Its first app build required qualifying
-the descriptor close as `Darwin.close`. Independent review and lifecycle wiring remain pending.
+the descriptor close as `Darwin.close`. Independent source review found that same compile issue
+and no logic blocker in the bridge. Lifecycle wiring remains pending. The caller must reload after
+errors, discard observations after a remount, preserve confirmation delays outside locks and
+signal every affected view after completion. Participant accounts, roots and initial naming must
+be valid before admission; settlement cannot repair a mismatched participant set.
 Freshness of the native mount's directory cache remains a signed-runtime gate.

@@ -8,6 +8,8 @@ Folder moves, 2026-10-30: signed adapter checks pass for populated and case-only
 destination collisions, lost-reply recovery and partial-catalog recovery. Signed app checks also
 pass for read/watch draining, pending-write exclusions, overlapping views, keeps and recovery
 after settings persistence. Two ambiguous-name cases could not run on the fixture.
+The repaired lock scopes also pass signed Settings-callback and fresh-process recovery checks;
+outside renames during Settings can still leave recovery unresolved.
 [Signed Finder rename, move and case-only checks preserve the downloaded copies](docs/results/2026-10-30-folder-move-catalog.md#signed-finder-checks-2026-10-30).
 New-folder creation failed on the fixture; parent-scoped enumeration and interruption checks
 remain open. Folder organization stays disabled in the normal build.
@@ -20,7 +22,8 @@ changed/replaced-file refusal and recovery checks pass. Lost close replies remai
 The durable recursive-deletion core also passes 28 simulated-server and storage tests in VM 1.
 Protected traversal admission compiles and passes the required VM checks; its signed runtime checks
 remain. Deletion inventory, downgrade guards, catalog settlement and gated app admission pass
-required VM checks. Settlement wiring and recursive SMB checks remain pending. Finder deletion
+required VM checks. The fresh-listing settlement bridge also passes source review and VM checks;
+lifecycle wiring and recursive SMB checks remain pending. Finder deletion
 remains unavailable.
 
 Status, 2026-10-11: verified NAS-cold full downloads reached **183.3 MB/s versus 192.7 MB/s native SMB (95.1%)**; with the file in NAS RAM, **229.0 versus 247.2 MB/s (92.6%)**. Each condition has five matched pairs, server cache/disk-read evidence, and representative complete-file checksum verification. Fully downloaded local reads also pass, though an unexplained speed gap to a local APFS control remains. See [verified cache results](docs/results/2026-10-11-cache-states.md), [full-download attribution](docs/results/2026-10-11-full-download.md), and [range-delay diagnosis](docs/results/2026-10-11-provider-delay.md).
