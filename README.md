@@ -28,7 +28,8 @@ the connected recovery scheduler and cancellation repair also pass the required 
 Follow-up recovery fixes also pass checks. Signed recursive refusals, two-view deletion, lost-reply
 restart recovery, competing changes and replacement preservation pass with independent backing
 audits. Native replacement reads can need a second open to observe the settled catalog identity.
-Cancellation and recovery-control checks remain pending. Finder deletion remains unavailable.
+Signed admission and joined cancellation, close, counted Stop and automatic-settlement checks
+also pass. Recovery controls and provider integration remain pending; Finder deletion is unavailable.
 
 Status, 2026-10-11: verified NAS-cold full downloads reached **183.3 MB/s versus 192.7 MB/s native SMB (95.1%)**; with the file in NAS RAM, **229.0 versus 247.2 MB/s (92.6%)**. Each condition has five matched pairs, server cache/disk-read evidence, and representative complete-file checksum verification. Fully downloaded local reads also pass, though an unexplained speed gap to a local APFS control remains. See [verified cache results](docs/results/2026-10-11-cache-states.md), [full-download attribution](docs/results/2026-10-11-full-download.md), and [range-delay diagnosis](docs/results/2026-10-11-provider-delay.md).
 
