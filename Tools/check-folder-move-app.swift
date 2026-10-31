@@ -255,9 +255,9 @@ private final class Probe: @unchecked Sendable {
                     throw ProbeFailure.check("settings-lock-check-endpoint")
                 }
                 let remote = try SMBEdit(endpoint: endpoint, folder: .root, root: session.root, progress: Progress())
-                let parents = try remote.protectFolderMoveParents(source: durable.source,
+                let parents = try remote.protectFolderMoveParents(source: durable.destination,
                                                                   destination: durable.destination)
-                try require(parents == durable.parents, "settings-lock-check-parents")
+                try require(parents == durable.destinationParents, "settings-lock-check-parents")
                 try require(try remote.inspectFolderMoveRoot(path: durable.destination)?.identity == durable.identity,
                             "settings-lock-check-root")
             }
