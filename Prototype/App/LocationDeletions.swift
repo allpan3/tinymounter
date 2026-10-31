@@ -269,9 +269,9 @@ extension LocationSource {
                 try Self.deletionNodeSession(endpoint: endpoint, root: share.root, progress: progress, body)
             }
         }
-        let summary = record.summary
+        let summary = record.summary, count = record.plan.nodes.count
         Self.deletionLog.info("""
-            deletion_run id=\(record.id.uuidString, privacy: .public) nodes=\(record.plan.nodes.count) \
+            deletion_run id=\(id.uuidString, privacy: .public) nodes=\(count) \
             deleted=\(summary[.deleted] ?? 0) unconfirmed=\(summary[.unconfirmed] ?? 0) \
             stopped=\(summary[.stopped] ?? 0)
             """)
