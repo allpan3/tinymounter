@@ -196,8 +196,11 @@ remains unavailable. Two earlier ambiguous-name cases also lack a usable fixture
 the user approved retiring a durably moved root and its old subtree IDs when a fresh complete
 listing of the unchanged destination parent proves departure. Completion and replay return
 `versionChanged`; discovery uses new IDs, with downloads and per-item keeps reset. Destination
-ancestor changes remain pending. The implementation passes required VM checks; the updated probe
-builds and passes signature verification. Signed runtime validation of this new behavior remains.
+ancestor changes remain pending. The implementation passes required VM checks. Signed checks now
+verify root retirement after partial catalog completion, keep cleanup, fresh discovery and
+changed-version replay. The run exposed a surviving-root handle conflict; its repair passes
+required checks and the signed gap rerun. Root removal/replacement, downloaded-copy invalidation
+and the controller's Settings callback remain unverified.
 Provider enablement remains gated.
 
 M24's signed production-adapter checks pass for ordinary files, empty directories, paginated
@@ -274,8 +277,10 @@ one session; the later standing VM permission now governs subsequent sessions.
 The active session ended on 2026-10-30: its mount and task server are stopped, and Apple SMB is
 restored. Uncertain records, backing fixtures and private artifacts remain for investigation;
 [final validation and restoration](results/2026-10-29-deletion-protocol.md#final-validation-and-service-restoration-2026-10-30)
-records the remaining cleanup. The user approved reopening the root-retirement checks on
-2026-10-31 under the standing VM permission above.
+records the remaining cleanup. The root-retirement checks reopened and closed on 2026-10-31 under
+the standing VM permission above. The fixture is again unmounted, its server is stopped and Apple
+SMB is restored; original Settings bytes are unchanged. Both runs' evidence and recovery artifacts
+remain; see the [runtime follow-up](results/2026-10-30-folder-move-catalog.md#runtime-follow-up-2026-10-31).
 
 ## Common completion criteria
 
