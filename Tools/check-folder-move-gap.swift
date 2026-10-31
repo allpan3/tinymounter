@@ -441,7 +441,7 @@ private final class GapProbe: @unchecked Sendable {
         ledger.record(label, ["outcome": "passed", "moved": true, "changed": true])
     }
 
-    /// The moved root's departure stays pending; a later retry finishes only the unfinished view.
+    /// Root departure stays pending; restoring it may require a metadata-only replan.
     private func rootCase() throws {
         let label = "root", folder = "root", tree = "root/src/Tree", moved = folder + "/Moved"
         guard let overlap else { throw GapCheck(label: "overlap-source") }
@@ -472,12 +472,30 @@ private final class GapProbe: @unchecked Sendable {
         plan.plan(GapStep(label: label, destination: try full(moved), change: .none, inject: false))
         _ = try move(label + ".retry", request, connections: 3).get()
         let record = try durable(request)
-        try require(record.state == .completed && record.recovery == nil
-            && record.finishedDomains == [owner.domainID, overlap.domainID], label + "-retry-finished-remaining-view")
+        try require(record.state == .completed
+            && Set(record.finishedDomains) == Set([owner.domainID, overlap.domainID]), label + "-retry-finished-views")
+        for view in record.views {
+            let before = try pending.latestTarget(domain: view.domain)
+            let after = try record.latestTarget(domain: view.domain)
+            try require(before.moved && after.moved
+                && Set(before.entries.map(\.item)) == Set(after.entries.map(\.item)), label + "-same-target-bindings")
+            for entry in after.entries {
+                guard let prior = before.entries.first(where: { $0.item == entry.item }) else {
+                    throw GapCheck(label: label + "-missing-target-binding")
+                }
+                if entry.item == view.move.item {
+                    try require(entry.nativeID == prior.nativeID && entry.size == prior.size
+                        && entry.contentVersion == prior.contentVersion && entry.proof == prior.proof
+                        && entry.retirement == nil && prior.retirement == nil, label + "-root-metadata-only")
+                } else { try require(entry == prior, label + "-descendant-target-unchanged") }
+            }
+        }
         try requirePreserved(owner, ownerSaved, from: tree, to: moved, label: label)
         try requirePreserved(overlap, overlapSaved, from: "src/Tree", to: "Moved", label: label)
         try replayUnchanged(label, request, record)
-        ledger.record(label, ["outcome": "passed", "moved": true, "changed": true])
+        ledger.record(label, ["outcome": "passed", "moved": true, "changed": true,
+                              "metadataOnlyReplan": record.recovery != nil,
+                              "unchangedTargetPartialFinish": record.recovery == nil])
     }
 
     /// Retry from a durable recovery plan whose catalog work never started.
