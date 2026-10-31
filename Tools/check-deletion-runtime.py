@@ -59,12 +59,15 @@ unconfirmed after restart while its absent rows are tombstoned. c03 records
 deleted, directoryNotEmpty, parentChanged (missing ancestor), unconfirmed,
 changed, replaced, deleted and directoryNotEmpty; settlement keeps the survivors,
 the replacement under its row ID and the arrival. c05's live replacement refuses
-success with versionChanged. Replays change no record and send nothing. Settings
-keeps of confirmed nodes go; the unconfirmed c04 folder keeps its own.
+success with versionChanged. Replays change no record and send nothing. The
+production scheduler runs catalog settlement and calls a private Settings callback.
+Saved keeps of confirmed nodes go, including c05's old saved path; the unconfirmed
+c04 folder keeps its own. The c05 replacement retains its live catalog binding and
+still refuses provider success.
 
 Not tested: pagination beyond one listing buffer, the 10,000-node limit, a real
-crash or network loss, Finder controls, provider callbacks, the app's lifecycle
-settlement caller (the helper composes the bridge), location pending keeps,
+crash or network loss, Finder controls, provider callbacks, launch/reconnect
+triggers and the controller's Settings callback, location pending keeps,
 competing opens, stop and dismiss, symlinks beyond one capture, and older builds.
 Each report lists them. Directory-cache freshness is tested only for server-side
 changes made between processes.
