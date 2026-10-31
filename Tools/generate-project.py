@@ -47,6 +47,7 @@ app_paths = ["Sources/TransferCore/FileRename.swift", "Sources/TransferCore/Cata
              "Prototype/App/LocationDeletionInventory.swift",
              "Prototype/App/LocationDeletions.swift",
              "Prototype/App/LocationDeletionSettlement.swift",
+             "Prototype/App/LocationDeletionRecovery.swift",
              "Sources/TransferCore/CatalogEdits.swift",
              "Sources/TransferCore/FolderCreation.swift",
              "Prototype/App/LocationUploads.swift", "Prototype/App/LocationFolderNaming.swift",

@@ -197,8 +197,9 @@ close replies stay unconfirmed. Durable operation storage and the recursive tran
 required VM checks; its signed runtime checks remain. The app inventory, namespace blocking and
 downgrade guards pass required VM checks. Catalog settlement with immutable admission evidence
 and fresh-listing obligations, and gated app admission and execution, also pass required VM checks.
-Settlement wiring, recursive SMB checks and Finder integration remain; no deletion
-capability is enabled.
+The owner-lane scheduler now connects settlement, Settings cleanup and lifecycle retry; that
+wiring awaits compilation and signed validation. Recursive SMB checks, recovery controls and
+Finder integration remain; no deletion capability is enabled.
 
 The supported write boundary remains folders whose writers use SMB and leave tinymounter's
 transaction files alone. All milestones preserve complete pending content, refuse silent

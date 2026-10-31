@@ -191,6 +191,7 @@ final class LocationController {
         await logDiagnostics(reason: "launch")
         installDiagnosticsSignal()
         isReady = true
+        for source in sources.values { source.retryDeletions() }
         startDiscovery()
         spaceTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -981,6 +982,9 @@ final class LocationController {
                                     renameSettings: { [weak self] rename in
             guard let self else { throw LocationError.catalogClosed }
             try await self.commitRenameSettings(rename, host: grant.host, share: grant.share)
+        }, deletionSettings: { [weak self] deletion, paths in
+            guard let self else { throw LocationError.catalogClosed }
+            try await self.commitDeletionSettings(deletion, paths: paths, owner: domainID, grant: grant.id)
         }) { folders in
             for item in Set(folders.map { NSFileProviderItemIdentifier($0) } + [.workingSet]) {
                 NSFileProviderManager(for: domain)?.signalEnumerator(for: item) { error in
@@ -1007,6 +1011,37 @@ final class LocationController {
             }
         }
         return source
+    }
+
+    private func commitDeletionSettings(_ record: PendingDeletion, paths: [KeepPath],
+                                        owner: String, grant: UUID) throws {
+        guard record.plan.owner == owner, record.isSettled,
+              paths == record.confirmedDeletedKeepPaths else { throw UploadError.unresolved }
+        let current = try LocationSource.deletionOutbox().reload(record)
+        guard current == record else { throw UploadError.pendingWrites }
+        try store.update { settings in
+            for view in current.plan.views {
+                guard let location = settings.locations.first(where: { $0.domainID == view.domain }),
+                      !location.removing, location.retiredDomainID == nil,
+                      location.folder.utf8.elementsEqual(view.folder.utf8),
+                      let source = sources[view.domain],
+                      source.folder.string.utf8.elementsEqual(view.folder.utf8),
+                      source.access.grantID == location.serverID,
+                      let connection = settings.shares.first(where: { $0.id == location.serverID }),
+                      let endpoint = ShareAddress(connection.mountFrom), current.plan.endpoint.matches(endpoint),
+                      view.domain != owner || connection.id == grant else { throw UploadError.unresolved }
+                // An older restore must finish before these paths are removed from Settings.
+                guard !restoring.contains(location.id) else { throw UploadError.pendingWrites }
+            }
+            try settings.removeKeptItems(paths, host: current.plan.endpoint.host, share: current.plan.endpoint.share)
+        }
+        for view in current.plan.views {
+            if let location = store.settings?.locations.first(where: { $0.domainID == view.domain }) {
+                notOnServer[location.id] = nil
+            }
+            onLocationChange?(view.domain)
+        }
+        onChange?()
     }
 
     private func commitRenameSettings(_ rename: RenameIntent, host: String, share: String) throws {
@@ -1241,6 +1276,7 @@ final class LocationController {
         for domainID in affected {
             sources[domainID]?.retryRenames()
             sources[domainID]?.retryEdits()
+            sources[domainID]?.retryDeletions()
             await signalResolved(domainID, failures)
         }
         relist(grantID)

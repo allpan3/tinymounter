@@ -309,15 +309,15 @@ the durable record blocks conflicting work while unrelated reads can proceed.
 
 Completion additionally requires the owner's selected catalog row to exist and be tombstoned,
 including on completed replay. A preserved replacement returns `versionChanged`; a missing row
-remains unresolved. Catalog settlement is still supplied by a caller hook. Lifecycle retry,
-settings cleanup, recovery controls and provider routing remain unconnected.
+remains unresolved. The owner-lane scheduler below connects catalog settlement, Settings cleanup
+and lifecycle retry. Recovery controls and provider routing remain unconnected.
 
 Settings has a typed path-removal helper for pending and saved keeps on the affected share.
 Callers must supply only confirmed-deleted nodes. It preserves uncertain descendants, other kinds
 at the same name and other shares; it does not remove an entire subtree from one folder outcome.
 The helper and its persistence/refusal regressions pass in VM 1. All required checks pass with
 557 tests, one optional skip and no Swift warnings (`m24-settings-fixed-checks.log`). The helper
-is not yet connected to deletion completion.
+is connected to deletion completion by the scheduler below; that wiring is not yet runtime-verified.
 
 Source review found a lock inversion in the existing folder-move caller: it can hold the global
 SMB mutex while waiting for the namespace lock, which deletion admission acquires first. That
@@ -342,8 +342,26 @@ obligations before finishing domains. No bridge result alone authorizes provider
 The bridge compiles and passes all required VM checks with 557 tests, one optional skip and no
 Swift warnings (`m24-settlement-bridge-fixed-checks.log`). Its first app build required qualifying
 the descriptor close as `Darwin.close`. Independent source review found that same compile issue
-and no logic blocker in the bridge. Lifecycle wiring remains pending. The caller must reload after
+and no logic blocker in the bridge. The caller must reload after
 errors, discard observations after a remount, preserve confirmation delays outside locks and
 signal every affected view after completion. Participant accounts, roots and initial naming must
 be valid before admission; settlement cannot repair a mismatched participant set.
 Freshness of the native mount's directory cache remains a signed-runtime gate.
+
+## Owner-lane recovery preparation, 2026-10-30
+
+The scheduler now retains settlement attempts across delayed passes and awaits Settings cleanup
+outside the lane and locks. Catalog and Settings failures get three bounded retries; another
+remote attempt requires an explicit recovery trigger. Launch and share recovery resume stored
+plans. New provider Delete requests remain disconnected, so no deletion capability is enabled.
+
+Admission and resume validate every participant's account, mount and configured root. Settings
+cleanup rechecks the durable record and current locations, waits for older Keep Downloaded
+restoration to finish, and removes only paths whose recorded outcome confirms deletion. Domain
+completion follows the bridge's fresh revalidation. A live selected replacement still returns a
+changed-version error. Stop cancels active progress before queuing its durable checkpoint;
+Dismiss follows the core's uncertainty policy. These APIs are not yet exposed in recovery UI.
+
+The integrated scheduler and Settings callback await compilation, independent source review and
+signed runtime checks. Delayed confirmation, cancellation, remounts and callback races remain
+unverified; these source changes do not complete M24.
