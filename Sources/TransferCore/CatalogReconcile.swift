@@ -27,7 +27,7 @@ public struct MissingChild: Equatable, Sendable {
     }
 }
 
-/// Only `reconcile` sets `deleted`: a tombstone needs a complete listing, never doubt.
+// Missing names need complete checked listings; uncertainty alone cannot retire a binding.
 extension Catalog {
     public static let confirmationDelay = Duration.seconds(15)
 
