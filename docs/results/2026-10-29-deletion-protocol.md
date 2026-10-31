@@ -531,3 +531,24 @@ controller lifecycle callbacks, remounts and real storage/network failures remai
 The helper uses private Settings, so it does not validate the controller's actual persistence
 callback. Recovery controls and provider routing remain disabled.
 
+## Final validation and service restoration, 2026-10-30
+
+After integrating the recursive, cancellation and folder-gap probe fixes, `Tools/run-checks.sh`
+passed in macOS VM 1: 565 tests, one optional fixture skip, no failures or Swift warnings, the
+release CLI checks, generated-project equality, the unsigned app build, six SET_INFO encoder
+cases, 57 SMB-status cases and six folder-create status cases. The VM checkout remained clean.
+Evidence: `m24-recursive-cancellation-gap-checks.log` in the same private session directory.
+The final documentation update did not change code or test inputs.
+
+The active fixture session has ended. Its mount was released normally and the exact task-owned
+Samba process tree stopped. Apple `com.apple.smbd` was restored to its saved loaded, inactive
+state with its enable override unchanged. The backing root retained its device and inode.
+`session-release-mount.json` and `session-smb-restoration.json` record these steps. The installed
+app remains restored and stopped; the independent Settings comparisons after the runtime runs
+remain byte-identical. No installation, push or publication occurred during this continuation.
+
+Artifact disposal is not complete. The backing fixtures, uncertain creation/deletion records,
+synthetic catalogs, private credentials, helper builds and reports remain for investigation.
+No uncertain record was dismissed or removed to clear a guard. Reopening writable runtime work
+requires fresh session approval. M22, M23 and M24 remain incomplete; the remaining signed
+provider, lifecycle and recovery gates still apply.

@@ -16,8 +16,9 @@ until restored; root retirement is not authorized.
 [Signed Finder rename, move and case-only checks preserve the downloaded copies](docs/results/2026-10-30-folder-move-catalog.md#signed-finder-checks-2026-10-30).
 New-folder creation failed on the fixture; parent-scoped enumeration and interruption checks
 remain open. Folder organization stays disabled in the normal build.
-The current candidate passes required VM checks with 565 tests and one optional skip, including save recovery,
-recursive deletion, catalog settlement, keep-path cleanup and the gated app caller.
+The integrated candidate passes all required VM checks with 565 tests, one optional skip and no
+failures or Swift warnings, including save recovery, recursive deletion, catalog settlement,
+keep-path cleanup and the gated app caller.
 
 Deletion adapter, 2026-10-30: signed file and empty-folder deletion, paginated confirmation,
 changed/replaced-file refusal and recovery checks pass. Lost close replies remain unconfirmed.
@@ -32,6 +33,9 @@ restart recovery, competing changes and replacement preservation pass with indep
 audits. Native replacement reads can need a second open to observe the settled catalog identity.
 Signed admission and joined cancellation, close, counted Stop and automatic-settlement checks
 also pass. Recovery controls and provider integration remain pending; Finder deletion is unavailable.
+The fixture is unmounted, its server is stopped and Apple SMB is restored. Uncertain records,
+fixtures and private evidence remain for investigation; see the
+[final validation and restoration record](docs/results/2026-10-29-deletion-protocol.md#final-validation-and-service-restoration-2026-10-30).
 
 Status, 2026-10-11: verified NAS-cold full downloads reached **183.3 MB/s versus 192.7 MB/s native SMB (95.1%)**; with the file in NAS RAM, **229.0 versus 247.2 MB/s (92.6%)**. Each condition has five matched pairs, server cache/disk-read evidence, and representative complete-file checksum verification. Fully downloaded local reads also pass, though an unexplained speed gap to a local APFS control remains. See [verified cache results](docs/results/2026-10-11-cache-states.md), [full-download attribution](docs/results/2026-10-11-full-download.md), and [range-delay diagnosis](docs/results/2026-10-11-provider-delay.md).
 
@@ -225,7 +229,7 @@ preserve unverified, legacy downloaded and verified files, their versions and do
 Overlapping-view and before/after-move interruption checks also preserve those copies. On
 2026-10-30, five signed app-API boundary cases passed, including refusal of pending uploads
 before SMB admission; their temporary locations were removed. Finder drag, pending-edit and
-remaining callback checks and matched recordings are open. The approved fixture session is still open. See the
+remaining callback checks and matched recordings are open. The fixture session has ended. See the
 [protocol results](docs/results/2026-10-29-file-organization-protocol.md).
 
 Pending saves (M23), 2026-10-29: a focused VM regression reproduces an older save publishing

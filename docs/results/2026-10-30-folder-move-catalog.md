@@ -485,3 +485,9 @@ Directory-descendant spelling changes, a usable Unicode-spelling fixture, fresh-
 retry, actual controller Settings work, downloaded-copy invalidation, parent-scoped provider
 enumeration and real crashes remain unverified. Moved-root retirement remains unauthorized.
 These results do not enable folder organization or complete M22.
+
+The final integrated source passes all required VM checks with 565 tests, one optional skip and
+no failures or Swift warnings. The fixture is unmounted, the task server is stopped and Apple SMB
+is restored. Uncertain records and evidence remain; the shared
+[validation and restoration record](2026-10-29-deletion-protocol.md#final-validation-and-service-restoration-2026-10-30)
+lists the retained artifacts and remaining cleanup.
