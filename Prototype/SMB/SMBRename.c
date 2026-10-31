@@ -187,7 +187,7 @@ static int open_folder(struct smb2_context *smb, const char *path, int writable,
     int error = perform(smb, pdu, reply);
     if (error && reply->done && sent) {
         switch (error) {
-        case EEXIST: case EACCES: case EPERM: case ENOENT: case ENOTDIR: case EINVAL: case EROFS: case ENOTSUP:
+        case EEXIST: case ENOENT: case ENOTDIR: case EINVAL: case EROFS: case ENOTSUP:
             *sent = 0;
             break;
         default: break;
