@@ -702,7 +702,8 @@ extension SMBEdit: FolderMoveRemote {
                     continue
                 }
                 if physical[path.string] == nil {
-                    physical[path.string] = try folderMoveCurrent(path: path, kind: entry.kind, expected: before.proof.identity)
+                    physical[path.string] = try folderMoveCurrent(path: path, kind: entry.kind,
+                        expected: before.proof.identity, moveRoot: entry.item == view.move.item)
                 }
                 guard let current = physical[path.string] else {
                     observations[entry.item] = .removed(item: entry.item)
@@ -748,13 +749,15 @@ extension SMBEdit: FolderMoveRemote {
     }
 
     private func folderMoveCurrent(path: RelativePath, kind: CatalogRow.Kind,
-                                   expected: EditFileIdentity?) throws -> FolderMoveCurrent? {
+                                   expected: EditFileIdentity?, moveRoot: Bool = false) throws -> FolderMoveCurrent? {
         let parent = path.components.dropLast().joined(separator: "/"), name = path.components.last!
         guard let entry = try folderMoveListing(parent).first(where: { NameKey($0.name) == NameKey(name) }),
               expected == nil || (entry.identity == expected && entry.name.utf8.elementsEqual(name.utf8)) else {
             return nil
         }
         guard entry.kind == kind, entry.name.utf8.elementsEqual(name.utf8) else { throw UploadError.unresolved }
+        // Open the root with delete access before a read handle can deny that access.
+        if moveRoot { _ = try inspectFolderMoveRoot(path: path.string) }
         let handle: Handle
         if kind == .folder {
             if let held = folderMoveRoots[path.string] ?? directories[path.string] { handle = held }

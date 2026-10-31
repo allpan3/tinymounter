@@ -527,3 +527,14 @@ and entitlement-equality verification. It is not installed or launched. Evidence
 and `probe-signature.json`, with the source and app archives. No writable fixture was reopened.
 Signed root-retirement, provider invalidation and actual controller Settings behavior remain
 unverified; the previous fixture session is closed.
+
+### Runtime follow-up, 2026-10-31
+
+The reopened signed probe found a handle-order regression in surviving-root completion.
+The case-only descendant and source-ancestor cases reached their Settings mutations, then failed
+with `STATUS_SHARING_VIOLATION` (`0xC0000043`, errno 26). Both backing audits found only the
+permitted renames. Completion first opened the root for reading without delete sharing, then
+requested delete access through a second handle during its final protection check. The adapter
+now opens the matching root with delete access first, retaining the original protection until
+the session ends. An absent or replaced exact binding still takes the retirement path.
+The repair requires fresh VM checks and signed validation; the failed reports remain private.
