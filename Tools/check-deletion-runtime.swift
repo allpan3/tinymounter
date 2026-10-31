@@ -237,8 +237,10 @@ private enum M24Native {
         guard fd >= 0 else { throw posixError("open fixture file") }
         defer { Darwin.close(fd) }
         var info = stat()
-        try require(fstat(fd, &info) == 0 && info.st_mode & S_IFMT == S_IFREG && UInt64(info.st_ino) == inode
-            && info.st_size >= 0 && info.st_size <= 64 << 10, "fixture-file-identity")
+        guard fstat(fd, &info) == 0 else { throw posixError("inspect opened fixture file") }
+        try require(info.st_mode & S_IFMT == S_IFREG && UInt64(info.st_ino) == inode
+            && info.st_size >= 0 && info.st_size <= 64 << 10,
+            "fixture-file-identity:expected=\(inode):opened=\(info.st_ino):mode=\(info.st_mode):size=\(info.st_size)")
         var data = Data(count: Int(info.st_size))
         let count = data.withUnsafeMutableBytes { pread(fd, $0.baseAddress, $0.count, 0) }
         try require(count == Int(info.st_size), "fixture-file-read")
@@ -257,8 +259,11 @@ private enum M24Native {
     }
 
     static func identity(_ root: Int32, _ path: String, directory: Bool) throws -> UInt64 {
+        let descriptor = openat(root, path, O_RDONLY | flags | (directory ? O_DIRECTORY : 0))
+        guard descriptor >= 0 else { throw posixError("open fixture entry") }
+        defer { Darwin.close(descriptor) }
         var info = stat()
-        guard fstatat(root, path, &info, AT_SYMLINK_NOFOLLOW_ANY) == 0 else { throw posixError("inspect fixture entry") }
+        guard fstat(descriptor, &info) == 0 else { throw posixError("inspect fixture entry") }
         try require(info.st_mode & S_IFMT == (directory ? S_IFDIR : S_IFREG), "fixture-entry-kind")
         return UInt64(info.st_ino)
     }
@@ -673,14 +678,18 @@ private final class M24Probe: @unchecked Sendable {
         let sub = try tracked("c03/Tree/Sub")
         var occupant: UInt64 = 0, arrival: UInt64 = 0
         try owner.withWriteSession(bookmark) { _, root in
+            ledger.enter("c03-native-replacement")
             occupant = try M24Native.identity(root, "c03/Tree/replaced.txt", directory: false)
-            arrival = try M24Native.identity(root, "c03/Tree/Arrival/new.txt", directory: false)
             try require(try M24Native.read(root, "c03/Tree/replaced.txt", inode: occupant)
                 == payload("c03/Tree/replaced.txt"), "c03-occupant-bytes")
+            ledger.enter("c03-native-arrival")
+            arrival = try M24Native.identity(root, "c03/Tree/Arrival/new.txt", directory: false)
             try require(try M24Native.read(root, "c03/Tree/Arrival/new.txt", inode: arrival) == arrivalBytes,
                         "c03-arrival-bytes")
+            ledger.enter("c03-native-changed")
             try require(try M24Native.read(root, "c03/Tree/changed.txt", inode: changed.nativeID)
                 == changedBytes("c03/Tree/changed.txt"), "c03-changed-bytes")
+            ledger.enter("c03-native-moved-subtree")
             try require(M24Native.isAbsent(root, "c03/Tree/Sub")
                 && M24Native.identity(root, "c03/Hold/Sub", directory: true) == sub.nativeID, "c03-sub-moved")
         }

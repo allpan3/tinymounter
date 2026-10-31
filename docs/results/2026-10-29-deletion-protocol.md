@@ -414,3 +414,34 @@ addition only on the deliberately moved fixture file. The failed report and exac
 remain under `m24-recursive-6445276F-23DB-469D-9EAC-9F722F3EAC8C*`.
 Delayed confirmation, cancellation, remounts and callback races remain unverified; these source
 changes do not complete M24.
+
+## Partial signed recursive run, 2026-10-30
+
+The fourth run passed refusals, populated-tree deletion in two overlapping views, injected lost
+close reply and restart recovery. The competing-change case reached complete catalog settlement
+with all eight expected outcomes, then failed its separate native file-identity assertion. It is
+not a full case pass; replay and the same-name replacement case have not run.
+
+This used the same approved loopback Samba fixture in VM 1, macOS 27.0.1 (26A434), with
+uncontrolled caches. The signed standalone helper was not installed. Its build had no Swift
+warnings, and strict signature and unchanged-entitlement checks passed. Evidence remains under
+`m24-recursive-3CFEE81C-6483-4499-B311-EA4901FAA7C9*` in the private session.
+
+| Phase | Process time | Result with independent backing audit |
+| --- | ---: | --- |
+| Refuse | 187.8 s | Eight expected refusals; no deletion records; neighbors unchanged |
+| Delete | 101.0 s | Four confirmed deletions; both views complete; keep cleanup and replay passed |
+| Interrupt | 60.5 s | Child deleted; selected folder close reply lost after the real close |
+| Recover | 20.3 s | Complete catalog settlement; selected outcome remains unconfirmed; guards retained |
+| Admit | 20.4 s | Eight-node immutable plan persisted without deletion |
+| Compete | 141.1 s | Failed native identity assertion after remote execution and catalog settlement |
+
+The failed compete report did not identify which of three file reads disagreed. A later native
+read and a copied catalog both showed the expected replacement identity. The backing audit found
+exactly the two expected removals, with the moved subtree, changed file, replacement and new
+arrival preserved. A stale pathname lookup is a possible cause, not an established diagnosis.
+The helper now obtains identity from an opened descriptor, retains the comparison against a
+second opened descriptor, and identifies each check and its numeric stat evidence separately.
+The failed run will not be resumed. Original Settings was independently copied through Finder
+and remains byte-identical to the saved baseline.
+
