@@ -50,12 +50,13 @@ extension LocationSource {
         try drainFolderMove(affected, paths: [source, destination])
         let bookmark = try renameAccess()
         let record = try withWriteSession(bookmark, progress: progress) { session, _ in
-            guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
-            let remote = try SMBEdit(endpoint: endpoint, folder: .root, root: session.root, progress: progress)
-            var record = try editNamespace.perform {
-                try admitFolderMove(request, source: source, destination: destination, remote: remote, session: session)
+            var record = try withFolderMoveRemote(session: session, progress: progress) { remote in
+                var record = try admitFolderMove(request, source: source, destination: destination,
+                                                 remote: remote, session: session)
+                try publishFolderMove(&record, remote: remote)
+                return record
             }
-            try completeFolderMove(&record, remote: remote)
+            try completeFolderMove(&record, session: session, progress: progress)
             return record
         }
         guard record.state == .completed else { throw UploadError.pendingWrites }
@@ -78,10 +79,11 @@ extension LocationSource {
         let bookmark = try renameAccess()
         let progress = Progress()
         return try withWriteSession(bookmark, progress: progress) { session, _ in
-            guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
-            let remote = try SMBEdit(endpoint: endpoint, folder: .root, root: session.root, progress: progress)
             var current = record
-            try completeFolderMove(&current, remote: remote)
+            try withFolderMoveRemote(session: session, progress: progress) { remote in
+                try publishFolderMove(&current, remote: remote)
+            }
+            try completeFolderMove(&current, session: session, progress: progress)
             return current
         }
     }
@@ -230,27 +232,40 @@ extension LocationSource {
         }
     }
 
-    /// Protection from `remote` lasts until every view is complete, including the Settings rewrite.
-    private func completeFolderMove(_ record: inout PendingFolderMove, remote: SMBEdit) throws {
+    private func withFolderMoveRemote<T>(session: ShareSession, progress: Progress,
+                                         _ operation: (SMBEdit) throws -> T) throws -> T {
+        try editNamespace.perform {
+            guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
+            let remote = try SMBEdit(endpoint: endpoint, folder: .root, root: session.root, progress: progress)
+            // The SMB connection lock and handles must end before the namespace lock is released.
+            return try withExtendedLifetime(remote) { try operation(remote) }
+        }
+    }
+
+    private func publishFolderMove(_ record: inout PendingFolderMove, remote: SMBEdit) throws {
+        let outbox = try Self.renameOutbox()
+        try editNamespace.requireSettled(excluding: record.id)
+        let participants = try folderMoveParticipants(record)
+        do { try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote) }
+        catch SourceFailure.versionChanged where [.verified, .recovering].contains(record.state) {
+            // Fresh evidence no longer matches the durable target, so replan under this protection.
+            try FolderMoveTransaction.replan(&record, outbox: outbox,
+                                             expected: classifyFolderMove(record, participants), remote: remote)
+        }
+        guard record.state != .completed else { return }
+        try applyFolderMoveCatalogs(&record, participants: participants, outbox: outbox, remote: remote)
+    }
+
+    private func completeFolderMove(_ record: inout PendingFolderMove, session: ShareSession,
+                                     progress: Progress) throws {
+        guard record.state != .completed else { return }
         let outbox = try Self.renameOutbox()
         var current = record
         defer { record = current }
-        let applied = try editNamespace.perform { () -> Bool in
-            try editNamespace.requireSettled(excluding: current.id)
-            let participants = try folderMoveParticipants(current)
-            do { try FolderMoveTransaction.publish(&current, outbox: outbox, remote: remote) }
-            catch SourceFailure.versionChanged where [.verified, .recovering].contains(current.state) {
-                // Fresh evidence no longer matches the durable target, so replan under this protection.
-                try FolderMoveTransaction.replan(&current, outbox: outbox,
-                                                 expected: classifyFolderMove(current, participants), remote: remote)
-            }
-            if current.state == .completed { return false }
-            try applyFolderMoveCatalogs(&current, participants: participants, outbox: outbox, remote: remote)
-            return true
-        }
-        guard applied else { return }
         try waitForFolderMoveSettings(current)
-        try editNamespace.perform {
+        try withFolderMoveRemote(session: session, progress: progress) { remote in
+            try publishFolderMove(&current, remote: remote)
+            guard current.state != .completed else { return }
             try requireFolderMoveProtection(current, remote: remote)
             let participants = try folderMoveParticipants(current)
             for (view, source) in participants where !current.finishedDomains.contains(view.domain) {
@@ -335,7 +350,7 @@ extension LocationSource {
         }
     }
 
-    /// The lane keeps protection but not the namespace lock, which the main actor can wait for.
+    // The main actor can need the namespace; wait without its lock or an SMBEdit.
     private func waitForFolderMoveSettings(_ record: PendingFolderMove) throws {
         final class Outcome: @unchecked Sendable { var result: Result<Void, Error> = .failure(UploadError.unresolved) }
         let outcome = Outcome(), done = DispatchSemaphore(value: 0), update = renameSettings

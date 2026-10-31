@@ -314,5 +314,6 @@ settings cleanup, recovery controls and provider routing remain unconnected.
 
 Source review found a lock inversion in the existing folder-move caller: it can hold the global
 SMB mutex while waiting for the namespace lock, which deletion admission acquires first. That
-must be repaired before the paths run together. The new entry point has not yet been compiled
-or exercised in the signed app. Finder Delete remains disabled.
+is repaired by scoping folder-move clients inside the namespace lock and reopening protection
+after Settings persistence. The new entry point and lock repair have not yet been compiled or
+exercised in the signed app. Finder Delete remains disabled.
