@@ -644,12 +644,12 @@ final class CatalogFolderMoveTests: XCTestCase {
         try refusesSettlement(move, accepted)
     }
 
-    func testRemovalEvidenceDoesNotHideUnsupportedOccupantsOrCaseAliases() throws {
+    func testUnsupportedReplacementRetiresBindingAndCaseAliasCannotBePreserved() throws {
         let move = try prepare(), proofs = try proofs(move), plain = try child(tree.id, "plain")
         let identity = try XCTUnwrap(proofs.first { $0.item == plain.id }).identity
         let alias = CatalogFolderMoveListing.Child(name: "PLAIN", identity: identity, kind: .file)
         let listing = try moveListing(move, parent: tree.id, proofs: proofs, replacements: [plain.id: alias])
-        try refusesSettlement(move, settlement(move, proofs: proofs, removed: [plain.id], listings: [listing]))
+        try refusesSettlement(move, settlement(move, proofs: proofs, listings: [listing]))
         let unsupported = CatalogFolderMoveListing.Child(name: plain.name,
             identity: try EditFileIdentity(fileID: 99_000, birthMicroseconds: 100), kind: nil)
         let complete = try moveListing(move, parent: tree.id, proofs: proofs, replacements: [plain.id: unsupported])
