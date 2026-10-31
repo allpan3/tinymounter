@@ -445,3 +445,8 @@ second opened descriptor, and identifies each check and its numeric stat evidenc
 The failed run will not be resumed. Original Settings was independently copied through Finder
 and remains byte-identical to the saved baseline.
 
+Source review found an early native absence check in the separate cancellation helper. Its
+uncertain phase now defers that check to the backing audit; the next phase tests production
+reconciliation. It also checks exact Settings callback counts and drained recovery state.
+Compilation and signed cancellation evidence remain pending.
+
