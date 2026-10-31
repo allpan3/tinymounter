@@ -33,6 +33,21 @@ private enum M24Phase: String, CaseIterable {
         let all = Self.allCases, index = all.firstIndex(of: self)!
         return index == 0 ? nil : all[index - 1]
     }
+
+    var entry: String {
+        switch self {
+        case .refuse, .delete, .recover, .replace:
+            "LocationSource.deleteItem with production admission, scheduler and settlement"
+        case .interrupt:
+            "LocationSource.prepareDeletionOnLane and direct RecursiveDeletionTransaction.run with lost-close injection"
+        case .admit:
+            "LocationSource.prepareDeletionOnLane only"
+        case .compete:
+            "LocationSource.resumeDeletionOnLane followed by deleteItem settlement"
+        case .remote:
+            "LocationSource.prepareDeletionOnLane and resumeDeletionOnLane without settlement"
+        }
+    }
 }
 
 private struct M24Check: Error {
@@ -148,6 +163,13 @@ private final class M24Ledger: @unchecked Sendable {
 
     func record(_ label: String, _ values: [String: Any]) {
         lock.withLock { cases[label, default: [:]].merge(values) { $1 } }
+    }
+
+    func healthWait(_ label: String, seconds: Double) {
+        lock.withLock {
+            let previous = cases[label]?["healthWaitSeconds"] as? Double ?? 0
+            cases[label, default: [:]]["healthWaitSeconds"] = previous + seconds
+        }
     }
 
     func identity(_ label: String, _ value: UInt64) { lock.withLock { identities[label] = value } }
@@ -313,7 +335,7 @@ private final class M24Probe: @unchecked Sendable {
         "", "c01", "c01/Tree", "c01/Tree/Nested", "c01/Sibling", "c02", "c02/Stale", "c02/Changed", "c02/Replaced",
         "c02/Populated", "c02/Unsupported", "c02/WithPackage", "c02/Linked", "c02/Symlinked", "c02/Hold",
         "c03", "c03/Hold", "c03/Tree", "c03/Tree/Arrival", "c03/Tree/Sub", "c04", "c04/Tree", "c05"]
-    // The overlapping view never lists Tree/Nested, so the traversal must find leaf.txt itself.
+    // The overlapping view lacks leaf.txt, while the owner has already listed it.
     private static let overlapFolders = ["", "Tree", "Sibling"]
     private static let ownerNeighbors = ["neighbor.txt", "c01/neighbor.txt", "c01/Sibling", "c01/Sibling/keep.txt",
                                          "c03/neighbor.txt", "c04/neighbor.txt", "c05/neighbor.txt"]
@@ -339,6 +361,9 @@ private final class M24Probe: @unchecked Sendable {
         "Two-view settlement after a restart: c01 settles within its own process.",
         "Confirmation-delayed listings: every reconciled folder keeps a known child by design.",
         "Symbolic-link handling beyond one capture-only observation.",
+        "A descendant unknown to every affected catalog view.",
+        "Immediate Finder retry after a slow refusal: the helper waits for normal share-health recovery.",
+        "Production connection counts: unchanged replay records do not measure network requests.",
     ]
 
     let phase: M24Phase
@@ -737,6 +762,7 @@ private final class M24Probe: @unchecked Sendable {
         details["selectedRowLive"] = live
         ledger.record("c05", details)
         try requireFailure(result, "c05-live-replacement-refused") { $0 as? SourceFailure == .versionChanged }
+        try require(after.isComplete && !after.hasUnconfirmed, "c05-settlement-completed")
         try require(after.plan == remote.plan && after.progress.exceptions == remote.progress.exceptions,
                     "c05-remote-outcome-unchanged")
         try require(after.selectedOutcome == .deleted, "c05-remote-deletion-kept")
@@ -746,8 +772,7 @@ private final class M24Probe: @unchecked Sendable {
         let final = try storedRecord(remote.plan.id)
         ledger.record("c05", ["replaySettingsCalls": settingsCalls.count - calls, "completeAfterReplay": final.isComplete])
         try requireFailure(again, "c05-replay-refused") { $0 as? SourceFailure == .versionChanged }
-        try require(final.plan == remote.plan && final.progress.exceptions == after.progress.exceptions,
-                    "c05-replay-no-new-deletion")
+        try require(final == after && settingsCalls.count == calls, "c05-replay-unchanged")
 
         ledger.enter("c05-native")
         var occupant: UInt64 = 0
@@ -781,9 +806,10 @@ private final class M24Probe: @unchecked Sendable {
     /// replay is the only repetition; a deletion body is never retried here.
     private func delete(_ label: String, _ request: DeletionRequest, recursive: Bool,
                         connections: Int) throws -> Result<PendingDeletion, Error> {
-        try awaitShareRecovery(label)
         var attempt = 1
         while true {
+            try awaitShareRecovery(label)
+            if attempt > 1 { try require(try resumable(request), label + "-retry-still-prepared") }
             let reply = M24Reply<PendingDeletion>(), began = Date()
             owner.deleteItem(request, recursive: recursive, progress: Progress(), started: {}) { reply.finish($0) }
             let result = try reply.wait(label, seconds: timeout(connections: connections))
@@ -801,7 +827,6 @@ private final class M24Probe: @unchecked Sendable {
 
     private func laneDeletion(_ label: String, connections: Int, resumable: () throws -> Bool,
                               _ body: @escaping @Sendable () throws -> PendingDeletion) throws -> PendingDeletion {
-        try awaitShareRecovery(label)
         var attempt = 1
         while true {
             do {
@@ -816,6 +841,7 @@ private final class M24Probe: @unchecked Sendable {
 
     private func onLane<T: Sendable>(_ label: String, attempt: Int = 1, connections: Int,
                                      _ body: @escaping @Sendable () throws -> T) throws -> T {
+        try awaitShareRecovery(label)
         let reply = M24Reply<T>(), began = Date()
         access.enqueue { reply.finish(Result { try body() }) }
         let result = try reply.wait(label, seconds: timeout(connections: connections))
@@ -1022,6 +1048,7 @@ private final class M24Probe: @unchecked Sendable {
             establishEditBase: true)
         var attempt = 1
         while true {
+            try awaitShareRecovery(label)
             let began = Date()
             do {
                 _ = try source.transfer(request, progress: Progress(), stagingDirectory: staging)
@@ -1077,7 +1104,7 @@ private final class M24Probe: @unchecked Sendable {
             Thread.sleep(forTimeInterval: 0.25)
         }
         if waited {
-            ledger.record(label, ["healthWaitSeconds": began.duration(to: .now) / .seconds(1)])
+            ledger.healthWait(label, seconds: began.duration(to: .now) / .seconds(1))
         }
     }
 
@@ -1233,7 +1260,7 @@ private final class M24Probe: @unchecked Sendable {
         report["date"] = ISO8601DateFormatter().string(from: .now)
         report["os"] = ProcessInfo.processInfo.operatingSystemVersionString
         report["cache"] = "uncontrolled"
-        report["entry"] = "LocationSource admission, deletion scheduler and settlement bridge in the signed app module"
+        report["entry"] = phase.entry
         report["seconds"] = (Date().timeIntervalSince(started) * 10).rounded() / 10
         report["passed"] = failure == nil
         report["requiresSuccessfulProcessExit"] = true

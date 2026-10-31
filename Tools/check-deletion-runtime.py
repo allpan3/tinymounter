@@ -49,8 +49,7 @@ to run about four minutes. The helper bounds reply waits by a 560 s phase budget
 the parent's process timeout also covers blocked calls. A timeout may lack a report.
 Between steps it waits at most 30 s for normal ShareAccess health probes after an
 expected slow refusal; it neither resets health nor repeats a failed mutation.
-It retries only
-connection setup, and a production call only when no request can be in flight.
+It retries only connection setup, and a production call only when no request can be in flight.
 A phase refuses a second launch with the same RUN and keeps the first report.
 After a failure, inspect the report; a new attempt needs a new RUN and prepare.
 
@@ -63,11 +62,17 @@ unconfirmed after restart while its absent rows are tombstoned. c03 records
 deleted, directoryNotEmpty, parentChanged (missing ancestor), unconfirmed,
 changed, replaced, deleted and directoryNotEmpty; settlement keeps the survivors,
 the replacement under its row ID and the arrival. c05's live replacement refuses
-success with versionChanged. Replays change no record and send nothing. The
+success with versionChanged. Replays change no record; production network calls
+are not counted. The
 production scheduler runs catalog settlement and calls a private Settings callback.
 Saved keeps of confirmed nodes go, including c05's old saved path; the unconfirmed
 c04 folder keeps its own. The c05 replacement retains its live catalog binding and
 still refuses provider success.
+
+Backing audits require exact neighbor metadata. The two deliberate native content
+changes may add Samba DOS attributes and quarantine metadata; existing attributes
+must remain equal, and no other additions are accepted. These additions occurred
+before deletion admission in the first failed refusal run and remain in its evidence.
 
 Not tested: pagination beyond one listing buffer, the 10,000-node limit, a real
 crash or network loss, Finder controls, provider callbacks, launch/reconnect
@@ -289,13 +294,21 @@ def transformed(baseline, deleted=(), moved=None):
 
 
 def verify(baseline, expected, current, run, user, changed=(), created=None, server_side=False):
-    """Strict comparison. Changed files keep their object and metadata; new objects must be new."""
+    """Unchanged objects match exactly; deliberate native writes may add known SMB attributes."""
     created = created or {}
     require(set(current) == set(expected) | set(created), "unexpected-fixture-entries")
     for path, item in expected.items():
         actual = current[path]
         if path in changed:
-            stable = {key: value for key, value in item.items() if key not in ("digest", "mtime_ns")}
+            mutable = {"digest", "mtime_ns"}
+            if not server_side:
+                mutable.add("xattrs")
+                require(all(actual["xattrs"].get(key) == value for key, value in item["xattrs"].items()),
+                        "changed-file-existing-attributes:" + path)
+                added = set(actual["xattrs"]) - set(item["xattrs"])
+                require(added <= {"user.DOSATTRIB", "user.DosStream.com.apple.quarantine:$DATA"},
+                        "changed-file-unexpected-attributes:" + path)
+            stable = {key: value for key, value in item.items() if key not in mutable}
             require(set(actual) == set(item) and {key: actual[key] for key in stable} == stable,
                     "changed-file-identity:" + path)
             require(actual["digest"] == digest(changed_bytes(run, path)), "changed-file-contents:" + path)
