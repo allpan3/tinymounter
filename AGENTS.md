@@ -73,8 +73,11 @@ Never break these without an explicit task to do so.
   through M28 in dependency order after their protocol gates. This includes ordinary-file and
   folder organization, pending-save recovery, permanent deletion without a custom Trash,
   safe replacement and bounded offline editing. These remain denied in the current build until
-  implemented and verified. The first disposable VM protocol session is approved; subsequent
-  sessions need fresh approval. Installation and publication remain separate decisions.
+  implemented and verified. On 2026-10-31 the user granted standing permission for all work inside
+  the VM, including new fixture sessions, mounts, service/settings changes, restarts, network
+  interruption and test installations. Do not ask again for VM-operation approval. Preserve
+  evidence and restore temporary test state. Physical-Mac installation and publication remain
+  separate decisions; the original NAS stays read-only.
 - **Never present incomplete data as complete.** An uncached range fails clearly and is never filled
   with zeroes. A requested pin is not "available offline" until the download is verified.
 - **No secrets in the repo, logs or chat.** Credentials go through Keychain or the user's own Finder
@@ -85,8 +88,9 @@ Never break these without an explicit task to do so.
 - **An update keeps the user's locations.** The user runs the app day to day from M10, and a build
   opens only the formats it knows. So a change to the format of `Settings.json` or of a catalog
   comes with a migration from the previous build's format, and a test of it.
-- **Leave system state alone.** Don't change server settings, mounts, network settings or global
-  `nsmb.conf` without asking.
+- **Leave system state alone outside the VM.** Don't change server settings, mounts, network
+  settings or global `nsmb.conf` outside the VM without asking. VM work has the standing
+  permission above.
 - **Generated files are never hand-edited.** `TinyMounter.xcodeproj` comes from `python3
   Tools/generate-project.py`. To add files or targets, change the generator, regenerate, and commit
   both.

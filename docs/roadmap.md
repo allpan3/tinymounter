@@ -258,23 +258,24 @@ guarantee, different deletion or retention behavior, a new dependency, or transp
 outside the accepted plan. A failed safety gate does not authorize a fallback. Keep the current
 native read/upload transport unless its replacement is separately approved.
 
-Test permissions remain separate from feature scope. Each new writable fixture session needs
-fresh approval. Request the complete bounded session together, including any task-owned server
-interruption needed for recovery tests. No VM or shared-daemon restart, network cut, Apple sharing
-change or account change is included. Keep the original NAS read-only. Installation, publication,
-push and merge require their own approval; none is included here.
+Test permissions remain separate from feature scope. On 2026-10-31 the user granted standing
+permission for all work inside the VM, including fixture sessions, mounts, service/settings
+changes, restarts, network interruption and test installations. Do not request VM-operation
+approval again. Preserve evidence and restore temporary test state. Keep the original NAS
+read-only. Physical-Mac installation, publication, push and merge require separate approval.
 
 The first test session, approved on 2026-10-29, uses the same disposable loopback-only Samba setup as M20,
 with bounded synthetic files, temporary dependencies and a private Keychain credential. It
 covers file/parent identity, file and directory rename, delete-on-close and Finder/editor
 callbacks. Recovery checks may stop only task-owned test processes, including that disposable
-server. Restore the saved state and remove the fixture at the end. This approval covers one
-session, not standing permission to reopen it later.
+server. Restore the saved state and remove the fixture at the end. That initial approval covered
+one session; the later standing VM permission now governs subsequent sessions.
 
 The active session ended on 2026-10-30: its mount and task server are stopped, and Apple SMB is
 restored. Uncertain records, backing fixtures and private artifacts remain for investigation;
 [final validation and restoration](results/2026-10-29-deletion-protocol.md#final-validation-and-service-restoration-2026-10-30)
-records the remaining cleanup. Further writable runtime work needs a new session approval.
+records the remaining cleanup. The user approved reopening the root-retirement checks on
+2026-10-31 under the standing VM permission above.
 
 ## Common completion criteria
 
