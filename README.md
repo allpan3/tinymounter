@@ -11,8 +11,8 @@ after settings persistence. Two ambiguous-name cases could not run on the fixtur
 [Signed Finder rename, move and case-only checks preserve the downloaded copies](docs/results/2026-10-30-folder-move-catalog.md#signed-finder-checks-2026-10-30).
 New-folder creation failed on the fixture; parent-scoped enumeration and interruption checks
 remain open. Folder organization stays disabled in the normal build.
-Required VM checks pass with 555 tests and one optional skip, including save recovery,
-recursive deletion, catalog settlement and the gated app caller.
+Required VM checks pass with 557 tests and one optional skip, including save recovery,
+recursive deletion, catalog settlement, keep-path cleanup and the gated app caller.
 
 Deletion adapter, 2026-10-30: signed file and empty-folder deletion, paginated confirmation,
 changed/replaced-file refusal and recovery checks pass. Lost close replies remain unconfirmed.
