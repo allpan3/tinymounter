@@ -805,9 +805,23 @@ private final class M24Probe: @unchecked Sendable {
             }
         }
         var occupant: UInt64 = 0
-        try mutate("replaced-create") {
-            try require(try M24Native.read($0, hold, inode: inode) == bytes, "replacement-held-native")
-            occupant = try M24Native.create($0, path, bytes)
+        ledger.enter("replaced-native-refresh")
+        try awaitShareRecovery("replaced-native-refresh")
+        try owner.withWriteSession(bookmark) { share, locationRoot in
+            for parent in ["c02/Hold", "c02/Replaced"] {
+                let listing = try DirectoryListing.list(locationRoot: locationRoot,
+                    relativePath: RelativePath(parent)!, expected: share.identity)
+                try require(listing.unreadable.isEmpty && listing.skipped == DirectoryListing.Skipped(),
+                            "replacement-native-listing-complete")
+                if parent == "c02/Hold" {
+                    try require(listing.entries.contains { $0.name == "replaced-x.txt" }, "replacement-native-held")
+                } else {
+                    try require(!listing.entries.contains { $0.name == "x.txt" }, "replacement-native-vacant")
+                }
+            }
+            try require(try M24Native.read(locationRoot, hold, inode: inode) == bytes, "replacement-held-native")
+            ledger.enter("replaced-create")
+            occupant = try M24Native.create(locationRoot, path, bytes)
             try require(occupant != inode, "replacement-identity")
         }
         return occupant
