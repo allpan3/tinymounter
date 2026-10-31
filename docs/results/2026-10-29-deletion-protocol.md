@@ -398,5 +398,13 @@ not a recursive-deletion pass.
 An independent Finder copy confirms that original Settings remains byte-identical to the saved
 baseline. The failed report, process output, exact attribute differences and partial backing audit
 remain in the private session under `m24-recursive-5262C027-B5BB-458E-80CD-571EB4549CC7*`.
+
+A second signed refusal run waited 0.29 seconds for normal health recovery, then stopped at the
+helper's native exclusive-rename setup. It exited after 61.8 seconds with no added, removed or
+moved entries. That setup used an operation already found unsupported by the native SMB mount;
+the assertion did not retain its errno. The helper now uses the existing protected SMB
+no-replace rename, verifies the moved object's identity and contents, closes its session, then
+creates the identical-byte occupant exclusively. The failed run remains under
+`m24-recursive-AB759313-41B0-4CA5-B0EA-8A95A5678E53*`; it is not a deletion pass.
 Delayed confirmation, cancellation, remounts and callback races remain unverified; these source
 changes do not complete M24.

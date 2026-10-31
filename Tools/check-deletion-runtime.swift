@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 
@@ -25,7 +26,7 @@ enum M24RuntimeHelper {
     }
 }
 
-/// One deletion case per process, so no run needs more than nine fresh SMB connections.
+/// One deletion case per process, so no run needs more than ten fresh SMB connections.
 private enum M24Phase: String, CaseIterable {
     case refuse, delete, interrupt, recover, admit, compete, remote, replace
 
@@ -253,17 +254,6 @@ private enum M24Native {
         var info = stat()
         try require(fstat(fd, &info) == 0 && info.st_size == Int64(bytes.count), "fixture-occupant-size")
         return UInt64(info.st_ino)
-    }
-
-    /// Moves the original aside without replacing anything, then creates an identical-byte occupant.
-    static func replaceIdentical(_ root: Int32, _ path: String, hold: String, inode: UInt64) throws -> UInt64 {
-        let bytes = try read(root, path, inode: inode)
-        try require(try identity(root, path, directory: false) == inode, "moved-identity")
-        try require(renameatx_np(root, path, root, hold, UInt32(RENAME_EXCL)) == 0, "moved-exclusively")
-        try require(try identity(root, hold, directory: false) == inode, "moved-held")
-        let occupant = try create(root, path, bytes)
-        try require(occupant != inode, "replacement-identity")
-        return occupant
     }
 
     static func identity(_ root: Int32, _ path: String, directory: Bool) throws -> UInt64 {
@@ -515,11 +505,7 @@ private final class M24Probe: @unchecked Sendable {
 
         let replaced = try deletionRequest(owner, "c02/Replaced")
         let replacedInode = try nativeID(owner, path: "c02/Replaced/x.txt")
-        var occupant: UInt64 = 0
-        try mutate("replaced-swap") {
-            occupant = try M24Native.replaceIdentical($0, "c02/Replaced/x.txt", hold: "c02/Hold/replaced-x.txt",
-                                                      inode: replacedInode)
-        }
+        let occupant = try replaceFixture(inode: replacedInode)
         ledger.identity("c02-replaced-occupant", occupant)
         try refuse("replaced-child", replaced, recursive: true, connections: 1) { M24Errors.isChangeRefusal($0) }
 
@@ -789,6 +775,43 @@ private final class M24Probe: @unchecked Sendable {
     }
 
     // MARK: Production calls
+
+    private func replaceFixture(inode: UInt64) throws -> UInt64 {
+        let path = "c02/Replaced/x.txt", hold = "c02/Hold/replaced-x.txt", bytes = payload(path)
+        let source = try full(path).string, destination = try full(hold).string
+        ledger.enter("replaced-protected-move")
+        try onLane("replaced-protected-move", connections: 1) { [self] in
+            try owner.editNamespace.perform {
+                try owner.withWriteSession(bookmark) { share, locationRoot in
+                    let remote = try connect("replaced-protected-move.connect", shareRoot: share.root)
+                    _ = try remote.protectRenameParents(source: source, destination: destination)
+                    try require(try remote.inspectRename(path: destination) == nil, "replacement-hold-absent")
+                    guard let before = try remote.inspectRename(path: source) else {
+                        throw M24Check(label: "replacement-original-missing")
+                    }
+                    let digest = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+                    try require(before.name == "x.txt" && before.version.digest == digest
+                        && before.version.size == Int64(bytes.count), "replacement-original-contents")
+                    try require(try M24Native.read(locationRoot, path, inode: inode) == bytes,
+                                "replacement-original-native")
+                    try remote.move(source: source, destination: destination)
+                    guard let after = try remote.inspectRename(path: destination) else {
+                        throw M24Check(label: "replacement-held-missing")
+                    }
+                    try require(after.version.hasSameContents(as: before.version)
+                        && after.name == "replaced-x.txt", "replacement-protected-move-verified")
+                    try remote.releaseRename(path: destination)
+                }
+            }
+        }
+        var occupant: UInt64 = 0
+        try mutate("replaced-create") {
+            try require(try M24Native.read($0, hold, inode: inode) == bytes, "replacement-held-native")
+            occupant = try M24Native.create($0, path, bytes)
+            try require(occupant != inode, "replacement-identity")
+        }
+        return occupant
+    }
 
     @MainActor
     private func cleanupSettings(_ record: PendingDeletion, paths: [KeepPath]) throws {

@@ -33,7 +33,7 @@ Every Python step runs as root with the same arguments:
      compete phase and ACTION replace before the replace phase.
 
   Phase      Case                                                     Connections
-  refuse     listings, two e1 bases, refusals, symlink capture only   9
+  refuse     listings, two e1 bases, protected replacement, refusals, symlink capture   10
   delete     c01 two-view recursive deletion, replay, relisting       5
   interrupt  c04 admitted; selected close sent, its reply lost        3
   recover    c04 replay after restart stays unconfirmed               1
@@ -71,7 +71,9 @@ still refuses provider success.
 
 Backing audits require exact neighbor metadata. The two deliberate native content
 changes may add Samba DOS attributes and quarantine metadata; existing attributes
-must remain equal, and no other additions are accepted. These additions occurred
+must remain equal, and no other additions are accepted. The identical replacement
+is prepared with protected SMB no-replace rename, followed by native exclusive
+creation; native SMB exclusive rename is unsupported. These additions occurred
 before deletion admission in the first failed refusal run and remain in its evidence.
 
 Not tested: pagination beyond one listing buffer, the 10,000-node limit, a real
