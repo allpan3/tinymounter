@@ -17,7 +17,7 @@ finish with a changed-version error. Downloads and per-item keeps reset; signed 
 [Signed Finder rename, move and case-only checks preserve the downloaded copies](docs/results/2026-10-30-folder-move-catalog.md#signed-finder-checks-2026-10-30).
 New-folder creation failed on the fixture; parent-scoped enumeration and interruption checks
 remain open. Folder organization stays disabled in the normal build.
-The integrated candidate passes all required VM checks with 565 tests, one optional skip and no
+The integrated candidate passes all required VM checks with 569 tests, one optional skip and no
 failures or Swift warnings, including save recovery, recursive deletion, catalog settlement,
 keep-path cleanup and the gated app caller.
 

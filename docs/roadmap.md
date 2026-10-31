@@ -196,8 +196,9 @@ remains unavailable. Two earlier ambiguous-name cases also lack a usable fixture
 the user approved retiring a durably moved root and its old subtree IDs when a fresh complete
 listing of the unchanged destination parent proves departure. Completion and replay return
 `versionChanged`; discovery uses new IDs, with downloads and per-item keeps reset. Destination
-ancestor changes remain pending. The implementation and probe are updated; signed validation
-of this new behavior remains. Provider enablement remains gated.
+ancestor changes remain pending. The implementation passes required VM checks; the updated probe
+builds and passes signature verification. Signed runtime validation of this new behavior remains.
+Provider enablement remains gated.
 
 M24's signed production-adapter checks pass for ordinary files, empty directories, paginated
 confirmation, changed/replaced-file refusal and recovery after injected interruptions. Lost

@@ -150,10 +150,11 @@ opens a protected client from the Settings callback while the mover waits. Its c
 passes below; the earlier signed results predate this lock repair.
 
 Independent review found no remaining lock-order blocker or false-completion path. The unlocked
-Settings interval exposes an existing recovery limit during normal operation: an outside rename
-of the moved root or a destination ancestor can leave the intent unresolved on every retry,
-blocking listing and writes for the share. The source repair below addresses descendant spelling
-and source-only ancestor changes; its signed checks remain. Changed file contents can replan.
+Settings interval exposed a recovery limit during normal operation: an outside rename of the
+moved root or a destination ancestor could leave the intent unresolved on every retry, blocking
+listing and writes for the share. The repairs below address descendant spelling, source-only
+ancestor changes and now proved root departure. Destination-ancestor changes remain unresolved.
+Changed file contents can replan.
 The fresh proof also rereads every admitted file under the namespace and global SMB locks.
 These recovery and latency limits remain gates for normal-build enablement.
 
@@ -514,5 +515,15 @@ Earlier readers reject root-retirement records through their existing validation
 Regression coverage includes departure after the moved checkpoint, incomplete or contradictory
 parent evidence, permanent retirement, rediscovery and completed-replay refusal. The gap helper
 now expects root retirement after partial view completion and checks keep cleanup and rediscovery.
-Required VM checks are pending for this change. Signed root-retirement, provider invalidation and
-actual controller Settings behavior remain unverified; the previous fixture session is closed.
+All required VM checks pass: 569 tests, one optional skip, no failures or Swift warnings, the
+release CLI checks, generated-project equality, unsigned app build and all encoder/status cases.
+The first run found a Settings test fixture with no server record; correcting that fixture made
+its persistence round-trip pass. Source review found the older Keep-restore race described above;
+cleanup now waits for those restores and their completion schedules rename recovery.
+
+The updated standalone probe also builds with zero Swift warnings and passes strict signature
+and entitlement-equality verification. It is not installed or launched. Evidence is under
+`.local/phase4/m22-root-retirement-20261030`: `checks-01.log`, `checks-02.log`, `probe-build.log`
+and `probe-signature.json`, with the source and app archives. No writable fixture was reopened.
+Signed root-retirement, provider invalidation and actual controller Settings behavior remain
+unverified; the previous fixture session is closed.
