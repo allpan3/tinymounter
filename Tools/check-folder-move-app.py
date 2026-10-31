@@ -59,6 +59,8 @@ relisting/replay preserve other children; stale read and retired edit are refuse
 Each Settings callback acquires the namespace and opens a fresh protected SMB
 client on the main actor, proving that the waiting mover holds neither lock.
 It checks the stored parent/root identities without changing remote content.
+That connection uses a separate ShareAccess with the same namespace, so the
+mover's active health observation cannot refuse the diagnostic before it starts.
 
 APIs: LocationSource.moveFolder (including its retryFolderMove replay), list,
 transfer, keep, configureWriteMode, edit; ShareSession.watch; production outboxes
