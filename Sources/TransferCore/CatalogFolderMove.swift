@@ -139,6 +139,10 @@ public struct CatalogFolderMoveListing: Codable, Equatable, Sendable {
             self.identity = identity
             self.kind = kind
         }
+
+        func matches(identity: EditFileIdentity, exactName: String) -> Bool {
+            self.identity == identity && name.utf8.elementsEqual(exactName.utf8)
+        }
     }
 
     public let parent: String
@@ -185,7 +189,7 @@ public enum CatalogFolderMoveRetirement: Codable, Equatable, Sendable {
             throw UploadError.unresolved
         }
         let occupant = listing.children.first { NameKey($0.name) == NameKey(entry.name) }
-        guard occupant?.identity != identity else { throw UploadError.unresolved }
+        guard occupant?.matches(identity: identity, exactName: entry.name) != true else { throw UploadError.unresolved }
         return .listed(parent: entry.parent, identity: parentIdentity, name: entry.name, occupant: occupant)
     }
 
@@ -321,7 +325,9 @@ public struct CatalogFolderMoveState: Codable, Equatable, Sendable {
                 case .listed(let parent, let identity, let name, let occupant):
                     guard parent == before.parent, identity == admitted[parent]?.proof.identity,
                           name.utf8.elementsEqual(before.name.utf8),
-                          occupant?.identity != entry.proof.identity else { throw UploadError.unresolved }
+                          occupant?.matches(identity: entry.proof.identity, exactName: name) != true else {
+                        throw UploadError.unresolved
+                    }
                     if let occupant {
                         guard RelativePath.isValidComponent(occupant.name), NameKey(occupant.name) == NameKey(name) else {
                             throw UploadError.unresolved
@@ -743,7 +749,9 @@ extension Catalog {
                 let child = children[NameKey(entry.name)]
                 if results[entry.item]!.observation == nil {
                     // Removal ends the old name binding; it never asserts deletion of the server object.
-                    guard child?.identity != proofs[entry.item]!.identity else { throw UploadError.unresolved }
+                    guard child?.matches(identity: proofs[entry.item]!.identity, exactName: entry.name) != true else {
+                        throw UploadError.unresolved
+                    }
                 } else {
                     guard let child, child.identity == proofs[entry.item]!.identity, child.kind == entry.kind,
                           child.name.utf8.elementsEqual(entry.name.utf8) else { throw UploadError.unresolved }

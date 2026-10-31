@@ -80,8 +80,10 @@ extension LocationSource {
         let progress = Progress()
         return try withWriteSession(bookmark, progress: progress) { session, _ in
             var current = record
-            try withFolderMoveRemote(session: session, progress: progress) { remote in
-                try publishFolderMove(&current, remote: remote)
+            if current.state != .verified && current.state != .recovering {
+                try withFolderMoveRemote(session: session, progress: progress) { remote in
+                    try publishFolderMove(&current, remote: remote)
+                }
             }
             try completeFolderMove(&current, session: session, progress: progress)
             return current
@@ -369,7 +371,9 @@ extension LocationSource {
 
     /// Fails if the SMB connection lost its handles; a later retry then reverifies all evidence.
     private func requireFolderMoveProtection(_ record: PendingFolderMove, remote: SMBEdit) throws {
-        guard try remote.protectFolderMoveParents(source: record.source, destination: record.destination) == record.parents,
+        guard [.verified, .recovering].contains(record.state),
+              try remote.protectFolderMoveParents(source: record.destination, destination: record.destination)
+                == record.destinationParents,
               let root = try remote.inspectFolderMoveRoot(path: record.destination), root.identity == record.identity,
               root.name.utf8.elementsEqual(record.name.utf8) else { throw UploadError.unresolved }
     }

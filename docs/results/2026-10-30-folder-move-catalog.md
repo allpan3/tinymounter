@@ -150,8 +150,9 @@ passes below; the earlier signed results predate this lock repair.
 
 Independent review found no remaining lock-order blocker or false-completion path. The unlocked
 Settings interval exposes an existing recovery limit during normal operation: an outside rename
-of the moved root, either parent chain, or a descendant's spelling can leave the intent unresolved
-on every retry, blocking listing and writes for the share. Changed file contents can replan.
+of the moved root or a destination ancestor can leave the intent unresolved on every retry,
+blocking listing and writes for the share. The source repair below addresses descendant spelling
+and source-only ancestor changes; its signed checks remain. Changed file contents can replan.
 The fresh proof also rereads every admitted file under the namespace and global SMB locks.
 These recovery and latency limits remain gates for normal-build enablement.
 
@@ -411,3 +412,22 @@ Private evidence in `.local/phase4/m21-20261029` includes `m22-finder-candidate-
 `m22-finder-runtime.jsonl`, `m22-finder-fixture-20261030`, the `m22-finder-captured-*` snapshots,
 `m22-finder-failed-create-inspection` and `m22-finder-app-restore.json`. The failed named audit,
 backing metadata and parent-enumeration follow-up are retained beside the successful audits.
+
+## Recovery from descendant spelling and source-ancestor changes
+
+Source recovery now treats a descendant with the same identity but different exact spelling as
+departure of the admitted name binding. A complete protected parent listing must prove it.
+The old item ID retires; ordinary discovery creates a new ID without transferring the old
+download or independent keep request. The same identity under the exact admitted name still
+refuses retirement, and preserved descendants keep the existing strict checks.
+
+After a durable `moved`, `verified` or `recovering` checkpoint, protection checks only the
+destination ancestor chain. Changes confined to the old source chain no longer block recovery.
+Prepared and uncertain attempts still require both chains. Verified/recovering retries skip the
+redundant first proof; completion still obtains fresh protection and verifies or replans every
+catalog after Settings. No persisted format changed.
+
+Eight regression tests cover spelling changes, directory-descendant retirement, refusal of
+unproven retirement and ancestor checks before and after move proof. These source changes await
+VM checks, independent review and signed Settings-gap validation. Root departure and changes to
+destination ancestors still remain unresolved; retiring the moved root is not authorized.
