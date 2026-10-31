@@ -174,7 +174,8 @@ with current-object admission and whole-file deletion boundaries accepted on 202
 enable no Finder capability. The [M23 ordering core](results/2026-10-29-pending-save-order.md)
 and retirement change pass required VM checks. Recovery cleanup and status reporting also pass
 those checks. Signed retained-save cleanup, export, a subsequent TextEdit save and app restart
-also pass; storage admission and remaining interruption/callback checks remain.
+also pass. Bounded reserve, partial-stage continuation, lost-cleanup-reply and fresh
+replacement-artifact preservation probes pass; real disk exhaustion and broader callbacks remain.
 
 M18 creation, M19 same-object editing and M20 verified-file renaming have signed VM evidence.
 M20 is the development baseline; the physical Mac runs M19. Existing read-only locations stay

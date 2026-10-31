@@ -349,11 +349,31 @@ Private evidence is under `.local/phase4/m21-20261029`: `probe-m23-final/inspect
 `m23-continuation-inspection`, `m23-continuation-helper-build.log`, the `m23-c02-continue-*` and
 `m23-c03-inspect-*` process records, `m23-continuation-backing-audit.json` and
 `m23-continuation-settings-comparison.json`. Original reports and all recovery copies remain.
-M23 still lacks the third case's historical preservation proof, broader editor callbacks and
-real disk-exhaustion evidence.
+The original third case still lacks historical preservation proof. The separate run below
+supplies that evidence for a new case; broader editor callbacks and real disk exhaustion remain.
 
-A fresh c03 mode now uses a separate UUID-named fixture and private output directory. It flushes
-the complete occupant version before successor publication and retired cleanup, then saves the
-version again after the equality check. The original interrupted fixture and its incomplete
-historical evidence remain unchanged. This additional helper mode awaits compilation and a signed
-run; preparing it does not close the preservation gate.
+## Fresh cleanup-occupant preservation, 2026-10-30
+
+A fresh c03 run passed in the same VM and loopback session, with uncontrolled caches. The helper
+flushed the replacement occupant's full version before successor publication and retired cleanup,
+then recorded it again after verifying equality. Independent inspection of both records confirms
+identical identity, digest, size and timestamps, with an identity different from the retired stage.
+The signed process exited successfully. Native and backing-disk audits matched the latest save,
+neighbor and retained 13-byte occupant; independent Settings copies remained byte-identical.
+The original interrupted c03 fixture and its incomplete evidence remain unchanged.
+
+The helper compiled without Swift warnings, and its Python driver passed syntax compilation.
+Strict signature verification and exact app/provider entitlement comparisons passed before launch.
+An initial archive included AppleDouble files and failed signature verification; no probe ran from
+it. A clean archive passed. The installed app remained unchanged.
+
+Native seeding failed when Samba created the new directory with backing mode 000. That failed
+fixture remains. A different UUID fixture was prepared on the pinned disposable backing disk;
+native reads verified its document and neighbor before launch. This setup does not resolve the
+separate new-folder creation failure. No server configuration changed.
+
+Private evidence in the same session: `m23-fresh-build.log`, `m23-fresh-process.json`,
+`m23-fresh-inspection`, `m23-fresh-evidence-audit.json`, `m23-fresh-backing-audit.json`,
+`m23-fresh-settings-comparison.json` and the UUID fixture's `seed.json` and `final.json`.
+The native-seed failure is retained separately in `m23-fresh-native-seed-failure.json`.
+This closes the bounded c03 preservation check, not M23's remaining workflow and capacity gates.
