@@ -669,7 +669,12 @@ final class LocationController {
         guard let record = store.settings?.locations.first(where: { $0.id == recordID }), !record.removing,
               !record.pendingKeeps.isEmpty, let source = sources[record.domainID],
               let folder = RelativePath(record.folder), restoring.insert(recordID).inserted else { return }
-        defer { restoring.remove(recordID) }
+        defer {
+            restoring.remove(recordID)
+            for participant in sources.values where participant.editNamespace === source.editNamespace {
+                participant.retryDeletions()
+            }
+        }
         var listed: Set<String> = []
         var found: [(path: KeepPath, id: String)] = []
         var missing: Set<KeepPath> = []

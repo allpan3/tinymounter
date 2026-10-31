@@ -375,10 +375,22 @@ cancellation without replacing their Progress handlers. Cancellation queues dura
 Stop requests retain replies until the queued checkpoints run. Failed Stop reloads durable state,
 unchanged settlement attempts retain their confirmation holds, and failure also signals committed
 catalog changes. Storage failure can still prevent durable Stop. Closed sources defer settlement
-until reopened. This repair awaits compilation and independent review.
+until reopened. The repair passes all required VM checks with 557 tests, one optional skip and
+no Swift warnings (`m24-cancellation-checks.log`). Independent source review found no false
+success, lost reply or automatic remote retry after cancellation. Follow-up changes retry
+settlement when pending Keep restoration ends and read Progress cancellation outside the recovery
+lock. Closing a source does not create a new Stop, but already queued Stops still persist.
+These follow-up changes await VM checks.
 
 The bounded recursive runtime helper now uses production admission and the asynchronous scheduler
 with private Settings. Its separate phases cover refusals, overlapping views, an injected lost
-close reply, restart, competing server changes and replacement preservation. It remains unrun.
+close reply, restart, competing server changes and replacement preservation. The first signed
+refusal phase stopped with `serverUnreachable` after a slow expected refusal, before its next
+synthetic replacement. Its 61.7-second failed run is preserved; no deletion phase ran. The helper
+now waits off the lane for normal share-health recovery between steps. The backing audit found
+no added or removed entries and only the two intentional content changes, which also acquired
+Samba DOS and quarantine attributes. The revised audit allows only those additions on deliberate
+native writes; neighbors still require exact metadata equality. This is failed-run evidence,
+not a recursive-deletion pass.
 Delayed confirmation, cancellation, remounts and callback races remain unverified; these source
 changes do not complete M24.
