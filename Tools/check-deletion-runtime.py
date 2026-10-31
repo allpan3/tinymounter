@@ -44,8 +44,12 @@ Every Python step runs as root with the same arguments:
   (replace)  Python: same-name replacement at c05/file.txt
   replace    final replays; c05 settled after a catalog write          0
 
-Each connection takes about 20 s in this VM, so the longest phase runs about four
-minutes. The helper stops at 560 s and still writes its report. It retries only
+Earlier connections took about 20 s in this VM, so the longest phase is expected
+to run about four minutes. The helper bounds reply waits by a 560 s phase budget;
+the parent's process timeout also covers blocked calls. A timeout may lack a report.
+Between steps it waits at most 30 s for normal ShareAccess health probes after an
+expected slow refusal; it neither resets health nor repeats a failed mutation.
+It retries only
 connection setup, and a production call only when no request can be in flight.
 A phase refuses a second launch with the same RUN and keeps the first report.
 After a failure, inspect the report; a new attempt needs a new RUN and prepare.
