@@ -148,6 +148,13 @@ deadlock another lane. The revised lock scopes compile and pass the required VM 
 opens a protected client from the Settings callback while the mover waits; it has not run yet.
 Earlier signed results below predate this lock repair.
 
+Independent review found no remaining lock-order blocker or false-completion path. The unlocked
+Settings interval exposes an existing recovery limit during normal operation: an outside rename
+of the moved root, either parent chain, or a descendant's spelling can leave the intent unresolved
+on every retry, blocking listing and writes for the share. Changed file contents can replan.
+The fresh proof also rereads every admitted file under the namespace and global SMB locks.
+These recovery and latency limits remain gates for normal-build enablement.
+
 Namespace checks, pending counts, recovery display and location removal now read the shared
 file/folder intent inventory. Edits to deleted catalog rows are refused. The integrated
 candidate passes all required VM checks with 492 tests, one optional skip and no failures or

@@ -1150,7 +1150,7 @@ final class LocationSource: @unchecked Sendable {
 
     func signalFolders(_ folders: [String]) { signal(folders) }
 
-    /// A missing item lists its parent again: only a complete listing may delete it (plan §7).
+    // A read's absence error needs a checked parent listing before changing the catalog.
     private func shareCall<T>(_ requestID: UUID, parent: String?, context: SourceFailure.Context,
                               _ body: () throws -> T) throws -> T {
         do {
