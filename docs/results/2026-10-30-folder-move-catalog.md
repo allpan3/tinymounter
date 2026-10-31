@@ -436,3 +436,24 @@ retirement tests cover discovery with fresh IDs and no transferred keeps. The si
 Settings hook now checks destination parents, matching production. Signed Settings-gap validation
 remains. Root departure and destination-ancestor changes still remain unresolved; retiring the
 moved root is not authorized.
+
+## Settings-gap runtime checks, 2026-10-30
+
+The signed standalone gap helper builds with zero Swift warnings and passes strict signature
+and unchanged-entitlement checks. It uses the same approved loopback fixture in VM 1, with
+uncontrolled caches, private catalogs and private Settings. It is not installed.
+
+The first spelling phase completed the case-only move, retired the admitted child binding,
+and discovered a new ID with no inherited keep or edit version. It then failed an assertion
+after 81.2 seconds: requesting the historical receipt under the new ID correctly throws
+`unresolved`, while the helper expected no receipt. The failed-phase audit confirmed object,
+byte and metadata preservation within the phase's rename boundary, apart from the allowed Samba
+DOS attribute addition; it did not accept a final layout. This is partial evidence, not a
+spelling-phase pass. The helper
+now checks the retained receipt under the old ID and requires rejection under the new one.
+
+The independent ancestor phase passed after 181.9 seconds, with a passing backing audit.
+Renaming and replacing the old source-only ancestor allowed completion without a recovery plan.
+Replacing the destination ancestor kept the intent verified and the namespace blocked; restoring
+it allowed retry and unchanged completed replay. Raw evidence remains under
+`m22-gap-BDD7AB53-431C-41D6-8E27-79977095FBE8*` and `m22-gap-probe-*` in the private session.

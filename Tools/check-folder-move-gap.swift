@@ -755,8 +755,14 @@ private final class GapProbe: @unchecked Sendable {
         let edits = try LocationSource.editOutbox(domainID: owner.domainID)
         try require(found.contentVersion != old.contentVersion && !found.contentVersion.hasPrefix("e1:"),
                     label + "-version-not-transferred")
-        try require(try edits.base(item: found.id, contentVersion: found.contentVersion) == nil
-            && edits.base(item: found.id, contentVersion: old.contentVersion) == nil, label + "-edit-base-not-transferred")
+        try require(try edits.base(item: found.id, contentVersion: found.contentVersion) == nil,
+                    label + "-discovered-item-has-no-base")
+        try require(try edits.base(item: old.id, contentVersion: old.contentVersion)?.item == old.id,
+                    label + "-historical-base-keeps-old-binding")
+        do {
+            _ = try edits.base(item: found.id, contentVersion: old.contentVersion)
+            throw GapCheck(label: label + "-historical-base-accepted-for-new-id")
+        } catch UploadError.unresolved {}
     }
 
     private func requireSavedKeep(_ label: String, _ expected: String) throws {
