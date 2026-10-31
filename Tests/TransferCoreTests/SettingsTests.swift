@@ -15,9 +15,10 @@ final class SettingsTests: XCTestCase {
     }
 
     func testDeletionRemovesOnlyConfirmedTypedKeepsOnTheSameShare() throws {
-        let grant = ServerGrant(serverID: UUID(), bookmark: Data([1]), mountFrom: "//account@fixture/share",
+        let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "smb://fixture")))
+        let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//account@fixture/share",
                                 address: try XCTUnwrap(ShareAddress("//account@fixture/share")))
-        let other = ServerGrant(serverID: UUID(), bookmark: Data([2]), mountFrom: "//account@fixture/other",
+        let other = ServerGrant(serverID: server.id, bookmark: Data([2]), mountFrom: "//account@fixture/other",
                                 address: try XCTUnwrap(ShareAddress("//account@fixture/other")))
         let folder = KeepPath(path: "Tree/Café", kind: .folder)
         let deleted = KeepPath(path: "Tree/Café/deleted", kind: .file)
@@ -29,7 +30,7 @@ final class SettingsTests: XCTestCase {
         location.pendingKeeps = paths
         var otherLocation = LocationRecord(name: "Other", serverID: other.id, folder: .root)
         otherLocation.pendingKeeps = paths
-        var settings = AppSettings(shares: [grant, other], locations: [location, otherLocation], savedKeeps: [
+        var settings = AppSettings(servers: [server], shares: [grant, other], locations: [location, otherLocation], savedKeeps: [
             SavedKeepList(host: "FIXTURE", share: "SHARE", paths: paths),
             SavedKeepList(host: "fixture", share: "other", paths: paths)])
         let removed = [KeepPath(path: "tree/Cafe\u{301}", kind: .folder), deleted]
