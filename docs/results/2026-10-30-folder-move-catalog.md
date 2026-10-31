@@ -142,6 +142,12 @@ unverified files retain their existing content versions. Completion stores recei
 catalog updates. Saved keep paths are rewritten without SMB or namespace locks, then a fresh
 protected session verifies or replans the catalogs before completing the intent.
 
+A later source review found that keeping the SMB client across namespace reacquisition could
+deadlock another lane. The revised lock scopes compile and pass the required VM checks with
+555 tests and one optional skip (`m24-admission-fixed-checks.log`). A new signed-probe assertion
+opens a protected client from the Settings callback while the mover waits; it has not run yet.
+Earlier signed results below predate this lock repair.
+
 Namespace checks, pending counts, recovery display and location removal now read the shared
 file/folder intent inventory. Edits to deleted catalog rows are refused. The integrated
 candidate passes all required VM checks with 492 tests, one optional skip and no failures or

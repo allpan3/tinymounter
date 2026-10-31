@@ -195,9 +195,9 @@ confirmation, changed/replaced-file refusal and recovery after injected interrup
 close replies stay unconfirmed. Durable operation storage and the recursive transaction pass
 28 simulated-server and storage tests in VM 1. Protected traversal admission compiles and passes
 required VM checks; its signed runtime checks remain. The app inventory, namespace blocking and
-downgrade guards pass required VM checks. Catalog settlement is prepared with immutable admission
-evidence and fresh-listing obligations; its checks remain pending. Gated app admission and execution
-are prepared. Settlement wiring, recursive SMB checks and Finder integration remain; no deletion
+downgrade guards pass required VM checks. Catalog settlement with immutable admission evidence
+and fresh-listing obligations, and gated app admission and execution, also pass required VM checks.
+Settlement wiring, recursive SMB checks and Finder integration remain; no deletion
 capability is enabled.
 
 The supported write boundary remains folders whose writers use SMB and leave tinymounter's
