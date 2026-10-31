@@ -62,7 +62,8 @@ and path; the saved keep holds the admitted spelling under the destination.
 ancestor: completes without recovery. destination and root: the first attempt
 fails with UploadError.unresolved, stays verified without recovery, keeps the root
 bindings at the destination and blocks the namespace; after the restore a verified
-retry completes, and for root finishes only the overlap view. recover: the
+retry completes. Root metadata changes may require a replan and finishing both
+views again; an unchanged target finishes only the overlap view. recover: the
 injected error leaves a verified intent; a direct replan saves a recovering plan
 that retires the child; the retry applies that plan unchanged. Replays of
 completed intents change nothing and make no Settings call. Root retirement is
@@ -138,10 +139,6 @@ OUTSIDE = {
 RESPELLED = {"case", "nfd", "recover"}
 MAX_ENTRIES = 64
 MAX_FILE = 64 << 10
-
-
-class Incomplete(Exception):
-    pass
 
 
 def require(value, label):
@@ -330,7 +327,7 @@ def expected_layout(baseline, current, case, record):
             "case-record:" + case)
     require(moved or not changed, "change-without-move:" + case)
     require(outcome != "passed" or changed, "passed-without-change:" + case)
-    layout, spelling = dict(baseline), None
+    layout, spelling, incomplete = dict(baseline), None, None
     if moved:
         layout = renamed(layout, *MOVES[case])
     if changed:
@@ -349,10 +346,10 @@ def expected_layout(baseline, current, case, record):
             if outcome == "passed" and not spelling["exact"]:
                 require(unicodedata.normalize("NFC", actual) == unicodedata.normalize("NFC", new),
                         "backing-spelling:" + case)
-                raise Incomplete("backing-normalized-spelling:" + case)
+                incomplete = "backing-normalized-spelling:" + case
             if actual != old:
                 layout = renamed(layout, old, actual)
-    return layout, spelling
+    return layout, spelling, incomplete
 
 
 def app_report(args):
@@ -445,17 +442,18 @@ def audit(args):
         record["after"] = current
         record["dos_attributes_added"] = renames_only(start, current, cases)
         if result != "app-failed":
-            expected, spellings = dict(start), {}
-            try:
-                for case in cases:
-                    expected, spelling = expected_layout(expected, current, case, report["cases"][case])
-                    if spelling:
-                        spellings[case] = spelling
-                require(set(current) == set(expected)
-                        and all(current[path]["inode"] == item["inode"] for path, item in expected.items()),
-                        "backing-layout")
-            except Incomplete as reason:
-                result, record["reason"] = "incomplete", str(reason)
+            expected, spellings, incomplete = dict(start), {}, []
+            for case in cases:
+                expected, spelling, reason = expected_layout(expected, current, case, report["cases"][case])
+                if spelling:
+                    spellings[case] = spelling
+                if reason:
+                    incomplete.append(reason)
+            require(set(current) == set(expected)
+                    and all(current[path]["inode"] == item["inode"] for path, item in expected.items()),
+                    "backing-layout")
+            if incomplete:
+                result, record["reasons"] = "incomplete", incomplete
             record["backing_spellings"] = spellings
         record["result"] = result
     except Exception as error:
