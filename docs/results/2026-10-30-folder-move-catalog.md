@@ -102,7 +102,7 @@ The original moved root can never retire, and replacing it leaves recovery unres
 
 Older readers reject an active `recovering` state. Completed replay remains a no-op; callers
 must never apply the original settlement again. Runtime integration must store new receipts
-durably before exposing their versions and retain protection through local completion.
+durably before exposing their versions and hold fresh protection through catalog completion.
 Source review found no blocking defect. Tests cover repeated recovery, partial commits,
 mtime-only changes, permanent retirement, root replacement, collisions and interruption.
 The integrated core and adapter pass the required VM checks below. There is no catalog or
@@ -139,7 +139,8 @@ The app now has a folder-move entry point and retries durable folder intents. It
 configured location roots and pending recovery data, reserves both endpoints, then drains
 native reads and directory watches before admission. Verified files retain historical receipts;
 unverified files retain their existing content versions. Completion stores receipts before
-catalog updates and rewrites saved keep paths while the SMB protection remains held.
+catalog updates. Saved keep paths are rewritten without SMB or namespace locks, then a fresh
+protected session verifies or replans the catalogs before completing the intent.
 
 Namespace checks, pending counts, recovery display and location removal now read the shared
 file/folder intent inventory. Edits to deleted catalog rows are refused. The integrated
