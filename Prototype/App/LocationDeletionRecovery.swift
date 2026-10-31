@@ -121,6 +121,7 @@ extension LocationSource {
                                    reply: @escaping @Sendable (Result<Void, Error>) -> Void) {
         let (accepted, progress) = deletionRecoveryLock.withLock { () -> (Bool, Progress?) in
             if let cancellation {
+                guard !deletionClosed else { return (false, nil) }
                 guard deletionCancellations.removeValue(forKey: cancellation) == id else { return (false, nil) }
             }
             deletionStops[id, default: 0] += 1
@@ -401,11 +402,12 @@ extension LocationSource {
                                           result: Result<PendingDeletion, Error>) {
         guard deletionRecoveries[recovery.record.id] === recovery else { return }
         let id = recovery.record.id
+        let cancelledTokens = recovery.cancellations.compactMap { token, cancellation in
+            cancellation.progress.isCancelled ? token : nil
+        }
         let (stopping, cancelled) = deletionRecoveryLock.withLock { () -> (Bool, [UUID]) in
             // Cancellation can become visible before its KVO callback acquires this lock.
-            let cancelled = recovery.cancellations.compactMap { token, cancellation in
-                deletionCancellations[token] == id && cancellation.progress.isCancelled ? token : nil
-            }
+            let cancelled = deletionClosed ? [] : cancelledTokens.filter { deletionCancellations[$0] == id }
             guard deletionStops[id] == nil, cancelled.isEmpty else { return (true, cancelled) }
             for token in recovery.cancellations.keys { deletionCancellations[token] = nil }
             return (false, [])
