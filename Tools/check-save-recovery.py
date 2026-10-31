@@ -34,6 +34,13 @@ identity pins. Its inspection never replaces the original case's missing result.
 Require successful process exit and an independent comparison of original Settings
 as well as the report; the helper's final Settings check follows report creation.
 
+For a separate c03 preservation run, use --fresh-c03 with seed and audit. This
+creates only c03 in probe-m23-final-UUID, leaving the original fixture untouched.
+Use a matching local evidence parent and launch --m23-fresh c03 UUID LOCATION_UUID.
+The helper flushes occupant-before.json before successor publication and cleanup,
+then occupant-after.json after the full version equality check. Preserve both.
+This new case cannot retroactively prove the earlier run's occupant preservation.
+
 c01 injects reserve loss; c02 cancels a native stage upload after 1 MiB; c03 fails
 after one acknowledged cleanup; c04 simulates a lost cleanup reply. These are
 core/adapter checks, not File Provider callbacks or real disk exhaustion. The
@@ -81,29 +88,30 @@ def exclusive(path, data):
         os.close(fd)
 
 
-def seed(run):
-    ROOT.mkdir(mode=0o700)
-    exclusive(ROOT / "marker.txt", ("tinymounter-m23-final:" + run + "\n").encode())
-    for case in CASES:
-        directory = ROOT / case
+def seed(run, root=ROOT, cases=CASES):
+    root.mkdir(mode=0o700)
+    exclusive(root / "marker.txt", ("tinymounter-m23-final:" + run + "\n").encode())
+    for case in cases:
+        directory = root / case
         directory.mkdir(mode=0o700)
         exclusive(directory / "document.txt", ("base " + case + "\n").encode())
         exclusive(directory / "neighbor.txt", ("neighbor " + case + "\n").encode())
-    directory = ROOT / "callbacks"
-    directory.mkdir(mode=0o700)
-    for name in ("direct.txt", "atomic.txt", "neighbor.txt"):
-        exclusive(directory / name, ("base " + name + "\n").encode())
-    return {"seeded": True, "files": 12}
+    if cases == CASES:
+        directory = root / "callbacks"
+        directory.mkdir(mode=0o700)
+        for name in ("direct.txt", "atomic.txt", "neighbor.txt"):
+            exclusive(directory / name, ("base " + name + "\n").encode())
+    return {"seeded": True, "files": 1 + 2 * len(cases) + (3 if cases == CASES else 0), "cases": list(cases)}
 
 
-def audit(run):
-    if ROOT.is_symlink() or ROOT.resolve() != ROOT:
+def audit(run, root=ROOT, cases=CASES):
+    if root.is_symlink() or root.resolve() != root:
         raise RuntimeError("fixture scope mismatch")
-    if (ROOT / "marker.txt").read_bytes() != ("tinymounter-m23-final:" + run + "\n").encode():
+    if (root / "marker.txt").read_bytes() != ("tinymounter-m23-final:" + run + "\n").encode():
         raise RuntimeError("fixture marker mismatch")
     report = []
-    for case in CASES:
-        directory = ROOT / case
+    for case in cases:
+        directory = root / case
         if directory.is_symlink() or directory.resolve() != directory:
             raise RuntimeError("fixture scope mismatch")
         files = list(directory.iterdir())
@@ -146,11 +154,14 @@ def main():
     parser.add_argument("--run", required=True)
     parser.add_argument("--approved-vm-session", action="store_true", required=True)
     parser.add_argument("--evidence", type=Path, required=True)
+    parser.add_argument("--fresh-c03", action="store_true")
     args = parser.parse_args()
     if str(uuid.UUID(args.run)).upper() != args.run:
         raise RuntimeError("uppercase run UUID required")
     evidence = args.evidence.absolute()
-    if evidence.parent.name != "probe-m23-final" or evidence.exists():
+    root = MOUNT / ("probe-m23-final-" + args.run) if args.fresh_c03 else ROOT
+    cases = ("c03",) if args.fresh_c03 else CASES
+    if evidence.parent.name != root.name or evidence.exists():
         raise RuntimeError("use a new private probe-m23-final evidence file")
     require_fixture()
     if evidence.resolve().is_relative_to(MOUNT.resolve()):
@@ -158,7 +169,7 @@ def main():
     evidence.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     if evidence.parent.is_symlink() or evidence.parent.resolve() != evidence.parent:
         raise RuntimeError("evidence scope mismatch")
-    result = seed(args.run) if args.action == "seed" else audit(args.run)
+    result = seed(args.run, root, cases) if args.action == "seed" else audit(args.run, root, cases)
     result.update({"run": args.run, "date": datetime.now(timezone.utc).isoformat(), "cache": "uncontrolled",
                    "real_disk_exhaustion": "unverified"})
     exclusive(evidence, (json.dumps(result, sort_keys=True) + "\n").encode())

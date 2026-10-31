@@ -32,7 +32,8 @@ enum M23SaveRecoveryHelper {
             guard !stale, ShareAccess.filePath(scoped) == "/Volumes/tinymounter-m19-edit-test" else {
                 throw UploadError.readOnly
             }
-            let parent = URL.applicationSupportDirectory.appending(path: "tinymounter/probe-m23-final")
+            let fixtureName = "probe-m23-final" + (args[1] == "--m23-fresh" ? "-" + run.uuidString : "")
+            let parent = URL.applicationSupportDirectory.appending(path: "tinymounter/" + fixtureName)
             try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true,
                                                     attributes: [.posixPermissions: 0o700])
             let local = parent.appending(path: "caller-" + caseID + (mode.claim.isEmpty ? "" : "-" + mode.claim))
@@ -41,7 +42,7 @@ enum M23SaveRecoveryHelper {
             try AppSettings(servers: [server], shares: [grant], locations: []).save(to: settings)
             let store = SettingsStore(url: settings)
             let access = ShareAccess(grant: grant, store: store, onRecovery: { _ in })
-            let folder = RelativePath("probe-m23-final")!, domain = UUID().uuidString
+            let folder = RelativePath(fixtureName)!, domain = UUID().uuidString
             let catalog = try Catalog.create(at: local.appending(path: "catalog.sqlite"),
                                              domainID: domain, rootName: "M23 recovery probe")
             let source = LocationSource(domainID: domain, folder: folder, catalog: catalog,
@@ -75,6 +76,7 @@ enum M23Mode: Sendable {
     init?(_ args: [String]) {
         switch (args[1], args[2], args.count) {
         case ("--m23-final", let caseID, 5) where ["c01", "c02", "c03", "c04"].contains(caseID): self = .original
+        case ("--m23-fresh", "c03", 5): self = .original
         case ("--m23-continue", "c02", 5): self = .continuation
         case ("--m23-inspect", "c03", 8):
             guard let pins = M23Pins(retired: args[5], retiredStage: args[6], occupant: args[7]) else { return nil }
@@ -127,7 +129,9 @@ extension LocationSource {
         access.enqueue { [self] in
             completion(Result { try editNamespace.perform { try uploadLock.withLock {
                 guard !mutationsSuspended, let bookmark = writeBookmark,
-                      folder.string == "probe-m23-final" else { throw UploadError.readOnly }
+                      ["probe-m23-final", "probe-m23-final-" + run.uuidString].contains(folder.string) else {
+                    throw UploadError.readOnly
+                }
                 try editNamespace.requireSettled()
                 let progress = Progress()
                 try withWriteSession(bookmark, progress: progress) { session, root in
@@ -138,7 +142,7 @@ extension LocationSource {
                     var path = [CChar](repeating: 0, count: Int(MAXPATHLEN))
                     guard fcntl(root, F_GETPATH, &path) == 0 else { throw UploadError.readOnly }
                     let nativePath = String(decoding: path.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-                    guard nativePath == "/Volumes/tinymounter-m19-edit-test/probe-m23-final" else {
+                    guard nativePath == "/Volumes/tinymounter-m19-edit-test/" + folder.string else {
                         throw UploadError.readOnly
                     }
                     let marker = try ReadOnlyFile(directoryFD: root, relativePath: RelativePath("marker.txt")!,
@@ -379,7 +383,7 @@ private enum M23FinalProbe {
     static func run(_ mode: M23Mode, _ caseID: String, run: UUID, endpoint: ShareAddress, folder: RelativePath,
                     root: Int32, identity: MountIdentity, progress: Progress) throws {
         guard ["c01", "c02", "c03", "c04"].contains(caseID) else { throw Failure.assertion }
-        let parent = URL.applicationSupportDirectory.appending(path: "tinymounter/probe-m23-final")
+        let parent = URL.applicationSupportDirectory.appending(path: "tinymounter/" + folder.string)
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         let local = parent.appending(path: caseID), output: URL
@@ -419,6 +423,7 @@ private enum M23FinalProbe {
                 report["inspectionPassed"] = true
             } else {
                 report["passed"] = true
+                if caseID == "c03" { report["historicalOccupantPreservationVerified"] = true }
             }
         case .failure(let error):
             let nsError = error as NSError
@@ -655,6 +660,11 @@ private enum M23FinalProbe {
             replacement = try fixture.withRemote("occupant") {
                 try $0.stage(path: first.stagePath, contents: input) { _ in }
             }
+            trace.enter("occupant-checkpoint")
+            guard let replacement, let retiredStage = first.stageVersion else { throw Failure.assertion }
+            let evidence = OccupantEvidence(retired: first.id, retiredStage: retiredStage,
+                occupant: replacement, original: fixture.original, neighbor: fixture.neighbor)
+            try writeReport(JSONEncoder().encode(evidence), to: fixture.output.appending(path: "occupant-before.json"))
         }
         try fixture.finish(&latest)
         try fixture.verifyRemote(latest)
@@ -684,11 +694,24 @@ private enum M23FinalProbe {
                 try EditTransaction.cleanupRetired(&first, outbox: reopened, remote: $0)
             }
             try fixture.withRemote("occupant-retained") {
-                try require($0.inspect(path: first.stagePath, original: false) == replacement)
+                guard let occupant = try $0.inspect(path: first.stagePath, original: false),
+                      let retiredStage = first.stageVersion else { throw Failure.assertion }
+                try require(occupant == replacement)
+                let evidence = OccupantEvidence(retired: first.id, retiredStage: retiredStage,
+                    occupant: occupant, original: fixture.original, neighbor: fixture.neighbor)
+                try writeReport(JSONEncoder().encode(evidence), to: fixture.output.appending(path: "occupant-after.json"))
             }
             trace.enter("pending-count")
             try require(reopened.pendingCount == 0)
         }
+    }
+
+    struct OccupantEvidence: Codable {
+        let retired: UUID
+        let retiredStage: EditFileVersion
+        let occupant: EditFileVersion
+        let original: EditFileVersion
+        let neighbor: EditFileVersion
     }
 
     /// Publishes c02's already prepared newest save; the retired partial stage must stay untouched.
