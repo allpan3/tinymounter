@@ -266,6 +266,11 @@ callbacks. Recovery checks may stop only task-owned test processes, including th
 server. Restore the saved state and remove the fixture at the end. This approval covers one
 session, not standing permission to reopen it later.
 
+The active session ended on 2026-10-30: its mount and task server are stopped, and Apple SMB is
+restored. Uncertain records, backing fixtures and private artifacts remain for investigation;
+[final validation and restoration](results/2026-10-29-deletion-protocol.md#final-validation-and-service-restoration-2026-10-30)
+records the remaining cleanup. Further writable runtime work needs a new session approval.
+
 ## Common completion criteria
 
 Every implementation milestone includes meaningful regression tests, required migrations, signed
