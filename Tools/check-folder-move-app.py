@@ -56,6 +56,9 @@ and injected retained-save refusal; two real LocationSource catalogs preserve
 keeps/IDs/versions and saved paths; injected error after settings save leaves an
 unfinished verified intent; fresh-process replay replans changed/retired children;
 relisting/replay preserve other children; stale read and retired edit are refused.
+Each Settings callback acquires the namespace and opens a fresh protected SMB
+client on the main actor, proving that the waiting mover holds neither lock.
+It checks the stored parent/root identities without changing remote content.
 
 APIs: LocationSource.moveFolder (including its retryFolderMove replay), list,
 transfer, keep, configureWriteMode, edit; ShareSession.watch; production outboxes

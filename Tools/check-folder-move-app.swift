@@ -245,6 +245,21 @@ private final class Probe: @unchecked Sendable {
             try settings.moveKeptFolder(from: durable.source, to: durable.destination,
                                         host: Self.host, share: Self.share)
         }
+        try access.editNamespace.perform {
+            try access.withSession { session, _ in
+                guard let endpoint = ShareAddress(session.identity.mountFrom),
+                      endpoint.host == Self.host, endpoint.share == Self.share else {
+                    throw ProbeFailure.check("settings-lock-check-endpoint")
+                }
+                let remote = try SMBEdit(endpoint: endpoint, folder: .root, root: session.root, progress: Progress())
+                let parents = try remote.protectFolderMoveParents(source: durable.source,
+                                                                  destination: durable.destination)
+                try require(parents == durable.parents, "settings-lock-check-parents")
+                try require(try remote.inspectFolderMoveRoot(path: durable.destination)?.identity == durable.identity,
+                            "settings-lock-check-root")
+            }
+        }
+        try note("settings-lock-release", "namespace-and-new-smb-session-acquired")
         if phase == "exercise", durable.source == root.string + "/overlap/Tree" {
             try note("settings-checkpoint", "saved-before-injected-failure")
             throw ProbeFailure.settingsCheckpoint

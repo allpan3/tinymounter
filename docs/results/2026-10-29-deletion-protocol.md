@@ -289,9 +289,9 @@ remote deletion from a listing.
 Source review closed the earlier replacement-loss and premature-completion defects. A kind
 mismatch now takes the reconciliation path. If a missing-folder fallback still finds the requested
 folder live, it returns unresolved instead of repeatedly listing it. New tests cover both cases;
-the integrated helper compiles after splitting an expression that exceeded Swift's type-checking
-limit. The first test run found one replay test rebuilding a changed request; that test now retains
-the original request and also checks that the changed request stays blocked. Verification continues.
+the integrated helper and all catalog regressions pass in VM 1. The first run required splitting
+an expression that exceeded Swift's type-checking limit and correcting a replay test that rebuilt
+a changed request. That test now retains the original request and checks that a new one stays blocked.
 
 Catalog completion can preserve a replacement under the selected ID. The app must additionally
 require an explicit tombstone for that ID before reporting provider Delete success, including on
@@ -320,5 +320,8 @@ The helper and its persistence/refusal regressions are not yet verified in the V
 Source review found a lock inversion in the existing folder-move caller: it can hold the global
 SMB mutex while waiting for the namespace lock, which deletion admission acquires first. That
 is repaired by scoping folder-move clients inside the namespace lock and reopening protection
-after Settings persistence. The new entry point and lock repair have not yet been compiled or
-exercised in the signed app. Finder Delete remains disabled.
+after Settings persistence. The integrated admission, catalog and lock repair pass all required
+VM checks: 555 tests, one optional skip, no Swift warnings, release CLI, generated project, six
+encoder cases, 57 edit-status cases and six folder-create status cases. Evidence is
+`m24-admission-fixed-checks.log` in the same private session. Signed execution remains unverified;
+Finder Delete remains disabled.
