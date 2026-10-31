@@ -781,6 +781,7 @@ private final class M24Probe: @unchecked Sendable {
     /// replay is the only repetition; a deletion body is never retried here.
     private func delete(_ label: String, _ request: DeletionRequest, recursive: Bool,
                         connections: Int) throws -> Result<PendingDeletion, Error> {
+        try awaitShareRecovery(label)
         var attempt = 1
         while true {
             let reply = M24Reply<PendingDeletion>(), began = Date()
@@ -800,6 +801,7 @@ private final class M24Probe: @unchecked Sendable {
 
     private func laneDeletion(_ label: String, connections: Int, resumable: () throws -> Bool,
                               _ body: @escaping @Sendable () throws -> PendingDeletion) throws -> PendingDeletion {
+        try awaitShareRecovery(label)
         var attempt = 1
         while true {
             do {
@@ -1058,7 +1060,25 @@ private final class M24Probe: @unchecked Sendable {
 
     private func mutate(_ label: String, _ body: (Int32) throws -> Void) throws {
         ledger.enter(label)
+        try awaitShareRecovery(label)
         try owner.withWriteSession(bookmark) { _, locationRoot in try body(locationRoot) }
+    }
+
+    // Expected slow refusals can leave normal share-health recovery pending between probe steps.
+    private func awaitShareRecovery(_ label: String) throws {
+        let began = ContinuousClock.now
+        let deadline = began + .seconds(30)
+        var waited = false
+        while let refusal = access.refusal() {
+            guard refusal == .serverUnreachable else { throw refusal }
+            try require(ContinuousClock.now < deadline && Date().timeIntervalSince(started) < Self.budget,
+                        "share-recovery-timeout")
+            waited = true
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+        if waited {
+            ledger.record(label, ["healthWaitSeconds": began.duration(to: .now) / .seconds(1)])
+        }
     }
 
     private func requireKeeps(_ label: String, removed: [String]) throws {
