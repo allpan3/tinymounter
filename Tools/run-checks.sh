@@ -12,6 +12,7 @@ fi
 swift test
 swift build -c release
 python3 Tools/verify-benchmark.py
+python3 Tools/check-performance-log.py
 
 log=$(mktemp)
 trap 'rm -f "$log"' EXIT

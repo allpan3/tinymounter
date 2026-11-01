@@ -67,6 +67,11 @@ In writable locations, measure cache misses both before an edit base exists and 
 download establishes one. Evict the test copy, then read fresh 1 MiB ranges far enough apart
 to avoid read-ahead hits. Record protected verification separately from native payload time:
 native SMB session counters do not include the direct verification connection.
+Current builds emit request-correlated `protected_read` diagnostics for the verification mode,
+protected bytes, namespace wait and phase durations. The existing runner retains these records
+alongside callbacks and listings. Missing diagnostics do not prove a read avoided verification;
+negative durations mean execution did not reach that phase. Use these observations to separate
+full verification from a cache hit delayed by a listing before changing lock behavior.
 
 Keep setup, security settings, run order and all four cache states with the samples. A single
 pilot can identify a delay to investigate, but cannot establish a regression. Separate changes

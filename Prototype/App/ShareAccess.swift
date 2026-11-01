@@ -968,10 +968,16 @@ final class LocationSource: @unchecked Sendable {
     /// Plan §6 step 4: the version, the share state, the catalog path, the file, its fingerprint.
     func transfer(_ request: SourceReadRequest, progress: Progress, stagingDirectory: URL,
                   checkSpace: ((Int64) throws -> Void)? = nil) throws -> TransferOutput {
-        let (row, _) = try editNamespace.perform { try readTarget(request) }
+        let started = ContinuousClock.now
+        var namespaceWait = Duration.zero
+        let (row, _) = try editNamespace.perform {
+            namespaceWait = started.duration(to: .now)
+            return try readTarget(request)
+        }
         if request.version.hasPrefix("e1:") || (row.allowsWriting && request.establishEditBase) {
             return try protectedTransfer(request, progress: progress,
-                                         stagingDirectory: stagingDirectory, checkSpace: checkSpace)
+                                         stagingDirectory: stagingDirectory, checkSpace: checkSpace,
+                                         started: started, namespaceWait: namespaceWait)
         }
         let range: ByteRange
         do {
