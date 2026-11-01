@@ -84,6 +84,29 @@ final class TransferCoreTests: XCTestCase {
         }
     }
 
+    func testChecksumReportsProgressAndCancellation() throws {
+        try withFixture { url, _, _ in
+            let source = try ReadOnlyFile(url: url)
+            let range = try ByteRange(offset: 3, length: source.snapshot.size - 3,
+                                      fileSize: source.snapshot.size)
+            let progress = Progress()
+            XCTAssertEqual(try source.checksum(range: range, progress: progress),
+                           try source.checksum(range: range))
+            XCTAssertEqual(progress.completedUnitCount, range.length)
+            let cancelled = Progress()
+            let observation = cancelled.observe(\.completedUnitCount) { value, _ in value.cancel() }
+            defer { observation.invalidate() }
+            XCTAssertThrowsError(try source.checksum(range: range, progress: cancelled)) {
+                XCTAssertEqual($0 as? TransferError, .cancelled)
+            }
+            XCTAssertGreaterThan(cancelled.completedUnitCount, 0)
+            let empty = try ByteRange(offset: 0, length: 0, fileSize: source.snapshot.size)
+            XCTAssertThrowsError(try source.checksum(range: empty, progress: cancelled)) {
+                XCTAssertEqual($0 as? TransferError, .cancelled)
+            }
+        }
+    }
+
     func testChangedSourceRejectedBeforeTransfer() throws {
         try withFixture { url, directory, _ in
             let source = try ReadOnlyFile(url: url)

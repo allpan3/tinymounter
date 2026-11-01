@@ -42,6 +42,7 @@ app_paths = ["Sources/TransferCore/FileRename.swift", "Sources/TransferCore/Cata
              "Sources/TransferCore/RenameDirectoryEntry.swift", "Prototype/App/LocationRenames.swift",
              "Sources/TransferCore/Upload.swift", "Sources/TransferCore/FolderNaming.swift",
              "Sources/TransferCore/EditOutbox.swift",
+             "Sources/TransferCore/VerifiedRead.swift",
              "Sources/TransferCore/EditTransaction.swift", "Prototype/App/SMBEdit.swift",
              "Prototype/App/LocationEdits.swift", "Prototype/App/EditNamespace.swift",
              "Prototype/App/LocationDeletionInventory.swift",

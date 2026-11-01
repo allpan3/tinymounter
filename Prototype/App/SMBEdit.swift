@@ -1,4 +1,3 @@
-import CryptoKit
 import Darwin
 import Foundation
 import OSLog
@@ -28,6 +27,7 @@ final class SMBEdit: EditRemote, FileRenameRemote {
     private var folderMoveRoots: [String: Handle] = [:]
     private var folderMoveFiles: [String: Handle] = [:]
     private var folderMoveParents: Set<String> = []
+    private(set) var readProof: VerifiedRead?
     /// Set when a deletion traversal starts; that session never deletes.
     private var deletionTraversalFiles: [String: Handle]?
     private static let read: UInt32 = 0x20081
@@ -150,10 +150,55 @@ final class SMBEdit: EditRemote, FileRenameRemote {
         }
     }
 
-    func readVersion(path: String) throws -> EditFileVersion {
-        let handle = try open(path: path, access: Self.read, sharing: 1)
+    func readVersion(path: String, collectReadProof: Bool = false) throws -> EditFileVersion {
+        let handle = try handles[path] ?? open(path: path, access: Self.read, sharing: 1)
         handles[path] = handle
-        return try version(handle)
+        return try version(handle, collectReadProof: collectReadProof)
+    }
+
+    func protectRead(path: String) throws {
+        handles[path] = try open(path: path, access: Self.read, sharing: 1)
+    }
+
+    func verifyRead(path: String, range: ByteRange, base: EditFileVersion,
+                    proof: VerifiedRead) throws -> String? {
+        guard proof.size == base.size, proof.digest == base.digest else { return nil }
+        let handle = try handles[path] ?? open(path: path, access: Self.read, sharing: 1)
+        handles[path] = handle
+        let before = try info(handle)
+        guard before[0] == base.identity.fileID, before[1] == base.identity.birthMicroseconds,
+              before[2] == UInt64(base.size), before[3] == 1, before[4] == UInt64(base.attributes),
+              before[4] & 0x410 == 0, before[5] == base.modifiedMicroseconds,
+              before[6] == base.changedMicroseconds,
+              try Data(metadata(handle, security: true)) == base.security else { return nil }
+        let digest: String
+        do {
+            digest = try proof.verify(range: range) { offset, buffer in
+                try self.read(handle, offset: offset, buffer: buffer)
+            }
+        } catch TransferError.checksumMismatch { return nil }
+        let after = try info(handle)
+        guard before[0...6] == after[0...6] else { return nil }
+        return digest
+    }
+
+    func readRangeDigest(path: String, range: ByteRange) throws -> String {
+        guard let handle = handles[path] else { throw UploadError.unresolved }
+        return try VerifiedRead.capture(size: range.length, collect: false) { offset, buffer in
+            try self.read(handle, offset: range.offset + offset, buffer: buffer)
+        }.digest
+    }
+
+    private func read(_ handle: Handle, offset: Int64, buffer: UnsafeMutableRawBufferPointer) throws -> Int {
+        try cancellation()
+        var count: UInt32 = 0
+        try handle.use {
+            try check(tm_edit_read(client, $0, UInt64(offset), buffer.baseAddress!.assumingMemoryBound(to: UInt8.self),
+                                   UInt32(buffer.count), &count))
+        }
+        guard count > 0, count <= buffer.count else { throw UploadError.unresolved }
+        progress.completedUnitCount += Int64(count)
+        return Int(count)
     }
 
     func allowPublishedReads(path: String, expected: EditFileVersion) throws {
@@ -334,34 +379,26 @@ final class SMBEdit: EditRemote, FileRenameRemote {
         try target.use { try check(tm_edit_flush(client, $0)) }
     }
 
-    private func version(_ handle: Handle, artifactPath: String? = nil) throws -> EditFileVersion {
+    private func version(_ handle: Handle, artifactPath: String? = nil,
+                         collectReadProof: Bool = false) throws -> EditFileVersion {
         let before = try info(handle)
         guard before[2] <= Int64.max, before[3] == 1, before[4] & 0x410 == 0 else {
             throw UploadError.unresolved
         }
-        var hash = SHA256(), offset: UInt64 = 0
-        var buffer = [UInt8](repeating: 0, count: 1_048_576)
-        while offset < before[2] {
-            try cancellation()
-            var count: UInt32 = 0
-            try handle.use {
-                try check(tm_edit_read(client, $0, offset, &buffer, UInt32(min(UInt64(buffer.count), before[2] - offset)), &count))
-            }
-            guard count > 0, count <= buffer.count, UInt64(count) <= before[2] - offset else {
-                throw UploadError.unresolved
-            }
-            hash.update(data: buffer.prefix(Int(count)))
-            offset += UInt64(count)
-            progress.completedUnitCount += Int64(count)
+        readProof = nil
+        let contents = try VerifiedRead.capture(size: Int64(before[2]), collect: collectReadProof) { offset, buffer in
+            try self.read(handle, offset: offset, buffer: buffer)
         }
         let security = try metadata(handle, security: true)
         let quarantine = try artifactPath.flatMap { try artifactQuarantine(handle, path: $0, size: Int64(before[2])) }
         let after = try info(handle)
         guard before[0...3] == after[0...3], before[5] == after[5] else { throw UploadError.unresolved }
-        return try EditFileVersion(identity: EditFileIdentity(fileID: after[0], birthMicroseconds: after[1]),
-                                   size: Int64(after[2]), digest: hash.finalize().map { String(format: "%02x", $0) }.joined(),
+        let result = try EditFileVersion(identity: EditFileIdentity(fileID: after[0], birthMicroseconds: after[1]),
+                                   size: Int64(after[2]), digest: contents.digest,
                                    modifiedMicroseconds: after[5], changedMicroseconds: after[6],
                                    attributes: UInt32(after[4]), security: Data(security), artifactQuarantine: quarantine)
+        readProof = contents.proof
+        return result
     }
 
     private func artifactQuarantine(_ handle: Handle, path: String, size: Int64) throws -> Data? {

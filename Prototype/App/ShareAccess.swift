@@ -775,6 +775,9 @@ final class LocationSource: @unchecked Sendable {
     var writeBookmark: Data?
     var editNamespace: EditNamespace { access.editNamespace }
     var mutationsSuspended = false
+    // Namespace and upload locks protect a bounded proof; no SMB handle survives a request.
+    var verifiedRead: (receipt: EditBaseReceipt, path: RelativePath, proof: VerifiedRead)?
+    weak var verifiedReadSession: ShareSession?
     private let lock = NSLock()
     /// Folders with a listing queued or running, and the replies that wait for it.
     private var waiting: [String: [Reply]] = [:]
@@ -808,6 +811,8 @@ final class LocationSource: @unchecked Sendable {
     func close() {
         closeDeletionRecovery()
         editNamespace.perform {
+            verifiedRead = nil
+            verifiedReadSession = nil
             catalogLock.withLock { catalog = nil }
             editNamespace.detach(domainID)
         }
