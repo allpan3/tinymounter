@@ -33,6 +33,9 @@
 #include "compat.h"
 
 #include "portable-endian.h"
+#include "aes128ccm.h"
+
+#ifdef TINYMOUNTER_CCM_REFERENCE
 #include "aes.h"
 
 static void aes_ccm_generate_b0(unsigned char *nonce, size_t nlen,
@@ -151,7 +154,7 @@ static void aes_ccm_crypt(unsigned char *key,
         }
 }
 
-void aes128ccm_encrypt(unsigned char *key,
+int aes128ccm_encrypt(unsigned char *key,
                        unsigned char *nonce, size_t nlen,
                        unsigned char *aad, size_t alen,
                        unsigned char *p, size_t plen,
@@ -164,6 +167,7 @@ void aes128ccm_encrypt(unsigned char *key,
         bxory(m, &s[0], mlen);
 
         aes_ccm_crypt(key, nonce, nlen, p, plen);
+        return 0;
 }
 
 int aes128ccm_decrypt(unsigned char *key,
@@ -183,3 +187,171 @@ int aes128ccm_decrypt(unsigned char *key,
 
         return memcmp(tmp, m, mlen);
 }
+
+#else
+
+#include <CommonCrypto/CommonCryptor.h>
+
+static int ccm_valid(unsigned char *key, unsigned char *nonce, size_t nlen,
+                     unsigned char *aad, size_t alen, unsigned char *p, size_t plen,
+                     unsigned char *m, size_t mlen)
+{
+        if (!key || !nonce || !m || (alen && !aad) || (plen && !p) ||
+            nlen < 7 || nlen > 13 || mlen < 4 || mlen > 16 || (mlen & 1) ||
+            alen >= 0xff00 || plen > UINT32_MAX) {
+                return 0;
+        }
+        return nlen <= 11 || plen < ((size_t)1 << (8 * (15 - nlen)));
+}
+
+static int ccm_update(CCCryptorRef cryptor, const unsigned char *input, size_t length,
+                       unsigned char *output)
+{
+        size_t moved = 0;
+
+        return CCCryptorUpdate(cryptor, input, length, output, length, &moved) == kCCSuccess &&
+               moved == length ? 0 : -1;
+}
+
+static int ccm_mac_bytes(CCCryptorRef cryptor, const unsigned char *input, size_t length,
+                          unsigned char *tag)
+{
+        unsigned char output[16384], tail[16] = {0};
+        size_t count;
+
+        while (length >= 16) {
+                count = length & ~(size_t)15;
+                if (count > sizeof(output)) {
+                        count = sizeof(output);
+                }
+                if (ccm_update(cryptor, input, count, output)) {
+                        return -1;
+                }
+                memcpy(tag, output + count - 16, 16);
+                input += count;
+                length -= count;
+        }
+        if (length) {
+                memcpy(tail, input, length);
+                if (ccm_update(cryptor, tail, sizeof(tail), output)) {
+                        return -1;
+                }
+                memcpy(tag, output, 16);
+        }
+        return 0;
+}
+
+static int ccm_mac(unsigned char *key, unsigned char *nonce, size_t nlen,
+                    unsigned char *aad, size_t alen, unsigned char *p, size_t plen,
+                    unsigned char *tag, size_t mlen)
+{
+        CCCryptorRef cryptor = NULL;
+        unsigned char block[16] = {0};
+        size_t length = plen, first;
+        int result = -1;
+
+        block[0] = (alen ? 0x40 : 0) | (((mlen - 2) / 2) << 3) | (14 - nlen);
+        memcpy(block + 1, nonce, nlen);
+        for (size_t i = 15; length; i--, length >>= 8) {
+                block[i] = (unsigned char)length;
+        }
+        if (CCCryptorCreateWithMode(kCCEncrypt, kCCModeCBC, kCCAlgorithmAES,
+                                   ccNoPadding, NULL, key, 16, NULL, 0, 0, 0,
+                                   &cryptor) != kCCSuccess) {
+                return -1;
+        }
+        if (ccm_mac_bytes(cryptor, block, sizeof(block), tag)) {
+                goto out;
+        }
+        if (alen) {
+                memset(block, 0, sizeof(block));
+                block[0] = (unsigned char)(alen >> 8);
+                block[1] = (unsigned char)alen;
+                first = alen < 14 ? alen : 14;
+                memcpy(block + 2, aad, first);
+                if (ccm_mac_bytes(cryptor, block, sizeof(block), tag) ||
+                    ccm_mac_bytes(cryptor, aad + first, alen - first, tag)) {
+                        goto out;
+                }
+        }
+        result = ccm_mac_bytes(cryptor, p, plen, tag);
+out:
+        /* Whole CBC blocks without padding leave no buffered output to finalize. */
+        if (CCCryptorRelease(cryptor) != kCCSuccess) {
+                result = -1;
+        }
+        return result;
+}
+
+static int ccm_crypt(unsigned char *key, unsigned char *nonce, size_t nlen,
+                      unsigned char *p, size_t plen, unsigned char *mask)
+{
+        CCCryptorRef cryptor = NULL;
+        unsigned char counter[16] = {0}, zero[16] = {0};
+        int result = -1;
+
+        counter[0] = (unsigned char)(14 - nlen);
+        memcpy(counter + 1, nonce, nlen);
+        if (CCCryptorCreateWithMode(kCCEncrypt, kCCModeCTR, kCCAlgorithmAES,
+                                   ccNoPadding, counter, key, 16, NULL, 0, 0,
+                                   kCCModeOptionCTR_BE, &cryptor) != kCCSuccess) {
+                return -1;
+        }
+        /* S0 masks the tag; bounded payload lengths cannot carry into the nonce. */
+        if (ccm_update(cryptor, zero, sizeof(zero), mask) == 0 &&
+            (!plen || ccm_update(cryptor, p, plen, p) == 0)) {
+                result = 0;
+        }
+        if (CCCryptorRelease(cryptor) != kCCSuccess) {
+                result = -1;
+        }
+        return result;
+}
+
+int aes128ccm_encrypt(unsigned char *key, unsigned char *nonce, size_t nlen,
+                      unsigned char *aad, size_t alen, unsigned char *p, size_t plen,
+                      unsigned char *m, size_t mlen)
+{
+        unsigned char tag[16], mask[16];
+
+        if (!ccm_valid(key, nonce, nlen, aad, alen, p, plen, m, mlen)) {
+                return -1;
+        }
+        if (ccm_mac(key, nonce, nlen, aad, alen, p, plen, tag, mlen) ||
+            ccm_crypt(key, nonce, nlen, p, plen, mask)) {
+                if (plen) memset(p, 0, plen);
+                memset(m, 0, mlen);
+                return -1;
+        }
+        for (size_t i = 0; i < mlen; i++) {
+                m[i] = tag[i] ^ mask[i];
+        }
+        return 0;
+}
+
+int aes128ccm_decrypt(unsigned char *key, unsigned char *nonce, size_t nlen,
+                      unsigned char *aad, size_t alen, unsigned char *p, size_t plen,
+                      unsigned char *m, size_t mlen)
+{
+        unsigned char tag[16], mask[16];
+        volatile unsigned char difference = 0;
+
+        if (!ccm_valid(key, nonce, nlen, aad, alen, p, plen, m, mlen)) {
+                return -1;
+        }
+        if (ccm_crypt(key, nonce, nlen, p, plen, mask) ||
+            ccm_mac(key, nonce, nlen, aad, alen, p, plen, tag, mlen)) {
+                goto fail;
+        }
+        for (size_t i = 0; i < mlen; i++) {
+                difference |= tag[i] ^ mask[i] ^ m[i];
+        }
+        if (difference == 0) {
+                return 0;
+        }
+fail:
+        if (plen) memset(p, 0, plen);
+        return -1;
+}
+
+#endif

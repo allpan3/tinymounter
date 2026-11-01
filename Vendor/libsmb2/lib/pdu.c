@@ -637,7 +637,18 @@ smb2_queue_pdu(struct smb2_context *smb2, struct smb2_pdu *pdu)
                 }
         }
 
-        smb3_encrypt_pdu(smb2, pdu);
+        if (smb3_encrypt_pdu(smb2, pdu) < 0) {
+                if (!smb2_is_server(smb2)) {
+                        smb2->message_id = pdu->header.message_id;
+                }
+                for (p = pdu; p; p = p->next_compound) {
+                        if (p->cb) {
+                                p->cb(smb2, SMB2_STATUS_INTERNAL_ERROR, NULL, p->cb_data);
+                        }
+                }
+                smb2_free_pdu(smb2, pdu);
+                return;
+        }
 
         smb2_add_to_outqueue(smb2, pdu);
 }

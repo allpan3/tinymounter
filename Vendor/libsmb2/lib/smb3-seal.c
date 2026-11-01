@@ -86,12 +86,16 @@ smb3_encrypt_pdu(struct smb2_context *smb2,
         spl = 52;  /* transform header */
         for (tmp_pdu = pdu; tmp_pdu; tmp_pdu = tmp_pdu->next_compound) {
                 for (i = 0; i < tmp_pdu->out.niov; i++) {
+                        if (tmp_pdu->out.iov[i].len > SMB2_MAX_PDU_SIZE - spl) {
+                                smb2_set_error(smb2, "Encrypted PDU exceeds maximum size");
+                                return -1;
+                        }
                         spl += (uint32_t)tmp_pdu->out.iov[i].len;
                 }
         }
         pdu->crypt = calloc(spl, sizeof(uint8_t));
         if (pdu->crypt == NULL) {
-                pdu->seal = 0;
+                smb2_set_error(smb2, "Failed to allocate encrypted PDU");
                 return -1;
         }
 
@@ -112,11 +116,17 @@ smb3_encrypt_pdu(struct smb2_context *smb2,
                 }
         }
 
-        aes128ccm_encrypt(smb2->serverin_key,
+        if (aes128ccm_encrypt(smb2->serverin_key,
                           &pdu->crypt[20], 11,
                           &pdu->crypt[20], 32,
                           &pdu->crypt[52], spl - 52,
-                          &pdu->crypt[4], 16);
+                          &pdu->crypt[4], 16)) {
+                smb2_set_error(smb2, "Failed to encrypt PDU");
+                free(pdu->crypt);
+                pdu->crypt = NULL;
+                pdu->crypt_len = 0;
+                return -1;
+        }
         pdu->crypt_len = spl;
 
         return 0;
