@@ -13,127 +13,20 @@ final class DeletionOutboxTests: XCTestCase {
         fixture = nil
     }
 
-    /// Pre-deletion readers select these extensions and exclude only the edit ordering guard.
-    private func failingOlderReaders() -> Int {
-        let edit: (Data) throws -> Void = { _ = try JSONDecoder().decode(PendingEdit.self, from: $0) }
-        let rename: (Data) throws -> Void = { data in
-            struct Header: Decodable { let kind: String? }
-            let decoder = JSONDecoder()
-            if let kind = try decoder.decode(Header.self, from: data).kind {
-                guard kind == "folder" else { throw UploadError.invalidRequest }
-                try decoder.decode(PendingFolderMove.self, from: data).validate()
-            } else {
-                try decoder.decode(PendingFileRename.self, from: data).validate()
-            }
-        }
-        let readers = [(fixture.directory.appending(path: "Edits/\(fixture.owner)"), "edit", edit),
-                       (fixture.directory.appending(path: "Edits/\(fixture.neighbor)"), "edit", edit),
-                       (fixture.directory.appending(path: "Renames"), "rename", rename)]
-        return readers.filter { folder, suffix, decode in
-            let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
-            return files.filter { $0.pathExtension == suffix
-                && (suffix != "edit" || $0.lastPathComponent != "Ordering.edit")
-            }.contains { (try? decode(Data(contentsOf: $0))) == nil }
-        }.count
-    }
-
-    func testOlderReaderFiltersIgnoreUnrelatedFilesAndTheEditOrderingGuard() throws {
-        let folders = Set((fixture.guardURLs(fixture.owner) + fixture.guardURLs(fixture.neighbor))
-            .map { $0.deletingLastPathComponent() })
-        for folder in folders {
-            try FileManager.default.createDirectory(at: folder.appending(path: "Contents"),
-                                                     withIntermediateDirectories: true)
-            for name in ["Ordering.edit", "interrupted.new", "unrelated.progress", "saved.receipt"] {
-                try Data("not a record".utf8).write(to: folder.appending(path: name))
-            }
-        }
-        XCTAssertEqual(failingOlderReaders(), 0)
-        var record = try fixture.prepare()
-        XCTAssertEqual(failingOlderReaders(), 3)
-        try fixture.outbox.stop(&record)
-        for domain in [fixture.owner, fixture.neighbor] { try fixture.outbox.finishDomain(domain, record: &record) }
-        XCTAssertEqual(failingOlderReaders(), 0)
-    }
-
-    func testGuardsPrecedeThePlanAndCloseOlderReadersUntilEveryViewSettles() throws {
+    func testRecordStaysPendingUntilEveryViewSettles() throws {
         var record = try fixture.prepare()
         XCTAssertEqual(try fixture.storedFiles(), [record.id.uuidString + ".deletion", record.id.uuidString + ".progress"])
-        XCTAssertEqual(failingOlderReaders(), 3)
         try fixture.run(&record)
         try fixture.outbox.finishDomain(fixture.owner, record: &record)
         XCTAssertTrue(record.isPending)
-        XCTAssertEqual(failingOlderReaders(), 3)
         try fixture.outbox.finishDomain(fixture.neighbor, record: &record)
         XCTAssertFalse(record.isPending)
-        XCTAssertEqual(failingOlderReaders(), 0)
-        XCTAssertFalse((fixture.guardURLs(fixture.owner) + fixture.guardURLs(fixture.neighbor))
-            .contains { FileManager.default.fileExists(atPath: $0.path) })
         XCTAssertThrowsError(try fixture.outbox.remove(record, removedOwner: fixture.neighbor)) {
             XCTAssertEqual($0 as? ItemDeletionError, .invalidRequest)
         }
         try fixture.outbox.remove(record, removedOwner: fixture.owner)
         XCTAssertEqual(try fixture.storedFiles(), [])
         XCTAssertEqual(try fixture.outbox.records(), [])
-    }
-
-    func testGuardFailureLeavesNoDurableRequestAndReconcilingRemovesItsLeftovers() throws {
-        XCTAssertTrue(FileManager.default.createFile(atPath: fixture.directory.appending(path: "Renames").path,
-                                                     contents: Data()))
-        XCTAssertThrowsError(try fixture.prepare())
-        XCTAssertEqual(try fixture.storedFiles(), [])
-        XCTAssertEqual(try fixture.outbox.records(), [])
-        let created = fixture.guardURLs(fixture.owner)[0]
-        XCTAssertTrue(FileManager.default.fileExists(atPath: created.path))
-        try fixture.outbox.reconcileGuards(domains: [fixture.owner])
-        XCTAssertFalse(FileManager.default.fileExists(atPath: created.path))
-        XCTAssertEqual(fixture.server.sessions, 0)
-    }
-
-    func testAnotherOutboxCannotReconcileSharedGuardsBeforePlanPublication() throws {
-        let fixture = self.fixture!
-        let sharedGuard = fixture.guardURLs(fixture.owner)[1]
-        let guardCreated = DispatchSemaphore(value: 0), resume = DispatchSemaphore(value: 0)
-        let reconciliationStarted = DispatchSemaphore(value: 0), reconciliationReturned = DispatchSemaphore(value: 0)
-        let prepared = expectation(description: "Plan persisted")
-        let reconciled = expectation(description: "Other namespace reconciled")
-        var paused = false
-        let preparing = try DeletionOutbox(directory: fixture.outboxDirectory,
-            compatibilityGuards: { fixture.guardURLs($0) }, directorySync: { fd in
-                if !paused, FileManager.default.fileExists(atPath: sharedGuard.path) {
-                    paused = true
-                    guardCreated.signal()
-                    guard resume.wait(timeout: .now() + 10) == .success else { throw DeletionFixture.Fault.persistence }
-                }
-                guard fsync(fd) == 0 else { throw DeletionFixture.Fault.persistence }
-            })
-        let reconciling = try fixture.makeOutbox()
-        let traversal = try fixture.traversal(), views = try fixture.views()
-        let otherDomain = UUID().uuidString
-        DispatchQueue.global().async {
-            defer { prepared.fulfill() }
-            do {
-                _ = try preparing.prepare(endpoint: fixture.endpoint, owner: fixture.owner, request: fixture.request,
-                    traversal: traversal, views: views, protectedRoots: [], recursive: true)
-            } catch { XCTFail("Preparation failed: \(error)") }
-        }
-        XCTAssertEqual(guardCreated.wait(timeout: .now() + 5), .success)
-        XCTAssertFalse(try fixture.storedFiles().contains { $0.hasSuffix(".deletion") })
-        DispatchQueue.global().async {
-            defer { reconciliationReturned.signal(); reconciled.fulfill() }
-            reconciliationStarted.signal()
-            do { try reconciling.reconcileGuards(domains: [otherDomain]) }
-            catch { XCTFail("Reconciliation failed: \(error)") }
-        }
-        XCTAssertEqual(reconciliationStarted.wait(timeout: .now() + 5), .success)
-        XCTAssertEqual(reconciliationReturned.wait(timeout: .now() + 0.1), .timedOut)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: sharedGuard.path))
-        resume.signal()
-        wait(for: [prepared, reconciled], timeout: 10)
-        let record = try XCTUnwrap(reconciling.records().first)
-        XCTAssertTrue(record.isPending)
-        XCTAssertEqual(record.plan.owner, fixture.owner)
-        XCTAssertEqual(failingOlderReaders(), 3)
-        XCTAssertEqual(fixture.server.sessions, 0)
     }
 
     func testReplayReturnsTheOperationAndOverlappingRequestsWaitForEveryCatalog() throws {
@@ -181,7 +74,7 @@ final class DeletionOutboxTests: XCTestCase {
         XCTAssertEqual(record, restarted)
     }
 
-    func testUnconfirmedOutcomeKeepsTheRecordAndGuardsUntilDismissed() throws {
+    func testUnconfirmedOutcomeKeepsTheRecordUntilDismissed() throws {
         var record = try fixture.prepare()
         fixture.server.lostCloses = ["Docs/Tree/b"]
         XCTAssertThrowsError(try fixture.run(&record))
@@ -192,7 +85,6 @@ final class DeletionOutboxTests: XCTestCase {
         XCTAssertTrue(record.isComplete)
         XCTAssertFalse(record.blocksWrites)
         XCTAssertTrue(record.isPending)
-        XCTAssertEqual(failingOlderReaders(), 3)
         XCTAssertThrowsError(try fixture.outbox.remove(record, removedOwner: fixture.owner)) {
             XCTAssertEqual($0 as? UploadError, .pendingWrites)
         }
@@ -201,7 +93,6 @@ final class DeletionOutboxTests: XCTestCase {
         }
         try fixture.outbox.dismiss(&record)
         XCTAssertFalse(record.isPending)
-        XCTAssertEqual(failingOlderReaders(), 0)
         try fixture.outbox.removeSettled(domain: UUID().uuidString)
         XCTAssertEqual(try fixture.outbox.records(), [record])
         try fixture.outbox.removeSettled(domain: fixture.neighbor)

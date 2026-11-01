@@ -49,7 +49,7 @@ changed/replaced-file refusal and recovery checks pass. Lost close replies remai
 [The results and simulated-interruption limits are recorded](docs/results/2026-10-29-deletion-protocol.md#signed-adapter-continuation-2026-10-30).
 The durable recursive-deletion core also passes 28 simulated-server and storage tests in VM 1.
 Protected traversal admission passes required VM checks and bounded signed recursive checks.
-Deletion inventory, downgrade guards, catalog settlement and gated app admission pass
+Deletion inventory, catalog settlement and gated app admission pass
 required VM checks. The fresh-listing settlement bridge also passes source review and VM checks;
 the connected recovery scheduler and cancellation repair also pass the required VM checks.
 Follow-up recovery fixes also pass checks. Signed recursive refusals, two-view deletion, lost-reply

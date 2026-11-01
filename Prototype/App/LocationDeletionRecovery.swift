@@ -273,9 +273,6 @@ extension LocationSource {
                 recovery.record = try resumeDeletionOnLane(current.id, progress: recovery.progress)
             }
             if recovery.record.isComplete {
-                try editNamespace.perform {
-                    try Self.deletionOutbox().reconcileGuards(domains: recovery.record.plan.views.map(\.domain))
-                }
                 finishDeletionReply(recovery)
                 return
             }

@@ -652,10 +652,8 @@ Never infer success just because the old path is absent, move another object's c
 undo a competing client's change. Pending work protects both paths and blocks source changes,
 write-mode revocation and removal of every affected location.
 
-Keep M20's existing pending and completed receipts readable. If the persistent contract expands,
-migrate it without resetting locations, item IDs, keeps or downloads, and make older writers
-refuse state whose pending moves they cannot honor. Add a format change only for that concrete
-compatibility need.
+If the persistent contract expands, change the format without a migration or downgrade guard:
+until release, locations are added again after a format change.
 
 ### Transport and acceptance gates
 

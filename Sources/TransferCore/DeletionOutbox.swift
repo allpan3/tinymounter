@@ -364,7 +364,7 @@ public struct PendingDeletion: Equatable, Sendable {
     public var hasUnconfirmed: Bool { progress.exceptions.contains { $0.outcome == .unconfirmed } }
     /// Overlapping writes wait until every view's catalog shows the settled result.
     public var blocksWrites: Bool { !isComplete }
-    /// Keeps the record and the older-build guards until any uncertainty has been dismissed.
+    /// Keeps the record until any uncertainty has been dismissed.
     public var isPending: Bool { !isComplete || (hasUnconfirmed && !progress.dismissed) }
 
     /// Nil for nodes that have not finished.
@@ -404,24 +404,20 @@ public struct PendingDeletion: Equatable, Sendable {
 }
 
 /// One inventory for every share; records bind their endpoint and domains.
-/// Callers serialize each namespace; local storage and shared guards serialize process-wide.
+/// Callers serialize each namespace; local storage serializes process-wide.
 public final class DeletionOutbox {
     private static let storageLock = NSRecursiveLock()
     private let directory: URL
-    private let guards: (String) -> [URL]
     private let directorySync: (Int32) throws -> Void
 
-    /// `compatibilityGuards` names empty files whose presence makes older builds' readers fail.
-    public convenience init(directory: URL, compatibilityGuards: @escaping (String) -> [URL] = { _ in [] }) throws {
-        try self.init(directory: directory, compatibilityGuards: compatibilityGuards, directorySync: { fd in
+    public convenience init(directory: URL) throws {
+        try self.init(directory: directory, directorySync: { fd in
             guard fsync(fd) == 0 else { throw posixError("sync deletion directory") }
         })
     }
 
-    init(directory: URL, compatibilityGuards: @escaping (String) -> [URL],
-         directorySync: @escaping (Int32) throws -> Void) throws {
+    init(directory: URL, directorySync: @escaping (Int32) throws -> Void) throws {
         self.directory = directory
-        guards = compatibilityGuards
         self.directorySync = directorySync
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
                                                  attributes: [.posixPermissions: 0o700])
@@ -469,7 +465,6 @@ public final class DeletionOutbox {
         guard !(try records()).contains(where: { $0.blocksWrites && !domains.isDisjoint(with: $0.plan.domains) }) else {
             throw UploadError.pendingWrites
         }
-        for url in Self.unique(plan.domains.flatMap(guards)) { try ensureGuard(url) }
         let record = PendingDeletion(plan: plan, progress: DeletionProgress())
         // Progress first: a plan without progress is damage, while progress without a plan is inert.
         try persist(JSONEncoder().encode(record.progress), to: url(plan.id, "progress"), exclusive: true)
@@ -490,7 +485,6 @@ public final class DeletionOutbox {
             current.progress = next
         }
         record = current
-        if !current.isPending { try reconcileGuards(Set(current.plan.domains)) }
     }
 
     /// Settles an operation that cannot proceed. A node that may have been requested stays unconfirmed.
@@ -526,7 +520,6 @@ public final class DeletionOutbox {
             current.progress = next
         }
         record = current
-        try reconcileGuards(Set(current.plan.domains))
     }
 
     /// Removes a replay record only after its owner domain has been removed.
@@ -537,7 +530,6 @@ public final class DeletionOutbox {
         guard current.plan.owner == domain else { throw ItemDeletionError.invalidRequest }
         guard !current.isPending else { throw UploadError.pendingWrites }
         try removeFiles(current.id)
-        try reconcileGuards(Set(current.plan.domains))
     }
 
     /// Call after domain removal succeeds; pendingCount supplies the earlier preflight.
@@ -548,11 +540,7 @@ public final class DeletionOutbox {
         guard !affected.contains(where: \.isPending) else { throw UploadError.pendingWrites }
         // Other owners can still receive delayed callbacks and need their replay records.
         for record in affected where record.plan.owner == domain { try removeFiles(record.id) }
-        try reconcileGuards(Set(affected.flatMap(\.plan.domains) + [domain]))
     }
-
-    /// Adds missing guards for pending operations and removes the others, for these domains only.
-    public func reconcileGuards(domains: [String]) throws { try reconcileGuards(Set(domains)) }
 
     func reload(_ record: PendingDeletion) throws -> PendingDeletion {
         Self.storageLock.lock()
@@ -597,50 +585,6 @@ public final class DeletionOutbox {
             guard unlink(url(id, suffix).path) == 0 || errno == ENOENT else { throw posixError("remove deletion record") }
             try syncDirectory(directory)
         }
-    }
-
-    private func reconcileGuards(_ domains: Set<String>) throws {
-        Self.storageLock.lock()
-        defer { Self.storageLock.unlock() }
-        let pending = try records().filter(\.isPending)
-        let wanted = Set(pending.flatMap(\.plan.domains).flatMap(guards).map(\.standardizedFileURL.path))
-        for url in Self.unique(domains.sorted().flatMap(guards)) {
-            if wanted.contains(url.standardizedFileURL.path) { try ensureGuard(url) } else { try removeGuard(url) }
-        }
-    }
-
-    private static func unique(_ urls: [URL]) -> [URL] {
-        var seen = Set<String>()
-        return urls.filter { seen.insert($0.standardizedFileURL.path).inserted }
-    }
-
-    private func ensureGuard(_ url: URL) throws {
-        let parent = url.deletingLastPathComponent()
-        var info = stat()
-        if lstat(url.path, &info) == 0 {
-            guard info.st_mode & S_IFMT == S_IFREG else { throw ItemDeletionError.invalidRequest }
-            // It may be visible without its directory entry being durable yet.
-            try syncDirectory(parent)
-            return
-        }
-        guard errno == ENOENT else { throw posixError("inspect deletion guard") }
-        let created = !FileManager.default.fileExists(atPath: parent.path)
-        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true,
-                                                 attributes: [.posixPermissions: 0o700])
-        let fd = open(url.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
-        guard fd >= 0 else { throw posixError("create deletion guard") }
-        defer { close(fd) }
-        guard fcntl(fd, F_FULLFSYNC) == 0 else { throw posixError("sync deletion guard") }
-        try syncDirectory(parent)
-        if created { try syncDirectory(parent.deletingLastPathComponent()) }
-    }
-
-    private func removeGuard(_ url: URL) throws {
-        guard unlink(url.path) == 0 else {
-            guard errno == ENOENT || errno == ENOTDIR else { throw posixError("remove deletion guard") }
-            return
-        }
-        try syncDirectory(url.deletingLastPathComponent())
     }
 
     private func persist(_ data: Data, to final: URL, exclusive: Bool) throws {

@@ -228,8 +228,8 @@ M24's signed production-adapter checks pass for ordinary files, empty directorie
 confirmation, changed/replaced-file refusal and recovery after injected interruptions. Lost
 close replies stay unconfirmed. Durable operation storage and the recursive transaction pass
 28 simulated-server and storage tests in VM 1. Protected traversal admission compiles and passes
-required VM checks and bounded signed recursive checks. The app inventory, namespace blocking and
-downgrade guards pass required VM checks. Catalog settlement with immutable admission evidence
+required VM checks and bounded signed recursive checks. The app inventory and namespace blocking
+pass required VM checks. Catalog settlement with immutable admission evidence
 and fresh-listing obligations, and gated app admission and execution, also pass required VM checks.
 The owner-lane scheduler now connects settlement, Settings cleanup and lifecycle retry; that
 wiring and its cancellation repair pass required VM checks. Signed recursive checks cover refusals,
@@ -317,7 +317,7 @@ recovery records remain. The physical Mac was not updated.
 
 ## Common completion criteria
 
-Every implementation milestone includes meaningful regression tests, required migrations, signed
+Every implementation milestone includes meaningful regression tests, signed
 Finder workflows, collision/concurrent-change and interruption recovery checks, and matched
 before/after recordings for visible behavior. Compare IDs, versions, keeps and downloaded bytes
 with an untouched neighbor. Verify permissions and attached data where remote objects change.
@@ -354,7 +354,7 @@ the coordinator. Protocol work owns an isolated organization probe and proposes 
 SMB adapter change before another branch uses it. Only the coordinator changes shared settings
 compatibility, project generation and production capability admission after those gates pass.
 
-Catalog/settings migrations, shared IPC, provider callback routing, the project generator and
+Catalog/settings formats, shared IPC, provider callback routing, the project generator and
 namespace locking have one integration owner. Agree on the small shared contract first; then
 independent implementations can proceed against it. Feature branches must not advertise a
 capability before the relevant safety gate and signed integration check pass.
