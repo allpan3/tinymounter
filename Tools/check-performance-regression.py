@@ -21,7 +21,9 @@ WORKLOADS, interleaved each round; order alternates between rounds:
            by at least the range length during the sample, or the sample is invalid.
 Provider copies and ranges are hashed with hydration disabled, outside timing, and
 compared at the end with native hashes. Rates are decimal MB/s. Failed samples stay
-in samples.jsonl and results.json; only valid samples enter medians.
+in samples.jsonl and results.json; only valid samples enter medians. Remote samples
+also require SMB receive counters to cover the requested bytes. Full downloads need
+one matching full callback from the selected app's provider.
 
 The fetch log (subsystem dev.tinymounter.prototype, category fetch) is streamed for
 the run. Each provider sample records its callbacks: count, modes, bytes, and the
@@ -338,6 +340,11 @@ class Series:
         (self.evidence / (sample["id"] + "-smb-after.txt")).write_text(after_text)
         if before is not None and after is not None:
             sample["smbRxDelta"] = sum(after[key] - before[key] for key in after.keys() & before.keys())
+        if sample["valid"] and sample["workload"] in (
+                "native-full", "provider-full", "native-partial", "provider-partial"):
+            if sample.get("smbRxDelta", -1) < sample["bytes"]:
+                sample["valid"] = False
+                sample["failure"] = "SMB counters do not establish payload ingress"
         self.samples.append(sample)
         self.lines.write(json.dumps(sample) + "\n")
         self.lines.flush()
@@ -506,12 +513,18 @@ class Series:
                 self.hash_into("local-clone", str(self.clone), 0, full_size)
         if self.clone.exists():
             self.clone.unlink()
-        callbacks = parse_fetch_log(self.folder / "fetch-log.ndjson")
+        callbacks = parse_fetch_log(self.folder / "fetch-log.ndjson", self.args.app)
         for sample in self.samples:
             sample["verification"] = self.verification(sample) if complete else "not performed: run incomplete"
             sample["finalValid"] = sample["valid"] and sample["verification"] in ("matched", "native reference")
             if sample["workload"].startswith("provider"):
                 sample["fetchCallbacks"] = summarize_callbacks(callbacks, sample["wallStart"], sample["wallEnd"])
+                if sample["workload"] == "provider-full":
+                    observed = sample["fetchCallbacks"]
+                    if (self.log_status != "captured" or observed["count"] != 1 or observed["failed"]
+                            or observed["modes"] != ["full/full"] or observed["bytes"] != sample.get("bytes")):
+                        sample["finalValid"] = False
+                        sample["failure"] = "full-download callback evidence is missing or inconsistent"
 
     def verification(self, sample):
         def match(key, reference):
@@ -530,13 +543,15 @@ class Series:
         return match(f"{round_key}-provider-partial", f"native-slot-{sample['slot']}")
 
 
-def parse_fetch_log(path):
+def parse_fetch_log(path, app):
     callbacks = []
     for line in path.read_text(errors="replace").splitlines():
         try:
             event = json.loads(line)
             when = datetime.datetime.strptime(event["timestamp"], "%Y-%m-%d %H:%M:%S.%f%z").timestamp()
         except (ValueError, KeyError, TypeError):
+            continue
+        if not event.get("processImagePath", "").startswith(str(app) + "/Contents/PlugIns/"):
             continue
         message = event.get("eventMessage", "")
         found = FETCH_LINE.search(message)
@@ -675,7 +690,7 @@ def command_run(args):
     mismatches = [s["id"] for s in series.samples if s["verification"] == "MISMATCH"]
     if mismatches:
         print("HASH MISMATCH: " + ", ".join(mismatches))
-    return 0 if complete and not mismatches else 1
+    return 0 if complete and all(sample["finalValid"] for sample in series.samples) else 1
 
 
 def environment(results):
@@ -685,6 +700,9 @@ def environment(results):
     fixtures = {key: (value["size"], value["mtimeNs"]) for key, value in manifest["fixtures"].items()
                 if key.startswith("native")}
     return {"fixtures": fixtures, "partial geometry": manifest["partial"], "rounds": manifest["rounds"],
+            "native hashes": {key: value.get("sha256") for key, value in results["hashes"].items()
+                              if key.startswith("native-")},
+            "SMB settings": Path(results["folder"], "smb-settings.txt").read_text(),
             "tools commit": manifest["toolsCommit"], "hardware": hardware, "OS": os_text}
 
 
@@ -719,8 +737,8 @@ def command_compare(args):
         print("Not matched: an app signature is unavailable, so build identity is unknown")
     same_build = None not in hashes and hashes[0] == hashes[1]
     same_mode = base["manifest"]["accessMode"] == current["manifest"]["accessMode"]
-    if "fixtures" in differences:
-        print("Attributes: nothing; the fixtures differ, so only each run's own ratios stand.")
+    if differences or None in hashes:
+        print("Attributes: nothing; setup or build identity is not matched. Each run's own ratios stand.")
     elif same_mode and not same_build:
         print("Attributes: a build difference at matched access mode.")
     elif same_build and not same_mode:
