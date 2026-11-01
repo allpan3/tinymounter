@@ -24,6 +24,7 @@ it wrong.
 
 ## Results logs
 
+- [Physical-Mac update](results/2026-11-01-local-update.md). Latest normal build installed with unchanged sandbox and identity; startup retains the existing location. Physical-Mac performance and writes remain unmeasured.
 - [Everyday-use and performance review](results/2026-10-31-everyday-use-review.md). Encryption acceleration cuts the measured writable-open delay; edited-file cache misses and throughput targets remain unresolved. Fixture corrections restore Finder folder creation and remove the connection delay. Temporary VM state is restored.
 - [VM graphics interruption during save checks](results/2026-10-30-vm-graphics-interruption.md) — the frozen attempt reached no save checkpoint; the approved restart and fixture recovery restored testing.
 - [Folder-move preparation and adapter checks](results/2026-10-30-folder-move-catalog.md) — selected signed move and recovery checks pass; ambiguous-name fixtures and Finder integration remain unverified.
