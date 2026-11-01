@@ -256,6 +256,13 @@ Implement the accepted scopes in dependency order without asking the user
 to select a new feature after each milestone. Ordinary implementation choices belong to the
 agents. Record significant choices and measured limits with the corresponding code and tests.
 
+On 2026-10-31 the user reaffirmed autonomous implementation and requested periodic code and
+milestone reviews against everyday Finder use. Keep progress reports about working user tasks,
+with internal test detail in the results logs. Check performance during implementation, not only
+at M28: compare the current build with a reproducible earlier build and a matched native baseline.
+Distinguish new regressions from targets that never passed, and retain the original targets.
+Opus and Astra may both handle bounded implementation and review tasks.
+
 Return for a decision when evidence requires a smaller user-visible scope, a weaker safety
 guarantee, different deletion or retention behavior, a new dependency, or transport behavior
 outside the accepted plan. A failed safety gate does not authorize a fallback. Keep the current
