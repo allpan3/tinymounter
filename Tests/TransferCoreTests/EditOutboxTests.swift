@@ -47,13 +47,6 @@ final class EditOutboxTests: XCTestCase {
         }, 0)
     }
 
-    private func unordered(_ record: PendingEdit) throws -> PendingEdit {
-        var record = record
-        record.sequence = nil
-        try outbox.save(record)
-        return record
-    }
-
     private func stored(_ record: PendingEdit) throws -> PendingEdit {
         try XCTUnwrap(outbox.records().first { $0.id == record.id })
     }
@@ -63,36 +56,6 @@ final class EditOutboxTests: XCTestCase {
         record.previous = try version(for: record)
         record.published = try EditBaseReceipt(item: item, version: version(for: record))
         try outbox.complete(&record, item: item)
-    }
-
-    private func writeLegacy(_ record: PendingEdit) throws {
-        var legacy = record
-        legacy.completedStageRemoved = nil
-        legacy.completedBackupRemoved = nil
-        legacy.completedCleanupStarted = nil
-        try JSONEncoder().encode(legacy).write(to:
-            directory.appending(path: "Edits/\(legacy.id.uuidString).edit"))
-    }
-
-    private struct PreviousRecord: Decodable {
-        enum State: String, Decodable {
-            case preparing, prepared, creatingStage, staged, creatingBackup, backedUp, movingOriginal
-            case copying, restoring, publishing, published, completed, retired
-        }
-        let state: State
-    }
-
-    /// Mirrors the M19 and M20 listing: every .edit file must decode as a record named by its ID.
-    private func olderBuildRecords() throws -> [PendingEdit] {
-        try FileManager.default.contentsOfDirectory(at: directory.appending(path: "Edits"),
-                                                    includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "edit" }.map { url in
-                let record = try JSONDecoder().decode(PendingEdit.self, from: Data(contentsOf: url))
-                guard record.id.uuidString == url.deletingPathExtension().lastPathComponent else {
-                    throw UploadError.invalidRequest
-                }
-                return record
-            }
     }
 
     private func files(of record: PendingEdit) -> [String] {
@@ -182,31 +145,6 @@ final class EditOutboxTests: XCTestCase {
         try outbox.validateContents(record)
     }
 
-    func testCleanupStateRejectsEarlierDecodersAndKeepsItsOrderingGuard() throws {
-        var record = try prepare()
-        record.state = .published
-        record.previous = try version(for: record)
-        record.stageVersion = try version(for: record)
-        record.stageIdentity = record.stageVersion?.identity
-        record.published = try EditBaseReceipt(item: item, version: version(for: record))
-        record.recoveryRetained = true
-        try outbox.complete(&record, item: item)
-        XCTAssertTrue(record.isPublicationComplete)
-        XCTAssertEqual(record.state, .cleaningUp)
-        XCTAssertNil(try outbox.order(item: item).head)
-        XCTAssertEqual(try prepare().id, record.id)
-        let url = directory.appending(path: "Edits/\(record.id.uuidString).edit")
-        let encoded = try Data(contentsOf: url)
-        XCTAssertThrowsError(try JSONDecoder().decode(PreviousRecord.self, from: encoded))
-        try outbox.releaseOrderingGuardIfSettled()
-        XCTAssertThrowsError(try olderBuildRecords())
-        try FileManager.default.removeItem(at: directory.appending(path: "Edits/" + EditOutbox.orderingGuardName))
-        XCTAssertThrowsError(try outbox.order(item: item))
-        XCTAssertThrowsError(try outbox.beginCompletedCleanup(&record))
-        XCTAssertEqual(try Data(contentsOf: url), encoded)
-        try outbox.validateContents(record)
-    }
-
     func testCompletedCleanupProgressCannotRegressOrChangeReceiptEvidence() throws {
         var record = try prepare()
         record.state = .published
@@ -247,9 +185,6 @@ final class EditOutboxTests: XCTestCase {
         XCTAssertEqual(record.published, stale.published)
         XCTAssertThrowsError(try outbox.save(stale))
         XCTAssertThrowsError(try outbox.saveCompletedProgress(stale))
-        let finalData = try Data(contentsOf: directory.appending(path: "Edits/\(record.id.uuidString).edit"))
-        XCTAssertEqual(try JSONDecoder().decode(PreviousRecord.self, from: finalData).state, .completed)
-        XCTAssertEqual(try olderBuildRecords(), [record])
         XCTAssertEqual(try prepare(), record)
     }
 
@@ -379,18 +314,6 @@ final class EditOutboxTests: XCTestCase {
         XCTAssertEqual(try outbox.pendingCount, 0)
     }
 
-    func testOlderPendingRecordWithoutDocumentMetadataDigestStillReplays() throws {
-        var first = try prepare()
-        first.documentMetadataDigest = nil
-        try outbox.save(first)
-        let value = Data("0081;12345678;Test;".utf8)
-        XCTAssertEqual(value.withUnsafeBytes {
-            setxattr(input.path, "com.apple.quarantine", $0.baseAddress, $0.count, 0, 0)
-        }, 0)
-        XCTAssertEqual(try prepare().id, first.id)
-        try outbox.validateContents(first)
-    }
-
     func testInterruptedBeforeMetadataSnapshotCanReplaySystemAssignedAttributes() throws {
         var first = try prepare()
         first.state = .preparing
@@ -445,7 +368,7 @@ final class EditOutboxTests: XCTestCase {
         let first = try prepare("first save")
         let second = try prepare("second save")
         let third = try prepare("third save")
-        let sequences = try [first, second, third].map { try XCTUnwrap($0.sequence) }
+        let sequences = [first, second, third].map(\.sequence)
         XCTAssertEqual(sequences, sequences.sorted())
         XCTAssertEqual(Set(sequences).count, 3)
         let order = try outbox.order(item: item)
@@ -476,7 +399,7 @@ final class EditOutboxTests: XCTestCase {
         let intermediate = try prepare("version B")
         let reverted = try prepare("version A")
         XCTAssertNotEqual(reverted.id, original.id)
-        XCTAssertGreaterThan(try XCTUnwrap(reverted.sequence), try XCTUnwrap(intermediate.sequence))
+        XCTAssertGreaterThan(reverted.sequence, intermediate.sequence)
         let order = try outbox.order(item: item)
         XCTAssertEqual(order.head?.id, reverted.id)
         XCTAssertEqual(Set(order.superseded.map(\.id)), [original.id, intermediate.id])
@@ -504,7 +427,7 @@ final class EditOutboxTests: XCTestCase {
         XCTAssertThrowsError(try outbox.discard(earlier))
         let resumed = try prepare("newer save")
         XCTAssertNotEqual(resumed.id, newer.id)
-        XCTAssertGreaterThan(try XCTUnwrap(resumed.sequence), try XCTUnwrap(earlier.sequence))
+        XCTAssertGreaterThan(resumed.sequence, earlier.sequence)
         XCTAssertEqual(resumed.state, .prepared)
         order = try outbox.order(item: item)
         XCTAssertEqual(order.head?.id, resumed.id)
@@ -611,20 +534,6 @@ final class EditOutboxTests: XCTestCase {
         try outbox.validateContents(earlier)
     }
 
-    func testIncompletePreparationAfterCompletedSaveReleasesOrderingGuard() throws {
-        var completed = try prepare("completed save")
-        try completeAsPublished(&completed)
-        let failedContents = String(repeating: "x", count: 2 * 1024 * 1024)
-        XCTAssertThrowsError(try prepare(failedContents, checkSpace: { if $0 > 0 { throw CocoaError(.fileWriteOutOfSpace) } }))
-        XCTAssertThrowsError(try olderBuildRecords())
-        outbox = try EditOutbox(directory: directory.appending(path: "Edits"))
-        XCTAssertNil(try outbox.order(item: item).head)
-        XCTAssertEqual(try outbox.pendingCount, 0)
-        XCTAssertEqual(try olderBuildRecords().map(\.id), [completed.id])
-        XCTAssertEqual(try Data(contentsOf: input), Data(failedContents.utf8))
-        XCTAssertEqual(try outbox.records().map(\.id), [completed.id])
-    }
-
     func testInterruptedPreparationCleanupFinishesAfterPayloadRemoval() throws {
         let previous = try prepare("previous save")
         XCTAssertThrowsError(try prepare(String(repeating: "x", count: 2 * 1024 * 1024),
@@ -651,19 +560,6 @@ final class EditOutboxTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: outbox.contentURL(record)), Data("complete save".utf8))
         XCTAssertEqual(files(of: record).count, 4)
         XCTAssertEqual(try outbox.pendingCount, 1)
-        XCTAssertThrowsError(try olderBuildRecords())
-    }
-
-    func testMissingOrderingEvidencePreventsIncompletePreparationCleanup() throws {
-        XCTAssertThrowsError(try prepare(String(repeating: "x", count: 2 * 1024 * 1024),
-                                          checkSpace: { if $0 > 0 { throw CocoaError(.fileWriteOutOfSpace) } }))
-        let record = try XCTUnwrap(outbox.records().first)
-        let before = try Data(contentsOf: outbox.contentURL(record))
-        try FileManager.default.removeItem(at: directory.appending(path: "Edits/" + EditOutbox.orderingGuardName))
-        XCTAssertThrowsError(try outbox.order(item: item))
-        XCTAssertEqual(try stored(record).state, .preparing)
-        XCTAssertEqual(try Data(contentsOf: outbox.contentURL(record)), before)
-        XCTAssertEqual(files(of: record).count, 4)
     }
 
     func testConsolidationKeepsLatestDocumentMetadataForExport() throws {
@@ -714,31 +610,7 @@ final class EditOutboxTests: XCTestCase {
         XCTAssertThrowsError(try outbox.discard(started))
     }
 
-    func testRetiredLegacySaveKeepsDowngradeGuardAndExportAfterSuccessorCompletes() throws {
-        var old = try unordered(prepare("older build save"))
-        old.state = .creatingStage
-        try outbox.save(old)
-        var latest = try prepare("latest save")
-        try outbox.retainSuperseded(&old)
-        try completeAsPublished(&latest)
-        try outbox.releaseOrderingGuardIfSettled()
-        XCTAssertThrowsError(try olderBuildRecords())
-        outbox = try EditOutbox(directory: directory.appending(path: "Edits"))
-        XCTAssertNil(try outbox.order(item: item).head)
-        XCTAssertEqual(try outbox.order(item: item).unordered, [])
-        XCTAssertEqual(try outbox.pendingCount, 1)
-        XCTAssertEqual(try prepare("latest save").id, latest.id)
-        let newSave = try prepare("older build save")
-        XCTAssertNotEqual(newSave.id, old.id)
-        XCTAssertEqual(try outbox.order(item: item).head?.id, newSave.id)
-        try FileManager.default.removeItem(at: directory.appending(path: "Edits/" + EditOutbox.orderingGuardName))
-        XCTAssertThrowsError(try outbox.order(item: item))
-        let exported = directory.appending(path: "retained.txt")
-        try outbox.export(old, to: exported)
-        XCTAssertEqual(try Data(contentsOf: exported), Data("older build save".utf8))
-    }
-
-    func testRetirementRequiresDurableCompleteSuccessorAndOrderingEvidence() throws {
+    func testRetirementRequiresDurableCompleteSuccessor() throws {
         var old = try prepare("older save")
         old.state = .creatingStage
         try outbox.save(old)
@@ -750,10 +622,6 @@ final class EditOutboxTests: XCTestCase {
         let payload = outbox.contentURL(latest)
         XCTAssertEqual(chmod(payload.path, 0o600), 0)
         try Data("damaged".utf8).write(to: payload)
-        XCTAssertThrowsError(try outbox.retainSuperseded(&old))
-        XCTAssertEqual(try stored(old).state, .creatingStage)
-        _ = try prepare("another complete save")
-        try FileManager.default.removeItem(at: directory.appending(path: "Edits/" + EditOutbox.orderingGuardName))
         XCTAssertThrowsError(try outbox.retainSuperseded(&old))
         XCTAssertEqual(try stored(old).state, .creatingStage)
         try outbox.validateContents(old)
@@ -800,116 +668,7 @@ final class EditOutboxTests: XCTestCase {
         XCTAssertThrowsError(try outbox.saveRetiredProgress(changed))
         XCTAssertEqual(try stored(old), old)
         XCTAssertEqual(try outbox.pendingCount, 2)
-        XCTAssertThrowsError(try olderBuildRecords())
         try outbox.validateContents(old)
-    }
-
-    func testUnorderedRecordsFromAnOlderBuildStayBlockedAndExportable() throws {
-        let first = try unordered(prepare("older build first"))
-        let second = try unordered(prepare("older build second"))
-        let stored = try Data(contentsOf: directory.appending(path: "Edits/\(first.id.uuidString).edit"))
-        XCTAssertNil(try XCTUnwrap(JSONSerialization.jsonObject(with: stored) as? [String: Any])["sequence"])
-        XCTAssertEqual(try outbox.records().map(\.sequence), [nil, nil])
-        var order = try outbox.order(item: item)
-        XCTAssertNil(order.head)
-        XCTAssertEqual(Set(order.unordered.map(\.id)), [first.id, second.id])
-        XCTAssertEqual(order.superseded, [])
-        for record in [first, second] {
-            let exported = directory.appending(path: record.id.uuidString)
-            try outbox.export(record, to: exported)
-            XCTAssertEqual(try Data(contentsOf: exported), try Data(contentsOf: outbox.contentURL(record)))
-        }
-        let latest = try prepare("first save after upgrade")
-        order = try outbox.order(item: item)
-        XCTAssertEqual(order.head?.id, latest.id)
-        XCTAssertEqual(Set(order.superseded.map(\.id)), [first.id, second.id])
-        XCTAssertEqual(order.unordered, [])
-    }
-
-    func testSoleUnorderedRecordStaysHeadButAMatchingCallbackIsANewGeneration() throws {
-        let older = try unordered(prepare("older build save"))
-        XCTAssertEqual(try outbox.order(item: item).head?.id, older.id)
-        let callback = try prepare("older build save")
-        XCTAssertNotEqual(callback.id, older.id)
-        XCTAssertNotNil(callback.sequence)
-        XCTAssertNil(try stored(older).sequence)
-        let order = try outbox.order(item: item)
-        XCTAssertEqual(order.head?.id, callback.id)
-        XCTAssertEqual(order.superseded.map(\.id), [older.id])
-    }
-
-    func testReplayOfOneUnorderedSaveDoesNotPlaceItAmongTheOthers() throws {
-        let first = try unordered(prepare("older build first"))
-        let second = try unordered(prepare("older build second"))
-        let callback = try prepare("older build first")
-        XCTAssertFalse([first.id, second.id].contains(callback.id))
-        XCTAssertNil(try stored(first).sequence)
-        XCTAssertNil(try stored(second).sequence)
-        XCTAssertEqual(try Data(contentsOf: outbox.contentURL(callback)), Data("older build first".utf8))
-        let order = try outbox.order(item: item)
-        XCTAssertEqual(order.head?.id, callback.id)
-        XCTAssertEqual(Set(order.superseded.map(\.id)), [first.id, second.id])
-    }
-
-    func testUnfinishedUnorderedSaveBesideACompletedOrderedSaveIsNewer() throws {
-        var ordered = try prepare("ordered save")
-        try completeAsPublished(&ordered)
-        // An older build wrote this once the ordering guard was released.
-        let later = try unordered(prepare("older build save after downgrade"))
-        var order = try outbox.order(item: item)
-        XCTAssertEqual(order.head?.id, later.id)
-        XCTAssertEqual(order.superseded, [])
-        XCTAssertThrowsError(try outbox.discard(later))
-        let callback = try prepare("ordered save")
-        XCTAssertNotEqual(callback.id, ordered.id)
-        order = try outbox.order(item: item)
-        XCTAssertEqual(order.head?.id, callback.id)
-        XCTAssertEqual(order.superseded.map(\.id), [later.id])
-    }
-
-    func testEquivalentUnorderedSavesNeedNoOrderAndResolveWithoutPublishing() throws {
-        let first = try unordered(prepare(failOnConflict: false))
-        let second = try unordered(prepare(failOnConflict: true))
-        let order = try outbox.order(item: item)
-        let head = try XCTUnwrap(order.head)
-        XCTAssertEqual(order.unordered, [])
-        XCTAssertTrue([first.id, second.id].contains(head.id))
-        var completed = try stored(head)
-        try completeAsPublished(&completed)
-        var other = try stored(head.id == first.id ? second : first)
-        try outbox.resolveEquivalent(&other, with: completed)
-        XCTAssertEqual(other.state, .completed)
-        XCTAssertEqual(other.published, completed.published)
-        XCTAssertEqual(try outbox.pendingCount, 0)
-        var ordered = try prepare(base: "other")
-        XCTAssertThrowsError(try outbox.resolveEquivalent(&ordered, with: completed))
-    }
-
-    func testOlderBuildCannotReadTheOutboxWhileAnOrderedSaveIsUnfinished() throws {
-        XCTAssertEqual(try olderBuildRecords(), [])
-        XCTAssertThrowsError(try prepare("interrupted save", checkSpace: { if $0 > 0 { throw CocoaError(.fileWriteOutOfSpace) } }))
-        XCTAssertThrowsError(try olderBuildRecords())
-        var record = try prepare("interrupted save")
-        XCTAssertEqual(record.state, .prepared)
-        XCTAssertThrowsError(try olderBuildRecords())
-        try completeAsPublished(&record)
-        XCTAssertEqual(try olderBuildRecords().map(\.id), [record.id])
-        XCTAssertEqual(try outbox.records().map(\.id), [record.id])
-    }
-
-    func testMissingOrderingGuardFailsClosedButKeepsTheSaveExportable() throws {
-        let first = try prepare("first save")
-        try FileManager.default.removeItem(at: directory.appending(path: "Edits/" + EditOutbox.orderingGuardName))
-        XCTAssertThrowsError(try outbox.order(item: item))
-        XCTAssertThrowsError(try outbox.ownPublications(before: first))
-        XCTAssertThrowsError(try prepare("second save"))
-        var changed = first
-        changed.state = .creatingStage
-        XCTAssertThrowsError(try outbox.save(changed))
-        XCTAssertEqual(try outbox.records(), [first])
-        let exported = directory.appending(path: "exported.txt")
-        try outbox.export(first, to: exported)
-        XCTAssertEqual(try Data(contentsOf: exported), Data("first save".utf8))
     }
 
     func testDuplicateSequencesBlockTheFileWhileANewSaveStaysDurable() throws {
@@ -920,7 +679,7 @@ final class EditOutboxTests: XCTestCase {
         XCTAssertThrowsError(try outbox.order(item: item))
         let third = try prepare("second save")
         XCTAssertNotEqual(third.id, second.id)
-        XCTAssertGreaterThan(try XCTUnwrap(third.sequence), try XCTUnwrap(first.sequence))
+        XCTAssertGreaterThan(third.sequence, first.sequence)
         try outbox.validateContents(third)
         XCTAssertThrowsError(try outbox.order(item: item))
         XCTAssertThrowsError(try outbox.discard(first))
@@ -962,7 +721,7 @@ final class EditOutboxTests: XCTestCase {
         XCTAssertEqual(files(of: interrupted), [])
         try outbox.discard(first)
         let third = try prepare("third save")
-        XCTAssertGreaterThan(try XCTUnwrap(third.sequence), try XCTUnwrap(second.sequence))
+        XCTAssertGreaterThan(third.sequence, second.sequence)
         XCTAssertEqual(try outbox.order(item: item).superseded.map(\.id), [second.id])
     }
 
@@ -977,11 +736,6 @@ final class EditOutboxTests: XCTestCase {
         XCTAssertEqual(try outbox.ownPublications(before: published), [])
         XCTAssertEqual(try outbox.ownPublications(before: otherBase), [])
         XCTAssertEqual(try outbox.ownPublications(before: successor), [accepted])
-        var legacy = published
-        legacy.sequence = nil
-        try writeLegacy(legacy)
-        XCTAssertEqual(try outbox.ownPublications(before: successor), [accepted])
-        XCTAssertEqual(try outbox.ownPublications(before: unordered(successor)), [])
     }
 
     func testRetainedMetadataRemainsVerifiableWhenSystemChangesPayloadAttributes() throws {

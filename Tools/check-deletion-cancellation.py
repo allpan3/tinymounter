@@ -333,7 +333,7 @@ def app_report(args):
     require(report.get("nativeAbsenceDeferredToBackingAudit", False) == (args.phase == "uncertain"),
             "native-absence-deferral")
     require(all(report.get(name) is True for name in ("originalSettingsEqual", "nativeFixtureMatches",
-                "keepsMatchOutcomes", "guardsMatchInventory", "catalogMatchesOutcomes",
+                "keepsMatchOutcomes", "catalogMatchesOutcomes",
                 "recoveryStateDrained")), "app-evidence-incomplete")
     require(isinstance(report.get("untested"), list) and report["untested"], "missing-limitations")
     require(isinstance(report.get("seconds"), (int, float)) and 0 <= report["seconds"] < 550,

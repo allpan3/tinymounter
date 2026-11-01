@@ -142,7 +142,6 @@ extension LocationSource {
                             }
                         }
                     }
-                    try outbox.releaseOrderingGuardIfSettled()
                 }
             } }
             if case .failure(let error) = result {
@@ -155,7 +154,7 @@ extension LocationSource {
     /// Started publications resolve first; uncertain private artifacts can remain for recovery.
     private func finishItem(_ item: String, outbox: EditOutbox, progress: Progress) throws {
         for var earlier in try outbox.order(item: item).predecessors {
-            do { try finishResolvingEquivalents(&earlier, outbox: outbox, progress: progress) }
+            do { try finishEdit(&earlier, outbox: outbox, progress: progress) }
             catch {
                 // Restoring the old original ends that publication without completing it.
                 if try outbox.order(item: item).predecessors.contains(where: { $0.id == earlier.id }) { throw error }
@@ -173,22 +172,8 @@ extension LocationSource {
         }
         let order = try outbox.order(item: item)
         guard order.predecessors.isEmpty, order.superseded.isEmpty else { throw UploadError.pendingWrites }
-        guard order.unordered.isEmpty else { throw UploadError.unresolved }
         guard var head = order.head else { return }
-        try finishResolvingEquivalents(&head, outbox: outbox, progress: progress)
-    }
-
-    /// Unordered saves with the contents this one just published need no publication of their own.
-    private func finishResolvingEquivalents(_ record: inout PendingEdit, outbox: EditOutbox,
-                                            progress: Progress) throws {
-        try finishEdit(&record, outbox: outbox, progress: progress)
-        guard record.isPublicationComplete, !record.conflict, !record.recoveryRetained else { return }
-        for var other in try outbox.records()
-            where other.id != record.id && other.item == record.item && !other.isPublicationComplete {
-            if (try? outbox.resolveEquivalent(&other, with: record)) != nil {
-                try? finishEdit(&other, outbox: outbox, progress: progress)
-            }
-        }
+        try finishEdit(&head, outbox: outbox, progress: progress)
     }
 
     private func retireEdit(_ record: inout PendingEdit, outbox: EditOutbox, progress: Progress) throws {

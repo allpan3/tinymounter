@@ -152,7 +152,7 @@ public enum EditTransaction {
     }
 
     public static func cleanup(_ record: inout PendingEdit, outbox: EditOutbox, remote: EditRemote) throws {
-        try outbox.beginCompletedCleanup(&record)
+        try outbox.reloadCompletedCleanup(&record)
         if record.state == .completed { return }
         if record.completedCleanupStarted == true {
             try outbox.finishCompletedCleanup(&record)

@@ -132,7 +132,6 @@ final class RecursiveDeletionTests: XCTestCase {
             server.objects[sub + "/" + name] = nil
         }
         XCTAssertEqual(try fixture.storedFiles(), [])
-        XCTAssertFalse(fixture.guardURLs(fixture.owner).contains { FileManager.default.fileExists(atPath: $0.path) })
         XCTAssertEqual(server.sessions, 0)
         // The owner's own location root and a share-root location contain the selection; neither is inside it.
         let record = try fixture.outbox.prepare(endpoint: fixture.endpoint, owner: fixture.owner,
@@ -181,7 +180,7 @@ final class RecursiveDeletionTests: XCTestCase {
         XCTAssertEqual(server.marks.filter { $0 == "Docs/Tree/b" }.count, 1)
     }
 
-    func testPostCloseConfirmationRefusalsKeepUncertaintyAndGuards() throws {
+    func testPostCloseConfirmationRefusalsKeepUncertainty() throws {
         for failure in [ItemDeletionError.sharingViolation, .accessDenied, .cannotDelete, .directoryNotEmpty, .unsupported] {
             try reset()
             let server = self.server
@@ -202,8 +201,6 @@ final class RecursiveDeletionTests: XCTestCase {
             XCTAssertTrue(record.isComplete)
             XCTAssertTrue(record.isPending)
             XCTAssertEqual(try fixture.outbox.pendingCount(domain: fixture.owner), 1)
-            XCTAssertTrue((fixture.guardURLs(fixture.owner) + fixture.guardURLs(fixture.neighbor))
-                .allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
             fixture.outbox = try fixture.makeOutbox()
             XCTAssertEqual(try fixture.outbox.records(), [record])
             let sessions = server.sessions
@@ -464,15 +461,8 @@ final class DeletionFixture {
                             modifiedMicroseconds: 20, changedMicroseconds: 40, attributes: 32, security: Data([1]))
     }
 
-    /// Stand-ins for the guards an older edit or rename outbox reader would decode.
-    func guardURLs(_ domain: String) -> [URL] {
-        [directory.appending(path: "Edits/\(domain)/deletion-guard.edit"),
-         directory.appending(path: "Renames/deletion-guard.rename")]
-    }
-
     func makeOutbox() throws -> DeletionOutbox {
-        try DeletionOutbox(directory: outboxDirectory, compatibilityGuards: { [unowned self] in self.guardURLs($0) },
-                           directorySync: { [unowned self] fd in
+        try DeletionOutbox(directory: outboxDirectory, directorySync: { [unowned self] fd in
             if self.syncFails {
                 self.syncFails = false
                 throw Fault.persistence

@@ -240,7 +240,6 @@ private final class GapProbe: @unchecked Sendable {
         "Native client spelling of names other than one NFC file name, and NFD names present before admission.",
         "Settings callbacks longer than the mover's 60 s wait, cancellation, stop and location Add/Close.",
         "Pagination, large trees, the physical Mac and the NAS. Loopback cache state is uncontrolled.",
-        "Older builds reading a folder intent left recovering.",
         "Production connection counts: expectedConnections are estimates, not measurements.",
     ]
 

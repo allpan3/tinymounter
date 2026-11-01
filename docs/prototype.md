@@ -330,18 +330,14 @@ After a format change, finish or export pending changes with the old build, remo
 locations, and add them again with the new build. A location's write grant implies the SMB-only
 write confirmation, and an inactive grant is retained when Read only is enabled.
 
-Unfinished M23 ordered saves keep an Ordering.edit guard that makes M19/M20 refuse that outbox.
-Use the newer build to resume it; do not remove the guard to force a downgrade. Legacy pending
-saves remain readable, but differing contents with unknown order stay blocked and exportable.
+Pending saves of a file keep their arrival order, and only the newest complete save publishes.
 The [ordering implementation](results/2026-10-29-pending-save-order.md) passes core checks and a
 signed interrupted-save update check. Retired-save cleanup and status reporting pass required
 VM checks; their signed checks remain. Retry Pending Changes attempts cleanup only with complete artifact evidence;
 uncertain data stays retained. The pane reports local saved-copy bytes under the existing
 2 GiB free-space reserve and can dismiss resolved conflict notices without removing receipts.
 The 2026-10-30 completed-cleanup follow-up passes required VM checks; signed checks remain.
-Its cleaningUp state makes earlier
-builds refuse an outbox until recovery cleanup finishes, including earlier M23 builds that
-understand Ordering.edit. It retains uncertain removals and keeps publication receipts.
+Its cleaningUp state retains uncertain removals and keeps publication receipts.
 
 The catalog records departures from former parents for known file moves. The catalog API is
 preparation for M21; the provider does not yet admit cross-folder moves. A row keeps its f1

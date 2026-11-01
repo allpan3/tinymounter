@@ -603,7 +603,7 @@ private struct UploadStatus: View {
                     Text(UIText.renameNeedsRecovery).font(.callout).foregroundStyle(.secondary)
                 }
             }
-            ForEach(edits.filter { $0.isPending || ($0.conflict && $0.conflictNoticeDismissed != true) }, id: \.id) { edit in
+            ForEach(edits.filter { $0.isPending || ($0.conflict && !$0.conflictNoticeDismissed) }, id: \.id) { edit in
                 VStack(alignment: .leading) {
                     Text((edit.path as NSString).lastPathComponent)
                     Text(status(edit))
@@ -653,7 +653,7 @@ private struct UploadStatus: View {
             return edit.conflict ? UIText.conflictRecovery : UIText.publishedRecovery
         }
         if edit.conflict { return edit.state == .completed ? UIText.conflictSaved : UIText.editConflict }
-        if edit.state == .prepared, edit.sequence != nil { return UIText.editWaiting }
+        if edit.state == .prepared { return UIText.editWaiting }
         return UIText.editNeedsRecovery
     }
 }

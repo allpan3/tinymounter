@@ -352,7 +352,6 @@ private final class M24Probe: @unchecked Sendable {
         "The missing-folder listing fallback: c03 lists ancestors first, so it may never reach it.",
         "Competing-open sharing violations, read-only attributes, access denial, stop and dismiss.",
         "Draining active reads and watches: none are open during admission.",
-        "Older builds' handling of the deletion guards.",
         "Two-view settlement after a restart: c01 settles within its own process.",
         "Confirmation-delayed listings: every reconciled folder keeps a known child by design.",
         "Symbolic-link handling beyond one capture-only observation.",
@@ -609,7 +608,6 @@ private final class M24Probe: @unchecked Sendable {
             && !recovered.progress.dismissed, "c04-uncertainty-retained")
         // The catalog drops the absent rows after a fresh listing; only the record keeps the uncertainty.
         try requireTombstoned(owner, c04IDs, "c04-catalog")
-        try require(guardsPresent(owner.domainID), "c04-guards-retained")
         try requireKeeps("c04-keeps", removed: ["c04/Tree/a.txt"])
         try replayUnchanged("c04", c04, recovered, recursive: true) { $0 as? ItemDeletionError == .unresolved }
         state.records["c04"] = M24SavedRecord(recovered)
@@ -1259,13 +1257,6 @@ private final class M24Probe: @unchecked Sendable {
         return try LocationSource.deletionOutbox().records().filter { record in
             record.plan.views.contains { domains.contains($0.domain) }
         }
-    }
-
-    private func guardsPresent(_ domain: String) -> Bool {
-        let support = URL.applicationSupportDirectory.appending(path: "tinymounter")
-        let edit = EditOutbox.deletionGuardName, rename = FileRenameOutbox.deletionGuardName
-        return DeletionGuard.isExact(support.appending(path: "Edits/" + domain + "/" + edit), named: edit)
-            && DeletionGuard.isExact(support.appending(path: "Renames/" + rename), named: rename)
     }
 
     private func snapshot(_ source: LocationSource, _ paths: [String]) throws -> [String: M24SavedRow] {

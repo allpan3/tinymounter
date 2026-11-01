@@ -693,7 +693,7 @@ private final class CancellationProbe: @unchecked Sendable {
     }
 
     private func verifyInventory() throws {
-        let all = try records(), owned = all.filter { $0.plan.owner == identity.owner }
+        let owned = try records().filter { $0.plan.owner == identity.owner }
         let expected = phase == .cancel ? 1 : phase == .joined ? 2 : [.uncertain, .reconcile].contains(phase) ? 4 : 3
         try demand(owned.count == expected, "durable-record-count")
         for record in owned {
@@ -701,18 +701,6 @@ private final class CancellationProbe: @unchecked Sendable {
                 && record.plan.views[0].folder == root.string && record.plan.endpoint.matches(endpoint)
                 && record.plan.nodes.allSatisfy { $0.path.hasPrefix(root.string + "/") }, "owned-record-boundary")
         }
-        let support = URL.applicationSupportDirectory.appending(path: "tinymounter")
-        let editName = EditOutbox.deletionGuardName, renameName = FileRenameOutbox.deletionGuardName
-        let edit = support.appending(path: "Edits/" + identity.owner + "/" + editName)
-        let rename = support.appending(path: "Renames/" + renameName)
-        func guardMatches(_ url: URL, name: String, needed: Bool) -> Bool {
-            if needed { return DeletionGuard.isExact(url, named: name) }
-            var info = stat()
-            return lstat(url.path, &info) != 0 && errno == ENOENT
-        }
-        try demand(guardMatches(edit, name: editName, needed: owned.contains(where: \.isPending)), "domain-guard")
-        try demand(guardMatches(rename, name: renameName, needed: all.contains(where: \.isPending)), "shared-guard")
-        details["guardsMatchInventory"] = true
         details["inventory"] = owned.map { record -> [String: Any] in
             ["id": record.id.uuidString, "nodes": record.plan.nodes.count, "next": record.progress.next,
              "current": record.progress.current.rawValue, "stopped": record.progress.stopped as Any? ?? NSNull(),
