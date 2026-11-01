@@ -13,6 +13,11 @@ Startup retained the existing location and domain with no migration failures. Fo
 and deletion remain disabled. Physical-Mac write behavior and speed remain unmeasured. See the
 [installation checks](docs/results/2026-11-01-local-update.md).
 
+Read diagnostics, 2026-11-01: required VM checks and five signed app checks pass. Logs distinguish
+full verification, cached block verification and share-lock waits; cancellation during the local
+checksum removes staging. No read behavior or performance target changed, and no speed improvement
+is claimed. See the [diagnostic results and limits](docs/results/2026-11-01-read-diagnostics.md).
+
 Read-performance development, 2026-11-01: the signed VM candidate reduces repeated small-read
 latency from 4.127 s to 0.721 s median, with matching checksums. Full downloads are about 8%
 slower in this comparison; first reads after restart/remount and one slow outlier remain.
