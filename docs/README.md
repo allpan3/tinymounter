@@ -24,6 +24,7 @@ it wrong.
 
 ## Results logs
 
+- [Protected-read diagnostics](results/2026-11-01-read-diagnostics.md). Signed VM checks distinguish verification from namespace waits and verify checksum-cancellation cleanup; no new speed claim.
 - [Verified range reads](results/2026-11-01-verified-range-reads.md). Signed VM small-read improvement, full-download cost, restart/remount checks and remaining mutation coverage; physical Mac keeps the earlier build.
 - [Physical-Mac update](results/2026-11-01-local-update.md). Latest normal build installed with unchanged sandbox and identity; startup retains the existing location. Physical-Mac performance and writes remain unmeasured.
 - [Everyday-use and performance review](results/2026-10-31-everyday-use-review.md). Encryption acceleration cuts the measured writable-open delay; edited-file cache misses and throughput targets remain unresolved. Fixture corrections restore Finder folder creation and remove the connection delay. Temporary VM state is restored.
