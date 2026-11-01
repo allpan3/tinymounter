@@ -322,15 +322,13 @@ Development certificate, which is valid for one year (in the VM, from 2026-10-11
 Build again with a new certificate before it expires: what an expired one does is untested.
 
 **Update.** Quit tinymounter, build the new version, and open it. After Quit, the app stays
-stopped: only a crash makes the extension start it again. The locations, their downloads
-and their Keep Downloaded requests stay. Keep the same team and bundle identifier, because the
-settings and catalogs are in containers named after them. Settings version 6 adds the Read only
-mode while retaining scoped write bookmarks and the
-SMB-only write confirmation. Versions 1 through 5 migrate atomically: existing read-only
-locations stay read-only, confirmed writable locations keep their access, and creation-only
-locations retain creation access until Complete Write Setup. An inactive grant is retained
-when Read only is enabled. Older builds must refuse version 6 so they cannot mistake that
-retained grant for active write permission. IDs, domains, bookmarks and keep lists remain.
+stopped: only a crash makes the extension start it again. Keep the same team and bundle
+identifier, because the settings and catalogs are in containers named after them. While the
+formats stay the same, the locations, their downloads and their Keep Downloaded requests stay.
+Until release, no build migrates settings, catalogs or pending changes from an earlier build.
+After a format change, finish or export pending changes with the old build, remove the
+locations, and add them again with the new build. A location's write grant implies the SMB-only
+write confirmation, and an inactive grant is retained when Read only is enabled.
 
 Unfinished M23 ordered saves keep an Ordering.edit guard that makes M19/M20 refuse that outbox.
 Use the newer build to resume it; do not remove the guard to force a downgrade. Legacy pending
@@ -418,9 +416,7 @@ the existing catalog ID and diagnostic counts retained; the location remains rea
 See the [results](results/2026-10-23-create-items.md). In the development UI, a location's Access
 section has one Read only toggle. It defaults off for a new location; a duplicate inherits
 the original's mode. Writable setup selects the same share root and confirms the SMB-only
-write requirements. The grant belongs to this location. Existing read-only locations stay
-read-only. Complete Write Setup finishes confirmation for older creation-only grants. Replacement,
-move, delete, packages and symbolic links remain unsupported. Editing and file renaming use the
+write requirements. The grant belongs to this location. Replacement, move, delete, packages and symbolic links remain unsupported. Editing and file renaming use the
 protected transactions described below.
 
 Finder's New Folder creates an untitled folder on the server, then sends a separate rename when

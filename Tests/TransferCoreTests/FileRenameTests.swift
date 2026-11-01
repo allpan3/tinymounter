@@ -22,7 +22,7 @@ final class FileRenameTests: XCTestCase {
         ])) { _ in true }
         row = try XCTUnwrap(catalog.liveChild(parent: Catalog.rootItemID, nameKey: NameKey("original.txt")))
         base = try EditBaseReceipt(item: row.id, version: version())
-        try catalog.setWriteAccess(creation: true, editing: true)
+        try catalog.setAllowsWriting(true)
         try catalog.rememberEditBase(base, expectedVersion: row.contentVersion)
         row = try XCTUnwrap(catalog.item(id: row.id))
         outbox = try FileRenameOutbox(directory: directory.appending(path: "Renames"))

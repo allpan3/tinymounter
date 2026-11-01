@@ -38,7 +38,7 @@ final class CatalogFolderMoveTests: XCTestCase {
     }
 
     func testPopulatedMovePreservesIDsVersionsAndEnumerationKeys() throws {
-        try catalog.setWriteAccess(creation: true, editing: true)
+        try catalog.setAllowsWriting(true)
         let verified = try child(nested.id, "deep")
         let receipt = try EditBaseReceipt(item: verified.id, version: EditFileVersion(
             identity: EditFileIdentity(fileID: 30, birthMicroseconds: 100), size: verified.size,
@@ -366,7 +366,7 @@ final class CatalogFolderMoveTests: XCTestCase {
     }
 
     func testSettlementChangesTimestampIdenticalFilesWithFreshVersions() throws {
-        try catalog.setWriteAccess(creation: true, editing: true)
+        try catalog.setAllowsWriting(true)
         let deep = try child(nested.id, "deep"), plain = try child(tree.id, "plain")
         let original = try receipt(item: deep.id, identity: EditFileIdentity(fileID: 10_030, birthMicroseconds: 100))
         try catalog.rememberEditBase(original, expectedVersion: deep.contentVersion)
@@ -434,7 +434,7 @@ final class CatalogFolderMoveTests: XCTestCase {
     }
 
     func testSettlementRequiresTheAdmittedVerifiedReceipt() throws {
-        try catalog.setWriteAccess(creation: true, editing: true)
+        try catalog.setAllowsWriting(true)
         let plain = try child(tree.id, "plain")
         let original = try receipt(item: plain.id, identity: EditFileIdentity(fileID: 10_020, birthMicroseconds: 100))
         try catalog.rememberEditBase(original, expectedVersion: plain.contentVersion)

@@ -71,7 +71,7 @@ extension LocationSource {
                     guard !mutationsSuspended, writeBookmark != nil else { throw UploadError.readOnly }
                     let path = try withCatalog { catalog -> RelativePath in
                         // A retired folder-move binding is a tombstone; its old name may hold another object.
-                        guard let row = try catalog.item(id: request.item), !row.deleted, row.allowsEditing,
+                        guard let row = try catalog.item(id: request.item), !row.deleted, row.allowsWriting,
                               row.kind == .file, row.parentID == request.parent,
                               row.name == request.name,
                               let parent = try catalog.relativePath(of: request.parent),
@@ -119,7 +119,7 @@ extension LocationSource {
             let result = Result { try editNamespace.perform {
                 try uploadLock.withLock {
                     guard !mutationsSuspended, writeBookmark != nil,
-                          try withCatalog({ try $0.item(id: Catalog.rootItemID)?.allowsEditing }) == true else { return }
+                          try withCatalog({ try $0.item(id: Catalog.rootItemID)?.allowsWriting }) == true else { return }
                     let outbox = try Self.editOutbox(domainID: domainID)
                     let pending = try outbox.records().filter(\.isPending)
                     for var record in pending where record.isPublicationComplete {
@@ -354,7 +354,7 @@ extension LocationSource {
                             throw UploadError.unresolved
                         }
                         var receipt = base
-                        if request.establishEditBase, row.allowsEditing {
+                        if request.establishEditBase, row.allowsWriting {
                             guard fullRead, let version else { throw UploadError.unresolved }
                             let established = try base ?? EditBaseReceipt(item: row.id, version: version)
                             receipt = established

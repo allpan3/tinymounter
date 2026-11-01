@@ -969,7 +969,7 @@ final class LocationSource: @unchecked Sendable {
     func transfer(_ request: SourceReadRequest, progress: Progress, stagingDirectory: URL,
                   checkSpace: ((Int64) throws -> Void)? = nil) throws -> TransferOutput {
         let (row, _) = try editNamespace.perform { try readTarget(request) }
-        if request.version.hasPrefix("e1:") || (row.allowsEditing && request.establishEditBase) {
+        if request.version.hasPrefix("e1:") || (row.allowsWriting && request.establishEditBase) {
             return try protectedTransfer(request, progress: progress,
                                          stagingDirectory: stagingDirectory, checkSpace: checkSpace)
         }

@@ -164,13 +164,7 @@ private struct LocationPane: View {
                 get: { record?.readOnly ?? draft?.readOnly ?? true },
                 set: { model.setReadOnly(id, $0) }
             ))
-            if let record {
-                if record.needsWriteConfirmation {
-                    Text(UIText.incompleteWriteSetup).foregroundStyle(.secondary)
-                    Button(UIText.completeWriteSetup) { model.setReadOnly(id, false) }
-                }
-                UploadStatus(record: record, model: model)
-            }
+            if let record { UploadStatus(record: record, model: model) }
         } header: {
             Text(UIText.access)
         } footer: {

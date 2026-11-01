@@ -279,7 +279,6 @@ final class LocationController {
                                     serverID: grantID, folder: folder)
         record.writeBookmark = writeBookmark
         record.readOnly = writeBookmark == nil
-        record.smbOnlyEditing = writeBookmark == nil ? nil : true
         let listedName = record.name
         let source = try await makeListedSource(record, folder: folder, grant: grant)
         do {
@@ -309,29 +308,26 @@ final class LocationController {
         return record
     }
 
-    func setWriteMode(_ recordID: UUID, readOnly: Bool, bookmark: Data?, confirmed: Bool) async throws {
+    func setWriteMode(_ recordID: UUID, readOnly: Bool, bookmark: Data?) async throws {
         guard isReady, let record = store.settings?.locations.first(where: { $0.id == recordID }),
-              readOnly || (bookmark != nil && confirmed),
+              readOnly || bookmark != nil,
               !record.removing, let source = sources[record.domainID] else { throw UploadError.readOnly }
-        let save: (Data?, Bool, Bool?) throws -> Void = { bookmark, readOnly, confirmation in
+        let save: (Data?, Bool) throws -> Void = { bookmark, readOnly in
             try self.store.update { settings in
                 guard let index = settings.locations.firstIndex(where: { $0.id == recordID }) else { throw UploadError.readOnly }
                 settings.locations[index].writeBookmark = bookmark
                 settings.locations[index].readOnly = readOnly
-                settings.locations[index].smbOnlyEditing = confirmation
             }
         }
         if !readOnly {
-            try save(bookmark, false, true)
-            do { try await Self.offMain { try source.configureWriteMode(bookmark, confirmed: true) } }
-            catch { try save(record.writeBookmark, record.readOnly, record.smbOnlyEditing); throw error }
+            try save(bookmark, false)
+            do { try await Self.offMain { try source.configureWriteMode(bookmark) } }
+            catch { try save(record.writeBookmark, record.readOnly); throw error }
         } else {
-            try await Self.offMain { try source.configureWriteMode(nil, confirmed: false) }
-            do { try save(record.writeBookmark, true, record.smbOnlyEditing) }
+            try await Self.offMain { try source.configureWriteMode(nil) }
+            do { try save(record.writeBookmark, true) }
             catch {
-                try? await Self.offMain {
-                    try source.configureWriteMode(record.activeWriteBookmark, confirmed: record.smbOnlyEditing == true)
-                }
+                try? await Self.offMain { try source.configureWriteMode(record.activeWriteBookmark) }
                 throw error
             }
         }
@@ -421,7 +417,6 @@ final class LocationController {
         updated.folder = folder.string
         updated.writeBookmark = writeBookmark
         updated.readOnly = writeBookmark == nil
-        updated.smbOnlyEditing = writeBookmark == nil ? nil : true
         let source = try await makeListedSource(updated, folder: folder, grant: grant)
         do {
             try store.update { settings in
@@ -999,7 +994,7 @@ final class LocationController {
                 }
             }
         }
-        try? source.configureWriteMode(record.activeWriteBookmark, confirmed: record.smbOnlyEditing == true)
+        try? source.configureWriteMode(record.activeWriteBookmark)
         source.retryEdits()
         source.onChange { [weak self] in
             DispatchQueue.main.async {

@@ -370,7 +370,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 var staged: URL?
                 defer { if let staged { try? FileManager.default.removeItem(at: staged) } }
                 do {
-                    guard try catalog.liveRow(itemTemplate.parentItemIdentifier.rawValue).allowsCreation,
+                    guard try catalog.liveRow(itemTemplate.parentItemIdentifier.rawValue).allowsWriting,
                           let type = itemTemplate.contentType, !type.conforms(to: .symbolicLink),
                           !type.conforms(to: .package),
                           let kind = Self.kind(of: itemTemplate),
@@ -438,7 +438,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         }
         let organization: NSFileProviderItemFields = [.filename, .parentItemIdentifier]
         let folderOrganization = SourceReaderBridge.folderOrganizationEnabled && Self.kind(of: item) == .folder
-            && (try? catalog.liveRow(item.itemIdentifier.rawValue).allowsEditing) == true
+            && (try? catalog.liveRow(item.itemIdentifier.rawValue).allowsWriting) == true
         if !changedFields.isEmpty, changedFields.subtracting(organization).isEmpty,
            newContents == nil, Self.kind(of: item) == .file || folderOrganization {
             return organizeItem(item, baseVersion: version, changedFields: changedFields, completion: completionHandler)
@@ -447,7 +447,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         if newContents == nil, !changedFields.isEmpty, changedFields.subtracting(metadata).isEmpty {
             do {
                 let row = try catalog.liveRow(item.itemIdentifier.rawValue)
-                guard row.allowsEditing, row.name == item.filename,
+                guard row.allowsWriting, row.name == item.filename,
                       row.parentID == item.parentItemIdentifier.rawValue else { throw CocoaError(.fileWriteNoPermission) }
                 countMutation("modify", "result=unsupported_metadata fields=\(changedFields.rawValue)")
                 // Returning every field pending declares it unsupported and preserves its local value.
@@ -497,8 +497,8 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 let row = try catalog.liveRow(item.itemIdentifier.rawValue)
                 let content = String(data: baseVersion.contentVersion, encoding: .utf8)
                 let metadata = String(data: baseVersion.metadataVersion, encoding: .utf8)
-                catalogLogger.info("rename_base verified=\(content?.hasPrefix("e1:") == true) metadata=\(metadata.flatMap(Int64.init) != nil) editing=\(row.allowsEditing) parent=\(row.parentID == item.parentItemIdentifier.rawValue)")
-                guard row.allowsEditing, row.kind == .file || SourceReaderBridge.folderOrganizationEnabled,
+                catalogLogger.info("rename_base verified=\(content?.hasPrefix("e1:") == true) metadata=\(metadata.flatMap(Int64.init) != nil) writing=\(row.allowsWriting) parent=\(row.parentID == item.parentItemIdentifier.rawValue)")
+                guard row.allowsWriting, row.kind == .file || SourceReaderBridge.folderOrganizationEnabled,
                       item.contentType?.conforms(to: .package) != true,
                       let content, let metadata else {
                     throw CocoaError(.fileWriteNoPermission)
@@ -535,7 +535,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 guard let row = try catalog.read({ try $0.item(id: item.itemIdentifier.rawValue) }) else {
                     throw CocoaError(.fileReadUnknown)
                 }
-                guard row.allowsEditing, row.name.utf8.elementsEqual(item.filename.utf8),
+                guard row.allowsWriting, row.name.utf8.elementsEqual(item.filename.utf8),
                       row.parentID == item.parentItemIdentifier.rawValue,
                       item.contentType?.conforms(to: .package) != true else {
                     throw CocoaError(.fileWriteNoPermission)

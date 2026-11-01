@@ -24,7 +24,7 @@ final class FolderMoveTests: XCTestCase {
         let nested = try child(tree.id, "Nested")
         try list(nested.id, [file("deep", 60)])
         try list(destination.id, [])
-        try catalog.setWriteAccess(creation: true, editing: true)
+        try catalog.setAllowsWriting(true)
         let verified = try child(tree.id, "verified")
         base = try EditBaseReceipt(item: verified.id, version: version(40))
         try catalog.rememberEditBase(base, expectedVersion: verified.contentVersion)

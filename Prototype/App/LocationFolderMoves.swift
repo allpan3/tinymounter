@@ -97,7 +97,7 @@ extension LocationSource {
 
     private func folderMovePaths(_ request: FileRenameRequest) throws -> (RelativePath, RelativePath) {
         try withCatalog { catalog in
-            guard let row = try catalog.item(id: request.item), !row.deleted, row.allowsEditing, row.kind == .folder,
+            guard let row = try catalog.item(id: request.item), !row.deleted, row.allowsWriting, row.kind == .folder,
                   row.contentVersion == request.contentVersion, row.metadataVersion == request.metadataVersion,
                   FileRenameRequest.supportsName(row.name),
                   let parent = try catalog.item(id: request.parent), !parent.deleted, parent.kind == .folder,

@@ -2,16 +2,12 @@ import Darwin
 import Foundation
 
 public enum SettingsError: Error, Equatable, Sendable {
-    case unsupportedVersion(Int)
     case invalidServer
     case serverInUse
 }
 
 /// Never in the App Group: grants and saved paths are private.
 public struct AppSettings: Codable, Equatable, Sendable {
-    public static let currentVersion = 6
-
-    public private(set) var version = AppSettings.currentVersion
     public var servers: [ServerRecord]
     public var shares: [ServerGrant]
     public var locations: [LocationRecord]
@@ -27,34 +23,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let previousVersion = try container.decode(Int.self, forKey: .version)
-        guard (1...Self.currentVersion).contains(previousVersion) else {
-            throw SettingsError.unsupportedVersion(previousVersion)
-        }
+        servers = try container.decode([ServerRecord].self, forKey: .servers)
+        shares = try container.decode([ServerGrant].self, forKey: .shares)
         locations = try container.decode([LocationRecord].self, forKey: .locations)
-        if previousVersion < 5 {
-            for index in locations.indices { locations[index].smbOnlyEditing = nil }
-        }
-        if previousVersion < 6 {
-            for index in locations.indices { locations[index].readOnly = locations[index].writeBookmark == nil }
-        }
         savedKeeps = try container.decode([SavedKeepList].self, forKey: .savedKeeps)
-        if previousVersion == 1 {
-            servers = []
-            shares = try container.decode([ServerGrant].self, forKey: .servers)
-            for index in shares.indices {
-                guard let address = ServerAddress(typed: "smb:" + shares[index].mountFrom) else {
-                    throw SettingsError.invalidServer
-                }
-                let existing = servers.first { $0.matches(address) }
-                let server = existing ?? ServerRecord(address: address)
-                if existing == nil { servers.append(server) }
-                shares[index].serverID = server.id
-            }
-        } else {
-            servers = try container.decode([ServerRecord].self, forKey: .servers)
-            shares = try container.decode([ServerGrant].self, forKey: .shares)
-        }
         guard shares.allSatisfy({ share in servers.contains { $0.id == share.serverID } }) else {
             throw SettingsError.invalidServer
         }
@@ -64,10 +36,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public static func load(from url: URL) throws -> AppSettings {
         let data: Data
         do { data = try Data(contentsOf: url) } catch CocoaError.fileReadNoSuchFile { return AppSettings() }
-        let settings = try JSONDecoder().decode(AppSettings.self, from: data)
-        let previous = try JSONDecoder().decode(FileVersion.self, from: data)
-        if previous.version != Self.currentVersion { try settings.save(to: url) }
-        return settings
+        return try JSONDecoder().decode(AppSettings.self, from: data)
     }
 
     /// Replaces the file with one rename. The new file is 0600 from its creation.
@@ -105,7 +74,6 @@ public struct AppSettings: Codable, Equatable, Sendable {
         servers.removeAll { $0.id == id }
     }
 
-    private struct FileVersion: Decodable { let version: Int }
 }
 
 public struct ServerRecord: Codable, Equatable, Identifiable, Sendable {
@@ -138,8 +106,7 @@ public struct ServerRecord: Codable, Equatable, Identifiable, Sendable {
 /// The bookmark, `mountFrom`, host and account are private: never log them.
 public struct ServerGrant: Codable, Equatable, Sendable {
     public let id: UUID
-    // Version 1 has no server ID until settings migration assigns one.
-    public var serverID: UUID?
+    public var serverID: UUID
     /// App-scoped, with `.withSecurityScope` and `.securityScopeAllowOnlyReadAccess`.
     public var bookmark: Data
     /// `f_mntfromname`, "//account@host/share".
@@ -183,11 +150,9 @@ public struct LocationRecord: Codable, Equatable, Sendable {
     /// Saved Keep Downloaded paths, from the share root, that this location took but hasn't found yet.
     public var pendingKeeps: [KeepPath] = []
     public var writeBookmark: Data?
-    public var smbOnlyEditing: Bool?
     public var readOnly = true
 
     public var activeWriteBookmark: Data? { readOnly ? nil : writeBookmark }
-    public var needsWriteConfirmation: Bool { !readOnly && writeBookmark != nil && smbOnlyEditing != true }
 
     public init(id: UUID = UUID(), name: String, serverID: UUID, folder: RelativePath,
                 domainID: String = UUID().uuidString) {
@@ -196,21 +161,6 @@ public struct LocationRecord: Codable, Equatable, Sendable {
         self.serverID = serverID
         self.folder = folder.string
         self.domainID = domainID
-    }
-
-    public init(from decoder: Decoder) throws {
-        let values = try decoder.container(keyedBy: CodingKeys.self)
-        id = try values.decode(UUID.self, forKey: .id)
-        name = try values.decode(String.self, forKey: .name)
-        serverID = try values.decode(UUID.self, forKey: .serverID)
-        folder = try values.decode(String.self, forKey: .folder)
-        domainID = try values.decode(String.self, forKey: .domainID)
-        retiredDomainID = try values.decodeIfPresent(String.self, forKey: .retiredDomainID)
-        removing = try values.decode(Bool.self, forKey: .removing)
-        pendingKeeps = try values.decode([KeepPath].self, forKey: .pendingKeeps)
-        writeBookmark = try values.decodeIfPresent(Data.self, forKey: .writeBookmark)
-        smbOnlyEditing = try values.decodeIfPresent(Bool.self, forKey: .smbOnlyEditing)
-        readOnly = try values.decodeIfPresent(Bool.self, forKey: .readOnly) ?? true
     }
 
     /// Leading and trailing slashes are trimmed, so "/" and "" are the full share.

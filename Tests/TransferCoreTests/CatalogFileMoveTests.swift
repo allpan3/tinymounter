@@ -63,7 +63,7 @@ final class CatalogFileMoveTests: XCTestCase {
     }
 
     func testVerifiedRevisionStaysVerifiedAndALegacyVersionStaysLegacy() throws {
-        try catalog.setWriteAccess(creation: true, editing: true)
+        try catalog.setAllowsWriting(true)
         let b = try child(inbox.id, "b.txt")
         let receipt = try EditBaseReceipt(item: b.id, version: EditFileVersion(
             identity: EditFileIdentity(fileID: 12, birthMicroseconds: 34), size: 10,

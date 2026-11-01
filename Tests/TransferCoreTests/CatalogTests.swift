@@ -23,9 +23,7 @@ final class CatalogTests: XCTestCase {
         try reconcile(catalog, [file("data")])
         let before = try child(catalog, "data")
         try catalog.setKeep(ids: [before.id], value: true)
-        XCTAssertThrowsError(try catalog.setAllowsEditing(true))
-        try catalog.setAllowsCreation(true)
-        try catalog.setAllowsEditing(true)
+        try catalog.setAllowsWriting(true)
         let remote = try EditFileVersion(identity: EditFileIdentity(fileID: 17, birthMicroseconds: 18),
                                          size: before.size, digest: String(repeating: "a", count: 64),
                                          modifiedMicroseconds: 19, changedMicroseconds: 20,
@@ -91,8 +89,7 @@ final class CatalogTests: XCTestCase {
         try reconcile(catalog, [file("data")])
         let row = try child(catalog, "data")
         try catalog.setKeep(ids: [row.id], value: true)
-        try catalog.setAllowsCreation(true)
-        try catalog.setAllowsEditing(true)
+        try catalog.setAllowsWriting(true)
         func receipt(_ digest: String) throws -> EditBaseReceipt {
             try EditBaseReceipt(item: row.id, version: EditFileVersion(
                 identity: EditFileIdentity(fileID: 17, birthMicroseconds: 18), size: row.size,
@@ -162,7 +159,7 @@ final class CatalogTests: XCTestCase {
             + " || '|' || paused FROM meta"
         XCTAssertEqual(try rows(catalog, meta), ["1|domain-A|16|0|0|0"])
         XCTAssertEqual(try rows(catalog, "SELECT name FROM pragma_table_info('meta')"),
-                       ["id", "domain_id", "epoch", "last_seq", "listing_gen", "paused", "allows_creation", "allows_editing"])
+                       ["id", "domain_id", "epoch", "last_seq", "listing_gen", "paused", "allows_writing"])
         XCTAssertEqual(try rows(catalog, "SELECT name FROM pragma_table_info('items')"),
                        ["row", "id", "parent_id", "name", "name_key", "kind", "size", "mtime_ns", "ctime_ns", "file_id",
                         "keep", "list_gen", "listed_at", "deleted", "change_seq", "keep_request", "listing_complete", "enumeration_key", "edit_version"])

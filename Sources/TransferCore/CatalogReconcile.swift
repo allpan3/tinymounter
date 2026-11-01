@@ -285,7 +285,7 @@ extension Catalog {
             try statement.bind(1, id)
             try statement.bind(2, rootKeep)
             var result: [(CatalogRow, Bool)] = []
-            while try statement.step() { result.append((try CatalogRow(statement), statement.bool(19))) }
+            while try statement.step() { result.append((try CatalogRow(statement), statement.bool(18))) }
             return result
         }
     }
@@ -449,26 +449,6 @@ extension Catalog {
             try statement.bind(1, id)
             guard try statement.step(), !statement.isNull(0) else { return nil }
             return UInt64(bitPattern: statement.int64(0))
-        }
-    }
-
-    public func setAllowsCreation(_ enabled: Bool) throws {
-        try write { seq in
-            guard try item(id: Self.rootItemID)?.allowsCreation != enabled else { return }
-            let ids = try items("SELECT \(CatalogRow.columns) FROM items WHERE deleted = 0").map(\.id)
-            try database.prepare("UPDATE meta SET allows_creation = ?, allows_editing = allows_editing AND ?") { statement in
-                try statement.bind(1, enabled)
-                try statement.bind(2, enabled)
-                try statement.run()
-            }
-            for id in ids {
-                seq += 1
-                try database.prepare("UPDATE items SET change_seq = ? WHERE id = ?") { statement in
-                    try statement.bind(1, seq)
-                    try statement.bind(2, id)
-                    try statement.run()
-                }
-            }
         }
     }
 }

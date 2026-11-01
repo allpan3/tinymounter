@@ -96,7 +96,7 @@ extension LocationSource {
 
     private func deletionPath(_ request: DeletionRequest) throws -> RelativePath {
         try withCatalog { catalog in
-            guard let row = try catalog.item(id: request.item), !row.deleted, row.allowsEditing,
+            guard let row = try catalog.item(id: request.item), !row.deleted, row.allowsWriting,
                   row.contentVersion == request.contentVersion, row.metadataVersion == request.metadataVersion,
                   let relative = try catalog.relativePath(of: row.id), !relative.isRoot,
                   let path = folder.appending(relative) else { throw SourceFailure.versionChanged }

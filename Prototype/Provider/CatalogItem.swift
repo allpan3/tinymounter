@@ -13,7 +13,7 @@ final class CatalogItem: NSObject, NSFileProviderItem {
 
     private var isFolder: Bool { row.kind == .folder }
     private var allowsEditing: Bool {
-        row.allowsEditing && EditRequest.supportsName(row.name) && !contentType.conforms(to: .package)
+        row.allowsWriting && EditRequest.supportsName(row.name) && !contentType.conforms(to: .package)
     }
 
     // The root row's ID is the root container's raw value.
@@ -35,16 +35,16 @@ final class CatalogItem: NSObject, NSFileProviderItem {
                UTType(filenameExtension: (row.name as NSString).pathExtension)?.conforms(to: .package) != true {
                 return [.allowsContentEnumerating, .allowsAddingSubItems, .allowsRenaming, .allowsReparenting]
             }
-            return row.allowsCreation ? [.allowsContentEnumerating, .allowsAddingSubItems, .allowsRenaming]
+            return row.allowsWriting ? [.allowsContentEnumerating, .allowsAddingSubItems, .allowsRenaming]
                 : .allowsContentEnumerating
         }
         if allowsEditing {
             return [.allowsReading, .allowsRenaming, .allowsReparenting, .allowsWriting]
         }
-        return row.allowsCreation ? [.allowsReading, .allowsRenaming] : .allowsReading
+        return row.allowsWriting ? [.allowsReading, .allowsRenaming] : .allowsReading
     }
     var fileSystemFlags: NSFileProviderFileSystemFlags {
-        if isFolder { return row.allowsCreation ? [.userReadable, .userWritable, .userExecutable] : [.userReadable, .userExecutable] }
+        if isFolder { return row.allowsWriting ? [.userReadable, .userWritable, .userExecutable] : [.userReadable, .userExecutable] }
         return allowsEditing ? [.userReadable, .userWritable] : .userReadable
     }
     /// While paused, kept files are lazy, so the system starts no eager downloads (plan §6).

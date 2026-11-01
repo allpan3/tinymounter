@@ -121,10 +121,9 @@ private final class Probe: @unchecked Sendable {
         directory = URL.applicationSupportDirectory.appending(path: "tinymounter/M22App/" + run.uuidString)
         originalSettingsURL = URL.applicationSupportDirectory.appending(path: "tinymounter/Settings.json")
         originalSettings = try Data(contentsOf: originalSettingsURL)
-        // Decode directly: loading older Settings must not migrate the user's file during a probe.
         let current = try JSONDecoder().decode(AppSettings.self, from: originalSettings)
         guard let record = current.locations.first(where: { $0.id == location }),
-              !record.removing, record.smbOnlyEditing == true, let write = record.activeWriteBookmark,
+              !record.removing, let write = record.activeWriteBookmark,
               let grant = current.shares.first(where: { $0.id == record.serverID }),
               let endpoint = ShareAddress(grant.mountFrom), endpoint.host == Self.host,
               endpoint.share == Self.share, endpoint.account == Self.account,
@@ -228,7 +227,7 @@ private final class Probe: @unchecked Sendable {
             : Catalog.openWriter(at: url, domainID: domain)
         let source = LocationSource(domainID: domain, folder: folder, catalog: catalog, access: access,
             renameSettings: { [self] intent in try await commitSettings(intent) }, signal: { _ in })
-        try source.configureWriteMode(bookmark, confirmed: true)
+        try source.configureWriteMode(bookmark)
         sources.append(source)
         return source
     }

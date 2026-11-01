@@ -17,7 +17,7 @@ enum M23SaveRecoveryHelper {
             let original = try Data(contentsOf: originalURL)
             let current = try JSONDecoder().decode(AppSettings.self, from: original)
             guard let record = current.locations.first(where: { $0.id == location }),
-                  !record.removing, record.smbOnlyEditing == true, let bookmark = record.activeWriteBookmark,
+                  !record.removing, let bookmark = record.activeWriteBookmark,
                   let grant = current.shares.first(where: { $0.id == record.serverID }),
                   let endpoint = ShareAddress(grant.mountFrom), endpoint.host == "127.0.0.1",
                   endpoint.share == "tinymounter-m19-edit-test", endpoint.account == "_tinymounter_m19",
@@ -48,7 +48,7 @@ enum M23SaveRecoveryHelper {
             let source = LocationSource(domainID: domain, folder: folder, catalog: catalog,
                                         access: access, renameSettings: { _ in }, signal: { _ in })
             defer { source.close(); access.editNamespace.unregister(domain) }
-            try source.configureWriteMode(bookmark, confirmed: true)
+            try source.configureWriteMode(bookmark)
             try await withCheckedThrowingContinuation { (reply: CheckedContinuation<Void, Error>) in
                 source.runM23FinalProbe(mode, caseID: caseID, run: run) { reply.resume(with: $0) }
             }

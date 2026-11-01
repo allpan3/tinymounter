@@ -43,9 +43,8 @@ File Provider, cache ownership, and metadata architecture are selected. The ship
 are separate records. The app owns read-only grants; macOS owns passwords and SMB mounts. An
 existing connection can be associated with a saved server by explicit selection, with confirmation
 for another address. Disconnect ejects that OS volume. Remove ejects all associated connections
-before deleting the server; failure retains the records. Settings version 6 migrates versions 1 through 5
-atomically, preserving location and domain identity, bookmarks and Keep Downloaded lists, with
-typed file and folder requests ([M14 results](results/2026-10-19-folder-keeps.md)). The
+before deleting the server; failure retains the records. Keep Downloaded lists hold typed file
+and folder requests ([M14 results](results/2026-10-19-folder-keeps.md)). The
 [connection-management results](results/2026-10-18-connection-management.md) record VM checks and
 physical-Mac limits.
 
@@ -277,7 +276,7 @@ and first disposable VM test session. Each implementation still has to pass its 
   The approved VM probe passed mixed native/direct staging and competing SMB access checks,
   but server-local access bypassed protection. The user accepted an SMB-only writer boundary:
   editing requires explicit confirmation that every writer accesses the folder through SMB.
-  Existing write grants retain creation-only permission. A different client transport does
+  A different client transport does
   not fix server-local exclusion. Editor callbacks, metadata
   preservation and interrupted recovery were the next gates. The authenticated Apple SMB fixture
   does not expose security descriptors, and native SMB also misses an explicit backing ACL.
