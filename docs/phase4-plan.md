@@ -250,7 +250,9 @@ those bytes are read, or during full-download/save verification. Unchanged reque
 still satisfy the prior revision. The implementation keeps one table per location, with 1 MiB
 blocks and at most 2 MiB of digests (64 GiB indexed); larger files use full verification.
 These November 1 implementation choices follow the user's standing autonomous-development
-instruction. Signed integration and performance validation remain required.
+instruction. [Signed VM checks](results/2026-11-01-verified-range-reads.md) measure the small-read
+improvement, full-download cost and restart/remount fallback. Forced cached-read mutation races
+and physical-Mac performance remain unverified.
 
 Before moving the old file, compare its identity, complete digest and relevant metadata with
 the base receipt while server-enforced protection is held. A native inode can be a name hash,
