@@ -168,6 +168,26 @@ install, notarize, publish or buy a developer account.
 
 ## Starting point
 
+The [2026-10-31 everyday-use review](results/2026-10-31-everyday-use-review.md) sets the next
+integration priorities within the accepted milestones:
+
+1. Signed Finder folder creation and initial naming now pass with the repaired disposable fixture.
+   The supported Samba setting also fixes adapter/native creation. Correcting VM hostname
+   resolution removes its connection delay. Neither change requires a user's server to change.
+2. Repeated full/partial reads and the writable-open profile are complete for the disposable VM
+   fixture. Encryption acceleration gives a 7.19 s median for five 2 GiB writable downloads,
+   but edited-file cache misses still take 4–5 s. Address repeated content verification while
+   preserving native payload reads/uploads and integrity checks. Continue the
+   [fixed regression set](benchmark-plan.md#fixed-regression-set-during-implementation);
+   the original throughput, APFS and media gates remain open.
+3. Finish integrated M22 parent enumeration and recovery, M23 recovery controls, and M24 Finder
+   deletion after its protocol/UI gate. Measure completion in Finder and verify preserved or
+   deliberately removed local data before enabling the normal-build capabilities.
+
+Use further isolated probes to answer a concrete blocker in those workflows. More standalone
+edge cases do not substitute for completing the accepted user tasks. M25/M26 follow their
+existing dependencies; M27/M28 and the physical-Mac acceptance gates remain open.
+
 Current protocol evidence: [file organization](results/2026-10-29-file-organization-protocol.md)
 and [permanent deletion](results/2026-10-29-deletion-protocol.md). Their operation checks pass,
 with current-object admission and whole-file deletion boundaries accepted on 2026-10-29. These probes
@@ -188,7 +208,8 @@ required VM checks, including recovery after partial catalog completion and the 
 correction found in source review. Selected signed adapter checks pass for moves, collisions
 and recovery. Signed app checks cover draining, overlapping views, keeps and settings recovery.
 Signed Finder rename, move and case-only checks preserve downloaded copies. New-folder creation
-failed on the fixture, and parent-scoped enumeration, real crashes and stale-base publication
+failed on the fixture. The October 31 supported Samba setting fixes adapter/native and signed
+Finder creation. Parent-scoped enumeration, real crashes and stale-base publication
 remain unverified. Signed Settings-gap checks cover case-only descendant retirement, source-only
 ancestor changes and retry after root or destination restoration, including injected partial
 catalog completion. The native listing rewrites the Unicode case's initial name, so that case
@@ -288,6 +309,11 @@ records the remaining cleanup. The root-retirement checks reopened and closed on
 the standing VM permission above. The fixture is again unmounted, its server is stopped and Apple
 SMB is restored; original Settings bytes are unchanged. Both runs' evidence and recovery artifacts
 remain; see the [runtime follow-up](results/2026-10-30-folder-move-catalog.md#runtime-follow-up-2026-10-31).
+
+The later October 31 everyday-use review reopened and then unmounted the disposable fixture.
+Its temporary Samba process is stopped, the original hostname file is restored, and Apple SMB
+is again loaded and inactive with its original override. Evidence, isolated test builds and
+recovery records remain. The physical Mac was not updated.
 
 ## Common completion criteria
 
