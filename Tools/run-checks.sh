@@ -37,3 +37,15 @@ xcrun clang -std=gnu11 -Wall -Wextra -Werror -Wno-unused-parameter -IVendor/libs
     Tools/check-folder-create-status.c -L"$smb_products" -lTinyMounterSMB -Wl,-rpath,"$smb_products" \
     -framework CoreFoundation -framework GSS -o .build/check-folder-create-status
 .build/check-folder-create-status
+
+xcrun clang -std=gnu11 -O2 -Wall -Wextra -Werror -Wno-unused-parameter \
+    -DHAVE_CONFIG_H=1 '-D_U_=__attribute__((unused))' -DTINYMOUNTER_CCM_REFERENCE=1 \
+    -Daes128ccm_encrypt=reference_encrypt -Daes128ccm_decrypt=reference_decrypt \
+    -IVendor/libsmb2/include/apple -IVendor/libsmb2/include \
+    -c Vendor/libsmb2/lib/aes128ccm.c -o .build/check-smb-ccm-reference.o
+xcrun clang -std=gnu11 -O2 -Wall -Wextra -Werror -Wno-unused-parameter \
+    -DHAVE_CONFIG_H=1 -DHAVE_LIBKRB5=1 '-D_U_=__attribute__((unused))' \
+    -IVendor/libsmb2/include/apple -IVendor/libsmb2/include \
+    Tools/check-smb-ccm.c .build/check-smb-ccm-reference.o \
+    -L"$smb_products" -lTinyMounterSMB -Wl,-rpath,"$smb_products" -o .build/check-smb-ccm
+.build/check-smb-ccm

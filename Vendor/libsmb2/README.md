@@ -28,6 +28,18 @@ Local changes:
 - A SET_INFO rename converts `/` to `\` in the new name. Upstream 6.3 converted the request's
   fixed part instead, where a FileId word of 0x002f became 0x005c.
   Tools/check-set-info-encoding.c checks the encoding without a connection.
+- AES-128-CCM uses public CommonCrypto CBC and CTR APIs, retaining the same nonce, associated
+  data, ciphertext and tag format. CBC authentication uses a 16 KiB scratch buffer; payload
+  encryption/decryption remains in place. API failures stop the request before socket queuing;
+  failed authentication clears the decrypted payload. Rejected requests retain their unsent
+  message IDs. Encrypted sends use the existing 16 MiB receive bound; native uploads are
+  unaffected. Encryption remains required. The original
+  portable implementation is compiled only for the offline reference test with
+  `TINYMOUNTER_CCM_REFERENCE`. Tools/check-smb-ccm.c checks an RFC 3610 vector, portable
+  equivalence, altered packets, input bounds, API failures and queue rejection. The public
+  [CommonCryptor API](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/CCCryptorCreate.3cc.html)
+  and SDK header document CBC without padding and CTR in-place operation; no private CCM API
+  or additional dependency is used.
 
 Prototype/SMB/SMBRename.c is the app's restricted entry point. Authenticated connections require
 SMB encryption. It opens and checks directory handles, preserves ancestor paths against SMB
