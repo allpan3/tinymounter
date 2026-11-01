@@ -124,7 +124,7 @@ private final class Probe: @unchecked Sendable {
         let current = try JSONDecoder().decode(AppSettings.self, from: originalSettings)
         guard let record = current.locations.first(where: { $0.id == location }),
               !record.removing, let write = record.activeWriteBookmark,
-              let grant = current.shares.first(where: { $0.id == record.serverID }),
+              let grant = current.shares.first(where: { $0.id == record.grantID }),
               let endpoint = ShareAddress(grant.mountFrom), endpoint.host == Self.host,
               endpoint.share == Self.share, endpoint.account == Self.account,
               grant.host == Self.host, grant.share == Self.share, grant.account == Self.account,
@@ -145,7 +145,7 @@ private final class Probe: @unchecked Sendable {
             state = ProbeState(run: run, owner: UUID().uuidString, overlap: UUID().uuidString)
             var locations: [LocationRecord] = []
             for (domain, folder) in [(state.owner, root), (state.overlap, root.appending("overlap")!)] {
-                var synthetic = LocationRecord(name: "M22 app probe", serverID: grant.id,
+                var synthetic = LocationRecord(name: "M22 app probe", grantID: grant.id,
                                                folder: folder, domainID: domain)
                 synthetic.pendingKeeps = Self.oldKeeps(root)
                 locations.append(synthetic)

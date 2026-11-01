@@ -26,9 +26,9 @@ final class SettingsTests: XCTestCase {
         let replacementKind = KeepPath(path: folder.path, kind: .file)
         let neighbor = KeepPath(path: "Tree/Café-other", kind: .folder)
         let paths = [folder, deleted, uncertain, replacementKind, neighbor]
-        var location = LocationRecord(name: "Location", serverID: grant.id, folder: .root)
+        var location = LocationRecord(name: "Location", grantID: grant.id, folder: .root)
         location.pendingKeeps = paths
-        var otherLocation = LocationRecord(name: "Other", serverID: other.id, folder: .root)
+        var otherLocation = LocationRecord(name: "Other", grantID: other.id, folder: .root)
         otherLocation.pendingKeeps = paths
         var settings = AppSettings(servers: [server], shares: [grant, other], locations: [location, otherLocation], savedKeeps: [
             SavedKeepList(host: "FIXTURE", share: "SHARE", paths: paths),
@@ -72,9 +72,9 @@ final class SettingsTests: XCTestCase {
         let new = KeepPath(path: "Archive/file.txt", kind: .file)
         let folder = KeepPath(path: "Inbox/file.txt", kind: .folder)
         let neighbor = KeepPath(path: "Inbox/file.txt/child", kind: .file)
-        var location = LocationRecord(name: "Location", serverID: grant.id, folder: .root)
+        var location = LocationRecord(name: "Location", grantID: grant.id, folder: .root)
         location.pendingKeeps = [old, new, folder, neighbor]
-        var otherLocation = LocationRecord(name: "Other", serverID: other.id, folder: .root)
+        var otherLocation = LocationRecord(name: "Other", grantID: other.id, folder: .root)
         otherLocation.pendingKeeps = [old]
         var settings = AppSettings(servers: [server], shares: [grant, other], locations: [location, otherLocation],
                                    savedKeeps: [SavedKeepList(host: "FIXTURE", share: "SHARE", paths: [old]),
@@ -103,7 +103,7 @@ final class SettingsTests: XCTestCase {
                      KeepPath(path: "Archive/Report/Nested/file.txt", kind: .file),
                      KeepPath(path: "Inbox/Café", kind: .file),
                      KeepPath(path: "Inbox/Café-other/file.txt", kind: .file)]
-        var location = LocationRecord(name: "Location", serverID: grant.id, folder: .root)
+        var location = LocationRecord(name: "Location", grantID: grant.id, folder: .root)
         location.pendingKeeps = paths
         var settings = AppSettings(servers: [server], shares: [grant], locations: [location], savedKeeps: [
             SavedKeepList(host: "FIXTURE", share: "SHARE", paths: paths),
@@ -130,7 +130,7 @@ final class SettingsTests: XCTestCase {
         let paths = [KeepPath(path: "Archive", kind: .folder), KeepPath(path: "Archive/Café", kind: .folder),
                      KeepPath(path: "archive/Cafe\u{301}/Nested/file", kind: .file),
                      KeepPath(path: "Archive/Café-other/file", kind: .file)]
-        var location = LocationRecord(name: "Location", serverID: grant.id, folder: .root)
+        var location = LocationRecord(name: "Location", grantID: grant.id, folder: .root)
         location.pendingKeeps = paths
         var settings = AppSettings(servers: [server], shares: [grant], locations: [location], savedKeeps: [
             SavedKeepList(host: "fixture", share: "share", paths: paths),
@@ -167,7 +167,7 @@ final class SettingsTests: XCTestCase {
     func testFolderKeepRewriteRefusesInvalidOrOverlongTargetsWithoutPartialChanges() throws {
         let grant = ServerGrant(serverID: UUID(), bookmark: Data([1]), mountFrom: "//account@fixture/share",
                                 address: try XCTUnwrap(ShareAddress("//account@fixture/share")))
-        var location = LocationRecord(name: "Location", serverID: grant.id, folder: .root)
+        var location = LocationRecord(name: "Location", grantID: grant.id, folder: .root)
         location.pendingKeeps = [KeepPath(path: "a/short", kind: .file)]
         let component = String(repeating: "x", count: 250)
         let long = "a/" + Array(repeating: component, count: 4).joined(separator: "/")
@@ -182,7 +182,7 @@ final class SettingsTests: XCTestCase {
     }
 
     func testReadOnlyRetainsInactiveGrantAcrossRelaunch() throws {
-        var location = LocationRecord(name: "Read", serverID: UUID(), folder: .root)
+        var location = LocationRecord(name: "Read", grantID: UUID(), folder: .root)
         location.writeBookmark = Data([4])
         location.readOnly = true
         let settings = AppSettings(locations: [location])
@@ -337,10 +337,10 @@ final class SettingsTests: XCTestCase {
         let address = try XCTUnwrap(ShareAddress("//account@nas.local/Media"))
         let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "account@nas.local")))
         let grant = ServerGrant(serverID: server.id, bookmark: Data([1, 2, 3]), mountFrom: "//account@nas.local/Media", address: address)
-        var record = LocationRecord(name: "Movies", serverID: grant.id, folder: try XCTUnwrap(RelativePath("Movies/2024")))
+        var record = LocationRecord(name: "Movies", grantID: grant.id, folder: try XCTUnwrap(RelativePath("Movies/2024")))
         record.retiredDomainID = UUID().uuidString
         record.pendingKeeps = fileKeeps(["Movies/2024/a.mkv"])
-        var settings = AppSettings(servers: [server], shares: [grant], locations: [record, LocationRecord(name: "Media", serverID: grant.id, folder: .root)],
+        var settings = AppSettings(servers: [server], shares: [grant], locations: [record, LocationRecord(name: "Media", grantID: grant.id, folder: .root)],
                                    savedKeeps: [SavedKeepList(host: address.host, share: address.share, paths: fileKeeps(["Movies/a.mkv"]))])
         let url = directory.appending(path: "tinymounter/Settings.json")
 
@@ -393,7 +393,7 @@ final class SettingsTests: XCTestCase {
         let other = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "other.local")))
         let address = try XCTUnwrap(ShareAddress("//account@nas.local/Media"))
         let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//account@nas.local/Media", address: address)
-        let record = LocationRecord(name: "Media", serverID: grant.id, folder: .root)
+        let record = LocationRecord(name: "Media", grantID: grant.id, folder: .root)
         var settings = AppSettings(servers: [server, other], shares: [grant], locations: [record])
         let before = settings
         XCTAssertTrue(settings.serverIsUsed(server.id))

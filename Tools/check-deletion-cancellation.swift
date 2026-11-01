@@ -227,7 +227,7 @@ private final class CancellationProbe: @unchecked Sendable {
         guard let location = current.locations.first(where: {
             $0.id.uuidString == "3A9DE695-8327-4D86-B393-2520E71A75D8"
         }), !location.removing, let write = location.activeWriteBookmark,
-              let grant = current.shares.first(where: { $0.id == location.serverID }),
+              let grant = current.shares.first(where: { $0.id == location.grantID }),
               let address = ShareAddress(grant.mountFrom), address.host == Self.host,
               address.share == Self.share, address.account == Self.account,
               grant.host == Self.host, grant.share == Self.share, grant.account == Self.account,

@@ -93,6 +93,6 @@ final class LaunchReconciliationTests: XCTestCase {
     }
 
     private func location() -> LocationRecord {
-        LocationRecord(name: "Movies", serverID: server, folder: RelativePath("Movies")!)
+        LocationRecord(name: "Movies", grantID: server, folder: RelativePath("Movies")!)
     }
 }

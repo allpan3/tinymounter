@@ -327,7 +327,7 @@ extension LocationController {
             $0.id == UUID(uuidString: "3A9DE695-8327-4D86-B393-2520E71A75D8")
         }), reference.name == "M21 Files", reference.folder == "probe-m21-finder", !reference.removing,
            let bookmark = reference.activeWriteBookmark,
-           let grant = settings.shares.first(where: { $0.id == reference.serverID }),
+           let grant = settings.shares.first(where: { $0.id == reference.grantID }),
            let endpoint = ShareAddress(grant.mountFrom), endpoint.host == "127.0.0.1",
            endpoint.share == M22FinderProbe.share, endpoint.account == "_tinymounter_m19",
            grant.host == endpoint.host, grant.share == endpoint.share, grant.account == endpoint.account else {
@@ -347,7 +347,7 @@ extension LocationController {
             $0.isSameShare(host: "127.0.0.1", share: M22FinderProbe.share)
         }.map(\.id))
         let wanted = NameKey(folder).value
-        for record in settings.locations where grants.contains(record.serverID) && record.id != allowed {
+        for record in settings.locations where grants.contains(record.grantID) && record.id != allowed {
             let path = NameKey(record.folder).value
             try M22FinderProbe.require(!path.isEmpty && path != wanted
                 && !path.hasPrefix(wanted + "/") && !wanted.hasPrefix(path + "/"), "overlapping-location")
@@ -410,7 +410,7 @@ extension LocationController {
     private func m22FinderSnapshot(_ config: M22FinderProbe.Config, label: String) async throws {
         let started = DispatchTime.now().uptimeNanoseconds
         guard let settings = store.settings, let record = settings.locations.first(where: { $0.id == config.location }),
-              record.folder == config.folder, record.domainID == config.domain, record.serverID == config.grant,
+              record.folder == config.folder, record.domainID == config.domain, record.grantID == config.grant,
               record.activeWriteBookmark != nil, !record.removing,
               let source = sources[config.domain], let domain = domains[config.domain],
               let manager = NSFileProviderManager(for: domain) else { throw LocationError.catalogClosed }

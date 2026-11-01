@@ -65,7 +65,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
 
     public func serverIsUsed(_ id: UUID) -> Bool {
         let grants = Set(shares.filter { $0.serverID == id }.map(\.id))
-        return locations.contains { grants.contains($0.serverID) }
+        return locations.contains { grants.contains($0.grantID) }
     }
 
     public mutating func removeServer(_ id: UUID) throws {
@@ -138,8 +138,7 @@ public struct ServerGrant: Codable, Equatable, Sendable {
 public struct LocationRecord: Codable, Equatable, Sendable {
     public let id: UUID
     public var name: String
-    // The share grant ID; keep the persisted key so existing locations stay intact.
-    public var serverID: UUID
+    public var grantID: UUID
     /// A `RelativePath` from the share root; "" is the full share.
     public var folder: String
     /// The `NSFileProviderDomainIdentifier`, a UUID.
@@ -154,11 +153,11 @@ public struct LocationRecord: Codable, Equatable, Sendable {
 
     public var activeWriteBookmark: Data? { readOnly ? nil : writeBookmark }
 
-    public init(id: UUID = UUID(), name: String, serverID: UUID, folder: RelativePath,
+    public init(id: UUID = UUID(), name: String, grantID: UUID, folder: RelativePath,
                 domainID: String = UUID().uuidString) {
         self.id = id
         self.name = name
-        self.serverID = serverID
+        self.grantID = grantID
         self.folder = folder.string
         self.domainID = domainID
     }
@@ -224,7 +223,7 @@ extension AppSettings {
             paths.filter { !deleted.contains(KeepPath(path: NameKey($0.path).value, kind: $0.kind)) }
         }
         let related = Set(shares.filter { ServerGrant.isSameShare($0.host, $0.share, host, share) }.map(\.id))
-        for index in locations.indices where related.contains(locations[index].serverID) {
+        for index in locations.indices where related.contains(locations[index].grantID) {
             locations[index].pendingKeeps = retained(locations[index].pendingKeeps)
         }
         for index in savedKeeps.indices where savedKeeps[index].isFor(host: host, share: share) {
@@ -237,7 +236,7 @@ extension AppSettings {
         guard let folder = RelativePath(path), !folder.isRoot else { throw UploadError.invalidRequest }
         let prefix = folder.components.map(NameKey.init)
         let related = Set(shares.filter { ServerGrant.isSameShare($0.host, $0.share, host, share) }.map(\.id))
-        let paths = locations.filter { related.contains($0.serverID) }.flatMap(\.pendingKeeps)
+        let paths = locations.filter { related.contains($0.grantID) }.flatMap(\.pendingKeeps)
             + savedKeeps.filter { $0.isFor(host: host, share: share) }.flatMap(\.paths)
         let removed = try paths.filter { keep in
             guard let current = RelativePath(keep.path) else { throw UploadError.invalidRequest }
@@ -278,7 +277,7 @@ extension AppSettings {
         }
         var updated = self
         let related = Set(shares.filter { ServerGrant.isSameShare($0.host, $0.share, host, share) }.map(\.id))
-        for index in locations.indices where related.contains(locations[index].serverID) {
+        for index in locations.indices where related.contains(locations[index].grantID) {
             updated.locations[index].pendingKeeps = try moved(locations[index].pendingKeeps)
         }
         for index in savedKeeps.indices where savedKeeps[index].isFor(host: host, share: share) {
@@ -300,7 +299,7 @@ extension AppSettings {
             }.filter { seen.insert($0).inserted }
         }
         let related = Set(shares.filter { ServerGrant.isSameShare($0.host, $0.share, host, share) }.map(\.id))
-        for index in locations.indices where related.contains(locations[index].serverID) {
+        for index in locations.indices where related.contains(locations[index].grantID) {
             locations[index].pendingKeeps = moved(locations[index].pendingKeeps)
         }
         for index in savedKeeps.indices where savedKeeps[index].isFor(host: host, share: share) {
