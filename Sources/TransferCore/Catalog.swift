@@ -128,7 +128,6 @@ public final class Catalog {
     /// `NSFileProviderItemIdentifier.rootContainer.rawValue`; core doesn't import FileProvider.
     public static let rootItemID = "NSFileProviderRootContainerItemIdentifier"
     static let maxDepth = 256
-    static let schemaVersion: Int64 = 7
     // No real number of writes reaches it, so a writer's `seq += 1` can't overflow.
     static let maxLastSeq = Int64.max / 2
     private static let busyTimeoutMilliseconds = 2000
@@ -166,12 +165,7 @@ public final class Catalog {
         CREATE UNIQUE INDEX items_live_name ON items(parent_id, name_key) WHERE deleted = 0;
         CREATE INDEX items_kept ON items(row) WHERE keep = 1 AND deleted = 0;
         CREATE INDEX items_listing ON items(parent_id, enumeration_key, row) WHERE deleted = 0;
-        \(departuresSchema)
-        PRAGMA user_version = 7;
-        """
-
-    // One departure per item and former parent keeps repeated moves from growing history.
-    static let departuresSchema = """
+        -- One departure per item and former parent keeps repeated moves from growing history.
         CREATE TABLE departures (
           item TEXT NOT NULL REFERENCES items(id),
           parent TEXT NOT NULL REFERENCES items(id),
@@ -208,11 +202,7 @@ public final class Catalog {
     }
 
     /// Call it before `enableWAL`, so a file of another kind is never switched to WAL.
-    static func checkedEpoch(_ database: SQLiteDatabase, domainID: String,
-                             version: Int64 = schemaVersion) throws -> Data {
-        guard try database.prepare("PRAGMA user_version", { try $0.step() ? $0.int64(0) : 0 }) == version else {
-            throw CatalogError.unsupportedSchema
-        }
+    static func checkedEpoch(_ database: SQLiteDatabase, domainID: String) throws -> Data {
         // Damaged counters would crash the writer or expire every anchor, so they are unavailable.
         let meta = try database.prepare("""
             SELECT domain_id, epoch, last_seq BETWEEN 0 AND ?1 AND listing_gen >= 0
