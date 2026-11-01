@@ -85,9 +85,11 @@ Never break these without an explicit task to do so.
   Sanitize `results/` before sharing it.
 - **Never weaken the sandbox to make a test pass.** Record the actual error, then design a supported
   route.
-- **An update keeps the user's locations.** The user runs the app day to day from M10, and a build
-  opens only the formats it knows. So a change to the format of `Settings.json` or of a catalog
-  comes with a migration from the previous build's format, and a test of it.
+- **No migrations before release.** This is a prototype. Design every format and setup flow for a
+  new installation of the release version. Don't write migrations, legacy states or downgrade
+  guards for earlier builds' `Settings.json` or catalogs; existing ones are to be removed. A build
+  may reject earlier data, and the user then adds the locations again. Before such a build goes
+  on the physical Mac, say so, and make sure pending changes are finished or exported first.
 - **Leave system state alone outside the VM.** Don't change server settings, mounts, network
   settings or global `nsmb.conf` outside the VM without asking. VM work has the standing
   permission above.
