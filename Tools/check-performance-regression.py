@@ -24,6 +24,8 @@ compared at the end with native hashes. Rates are decimal MB/s. Failed samples s
 in samples.jsonl and results.json; only valid samples enter medians. Remote samples
 also require SMB receive counters to cover the requested bytes. Full downloads need
 one matching full callback from the selected app's provider.
+Hashes are saved as they finish. The local APFS clone stays with the evidence; it can
+inherit the provider copy's immutable flag.
 
 The fetch log (subsystem dev.tinymounter.prototype, category fetch) is streamed for
 the run. Each provider sample records its callbacks: count, modes, bytes, and the
@@ -444,6 +446,7 @@ class Series:
             self.hashes[key] = {"failure": label(error)}
         except RuntimeError as error:
             self.hashes[key] = {"failure": str(error)}
+        (self.folder / "hashes.json").write_text(json.dumps(self.hashes, indent=2))
 
     def make_clone(self):
         self.clone.parent.mkdir()
@@ -511,8 +514,6 @@ class Series:
                                self.args.partial_length, nocache=True)
             if self.clone.exists():
                 self.hash_into("local-clone", str(self.clone), 0, full_size)
-        if self.clone.exists():
-            self.clone.unlink()
         callbacks = parse_fetch_log(self.folder / "fetch-log.ndjson", self.args.app)
         for sample in self.samples:
             sample["verification"] = self.verification(sample) if complete else "not performed: run incomplete"
