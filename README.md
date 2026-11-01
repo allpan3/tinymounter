@@ -2,6 +2,16 @@
 
 A macOS app that brings a network disk, such as a NAS, into Apple's file system: browse it from Finder or another file manager such as QSpace, download on demand, and keep selected files available offline. Finder is the first file manager and SMB the first protocol it will support. A later mode will mount server volumes, the ordinary macOS SMB mounts, automatically.
 
+Everyday-use review, 2026-10-31: accelerated encryption gives a 7.19 s median for five 2 GiB
+writable downloads in the VM; the earlier profiled sample took 77.10 s. All required checks
+and 7,205 encryption cases pass. Edited-file cache misses still wait 4–5 s, and throughput
+remains below target. Repeated read-only comparisons show no demonstrated regression against M17.
+A supported Samba setting fixes folder creation, including signed Finder creation and initial
+naming. Correcting VM hostname resolution removes the fixture's 20-second connection delay.
+Repeated content verification, integrated Finder workflows and recovery controls remain open;
+M22/M24 stay disabled in the normal build. Temporary VM service and hostname changes are restored. See the
+[review and measurement limits](docs/results/2026-10-31-everyday-use-review.md).
+
 Save recovery, 2026-10-30: signed TextEdit checks recovered from stops before publication and before its reply. A simulated mid-copy space failure preserved the earlier exportable save; the complete newer save uploaded after retry. Item IDs, server identities and keep flags survived, with no final pending copies or false conflicts. [The observed callbacks and limits are recorded](docs/results/2026-10-29-pending-save-order.md#signed-callback-observation-2026-10-30). Bounded reserve, partial-stage continuation and lost-cleanup-reply checks also pass. A fresh signed probe verifies full replacement-artifact preservation through cleanup. Actual disk exhaustion and broader editor workflows remain unverified; M23 is incomplete.
 
 Folder moves, 2026-10-31: signed adapter checks pass for populated and case-only moves,
@@ -17,7 +27,7 @@ and completed replay returns a changed-version error. Restoring the folder produ
 The run found and fixed a surviving-root handle conflict; all required VM checks pass.
 Root removal/replacement and downloaded-copy invalidation still need signed verification.
 [Signed Finder rename, move and case-only checks preserve the downloaded copies](docs/results/2026-10-30-folder-move-catalog.md#signed-finder-checks-2026-10-30).
-New-folder creation failed on the fixture; parent-scoped enumeration and interruption checks
+New-folder creation now passes with the repaired fixture; parent-scoped enumeration and interruption checks
 remain open. Folder organization stays disabled in the normal build.
 The integrated candidate passes all required VM checks with 569 tests, one optional skip and no
 failures or Swift warnings, including save recovery, recursive deletion, catalog settlement,
@@ -271,7 +281,10 @@ See [prototype setup and validation](docs/prototype.md). Build the benchmark wit
 
 ## Recommendation
 
-Use Apple's replicated File Provider extension for File Provider locations. Start with a read-only performance prototype backed by native macOS SMB, then compare a direct asynchronous SMB client. Select the shipping transport using measured throughput, video behavior, sandbox feasibility, and reconnect reliability.
+Continue with Apple's replicated File Provider extension and native macOS SMB reads/uploads.
+The accepted direct-SMB adapter handles protected write operations and their verification.
+Complete the integrated Finder workflows and matched performance checks before expanding the
+normal build's capabilities. Any transport change still needs measurement and a separate decision.
 
 File Provider supports partial-file downloads. It is not a native SMB mount, and some applications still request whole files. Near-native full-download throughput is verified under the VM conditions above. Sequential partial-read throughput is below target, and Finder-launched opens always download the whole file first.
 

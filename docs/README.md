@@ -24,6 +24,7 @@ it wrong.
 
 ## Results logs
 
+- [Everyday-use and performance review](results/2026-10-31-everyday-use-review.md). Encryption acceleration cuts the measured writable-open delay; edited-file cache misses and throughput targets remain unresolved. Fixture corrections restore Finder folder creation and remove the connection delay. Temporary VM state is restored.
 - [VM graphics interruption during save checks](results/2026-10-30-vm-graphics-interruption.md) — the frozen attempt reached no save checkpoint; the approved restart and fixture recovery restored testing.
 - [Folder-move preparation and adapter checks](results/2026-10-30-folder-move-catalog.md) — selected signed move and recovery checks pass; ambiguous-name fixtures and Finder integration remain unverified.
 - [Permanent-deletion protocol checks](results/2026-10-29-deletion-protocol.md) — protocol, core and signed adapter checks pass for files, empty folders and recovery; lost replies remain unconfirmed. App deletion is unavailable.

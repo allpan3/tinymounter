@@ -248,6 +248,40 @@ These findings support a proposed experiment, not an implemented or verified sav
   content, including after interruption. Permissions identify accounts, not applications;
   they cannot protect temporary files from other programs using the same account.
 
+### Samba folder creation review, 2026-10-31
+
+The [everyday-use review](results/2026-10-31-everyday-use-review.md) reproduced failed directory
+creation through the production adapter and native SMB on the disposable Samba 4.25.1 fixture.
+The sources below explain a plausible Darwin-specific failure path. A supported configuration
+comparison fixes both clients, but no captured server log confirms the exact fallback branch.
+
+- **W14:** Samba 4.25.1's [`mkdir_internal`](https://github.com/samba-team/samba/blob/samba-4.25.1/source3/smbd/open.c)
+  creates a temporary directory and publishes it with no-replace rename. Its fallback can create
+  the final directory with mode 000 before ordinary rename. The
+  [replacement helpers](https://github.com/samba-team/samba/blob/samba-4.25.1/lib/replace/replace.c)
+  and [default VFS implementation](https://github.com/samba-team/samba/blob/samba-4.25.1/source3/modules/vfs_default.c)
+  establish the Darwin rename route and error handling. Published
+  [XNU destination authorization](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.1.9/bsd/vfs/vfs_subr.c)
+  checks permissions before directory replacement. That source release corresponds to macOS 26;
+  it is not an exact source match for the VM's macOS 27.0.1 kernel.
+- **W15:** Samba documents [`vfs mkdir use tmp name`](https://github.com/samba-team/samba/blob/samba-4.25.1/docs-xml/smbdotconf/vfs/vfsmkdirusetmpname.xml)
+  as the switch for temporary-name directory creation. Setting it to `no` creates at the final
+  name before final metadata is applied. On the isolated fixture it removed `EACCES` and the
+  mode-000 leftovers while retaining the original ACL and stream configuration. The brief
+  metadata visibility window is acceptable for this fixture. This is not a production server
+  requirement, a transport change or a general compatibility claim.
+- **W16:** Samba's [`auth_generic_prepare`](https://github.com/samba-team/samba/blob/samba-4.25.1/source3/auth/auth_generic.c)
+  obtains the server DNS name and domain. Both paths call
+  [`get_mydnsfullname`](https://github.com/samba-team/samba/blob/samba-4.25.1/source3/lib/util_sock.c),
+  which resolves the local hostname and caches only success. Preparation runs during
+  [NEGOTIATE](https://github.com/samba-team/samba/blob/samba-4.25.1/source3/smbd/smb2_negprot.c)
+  and the first [SESSION_SETUP](https://github.com/samba-team/samba/blob/samba-4.25.1/source3/smbd/smb2_sesssetup.c).
+  This explains four repeated hostname lookups before a connection completes. On the fixture,
+  lookup failed after five seconds, and packet timing showed two ten-second reply gaps.
+  Temporary IPv4 and IPv6 hostname entries removed the lookup wait and reduced complete
+  adapter operations to under 0.2 s. This establishes a fixture problem; NAS connection
+  latency remains unmeasured.
+
 ## Research limitations
 
 Live web documentation and current SDK headers establish API contracts, not actual throughput. Search was unreliable, and several sites initially failed the VM's DNS resolution; direct HTTPS retrieval with explicitly resolved public addresses succeeded. No VM DNS settings were changed. Subsequent work measured native SMB and short NAS-backed provider reads and ran signed correctness checks; dated results logs record those separately. Competitor installations, the player matrix, large-file throughput acceptance, and controlled failure experiments remain incomplete, as described in the benchmark plan.

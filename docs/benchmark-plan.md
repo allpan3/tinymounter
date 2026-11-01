@@ -41,6 +41,39 @@ Use release builds with lightweight signposts. Prepare a large immutable, non-sp
 
 Interleave configurations to reduce thermal/cache-order bias. Run at least five valid repetitions per configuration/cache state and report median, range, and individual samples. Measure steady-state throughput after startup separately from total wall time and time to first byte. Browser/Finder copies and generic disk speed apps are supplemental workloads, not the only baseline.
 
+### Fixed regression set during implementation
+
+Use this set at integration checkpoints, starting with the
+[2026-10-31 review](results/2026-10-31-everyday-use-review.md). Compare a reproducible earlier
+signed Release build, the current read-only location and the current writable location in the
+same VM, with separate state and matched native controls. Reuse `transfer-bench`,
+`Tools/run-native-series.py` for native sink/staging pairs, and the existing provider measurement
+runner. Extend those tools only for missing observations; do not build another benchmark system.
+
+| Case | Fixed comparison and observations |
+| --- | --- |
+| Full download | Same 2 GiB non-sparse random file; coordinated whole-file read after verified provider eviction; native sink and APFS staging controls; five interleaved rounds; complete hashes outside timing; SMB ingress, callback and native-transfer time |
+| Partial read and seek | Same 3 GiB file; 512 MiB sequential POSIX reads from fresh extents, plus seeks that overlap observed read-ahead; matched native ranges; five throughput rounds; first-byte latency, fetched/requested bytes, returned extents and full-download fallback |
+| Fully local read | Same completely downloaded 2 GiB file and local APFS clone; hydration disabled, hashes verified, `F_NOCACHE`, no cache flush; five alternating-order rounds; fetch callbacks and SMB counters |
+| Finder organization | Create and initially name a folder, rename/move an ordinary file and populated folder, then relist both parents; record callback-to-visible completion, collisions, IDs, downloaded bytes, keeps and an untouched neighbor |
+| Save and recovery | Repeated TextEdit saves, reconnect retry and one interrupted publication; verify the final server hash and retained recoverable content, IDs, keeps and accurate pending status |
+
+Run workflow cases only through supported or explicitly gated candidate capabilities on the
+disposable fixture. Record unavailable actions instead of counting adapter checks as Finder
+success. Add permanent deletion to the organization case once its provider/UI gate passes.
+These workflow checks complement throughput samples; they are not statistical latency claims.
+
+In writable locations, measure cache misses both before an edit base exists and after a full
+download establishes one. Evict the test copy, then read fresh 1 MiB ranges far enough apart
+to avoid read-ahead hits. Record protected verification separately from native payload time:
+native SMB session counters do not include the direct verification connection.
+
+Keep setup, security settings, run order and all four cache states with the samples. A single
+pilot can identify a delay to investigate, but cannot establish a regression. Separate changes
+against the earlier build from unresolved original targets, including sequential throughput,
+local APFS parity and media latency. This set does not replace the larger acceptance fixtures,
+20-seek p95 requirement or physical-Mac validation below, and it changes no target or denominator.
+
 ## 4. Factor the data path
 
 Use the same bytes, read pattern, environment, and cache state for each row where applicable:
@@ -122,7 +155,10 @@ Perform disruptive cases only against an isolated fixture/share and within an ag
 | Fresh install on macOS 27 | App and extension each get usable local-network access; no reliance on an old permission cache |
 | Finder, QSpace, Quick Look, QuickTime, VLC/IINA, POSIX, coordinated read | Distinct callback and playback behavior recorded |
 
-For a read-only first release, remote writes/renames in these tests are made by a separate controlled test actor, not by tinymounter. Future write-mode tests add crash-after-commit, duplicate callback, concurrent external writes, conflict retention, offline safe-save, quota, rename/delete races, and outbox preservation.
+Use a separate controlled actor for competing remote changes. The accepted write milestones add
+crash-after-commit, duplicate callback, concurrent external writes, conflict retention, offline
+safe-save, quota, rename/delete races and outbox preservation. Run these only on the disposable
+fixture and through capabilities whose safety gates have passed.
 
 ## 8. What to build first
 
