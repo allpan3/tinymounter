@@ -296,25 +296,44 @@ extension LocationSource {
                     guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
                     let root = try session.locationRoot(folder)
                     let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: root, progress: progress)
+                    defer { withExtendedLifetime(remote) {} }
                     try remote.protectAncestors(of: path.string)
-                    let version = try remote.readVersion(path: path.string)
+                    try remote.protectRead(path: path.string)
                     let outbox = try Self.editOutbox(domainID: domainID)
                     let base = try outbox.base(item: row.id, contentVersion: request.version)
                     let file = try ReadOnlyFile(directoryFD: root, relativePath: path, expected: session.identity, noCache: true)
+                    _ = try ByteRange(offset: request.range.offset, length: request.range.length, fileSize: row.size)
                     let fingerprintChanged = file.snapshot.fingerprint
                         != ContentFingerprint(size: row.size, mtimeNs: row.mtimeNs, ctimeNs: row.ctimeNs)
-                    let receiptChanged = request.version.hasPrefix("e1:")
-                        && base.map({ version.hasSameContents(as: $0.version) }) != true
-                    if fingerprintChanged || receiptChanged {
-                        guard file.snapshot.size == version.size else { throw SourceFailure.versionChanged }
-                        let receipt = try EditBaseReceipt(item: row.id, version: version)
-                        try outbox.storeBase(receipt)
-                        try withCatalog {
-                            try $0.refreshEditBase(receipt, expectedVersion: row.contentVersion,
-                                                   fingerprint: file.snapshot.fingerprint, nativeID: file.snapshot.inode)
+                    let fullRead = request.range.offset == 0 && request.range.length == row.size
+                    var rangeDigest: String?
+                    if !fullRead, !request.establishEditBase, !fingerprintChanged, let base,
+                       verifiedReadSession === session, let cached = verifiedRead,
+                       cached.receipt == base, cached.path == path {
+                        rangeDigest = try remote.verifyRead(path: path.string, range: request.range,
+                                                            base: base.version, proof: cached.proof)
+                    }
+                    var version: EditFileVersion?
+                    if rangeDigest == nil {
+                        verifiedRead = nil
+                        verifiedReadSession = nil
+                        let current = try remote.readVersion(path: path.string, collectReadProof: true)
+                        version = current
+                        let receiptChanged = request.version.hasPrefix("e1:")
+                            && base.map({ current.hasSameContents(as: $0.version) }) != true
+                        if fingerprintChanged || receiptChanged {
+                            guard file.snapshot.size == current.size else { throw SourceFailure.versionChanged }
+                            let receipt = try EditBaseReceipt(item: row.id, version: current)
+                            try outbox.storeBase(receipt)
+                            try withCatalog {
+                                try $0.refreshEditBase(receipt, expectedVersion: row.contentVersion,
+                                                       fingerprint: file.snapshot.fingerprint, nativeID: file.snapshot.inode)
+                            }
+                            scheduleSignal()
+                            throw SourceFailure.versionChanged
                         }
-                        scheduleSignal()
-                        throw SourceFailure.versionChanged
+                        rangeDigest = fullRead ? current.digest
+                            : try remote.readRangeDigest(path: path.string, range: request.range)
                     }
                     let nativeProgress = Progress()
                     let verified = progress.completedUnitCount
@@ -327,14 +346,26 @@ extension LocationSource {
                     var output = try Transfer.run(source: file, range: request.range, stagingDirectory: stagingDirectory,
                                                   progress: nativeProgress, checkSpace: checkSpace)
                     do {
-                        if request.establishEditBase, row.allowsEditing, let url = output.stagingURL {
-                            let staged = try ReadOnlyFile(url: url)
-                            guard request.range.offset == 0, request.range.length == row.size,
-                                  try staged.checksum(range: request.range) == version.digest else { throw UploadError.unresolved }
-                            let receipt = try base ?? EditBaseReceipt(item: row.id, version: version)
-                            try outbox.storeBase(receipt)
-                            try withCatalog { try $0.rememberEditBase(receipt, expectedVersion: row.contentVersion) }
-                            output.contentVersion = receipt.contentVersion
+                        guard let url = output.stagingURL else { throw UploadError.unresolved }
+                        let staged = try ReadOnlyFile(url: url)
+                        guard !progress.isCancelled else { throw TransferError.cancelled }
+                        guard let rangeDigest,
+                              try staged.checksum(range: request.range, progress: progress) == rangeDigest else {
+                            throw UploadError.unresolved
+                        }
+                        var receipt = base
+                        if request.establishEditBase, row.allowsEditing {
+                            guard fullRead, let version else { throw UploadError.unresolved }
+                            let established = try base ?? EditBaseReceipt(item: row.id, version: version)
+                            receipt = established
+                            try outbox.storeBase(established)
+                            try withCatalog { try $0.rememberEditBase(established, expectedVersion: row.contentVersion) }
+                            output.contentVersion = established.contentVersion
+                        }
+                        if let receipt, let version, let proof = remote.readProof,
+                           version.hasSameContents(as: receipt.version) {
+                            verifiedRead = (receipt, path, proof)
+                            verifiedReadSession = session
                         }
                         return output
                     } catch {

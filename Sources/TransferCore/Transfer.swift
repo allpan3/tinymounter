@@ -133,7 +133,7 @@ public final class ReadOnlyFile {
         } else if current != snapshot { throw TransferError.sourceChanged }
     }
 
-    public func checksum(range: ByteRange) throws -> String {
+    public func checksum(range: ByteRange, progress: Progress? = nil) throws -> String {
         _ = try ByteRange(offset: range.offset, length: range.length, fileSize: snapshot.size)
         let capacity = 1024 * 1024
         let buffer = UnsafeMutableRawPointer.allocate(byteCount: capacity, alignment: 4096)
@@ -141,12 +141,15 @@ public final class ReadOnlyFile {
         var hash = SHA256()
         var offset = range.offset
         while offset < range.end {
+            if progress?.isCancelled == true { throw TransferError.cancelled }
             let n = pread(descriptor, buffer, min(capacity, Int(range.end - offset)), offset)
             if n < 0 { if errno == EINTR { continue }; throw posixError("checksum read") }
             guard n > 0 else { throw TransferError.sourceChanged }
             hash.update(bufferPointer: UnsafeRawBufferPointer(start: buffer, count: n))
             offset += Int64(n)
+            progress?.completedUnitCount += Int64(n)
         }
+        if progress?.isCancelled == true { throw TransferError.cancelled }
         try validateUnchanged()
         return hash.finalize().map { String(format: "%02x", $0) }.joined()
     }

@@ -236,6 +236,22 @@ such evidence take the conflict-copy path. Do not force eviction or redownload o
 copies to seed receipts. The implementation must distinguish legacy revisions from new proven
 revisions without changing the meaning of a version already handed to the system.
 
+For partial reads of an `e1` revision, a bounded in-memory block-digest table may reuse the
+evidence from a complete protected verification. Each fetched block must match that revision,
+and the native staged range must match the protected range digest before handoff. A new request
+still opens fresh protected ancestor/file handles and validates identity and metadata; no
+handle or connection stays open between requests. A missing proof, remount, metadata difference
+or block mismatch takes the full-verification path. Full downloads and mutations retain their
+whole-file checks. No receipt or catalog format changes.
+
+This preserves the bytes of the requested immutable version, not immediate detection of every
+out-of-range change. A metadata-preserving edit outside the requested blocks is discovered when
+those bytes are read, or during full-download/save verification. Unchanged requested bytes can
+still satisfy the prior revision. The implementation keeps one table per location, with 1 MiB
+blocks and at most 2 MiB of digests (64 GiB indexed); larger files use full verification.
+These November 1 implementation choices follow the user's standing autonomous-development
+instruction. Signed integration and performance validation remain required.
+
 Before moving the old file, compare its identity, complete digest and relevant metadata with
 the base receipt while server-enforced protection is held. A native inode can be a name hash,
 as M18 established; it is not server ownership proof. An SMB open FileId is also not sufficient
