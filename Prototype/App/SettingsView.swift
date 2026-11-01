@@ -370,6 +370,12 @@ private struct GeneralPane: View {
 
     var body: some View {
         Form {
+            if model.canStartFresh {
+                Section {
+                    Label(UIText.settingsUnreadable, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
+                    Button(UIText.startFreshMenu, role: .destructive, action: model.confirmStartFresh)
+                }
+            }
             Section {
                 Toggle(UIText.openAtLogin, isOn: Binding {
                     model.loginStatus == .enabled

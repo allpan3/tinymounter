@@ -1417,6 +1417,41 @@ final class LocationController {
         }
     }
 
+    /// Unreadable settings are from an earlier build, which nothing migrates: remove every domain and
+    /// set the earlier data aside, then launch as a new installation. Returns where macOS kept the
+    /// changes that had not uploaded.
+    func startFresh() async throws -> [URL] {
+        guard problem == .settingsUnreadable else { return [] }
+        var preserved: [URL] = []
+        for domain in try await NSFileProviderManager.domains() {
+            if let url = try await NSFileProviderManager.remove(domain, mode: .preserveDirtyUserData) {
+                preserved.append(url)
+            }
+        }
+        let group = try SharedContainer.url()
+        for url in [URL.applicationSupportDirectory.appending(path: "tinymounter", directoryHint: .isDirectory),
+                    group.appending(path: "Catalogs", directoryHint: .isDirectory),
+                    group.appending(path: "UploadInbox", directoryHint: .isDirectory)] {
+            try Self.setAside(url)
+        }
+        Self.catalogLog.info("start_fresh domains_preserved=\(preserved.count)")
+        store.reload()
+        problem = nil
+        await launch()
+        onChange?()
+        return preserved
+    }
+
+    /// Kept in the container under a dated name; no build reads it again.
+    private static func setAside(_ url: URL) throws {
+        let stamp = Date().formatted(.iso8601.year().month().day().time(includingFractionalSeconds: false)
+            .timeSeparator(.omitted))
+        do {
+            try FileManager.default.moveItem(at: url, to: url.deletingLastPathComponent()
+                .appending(path: "\(url.lastPathComponent)-earlier-\(stamp)"))
+        } catch CocoaError.fileNoSuchFile {}
+    }
+
     private func registeredDomains() async throws -> [String: NSFileProviderDomain] {
         Dictionary(try await NSFileProviderManager.domains().map { ($0.identifier.rawValue, $0) },
                    uniquingKeysWith: { first, _ in first })

@@ -135,6 +135,8 @@ final class AppModel {
     private(set) var paused = false
     private(set) var isReady = false
     private(set) var problem: String?
+    /// The settings are unreadable, so General offers Start Fresh.
+    private(set) var canStartFresh = false
     private(set) var loginStatus = SMAppService.mainApp.status
     /// The Settings window, for sheets; its view sets it.
     @ObservationIgnored weak var window: NSWindow?
@@ -493,6 +495,25 @@ final class AppModel {
                     edits[recordID] = nil
                 }
                 show(error, grantID: edit.grantID)
+            }
+        }
+    }
+
+    func confirmStartFresh() {
+        guard canStartFresh else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = UIText.startFreshTitle
+        alert.informativeText = UIText.startFreshMessage
+        alert.addButton(withTitle: UIText.startFresh).hasDestructiveAction = true
+        alert.addButton(withTitle: UIText.cancel)
+        Task {
+            guard await present(alert) == .alertFirstButtonReturn else { return }
+            do {
+                let preserved = try await controller.startFresh()
+                if !preserved.isEmpty { NSWorkspace.shared.activateFileViewerSelecting(preserved) }
+            } catch {
+                show(error, grantID: nil)
             }
         }
     }
@@ -1107,6 +1128,7 @@ final class AppModel {
         case nil: settings == nil ? UIText.settingsUnreadable : nil
         }
         update(\.problem, problem)
+        update(\.canStartFresh, controller.problem == .settingsUnreadable)
         update(\.notOnServer, controller.notOnServer)
         update(\.shareStates, Dictionary(uniqueKeysWithValues: shares.map { ($0.id, controller.shareState($0.id)) }))
         update(\.states, Dictionary(uniqueKeysWithValues: records.map { ($0.id, computeState($0)) }))
