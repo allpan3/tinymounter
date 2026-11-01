@@ -7,6 +7,12 @@ Startup retained the existing location and domain with no migration failures. Fo
 and deletion remain disabled. Physical-Mac write behavior and speed remain unmeasured. See the
 [installation checks](docs/results/2026-11-01-local-update.md).
 
+Read-performance development, 2026-11-01: the signed VM candidate reduces repeated small-read
+latency from 4.127 s to 0.721 s median, with matching checksums. Full downloads are about 8%
+slower in this comparison; first reads after restart/remount and one slow outlier remain.
+The candidate passed required checks. This change is not installed on the physical Mac. See the
+[measurements and remaining checks](docs/results/2026-11-01-verified-range-reads.md).
+
 Everyday-use review, 2026-10-31: accelerated encryption gives a 7.19 s median for five 2 GiB
 writable downloads in the VM; the earlier profiled sample took 77.10 s. All required checks
 and 7,205 encryption cases pass. Edited-file cache misses still wait 4–5 s, and throughput
