@@ -134,7 +134,9 @@ static void opened(struct smb2_context *smb, int status, void *data, void *conte
 static void inspected(struct smb2_context *smb, int status, void *data, void *context)
 {
     struct reply *reply = context;
-    struct smb2_file_all_info *info = data ? ((struct smb2_query_info_reply *)data)->output_buffer : NULL;
+    // An error reply's payload is a struct smb2_error_reply, not a query reply.
+    struct smb2_file_all_info *info = !status && data
+        ? ((struct smb2_query_info_reply *)data)->output_buffer : NULL;
     finished(smb, status, data, context);
     if (!status) {
         if (!info || !(info->basic.file_attributes & SMB2_FILE_ATTRIBUTE_DIRECTORY) ||
