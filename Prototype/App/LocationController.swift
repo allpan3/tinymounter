@@ -271,7 +271,7 @@ final class LocationController {
             throw CocoaError(.fileReadUnknown)
         }
         var record = LocationRecord(id: id, name: LocationRecord.uniqueName(name, among: settings.locations.map(\.name)),
-                                    serverID: grantID, folder: folder)
+                                    grantID: grantID, folder: folder)
         record.writeBookmark = writeBookmark
         record.readOnly = writeBookmark == nil
         let listedName = record.name
@@ -401,14 +401,14 @@ final class LocationController {
         if let previousSource { try await Self.offMain { try previousSource.suspendMutations() } }
         else if try LocationSource.pendingWrites(domainID: record.domainID) > 0 { throw UploadError.pendingWrites }
         defer { previousSource?.resumeMutations() }
-        let oldGrant = settings.shares.first { $0.id == record.serverID }
+        let oldGrant = settings.shares.first { $0.id == record.grantID }
         let kept = await keptSharePaths(record) + record.pendingKeeps
         let sameShare = oldGrant?.isSameShare(host: grant.host, share: grant.share) ?? false
         let moving = sameShare ? kept.filter { $0.below(folder) != nil } : []
         var updated = record
         updated.domainID = UUID().uuidString
         updated.retiredDomainID = record.domainID
-        updated.serverID = grantID
+        updated.grantID = grantID
         updated.folder = folder.string
         updated.writeBookmark = writeBookmark
         updated.readOnly = writeBookmark == nil
@@ -467,7 +467,7 @@ final class LocationController {
         if let previousSource { try await Self.offMain { try previousSource.suspendMutations() } }
         else if try LocationSource.pendingWrites(domainID: record.domainID) > 0 { throw UploadError.pendingWrites }
         defer { previousSource?.resumeMutations() }
-        let grant = settings.shares.first { $0.id == record.serverID }
+        let grant = settings.shares.first { $0.id == record.grantID }
         // A location whose catalog can't be read saves only its pending paths; it must stay removable.
         let paths = saveKeeps && !record.removing ? await keptSharePaths(record) + record.pendingKeeps : []
         try store.update { settings in
@@ -950,7 +950,7 @@ final class LocationController {
         guard let settings = store.settings else { return }
         for record in settings.locations where !record.removing && sources[record.domainID] == nil {
             do {
-                guard let grant = settings.shares.first(where: { $0.id == record.serverID }),
+                guard let grant = settings.shares.first(where: { $0.id == record.grantID }),
                       let folder = RelativePath(record.folder) else { throw CocoaError(.fileReadCorruptFile) }
                 let catalog = try Catalog.openWriter(at: SharedContainer.catalogURL(domainID: record.domainID),
                                                      domainID: record.domainID)
@@ -1022,8 +1022,8 @@ final class LocationController {
                       location.folder.utf8.elementsEqual(view.folder.utf8),
                       let source = sources[view.domain],
                       source.folder.string.utf8.elementsEqual(view.folder.utf8),
-                      source.access.grantID == location.serverID,
-                      let connection = settings.shares.first(where: { $0.id == location.serverID }),
+                      source.access.grantID == location.grantID,
+                      let connection = settings.shares.first(where: { $0.id == location.grantID }),
                       let endpoint = ShareAddress(connection.mountFrom), current.plan.endpoint.matches(endpoint),
                       view.domain != owner || connection.id == grant else { throw UploadError.unresolved }
                 // An older restore must finish before these paths are removed from Settings.
@@ -1198,7 +1198,7 @@ final class LocationController {
             let related = Set(settings.shares.filter {
                 EditNamespace.key($0.mountFrom) == EditNamespace.key(grant.mountFrom)
             }.map(\.id))
-            for record in settings.locations where related.contains(record.serverID) {
+            for record in settings.locations where related.contains(record.grantID) {
                 if let folder = RelativePath(record.folder) {
                     share.editNamespace.register(domain: record.domainID, folder: folder)
                 }
@@ -1212,13 +1212,13 @@ final class LocationController {
         }
         shares[grant.id] = share
         shareStates[grant.id] = share.state
-        share.setRemountWanted(store.settings?.locations.contains { $0.serverID == grantID } == true)
+        share.setRemountWanted(store.settings?.locations.contains { $0.grantID == grantID } == true)
         return share
     }
 
     /// Phase 3 plan §1: the app mounts again only a share that a location uses.
     private func updateRemountWanted() {
-        let used = Set(store.settings?.locations.map(\.serverID) ?? [])
+        let used = Set(store.settings?.locations.map(\.grantID) ?? [])
         for (id, share) in shares { share.setRemountWanted(used.contains(id)) }
     }
 
@@ -1285,7 +1285,7 @@ final class LocationController {
             await signalResolved(domainID, failures)
         }
         relist(grantID)
-        for record in store.settings?.locations ?? [] where record.serverID == grantID && !record.pendingKeeps.isEmpty {
+        for record in store.settings?.locations ?? [] where record.grantID == grantID && !record.pendingKeeps.isEmpty {
             await restorePendingKeeps(record.id)
         }
     }

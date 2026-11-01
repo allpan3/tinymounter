@@ -18,7 +18,7 @@ enum M23SaveRecoveryHelper {
             let current = try JSONDecoder().decode(AppSettings.self, from: original)
             guard let record = current.locations.first(where: { $0.id == location }),
                   !record.removing, let bookmark = record.activeWriteBookmark,
-                  let grant = current.shares.first(where: { $0.id == record.serverID }),
+                  let grant = current.shares.first(where: { $0.id == record.grantID }),
                   let endpoint = ShareAddress(grant.mountFrom), endpoint.host == "127.0.0.1",
                   endpoint.share == "tinymounter-m19-edit-test", endpoint.account == "_tinymounter_m19",
                   grant.host == endpoint.host, grant.share == endpoint.share, grant.account == endpoint.account,

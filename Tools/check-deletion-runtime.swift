@@ -388,7 +388,7 @@ private final class M24Probe: @unchecked Sendable {
         let current = try JSONDecoder().decode(AppSettings.self, from: original)
         guard let record = current.locations.first(where: { $0.id == location }),
               !record.removing, let write = record.activeWriteBookmark,
-              let grant = current.shares.first(where: { $0.id == record.serverID }),
+              let grant = current.shares.first(where: { $0.id == record.grantID }),
               let address = ShareAddress(grant.mountFrom), address.host == Self.host,
               address.share == Self.share, address.account == Self.account,
               grant.host == Self.host, grant.share == Self.share, grant.account == Self.account,

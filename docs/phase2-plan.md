@@ -279,7 +279,7 @@ struct ServerGrant: Codable {
   let host: String, account: String, share: String  // from NSURLVolumeURLForRemountingKey
 }
 struct LocationRecord: Codable {
-  let id: UUID; var name: String; var serverID: UUID
+  let id: UUID; var name: String; var grantID: UUID  // the ServerGrant
   var folder: String            // a RelativePath; "" is the full share
   var domainID: String          // NSFileProviderDomainIdentifier, a UUID
   var retiredDomainID: String?  // Apply in progress: the old domain still to remove
@@ -295,7 +295,7 @@ struct SavedKeepList: Codable {
 ```
 
 Settings have no version field and no migration. Folder requests retain their kind so a restored
-file request cannot expand to a replacement folder. `LocationRecord.serverID` is the share grant ID.
+file request cannot expand to a replacement folder.
 
 The bookmark, `mountFrom`, host, account and saved paths are private. They are never logged and
 never in the App Group: the bookmark holds the SMB account and the server address [V]. Drafts

@@ -200,7 +200,7 @@ final class AppModel {
     func state(_ record: LocationRecord) -> LocationState { states[record.id] ?? .starting }
 
     func statusText(_ record: LocationRecord) -> String {
-        let host = grant(record.serverID)?.host ?? ""
+        let host = grant(record.grantID)?.host ?? ""
         return switch state(record) {
         case .starting: UIText.notConnected
         case .removing: UIText.removalNotComplete
@@ -254,7 +254,7 @@ final class AppModel {
     }
 
     func sourceText(_ record: LocationRecord) -> String {
-        let grant = grant(record.serverID)
+        let grant = grant(record.grantID)
         return UIText.source(host: grant?.host ?? "", share: grant?.share ?? "", folder: record.folder)
     }
 
@@ -264,7 +264,7 @@ final class AppModel {
 
     func grantID(_ id: UUID) -> UUID? {
         if let draft = draft(id) { return draft.grantID }
-        return edits[id]?.grantID ?? record(id)?.serverID
+        return edits[id]?.grantID ?? record(id)?.grantID
     }
 
     func folderText(_ id: UUID) -> String {
@@ -317,7 +317,7 @@ final class AppModel {
             drafts[index].folder = text
             followFolder(index)
         } else if let record = record(id) {
-            setEdit(record, SourceEdit(grantID: grantID(id) ?? record.serverID, folder: text))
+            setEdit(record, SourceEdit(grantID: grantID(id) ?? record.grantID, folder: text))
         }
     }
 
@@ -347,7 +347,7 @@ final class AppModel {
 
     private func setEdit(_ record: LocationRecord, _ edit: SourceEdit) {
         let folder = LocationRecord.normalizedFolder(edit.folder)?.string
-        edits[record.id] = edit.grantID == record.serverID && folder == record.folder ? nil : edit
+        edits[record.id] = edit.grantID == record.grantID && folder == record.folder ? nil : edit
     }
 
     private func followFolder(_ index: Int) {
@@ -383,7 +383,7 @@ final class AppModel {
     func duplicate(_ recordID: UUID) {
         guard let record = record(recordID) else { return }
         let taken = records.map(\.name) + drafts.map(\.name)
-        let draft = Draft(serverID: grant(record.serverID)?.serverID, grantID: record.serverID, folder: record.folder,
+        let draft = Draft(serverID: grant(record.grantID)?.serverID, grantID: record.grantID, folder: record.folder,
                           name: LocationRecord.copyName(record.name, among: taken), readOnly: record.readOnly,
                           original: record.id)
         drafts.insert(draft, at: 0)
@@ -456,7 +456,7 @@ final class AppModel {
                 names[recordID] = nil
             } catch {
                 names[recordID] = nil
-                show(error, grantID: record.serverID)
+                show(error, grantID: record.grantID)
             }
         }
     }
@@ -489,7 +489,7 @@ final class AppModel {
                 await controller.restorePendingKeeps(recordID)
             } catch {
                 // A failure after the record changed leaves the domain for the next launch to add.
-                if let changed = self.record(recordID), changed.serverID == edit.grantID, changed.folder == folder.string {
+                if let changed = self.record(recordID), changed.grantID == edit.grantID, changed.folder == folder.string {
                     edits[recordID] = nil
                 }
                 show(error, grantID: edit.grantID)
@@ -522,7 +522,7 @@ final class AppModel {
                     selection = entries.first.map { .location($0.id) } ?? .general
                 }
             } catch {
-                show(error, grantID: record.serverID)
+                show(error, grantID: record.grantID)
             }
         }
     }
@@ -540,11 +540,11 @@ final class AppModel {
             do {
                 var bookmark = record.writeBookmark
                 if !readOnly {
-                    guard let granted = try await writeGrant(grantID: record.serverID, existing: bookmark) else { return }
+                    guard let granted = try await writeGrant(grantID: record.grantID, existing: bookmark) else { return }
                     bookmark = granted
                 }
                 try await controller.setWriteMode(id, readOnly: readOnly, bookmark: bookmark)
-            } catch { show(error, grantID: record.serverID) }
+            } catch { show(error, grantID: record.grantID) }
         }
     }
 
@@ -577,7 +577,7 @@ final class AppModel {
     func dismissEditNotice(_ edit: PendingEdit, record: LocationRecord) {
         Task {
             do { try await controller.dismissEditNotice(record, id: edit.id) }
-            catch { show(error, grantID: record.serverID) }
+            catch { show(error, grantID: record.grantID) }
         }
     }
 
@@ -594,7 +594,7 @@ final class AppModel {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             do { try await controller.exportEdit(record, id: edit.id, destination: url) }
-            catch { show(error, grantID: record.serverID) }
+            catch { show(error, grantID: record.grantID) }
         }
     }
 
@@ -689,7 +689,7 @@ final class AppModel {
                 case .saved(let path): try controller.discardPendingKeep(path, in: recordID)
                 }
             } catch {
-                show(error, grantID: record.serverID)
+                show(error, grantID: record.grantID)
             }
         }
     }
@@ -973,10 +973,10 @@ final class AppModel {
 
     func isServerUsed(_ id: UUID) -> Bool {
         let grants = Set(shares.filter { $0.serverID == id }.map(\.id))
-        return records.contains { grants.contains($0.serverID) }
+        return records.contains { grants.contains($0.grantID) }
     }
 
-    private func isGrantUsed(_ id: UUID) -> Bool { records.contains { $0.serverID == id } }
+    private func isGrantUsed(_ id: UUID) -> Bool { records.contains { $0.grantID == id } }
 
     var otherConnectedShares: [ShareAccess.ConnectedShare] {
         let saved = Set(shares.map(\.mountFrom))
@@ -1125,7 +1125,7 @@ final class AppModel {
         guard controller.isReady else { return .starting }
         guard let rootMissing = controller.isRootMissing(record) else { return .catalogUnavailable }
         if controller.turnedOff.contains(record.domainID) { return .turnedOff }
-        switch controller.shareState(record.serverID) {
+        switch controller.shareState(record.grantID) {
         case .needsGrant: return .needsGrant
         case .notConnected: return .notConnected
         case .unresponsive: return .unresponsive
