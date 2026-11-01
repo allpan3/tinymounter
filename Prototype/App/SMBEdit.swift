@@ -28,6 +28,7 @@ final class SMBEdit: EditRemote, FileRenameRemote {
     private var folderMoveFiles: [String: Handle] = [:]
     private var folderMoveParents: Set<String> = []
     private(set) var readProof: VerifiedRead?
+    private(set) var readBytes: Int64 = 0
     /// Set when a deletion traversal starts; that session never deletes.
     private var deletionTraversalFiles: [String: Handle]?
     private static let read: UInt32 = 0x20081
@@ -197,6 +198,7 @@ final class SMBEdit: EditRemote, FileRenameRemote {
                                    UInt32(buffer.count), &count))
         }
         guard count > 0, count <= buffer.count else { throw UploadError.unresolved }
+        readBytes += Int64(count)
         progress.completedUnitCount += Int64(count)
         return Int(count)
     }

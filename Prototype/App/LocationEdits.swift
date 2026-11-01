@@ -269,9 +269,37 @@ extension LocationSource {
     }
 
     func protectedTransfer(_ request: SourceReadRequest, progress: Progress, stagingDirectory: URL,
-                           checkSpace: ((Int64) throws -> Void)?) throws -> TransferOutput {
-        try editNamespace.perform {
-            try uploadLock.withLock {
+                           checkSpace: ((Int64) throws -> Void)?, started: ContinuousClock.Instant,
+                           namespaceWait: Duration) throws -> TransferOutput {
+        let waiting = ContinuousClock.now
+        var namespaceWait = namespaceWait
+        var acquired: ContinuousClock.Instant?, verifying: ContinuousClock.Instant?
+        var copying: ContinuousClock.Instant?, checking: ContinuousClock.Instant?, checked: ContinuousClock.Instant?
+        var phase = "namespace", mode = "none", cache = "unchecked"
+        var remoteBytes: Int64 = 0
+        defer {
+            let ended = ContinuousClock.now
+            func milliseconds(_ from: ContinuousClock.Instant?, _ to: ContinuousClock.Instant?) -> Double {
+                from.map { $0.duration(to: to ?? ended) / .milliseconds(1) } ?? -1
+            }
+            Logger(subsystem: "dev.tinymounter.prototype", category: "fetch").info("""
+                protected_read request=\(request.id.uuidString, privacy: .public) \
+                phase=\(phase, privacy: .public) mode=\(mode, privacy: .public) cache=\(cache, privacy: .public) \
+                edit_base=\(request.version.hasPrefix("e1:") ? 1 : 0) \
+                remote_bytes=\(remoteBytes) namespace_ms=\(namespaceWait / .milliseconds(1), format: .fixed(precision: 3)) \
+                setup_ms=\(milliseconds(acquired, verifying), format: .fixed(precision: 3)) \
+                verify_ms=\(milliseconds(verifying, copying), format: .fixed(precision: 3)) \
+                native_ms=\(milliseconds(copying, checking), format: .fixed(precision: 3)) \
+                checksum_ms=\(milliseconds(checking, checked), format: .fixed(precision: 3)) \
+                total_ms=\(milliseconds(started, ended), format: .fixed(precision: 3))
+                """)
+        }
+        return try editNamespace.perform {
+            let entered = ContinuousClock.now
+            acquired = entered
+            namespaceWait += waiting.duration(to: entered)
+            phase = "setup"
+            return try uploadLock.withLock {
                 let (row, path) = try readTarget(request)
                 guard let fullPath = folder.appending(path) else { throw UploadError.invalidRequest }
                 try editNamespace.requireUncontested(path: fullPath, excluding: UUID())
@@ -281,7 +309,7 @@ extension LocationSource {
                     guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
                     let root = try session.locationRoot(folder)
                     let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: root, progress: progress)
-                    defer { withExtendedLifetime(remote) {} }
+                    defer { remoteBytes = remote.readBytes; withExtendedLifetime(remote) {} }
                     try remote.protectAncestors(of: path.string)
                     try remote.protectRead(path: path.string)
                     let outbox = try Self.editOutbox(domainID: domainID)
@@ -291,13 +319,21 @@ extension LocationSource {
                     let fingerprintChanged = file.snapshot.fingerprint
                         != ContentFingerprint(size: row.size, mtimeNs: row.mtimeNs, ctimeNs: row.ctimeNs)
                     let fullRead = request.range.offset == 0 && request.range.length == row.size
+                    cache = fullRead ? "full" : request.establishEditBase ? "establish"
+                        : fingerprintChanged ? "fingerprint" : base == nil ? "receipt"
+                        : verifiedReadSession !== session ? "session" : "miss"
+                    verifying = .now
+                    phase = "verify"
                     var rangeDigest: String?
                     if !fullRead, !request.establishEditBase, !fingerprintChanged, let base,
                        verifiedReadSession === session, let cached = verifiedRead,
                        cached.receipt == base, cached.path == path {
+                        mode = "blocks"
                         rangeDigest = try remote.verifyRead(path: path.string, range: request.range,
                                                             base: base.version, proof: cached.proof)
+                        cache = rangeDigest == nil ? "mismatch" : "hit"
                     }
+                    mode = rangeDigest == nil ? "full" : "blocks"
                     var version: EditFileVersion?
                     if rangeDigest == nil {
                         verifiedRead = nil
@@ -328,8 +364,12 @@ extension LocationSource {
                     }
                     defer { nativeObservation.invalidate() }
                     if progress.isCancelled { nativeProgress.cancel() }
+                    copying = .now
+                    phase = "native"
                     var output = try Transfer.run(source: file, range: request.range, stagingDirectory: stagingDirectory,
                                                   progress: nativeProgress, checkSpace: checkSpace)
+                    checking = .now
+                    phase = "checksum"
                     do {
                         guard let url = output.stagingURL else { throw UploadError.unresolved }
                         let staged = try ReadOnlyFile(url: url)
@@ -338,6 +378,8 @@ extension LocationSource {
                               try staged.checksum(range: request.range, progress: progress) == rangeDigest else {
                             throw UploadError.unresolved
                         }
+                        checked = .now
+                        phase = "receipt"
                         var receipt = base
                         if request.establishEditBase, row.allowsWriting {
                             guard fullRead, let version else { throw UploadError.unresolved }
@@ -352,6 +394,7 @@ extension LocationSource {
                             verifiedRead = (receipt, path, proof)
                             verifiedReadSession = session
                         }
+                        phase = "complete"
                         return output
                     } catch {
                         if let url = output.stagingURL { try? FileManager.default.removeItem(at: url) }

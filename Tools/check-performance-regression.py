@@ -27,14 +27,19 @@ one matching full callback from the selected app's provider.
 Hashes are saved as they finish. The local APFS clone stays with the evidence; it can
 inherit the provider copy's immutable flag.
 
-The fetch log (subsystem dev.tinymounter.prototype, category fetch) is streamed for
+The fetch and listing log (subsystem dev.tinymounter.prototype) is streamed for
 the run. Each provider sample records its callbacks: count, modes, bytes, and the
 callback time beyond the app's transfer time. In a writable location an initial full
 fetch uses protectedTransfer (FileProviderExtension.swift establishEditBase,
 ShareAccess.swift transfer), which adds an SMB connection and whole-file version
-proof, and later fetches of an e1 version take the same path. No log line names that
-path or the version, so --access-mode is declared by the parent and the extra cost
-appears only as callback time beyond transfer. Never compare the modes unlabeled.
+proof, and later fetches of an e1 version take the same path. Current builds log
+protected_read with the opaque request ID, full/block verification, protected bytes,
+namespace wait and phase timings. Reports attach those records by request ID, not
+timestamp overlap. A negative phase time means that phase was not reached. Setup
+includes upload-lock/session access, connection, protected opens and receipt lookup;
+total also includes catalog lookup, receipt persistence and handle release. Earlier
+builds have no such records. --access-mode remains declared by the parent; missing
+records do not establish read-only access. Never compare the modes unlabeled.
 
 HISTORY, context only and never a substitute for a baseline run: on this VM, full
 downloads exceeded 90% of matched native (2026-10-11 full-download and cache-states
@@ -127,6 +132,11 @@ LABELS = {
 }
 FETCH_LINE = re.compile(
     r"mode=(\w+) kind=(\S+) .*?bytes=(\d+) queue_seconds=(\S+) callback_seconds=(\S+) transfer_seconds=(\S+)")
+REQUEST_ID = re.compile(r"\brequest=([0-9A-Fa-f-]{36})\b")
+PROTECTED_READ = re.compile(
+    r"protected_read request=([0-9A-Fa-f-]{36}) phase=(\w+) mode=(\w+) cache=(\w+) "
+    r"edit_base=([01]) remote_bytes=(\d+) namespace_ms=([\d.]+) setup_ms=([-\d.]+) "
+    r"verify_ms=([-\d.]+) native_ms=([-\d.]+) checksum_ms=([-\d.]+) total_ms=([\d.]+)")
 
 
 class Stop(Exception):
@@ -309,7 +319,8 @@ class Series:
         self.evidence.mkdir()
         self.lines = (folder / "samples.jsonl").open("x")
         self.log_file = (folder / "fetch-log.ndjson").open("x")
-        predicate = 'subsystem == "dev.tinymounter.prototype" AND category == "fetch"'
+        predicate = ('subsystem == "dev.tinymounter.prototype" '
+                     'AND (category == "fetch" OR category == "listing")')
         try:
             self.log = subprocess.Popen(["log", "stream", "--info", "--style", "ndjson", "--predicate", predicate],
                                         stdout=self.log_file, stderr=subprocess.DEVNULL)
@@ -546,21 +557,39 @@ class Series:
 
 def parse_fetch_log(path, app):
     callbacks = []
+    protected = {}
     for line in path.read_text(errors="replace").splitlines():
         try:
             event = json.loads(line)
             when = datetime.datetime.strptime(event["timestamp"], "%Y-%m-%d %H:%M:%S.%f%z").timestamp()
         except (ValueError, KeyError, TypeError):
             continue
-        if not event.get("processImagePath", "").startswith(str(app) + "/Contents/PlugIns/"):
-            continue
         message = event.get("eventMessage", "")
+        process = event.get("processImagePath", "")
+        if process.startswith(str(app) + "/Contents/MacOS/"):
+            match = PROTECTED_READ.search(message)
+            if match:
+                try:
+                    times = [float(value) for value in match.groups()[6:]]
+                except ValueError:
+                    continue
+                record = dict(zip(("namespaceMs", "setupMs", "verifyMs", "nativeMs", "checksumMs", "totalMs"), times))
+                record.update(request=match[1], phase=match[2], mode=match[3], cache=match[4],
+                              editBase=match[5] == "1", remoteBytes=int(match[6]))
+                protected.setdefault(match[1], []).append(record)
+            continue
+        if not process.startswith(str(app) + "/Contents/PlugIns/"):
+            continue
+        request = REQUEST_ID.search(message)
+        request = request[1] if request else None
         found = FETCH_LINE.search(message)
         if found:
-            callbacks.append({"time": when, "mode": found[1], "kind": found[2], "bytes": int(found[3]),
+            callbacks.append({"time": when, "request": request, "mode": found[1], "kind": found[2], "bytes": int(found[3]),
                               "queue": float(found[4]), "callback": float(found[5]), "transfer": float(found[6])})
         elif " failed " in message:
-            callbacks.append({"time": when, "mode": "failed"})
+            callbacks.append({"time": when, "request": request, "mode": "failed"})
+    for callback in callbacks:
+        callback["protectedReads"] = protected.get(callback["request"], [])
     return callbacks
 
 
@@ -572,6 +601,7 @@ def summarize_callbacks(callbacks, start, end):
             "bytes": sum(item["bytes"] for item in done),
             "callbackSeconds": sum(item["callback"] for item in done),
             "appTransferSeconds": sum(item["transfer"] for item in done),
+            "protectedReads": [read for item in inside for read in item.get("protectedReads", [])],
             "beyondTransferSeconds": sum(item["callback"] - item["transfer"] for item in done)}
 
 
