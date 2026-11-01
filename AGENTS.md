@@ -83,11 +83,6 @@ Never break these without an explicit task to do so.
 - **No secrets in the repo, logs or chat.** Credentials go through Keychain or the user's own Finder
   connection. Signing material is never committed. Logs never include source names or paths.
   Sanitize `results/` before sharing it.
-- **Real disks and file names never reach GitHub.** Use placeholders such as home-nas, `<share>`
-  and account@nas.local. In each clone that pushes, run `Tools/check-private-names.py refresh
-  --mount <real share> <server> <share> <account> <host>`, then `Tools/check-private-names.py
-  install`. The pre-push hook then refuses commits with those names, the share's file names or
-  private IP addresses. Check PR and issue text with `Tools/check-private-names.py text`.
 - **Never weaken the sandbox to make a test pass.** Record the actual error, then design a supported
   route.
 - **No migrations before release.** This is a prototype. Design every format and setup flow for a
