@@ -110,7 +110,8 @@ static char *cached_principal(const char *server, const char *account)
 }
 
 struct reply {
-    int done, error;
+    int done, error, queued, queried;
+    uint32_t status;
     smb2_file_id file;
     uint64_t identity, birth;
     char name[256];
@@ -119,6 +120,7 @@ struct reply {
 static void finished(struct smb2_context *smb, int status, void *data, void *context)
 {
     struct reply *reply = context;
+    reply->status = (uint32_t)status;
     reply->error = status ? nterror_to_errno((uint32_t)status) : 0;
     reply->done = 1;
 }
@@ -161,6 +163,7 @@ static int perform(struct smb2_context *smb, struct smb2_pdu *pdu, struct reply 
     if (!pdu) return EIO;
     reply->done = 0;
     reply->error = 0;
+    reply->status = 0;
     smb2_queue_pdu(smb, pdu);
     struct timespec start, now;
     clock_gettime(CLOCK_MONOTONIC, &start);
@@ -184,8 +187,10 @@ static int open_folder(struct smb2_context *smb, const char *path, int writable,
     create.create_disposition = exclusive ? SMB2_FILE_CREATE : SMB2_FILE_OPEN;
     create.create_options = SMB2_FILE_DIRECTORY_FILE | SMB2_FILE_OPEN_REPARSE_POINT;
     create.name = path;
+    reply->queried = 0;
     struct smb2_pdu *pdu = smb2_cmd_create_async(smb, &create, opened, reply);
     if (pdu && exclusive && sent) *sent = 1;
+    reply->queued = sent ? *sent : 0;
     int error = perform(smb, pdu, reply);
     if (error && reply->done && sent) {
         switch (error) {
@@ -196,6 +201,7 @@ static int open_folder(struct smb2_context *smb, const char *path, int writable,
         }
     }
     if (error) return error;
+    reply->queried = 1;
     struct smb2_query_info_request query = {0};
     query.info_type = SMB2_0_INFO_FILE;
     query.file_info_class = SMB2_FILE_ALL_INFORMATION;
@@ -261,11 +267,12 @@ done:
 }
 
 static int hold_parents(struct smb2_context *smb, const char *source, size_t parent_length,
-                         struct reply *reply)
+                         struct reply *reply, int *opened)
 {
     char path[1024] = {0};
     int error = open_folder(smb, "", 0, 0, NULL, reply);
     if (error) return error;
+    (*opened)++;
     memcpy(path, source, strlen(source) + 1);
     for (size_t i = 0; i < parent_length; i++) {
         if (path[i] != '/') continue;
@@ -273,29 +280,61 @@ static int hold_parents(struct smb2_context *smb, const char *source, size_t par
         error = open_folder(smb, path, 0, 0, NULL, reply);
         path[i] = '/';
         if (error) return error;
+        (*opened)++;
     }
     return 0;
 }
 
+const char *tm_smb_folder_stage_name(int stage)
+{
+    static const char *const names[] = {
+        "none", "arguments", "connect", "parent", "target", "query", "identity", "receipt", "done"
+    };
+    return stage >= 0 && stage < (int)(sizeof(names) / sizeof(names[0])) ? names[stage] : "unknown";
+}
+
 int tm_smb_create_folder(const char *server, const char *share, const char *account,
                          const char *path, uint64_t expected_id, uint64_t expected_birth,
-                         tm_smb_folder_callback receipt, void *context, int *create_sent)
+                         tm_smb_folder_callback receipt, void *context, int *create_sent,
+                         struct tm_smb_folder_trace *trace)
 {
-    if (create_sent) *create_sent = 0;
+    struct tm_smb_folder_trace unused;
+    int unsent;
+    if (!trace) trace = &unused;
+    if (!create_sent) create_sent = &unsent;
+    *trace = (struct tm_smb_folder_trace){ .stage = TM_FOLDER_ARGUMENTS, .error = EINVAL };
+    *create_sent = 0;
     if (!server || !*server || !share || !*share || !account || !*account || !receipt ||
         !valid_path(path) || (!!expected_id != !!expected_birth)) return EINVAL;
     pthread_mutex_lock(&client_lock);
-    int error;
-    struct smb2_context *smb = connect_folder_share(server, share, account, &error);
-    if (!smb) { pthread_mutex_unlock(&client_lock); return error; }
     struct reply reply = {0};
+    int error;
+    trace->stage = TM_FOLDER_CONNECT;
+    struct smb2_context *smb = connect_folder_share(server, share, account, &error);
+    if (!smb) goto unlock;
+    trace->stage = TM_FOLDER_PARENT;
     const char *leaf = strrchr(path, '/');
-    error = hold_parents(smb, path, leaf ? (size_t)(leaf - path + 1) : 0, &reply);
-    if (!error) error = open_folder(smb, path, 0, !expected_id, create_sent, &reply);
-    if (!error && (!reply.identity || !reply.birth)) error = ENOTSUP;
-    if (!error && expected_id && (reply.identity != expected_id || reply.birth != expected_birth)) error = ESTALE;
-    if (!error) error = receipt(context, reply.identity, reply.birth);
+    error = hold_parents(smb, path, leaf ? (size_t)(leaf - path + 1) : 0, &reply, &trace->parents);
+    if (error) goto done;
+    error = open_folder(smb, path, 0, !expected_id, create_sent, &reply);
+    trace->stage = reply.queried ? TM_FOLDER_QUERY : TM_FOLDER_TARGET;
+    trace->sent_queued = reply.queued;
+    if (error) goto done;
+    trace->stage = TM_FOLDER_IDENTITY;
+    if (!reply.identity || !reply.birth) { error = ENOTSUP; goto done; }
+    if (expected_id && (reply.identity != expected_id || reply.birth != expected_birth)) {
+        error = ESTALE;
+        goto done;
+    }
+    trace->stage = TM_FOLDER_RECEIPT;
+    error = receipt(context, reply.identity, reply.birth);
+    if (!error) trace->stage = TM_FOLDER_DONE;
+done:
+    trace->status = reply.status;
     smb2_destroy_context(smb);
+unlock:
+    trace->error = error;
+    trace->sent = *create_sent;
     pthread_mutex_unlock(&client_lock);
     return error;
 }
@@ -318,7 +357,8 @@ int tm_smb_name_folder(const char *server, const char *share, const char *accoun
     struct smb2_context *smb = connect_folder_share(server, share, account, &error);
     if (!smb) { pthread_mutex_unlock(&client_lock); return error; }
     struct reply reply = {0};
-    error = hold_parents(smb, source, parent_length, &reply);
+    int parents = 0;
+    error = hold_parents(smb, source, parent_length, &reply, &parents);
     if (error) goto done;
     error = open_folder(smb, destination, 0, 0, NULL, &reply);
     if (!error) {
