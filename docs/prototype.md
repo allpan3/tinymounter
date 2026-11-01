@@ -345,17 +345,12 @@ Its cleaningUp state makes earlier
 builds refuse an outbox until recovery cleanup finishes, including earlier M23 builds that
 understand Ordering.edit. It retains uncertain removals and keeps publication receipts.
 
-Catalog versions 1 through 6 migrate to version 7 without replacing item IDs or the epoch.
-Version 7 records departures from former parents for known file moves. Older readers refuse it
-instead of missing those departures. The catalog API is preparation for M21; the provider does
-not yet admit cross-folder moves. Version 6 made older writers refuse catalogs whose pending
-renames they cannot honor.
-Version 5 stores the editing permission and optional strong content-revision token; existing
-rows retain their f1 versions until a verified full handoff establishes an immutable receipt. The
-immutable enumeration key keeps existing folder-page cursors valid when initial naming changes
-the lookup key. The earlier version 1 keep migration gives live items new metadata sequences
-so Finder receives the folder actions. Earlier anchors remain valid.
-Older builds refuse the new formats instead of overwriting requests they do not understand.
+The catalog records departures from former parents for known file moves. The catalog API is
+preparation for M21; the provider does not yet admit cross-folder moves. A row keeps its f1
+version until a verified full handoff establishes an immutable receipt. The immutable enumeration
+key keeps folder-page cursors valid when initial naming changes the lookup key. Catalogs carry no
+schema version and no build migrates them: a catalog from a build with a different schema fails
+to open, and the location must be added again.
 
 **Remove.** In this order:
 

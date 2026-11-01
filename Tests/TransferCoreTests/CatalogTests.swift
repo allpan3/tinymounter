@@ -18,94 +18,6 @@ final class CatalogTests: XCTestCase {
         try FileManager.default.removeItem(at: directory)
     }
 
-    func testMoveHistoryMigrationPreservesRowsVersionsKeepsAnchorsAndPages() throws {
-        var catalog: Catalog? = try makeCatalog()
-        try reconcile(catalog!, [folder("A"), folder("B"), file("x")])
-        let a = try child(catalog!, "A"), b = try child(catalog!, "B")
-        try reconcile(catalog!, [file("one"), file("two")], in: a.id)
-        try reconcile(catalog!, [], in: b.id)
-        let one = try child(catalog!, "one", in: a.id)
-        try catalog!.setKeep(ids: [one.id], value: true)
-        try catalog!.setWriteAccess(creation: true, editing: true)
-        let before = try dump(catalog!), live = try catalog!.workingSet(limit: 100)
-        let anchor = try catalog!.currentAnchor(), epoch = catalog!.epoch
-        let token = try XCTUnwrap(catalog!.folderPage(a.id, token: nil, size: 1).next)
-        try catalog!.database.execute("DROP TABLE departures; PRAGMA user_version = 6", operation: "test")
-        catalog = nil
-        XCTAssertThrowsError(try Catalog.open(at: url(), domainID: "domain-A")) {
-            XCTAssertEqual($0 as? CatalogError, .unsupportedSchema)
-        }
-        let upgraded = try Catalog.openWriter(at: url(), domainID: "domain-A")
-        XCTAssertEqual(try dump(upgraded), before)
-        XCTAssertEqual(try upgraded.workingSet(limit: 100), live)
-        XCTAssertEqual(upgraded.epoch, epoch)
-        XCTAssertEqual(try upgraded.currentAnchor(), anchor)
-        XCTAssertEqual(try upgraded.folderPage(a.id, token: token, size: 10).rows.map(\.name), ["two"])
-        XCTAssertEqual(try scalar(upgraded, "SELECT count(*) FROM departures"), "0")
-        // A version 6 build refuses the migrated catalog instead of missing departures.
-        XCTAssertThrowsError(try Catalog.checkedEpoch(upgraded.database, domainID: "domain-A", version: 6))
-        XCTAssertEqual(try Catalog.open(at: url(), domainID: "domain-A").currentAnchor(), anchor)
-
-        let move = try CatalogFileMove(item: one.id, sourceParent: a.id, sourceName: "one",
-                                       contentVersion: one.contentVersion, sourceNativeID: 7,
-                                       destinationParent: b.id, destinationName: "one")
-        try upgraded.commitFileMove(move, fingerprint: ContentFingerprint(size: 10, mtimeNs: 1_000, ctimeNs: 3_000),
-                                    nativeID: 70)
-        let moved = try XCTUnwrap(upgraded.item(id: one.id))
-        XCTAssertEqual(try upgraded.changes(after: anchor, limit: 10, scope: .parent(a.id)).updated, [moved])
-        XCTAssertEqual(moved.contentVersion, one.contentVersion)
-        XCTAssertTrue(moved.keepRequested)
-    }
-
-    func testRenameMigrationPreservesRowsVersionsKeepsAndAnchors() throws {
-        var catalog: Catalog? = try makeCatalog()
-        try reconcile(catalog!, [file("data")])
-        let row = try child(catalog!, "data")
-        _ = try catalog!.setKeep(ids: [row.id], value: true)
-        try catalog!.setWriteAccess(creation: true, editing: true)
-        let before = try XCTUnwrap(catalog!.item(id: row.id))
-        let anchor = try catalog!.currentAnchor(), epoch = catalog!.epoch
-        try catalog!.database.execute("DROP TABLE departures; PRAGMA user_version = 5", operation: "test")
-        catalog = nil
-        XCTAssertThrowsError(try Catalog.open(at: url(), domainID: "domain-A"))
-        let upgraded = try Catalog.openWriter(at: url(), domainID: "domain-A")
-        XCTAssertEqual(try upgraded.item(id: row.id), before)
-        XCTAssertEqual(try upgraded.currentAnchor(), anchor)
-        XCTAssertEqual(upgraded.epoch, epoch)
-        XCTAssertThrowsError(try Catalog.checkedEpoch(upgraded.database, domainID: "domain-A", version: 5))
-    }
-
-    func testEditingMigrationPreservesExistingVersionsIDsKeepsAndAnchors() throws {
-        var catalog: Catalog? = try makeCatalog()
-        try reconcile(catalog!, [file("data")])
-        let before = try child(catalog!, "data")
-        try catalog!.setKeep(ids: [before.id], value: true)
-        try catalog!.setAllowsCreation(true)
-        let anchor = try catalog!.currentAnchor(), epoch = catalog!.epoch
-        try catalog!.database.execute("""
-            DROP TABLE departures;
-            ALTER TABLE meta DROP COLUMN allows_editing;
-            ALTER TABLE items DROP COLUMN edit_version;
-            PRAGMA user_version = 4;
-            """, operation: "test")
-        catalog = nil
-        XCTAssertThrowsError(try Catalog.open(at: url(), domainID: "domain-A"))
-        let upgraded = try Catalog.openWriter(at: url(), domainID: "domain-A")
-        let after = try XCTUnwrap(upgraded.item(id: before.id))
-        XCTAssertEqual(upgraded.epoch, epoch)
-        XCTAssertEqual(try upgraded.currentAnchor(), anchor)
-        XCTAssertEqual(after.row, before.row)
-        XCTAssertEqual(after.contentVersion, before.contentVersion)
-        XCTAssertTrue(after.keepRequested)
-        XCTAssertTrue(after.allowsCreation)
-        XCTAssertFalse(after.allowsEditing)
-        try upgraded.setAllowsEditing(true)
-        XCTAssertTrue(try XCTUnwrap(upgraded.item(id: before.id)).allowsEditing)
-        try upgraded.setAllowsCreation(false)
-        try upgraded.setAllowsCreation(true)
-        XCTAssertFalse(try XCTUnwrap(upgraded.item(id: before.id)).allowsEditing)
-    }
-
     func testStrongRevisionKeepsItemAndKeepRequestButExternalChangeInvalidatesIt() throws {
         let catalog = try makeCatalog()
         try reconcile(catalog, [file("data")])
@@ -240,62 +152,8 @@ final class CatalogTests: XCTestCase {
         XCTAssertEqual(Array(ids.prefix(2)), before)
     }
 
-    func testNamingCursorMigrationKeepsAnchorPermissionsAndKeeps() throws {
-        var catalog: Catalog? = try makeCatalog()
-        try reconcile(catalog!, [file("a.bin"), file("b.bin")])
-        let before = try catalog!.children(of: root, limit: 100)
-        try catalog!.setKeep(ids: [before[0].id], value: true)
-        try catalog!.setAllowsCreation(true)
-        let anchor = try catalog!.currentAnchor(), epoch = catalog!.epoch
-        try catalog!.database.execute("""
-            DROP TABLE departures;
-            ALTER TABLE meta DROP COLUMN allows_editing;
-            ALTER TABLE items DROP COLUMN edit_version;
-            DROP INDEX items_listing;
-            ALTER TABLE items DROP COLUMN enumeration_key;
-            PRAGMA user_version = 3;
-            """, operation: "test")
-        catalog = nil
-        let migrated = try Catalog.openWriter(at: url(), domainID: "domain-A")
-        XCTAssertEqual(migrated.epoch, epoch)
-        XCTAssertEqual(try migrated.currentAnchor(), anchor)
-        XCTAssertEqual(try migrated.keepRequests().map(\.id), [before[0].id])
-        XCTAssertTrue(try XCTUnwrap(migrated.item(id: root)).allowsCreation)
-        XCTAssertEqual(try migrated.children(of: root, afterRow: before[0].row, limit: 1).map(\.id), [before[1].id])
-    }
-
-    func testCreationPermissionMigrationPreservesRowsKeepsAndAnchor() throws {
-        var catalog: Catalog? = try makeCatalog()
-        try catalog!.reconcile(folder: root, listing: DirectoryListing([.entry(.init(name: "data", kind: .file,
-                                                                                  size: 7, mtimeNs: 1, ctimeNs: 2, fileID: 3))])) { _ in true }
-        let item = try XCTUnwrap(catalog!.liveChild(parent: root, nameKey: NameKey("data")))
-        try catalog!.setKeep(ids: [item.id], value: true)
-        let anchor = try catalog!.currentAnchor(), epoch = catalog!.epoch
-        try catalog!.database.execute("""
-            DROP TABLE departures;
-            ALTER TABLE meta DROP COLUMN allows_editing;
-            ALTER TABLE items DROP COLUMN edit_version;
-            DROP INDEX items_listing;
-            ALTER TABLE items DROP COLUMN enumeration_key;
-            ALTER TABLE meta DROP COLUMN allows_creation;
-            PRAGMA user_version = 2;
-            """, operation: "test")
-        catalog = nil
-        let migrated = try Catalog.openWriter(at: directory.appending(path: "catalog.sqlite"), domainID: "domain-A")
-        XCTAssertEqual(migrated.epoch, epoch)
-        XCTAssertEqual(try migrated.currentAnchor(), anchor)
-        XCTAssertEqual(try migrated.keepRequests().map(\.id), [item.id])
-        XCTAssertFalse(try XCTUnwrap(migrated.item(id: item.id)).allowsCreation)
-        try migrated.setAllowsCreation(true)
-        XCTAssertTrue(try XCTUnwrap(migrated.item(id: item.id)).allowsCreation)
-        XCTAssertTrue(try migrated.changes(after: anchor, limit: 100).updated.contains { $0.id == root })
-        try migrated.setAllowsCreation(false)
-        XCTAssertFalse(try XCTUnwrap(migrated.item(id: root)).allowsCreation)
-    }
-
     func testCreateWritesSchemaPragmasMetaAndRoot() throws {
         let catalog = try makeCatalog()
-        XCTAssertEqual(try scalar(catalog, "PRAGMA user_version"), "7")
         XCTAssertEqual(try scalar(catalog, "PRAGMA journal_mode"), "wal")
         XCTAssertEqual(try scalar(catalog, "PRAGMA synchronous"), "2") // FULL
         XCTAssertEqual(try scalar(catalog, "PRAGMA fullfsync"), "1")
@@ -356,21 +214,11 @@ final class CatalogTests: XCTestCase {
         }
 
         try Data().write(to: url("empty"))
-        for open in openers {
-            XCTAssertThrowsError(try open(url("empty"), "domain-A")) {
-                XCTAssertEqual($0 as? CatalogError, .unsupportedSchema)
-            }
-        }
+        for open in openers { XCTAssertThrowsError(try open(url("empty"), "domain-A")) }
         // Nothing was created, and the empty file was not switched to WAL.
         XCTAssertEqual(try fileNames(), ["catalog.sqlite", "catalog.sqlite-shm", "catalog.sqlite-wal", "empty.sqlite"])
         XCTAssertEqual(try Data(contentsOf: url("empty")).count, 0)
 
-        try catalog.database.execute("PRAGMA user_version = 8", operation: "test")
-        for open in openers {
-            XCTAssertThrowsError(try open(url(), "domain-A")) {
-                XCTAssertEqual($0 as? CatalogError, .unsupportedSchema)
-            }
-        }
     }
 
     func testOpenRejectsDamagedCountersAndRoot() throws {

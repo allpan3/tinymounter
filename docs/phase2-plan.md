@@ -326,8 +326,8 @@ old share's saved list without a question, so a later location can take them.
 **Catalog**, `<AppGroup>/Catalogs/<domainID>.sqlite` with `-wal` and `-shm`. The app creates it
 before `NSFileProviderManager.add`, and creation fails if the file exists. The app deletes it
 after the domain is removed. The app reopens its writer with `openWriter`; the extension opens it
-with `SQLITE_OPEN_READONLY`; neither open ever creates one. Both opens check `user_version`, the
-`meta` row, the epoch's length, the domain, the counters (`0 ≤ listing_gen`, `0 ≤ last_seq < 2^62`,
+with `SQLITE_OPEN_READONLY`; neither open ever creates one. Both opens check the `meta` row, the
+epoch's length, the domain, the counters (`0 ≤ listing_gen`, `0 ≤ last_seq < 2^62`,
 `max(change_seq) ≤ last_seq`) and a live root folder with no parent. Any failure is
 "catalog unavailable" (section 7), so damage never crashes the writer or expires every anchor.
 Pragmas: `journal_mode=WAL` and `busy_timeout=2000`; the writer adds `synchronous=FULL` and
@@ -337,7 +337,6 @@ default [V]. Writes use `BEGIN IMMEDIATE` and never hold share I/O inside.
 `import SQLite3` autolinks the system library in SwiftPM and in both Xcode targets [V].
 
 ```sql
-PRAGMA user_version = 5;               -- the app migrates versions 1 through 4; others fail closed
 CREATE TABLE meta (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   domain_id TEXT NOT NULL,             -- must equal the domain that opens it
@@ -370,13 +369,17 @@ CREATE TABLE items (
 CREATE UNIQUE INDEX items_live_name ON items(parent_id, name_key) WHERE deleted = 0;
 CREATE INDEX items_kept ON items(row) WHERE keep = 1 AND deleted = 0;
 CREATE INDEX items_listing ON items(parent_id, enumeration_key, row) WHERE deleted = 0;
+CREATE TABLE departures (              -- one per moved item and former parent
+  item TEXT NOT NULL REFERENCES items(id),
+  parent TEXT NOT NULL REFERENCES items(id),
+  seq INTEGER NOT NULL,
+  PRIMARY KEY (item, parent));
+CREATE INDEX departures_parent ON departures(parent, seq);
 ```
 
 At creation, `meta` holds the domain ID, a random epoch, `last_seq = 0`, `listing_gen = 0` and
-`paused = 0`. The root row has `change_seq = 0`. Version 1 migrates in one transaction, copying
-its file keep flags into `keep_request` and marking old listings unverified. IDs and epochs stay
-unchanged. Live rows take new metadata sequences to republish Finder actions; old anchors remain
-valid. The extension cannot migrate and rejects an old catalog until the app opens it.
+`paused = 0`. The root row has `change_seq = 0`. The catalog has no schema version and no
+migration: a catalog with an earlier schema fails to open.
 
 **Item IDs and identity:**
 

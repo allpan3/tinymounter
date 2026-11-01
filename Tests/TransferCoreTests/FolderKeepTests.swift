@@ -217,37 +217,7 @@ final class FolderKeepTests: XCTestCase {
         XCTAssertEqual(try catalog.keepSnapshot().states(files: [:], folders: [tree.id])[tree.id], .availableOffline)
     }
 
-    func testCatalogMigrationPreservesVersionsAnchorsAndFileRequests() throws {
-        var catalog: Catalog? = try makeCatalog()
-        try list(catalog!, root, [file("data"), folder("tree")])
-        let data = try child(catalog!, root, "data")
-        try catalog!.setKeep(ids: [data.id], value: true)
-        let anchor = try catalog!.currentAnchor(), epoch = catalog!.epoch
-        let counts = try catalog!.counts()
-        try downgrade(catalog!)
-        catalog = nil
-        let migrated = try Catalog.openWriter(at: directory.appending(path: "catalog.sqlite"), domainID: "test")
-        XCTAssertNotEqual(try migrated.currentAnchor(), anchor)
-        XCTAssertEqual(migrated.epoch, epoch)
-        XCTAssertEqual(try migrated.counts().lastSeq, counts.lastSeq + Int64(counts.live))
-        XCTAssertEqual(try migrated.counts().live, counts.live)
-        XCTAssertEqual(try migrated.changes(after: anchor, limit: 100).updated.count, counts.live)
-        XCTAssertEqual(try migrated.keepRequests().map(\.id), [data.id])
-        XCTAssertEqual(try migrated.item(id: data.id)?.contentVersion, data.contentVersion)
-        XCTAssertFalse(try child(migrated, root, "tree").listingComplete)
-        let reader = try Catalog.open(at: directory.appending(path: "catalog.sqlite"), domainID: "test")
-        XCTAssertTrue(try reader.item(id: data.id)!.keepRequested)
-        XCTAssertThrowsError(try Catalog.checkedEpoch(migrated.database, domainID: "test", version: 1))
-    }
-
-    func testWrongDomainCannotMigrateACatalog() throws {
-        let catalog = try makeCatalog()
-        try downgrade(catalog)
-        XCTAssertThrowsError(try Catalog.openWriter(at: directory.appending(path: "catalog.sqlite"), domainID: "other"))
-        XCTAssertNoThrow(try Catalog.checkedEpoch(catalog.database, domainID: "test", version: 1))
-    }
-
-    func testTypedSavedRequestsAndVersionTwoMigration() throws {
+    func testTypedSavedRequestsRoundTrip() throws {
         let file = KeepPath(path: "tree/data", kind: .file)
         let folder = KeepPath(path: "tree", kind: .folder)
         var record = LocationRecord(name: "test", serverID: UUID(), folder: .root)
@@ -257,21 +227,6 @@ final class FolderKeepTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(settings)), settings)
         XCTAssertEqual(folder.below(RelativePath("tree")!), .root)
         XCTAssertNil(KeepPath(path: "tree", kind: .file).below(RelativePath("tree")!))
-        var old = try JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as! [String: Any]
-        old["version"] = 2
-        var locations = old["locations"] as! [[String: Any]]
-        locations[0]["pendingKeeps"] = ["tree/data"]
-        old["locations"] = locations
-        old["savedKeeps"] = [["host": "home-nas", "share": "share", "paths": ["tree/data"]]]
-        let url = directory.appending(path: "Settings.json")
-        try JSONSerialization.data(withJSONObject: old).write(to: url)
-        let migrated = try AppSettings.load(from: url)
-        XCTAssertEqual(migrated.version, 6)
-        XCTAssertEqual(migrated.locations[0].id, record.id)
-        XCTAssertEqual(migrated.locations[0].domainID, record.domainID)
-        XCTAssertEqual(migrated.locations[0].pendingKeeps, [file])
-        XCTAssertEqual(migrated.savedKeeps[0].paths, [file])
-        XCTAssertEqual(try AppSettings.load(from: url), migrated)
     }
 
     private func makeCatalog() throws -> Catalog {
@@ -300,20 +255,6 @@ final class FolderKeepTests: XCTestCase {
         let recovered = verification.states(snapshot: snapshot, files: completed, folders: [tree.id],
                                             synchronized: true, spaceBlocked: [blocked.id])
         XCTAssertEqual(recovered[tree.id], .availableOffline)
-    }
-
-    private func downgrade(_ catalog: Catalog) throws {
-        try catalog.database.execute("""
-            DROP TABLE departures;
-            ALTER TABLE meta DROP COLUMN allows_editing;
-            ALTER TABLE items DROP COLUMN edit_version;
-            DROP INDEX items_listing;
-            ALTER TABLE items DROP COLUMN enumeration_key;
-            ALTER TABLE meta DROP COLUMN allows_creation;
-            ALTER TABLE items DROP COLUMN keep_request;
-            ALTER TABLE items DROP COLUMN listing_complete;
-            PRAGMA user_version = 1;
-            """, operation: "test")
     }
 
     private func child(_ catalog: Catalog, _ parent: String, _ name: String) throws -> CatalogRow {
