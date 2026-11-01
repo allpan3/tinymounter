@@ -226,7 +226,7 @@ private final class CancellationProbe: @unchecked Sendable {
         let current = try JSONDecoder().decode(AppSettings.self, from: bytes)
         guard let location = current.locations.first(where: {
             $0.id.uuidString == "3A9DE695-8327-4D86-B393-2520E71A75D8"
-        }), !location.removing, location.smbOnlyEditing == true, let write = location.activeWriteBookmark,
+        }), !location.removing, let write = location.activeWriteBookmark,
               let grant = current.shares.first(where: { $0.id == location.serverID }),
               let address = ShareAddress(grant.mountFrom), address.host == Self.host,
               address.share == Self.share, address.account == Self.account,
@@ -563,7 +563,7 @@ private final class CancellationProbe: @unchecked Sendable {
                 if self.phase == .joined && call == 1 { await self.settingsGate.wait(record) }
                 try await self.cleanSettings(record, paths: paths)
             }, signal: { _ in })
-        try source.configureWriteMode(bookmark, confirmed: true)
+        try source.configureWriteMode(bookmark)
     }
 
     private func validateFixture() throws {

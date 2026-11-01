@@ -269,11 +269,8 @@ M20 replaces separate creation and editing controls with one Read only toggle. I
 for a new location; a duplicate retains the original's mode. Writable setup obtains the macOS
 share grant and confirms the SMB-only writer and transaction-file requirements once. All
 supported write operations use that mode, including M20 file renaming. Unsupported operations
-remain unavailable. Existing read-only locations keep their setting during an upgrade.
+remain unavailable. Do not add another feature switch.
 
-Legacy creation-only access requires one confirmation to complete write setup. Show that setup
-status while retaining its existing permissions and pending data. Do not add another feature
-switch. Once confirmed, enabling Read only blocks new remote changes but retains the grant for
-later reuse. Refuse that change while writes are pending. Changing the source needs a fresh
-scoped grant and confirmation. The current installed M19 build still has the old controls;
-the unified control, migration and retained authorization pass signed VM checks.
+Once confirmed, enabling Read only blocks new remote changes but retains the grant for later
+reuse. Refuse that change while writes are pending. Changing the source needs a fresh scoped
+grant and confirmation. The unified control and retained authorization pass signed VM checks.

@@ -14,11 +14,11 @@ extension LocationSource {
 
     private func outbox() throws -> UploadOutbox { try Self.outbox(domainID: domainID) }
 
-    func configureWriteMode(_ bookmark: Data?, confirmed: Bool) throws {
+    func configureWriteMode(_ bookmark: Data?) throws {
         try editNamespace.perform { try uploadLock.withLock {
             guard !mutationsSuspended else { throw UploadError.readOnly }
             if bookmark == nil, try Self.pendingWrites(domainID: domainID) > 0 { throw UploadError.pendingWrites }
-            try withCatalog { try $0.setWriteAccess(creation: bookmark != nil, editing: bookmark != nil && confirmed) }
+            try withCatalog { try $0.setAllowsWriting(bookmark != nil) }
             writeBookmark = bookmark
         } }
         scheduleSignal()
@@ -90,7 +90,7 @@ extension LocationSource {
                   try withCatalog({ try $0.remoteIdentity(row.id) }) == record.remoteID else {
                 throw UploadError.unresolved
             }
-            if row.kind == .file, row.allowsEditing {
+            if row.kind == .file, row.allowsWriting {
                 try establishUploadedEditBase(record, row: row, bookmark: bookmark, progress: progress)
             }
             try outbox.complete(&record, item: row.id)

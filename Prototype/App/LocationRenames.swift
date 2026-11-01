@@ -54,7 +54,7 @@ extension LocationSource {
         try editNamespace.requireSettled()
         let bookmark = try renameAccess()
         let (path, destination) = try withCatalog { catalog -> (RelativePath, RelativePath) in
-            guard let row = try catalog.item(id: request.item), !row.deleted, row.allowsEditing,
+            guard let row = try catalog.item(id: request.item), !row.deleted, row.allowsWriting,
                   row.kind == .file, row.contentVersion == request.contentVersion,
                   FileRenameRequest.supportsName(row.name),
                   let parent = try catalog.item(id: request.parent), !parent.deleted,
@@ -161,7 +161,7 @@ extension LocationSource {
     func renameAccess() throws -> Data {
         try uploadLock.withLock {
             guard !mutationsSuspended, let bookmark = writeBookmark,
-                  try withCatalog({ try $0.item(id: Catalog.rootItemID)?.allowsEditing }) == true else {
+                  try withCatalog({ try $0.item(id: Catalog.rootItemID)?.allowsWriting }) == true else {
                 throw UploadError.readOnly
             }
             return bookmark

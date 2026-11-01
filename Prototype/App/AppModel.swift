@@ -540,28 +540,17 @@ final class AppModel {
             do {
                 var bookmark = record.writeBookmark
                 if !readOnly {
-                    guard let granted = try await writeGrant(grantID: record.serverID, existing: bookmark,
-                                                             confirmed: record.smbOnlyEditing == true) else { return }
+                    guard let granted = try await writeGrant(grantID: record.serverID, existing: bookmark) else { return }
                     bookmark = granted
                 }
-                try await controller.setWriteMode(id, readOnly: readOnly, bookmark: bookmark, confirmed: !readOnly)
+                try await controller.setWriteMode(id, readOnly: readOnly, bookmark: bookmark)
             } catch { show(error, grantID: record.serverID) }
         }
     }
 
-    private func writeGrant(grantID: UUID, existing: Data? = nil, confirmed: Bool = false) async throws -> Data? {
+    private func writeGrant(grantID: UUID, existing: Data? = nil) async throws -> Data? {
         guard let grant = grant(grantID) else { throw UploadError.readOnly }
-        if let existing {
-            if !confirmed {
-                let alert = NSAlert()
-                alert.messageText = UIText.completeWriteSetup
-                alert.informativeText = UIText.writeRequirements
-                alert.addButton(withTitle: UIText.confirmWriteSetup)
-                alert.addButton(withTitle: UIText.cancel)
-                guard await present(alert) == .alertFirstButtonReturn else { return nil }
-            }
-            return existing
-        }
+        if let existing { return existing }
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -919,7 +908,8 @@ final class AppModel {
     }
 
     func selectAgain(_ grant: ServerGrant) {
-        guard !connectionBusy, let serverID = grant.serverID else { return }
+        guard !connectionBusy else { return }
+        let serverID = grant.serverID
         connectionBusy = true
         Task {
             defer { connectionBusy = false; refreshMounts() }

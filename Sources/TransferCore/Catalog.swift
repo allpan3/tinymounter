@@ -37,8 +37,8 @@ public struct CatalogRow: Equatable, Sendable {
     public let changeSeq: Int64
     /// `meta.paused` in the same read, so a kept item's download policy matches its `changeSeq`.
     public let paused: Bool
-    public let allowsCreation: Bool
-    public let allowsEditing: Bool
+    /// The location's single write mode: creation, editing and organization.
+    public let allowsWriting: Bool
     public let editVersion: String?
 
     public var contentVersion: String {
@@ -52,8 +52,8 @@ public struct CatalogRow: Equatable, Sendable {
 
     static let columns = """
         row, id, parent_id, name, kind, size, mtime_ns, ctime_ns, keep, deleted, list_gen, listed_at, \
-        change_seq, (SELECT paused FROM meta), keep_request, listing_complete, (SELECT allows_creation FROM meta), \
-        (SELECT allows_editing FROM meta), edit_version
+        change_seq, (SELECT paused FROM meta), keep_request, listing_complete, (SELECT allows_writing FROM meta), \
+        edit_version
         """
 
     init(_ statement: Statement) throws {
@@ -76,9 +76,8 @@ public struct CatalogRow: Equatable, Sendable {
         paused = statement.bool(13)
         keepRequested = statement.bool(14)
         listingComplete = statement.bool(15)
-        allowsCreation = statement.bool(16)
-        allowsEditing = statement.bool(17) && allowsCreation
-        editVersion = statement.isNull(18) ? nil : statement.text(18)
+        allowsWriting = statement.bool(16)
+        editVersion = statement.isNull(17) ? nil : statement.text(17)
     }
 }
 
@@ -140,8 +139,7 @@ public final class Catalog {
           last_seq INTEGER NOT NULL,
           listing_gen INTEGER NOT NULL,
           paused INTEGER NOT NULL DEFAULT 0,
-          allows_creation INTEGER NOT NULL DEFAULT 0,
-          allows_editing INTEGER NOT NULL DEFAULT 0);
+          allows_writing INTEGER NOT NULL DEFAULT 0);
         CREATE TABLE items (
           row INTEGER PRIMARY KEY,
           id TEXT NOT NULL UNIQUE,
@@ -318,7 +316,7 @@ public final class Catalog {
                 case .parent(let id), .item(let id): try statement.bind(3, id)
                 }
                 var events: [(row: CatalogRow, seq: Int64)] = []
-                while try statement.step() { events.append((try CatalogRow(statement), statement.int64(19))) }
+                while try statement.step() { events.append((try CatalogRow(statement), statement.int64(18))) }
                 return events
             }
             let rows = events.map { $0.row }

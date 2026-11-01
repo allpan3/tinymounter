@@ -1,14 +1,12 @@
 import Foundation
 
 extension Catalog {
-    public func setWriteAccess(creation: Bool, editing: Bool) throws {
-        guard !editing || creation else { throw UploadError.readOnly }
+    public func setAllowsWriting(_ enabled: Bool) throws {
         try write { seq in
             guard let root = try item(id: Self.rootItemID) else { throw UploadError.unresolved }
-            guard root.allowsCreation != creation || root.allowsEditing != editing else { return }
-            try database.prepare("UPDATE meta SET allows_creation = ?, allows_editing = ? WHERE id = 1") {
-                try $0.bind(1, creation)
-                try $0.bind(2, editing)
+            guard root.allowsWriting != enabled else { return }
+            try database.prepare("UPDATE meta SET allows_writing = ? WHERE id = 1") {
+                try $0.bind(1, enabled)
                 try $0.run()
             }
             for row in try items("SELECT \(CatalogRow.columns) FROM items WHERE deleted = 0") {
@@ -46,31 +44,10 @@ extension Catalog {
         }
     }
 
-    public func setAllowsEditing(_ enabled: Bool) throws {
-        try write { seq in
-            guard let root = try item(id: Self.rootItemID), !enabled || root.allowsCreation else {
-                throw UploadError.readOnly
-            }
-            guard root.allowsEditing != enabled else { return }
-            try database.prepare("UPDATE meta SET allows_editing = ? WHERE id = 1") {
-                try $0.bind(1, enabled)
-                try $0.run()
-            }
-            for row in try items("SELECT \(CatalogRow.columns) FROM items WHERE deleted = 0") {
-                seq += 1
-                try database.prepare("UPDATE items SET change_seq = ? WHERE id = ?") {
-                    try $0.bind(1, seq)
-                    try $0.bind(2, row.id)
-                    try $0.run()
-                }
-            }
-        }
-    }
-
     public func rememberEditBase(_ receipt: EditBaseReceipt, expectedVersion: String) throws {
         try write { seq in
             guard let row = try item(id: receipt.item), row.kind == .file, !row.deleted,
-                  row.allowsEditing, row.size == receipt.version.size else { throw UploadError.unresolved }
+                  row.allowsWriting, row.size == receipt.version.size else { throw UploadError.unresolved }
             if row.contentVersion == receipt.contentVersion { return }
             guard row.contentVersion == expectedVersion else { throw UploadError.unresolved }
             seq += 1

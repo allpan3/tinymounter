@@ -269,10 +269,9 @@ private final class GapProbe: @unchecked Sendable {
         let local = support.appending(path: "M22Gap/" + run.uuidString + "/" + phase.rawValue)
         let settingsURL = support.appending(path: "Settings.json")
         let original = try Data(contentsOf: settingsURL)
-        // Decode directly: loading through SettingsStore could migrate the user's file.
         let current = try JSONDecoder().decode(AppSettings.self, from: original)
         guard let record = current.locations.first(where: { $0.id == location }),
-              !record.removing, record.smbOnlyEditing == true, let write = record.activeWriteBookmark,
+              !record.removing, let write = record.activeWriteBookmark,
               let grant = current.shares.first(where: { $0.id == record.serverID }),
               let address = ShareAddress(grant.mountFrom), address.host == Self.host,
               address.share == Self.share, address.account == Self.account,
@@ -786,7 +785,7 @@ private final class GapProbe: @unchecked Sendable {
     private func establishBase(_ source: LocationSource, _ path: String, label: String) throws {
         ledger.enter(label)
         let plain = try catalogRow(source, path)
-        try require(plain.kind == .file && plain.allowsEditing && !plain.contentVersion.hasPrefix("e1:"), label + "-plain")
+        try require(plain.kind == .file && plain.allowsWriting && !plain.contentVersion.hasPrefix("e1:"), label + "-plain")
         let staging = directory.appending(path: "staging")
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
@@ -917,7 +916,7 @@ private final class GapProbe: @unchecked Sendable {
             guard let self else { throw GapCheck(label: "settings-probe-ended") }
             try await self.commitSettings(intent)
         }, signal: { _ in })
-        try source.configureWriteMode(bookmark, confirmed: true)
+        try source.configureWriteMode(bookmark)
         return source
     }
 

@@ -10,16 +10,11 @@ public struct KeepPath: Codable, Hashable, Sendable {
     }
 
     public init(from decoder: Decoder) throws {
-        let single = try decoder.singleValueContainer()
-        if let legacy = try? single.decode(String.self) {
-            self.init(path: legacy, kind: .file)
-        } else {
-            let values = try decoder.container(keyedBy: CodingKeys.self)
-            self.init(path: try values.decode(String.self, forKey: .path),
-                      kind: try values.decode(CatalogRow.Kind.self, forKey: .kind))
-        }
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(path: try values.decode(String.self, forKey: .path),
+                  kind: try values.decode(CatalogRow.Kind.self, forKey: .kind))
         guard let relative = RelativePath(path), !relative.isRoot || kind == .folder else {
-            throw DecodingError.dataCorruptedError(in: single, debugDescription: "Invalid kept path")
+            throw DecodingError.dataCorruptedError(forKey: .path, in: values, debugDescription: "Invalid kept path")
         }
     }
 

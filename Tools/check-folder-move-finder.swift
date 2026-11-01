@@ -326,7 +326,7 @@ extension LocationController {
         guard let reference = settings.locations.first(where: {
             $0.id == UUID(uuidString: "3A9DE695-8327-4D86-B393-2520E71A75D8")
         }), reference.name == "M21 Files", reference.folder == "probe-m21-finder", !reference.removing,
-           reference.smbOnlyEditing == true, let bookmark = reference.activeWriteBookmark,
+           let bookmark = reference.activeWriteBookmark,
            let grant = settings.shares.first(where: { $0.id == reference.serverID }),
            let endpoint = ShareAddress(grant.mountFrom), endpoint.host == "127.0.0.1",
            endpoint.share == M22FinderProbe.share, endpoint.account == "_tinymounter_m19",
@@ -411,7 +411,7 @@ extension LocationController {
         let started = DispatchTime.now().uptimeNanoseconds
         guard let settings = store.settings, let record = settings.locations.first(where: { $0.id == config.location }),
               record.folder == config.folder, record.domainID == config.domain, record.serverID == config.grant,
-              record.activeWriteBookmark != nil, record.smbOnlyEditing == true, !record.removing,
+              record.activeWriteBookmark != nil, !record.removing,
               let source = sources[config.domain], let domain = domains[config.domain],
               let manager = NSFileProviderManager(for: domain) else { throw LocationError.catalogClosed }
         _ = try m22FinderGrant(settings)

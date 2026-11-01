@@ -266,14 +266,14 @@ empty trash enumerator; logs only under `dev.tinymounter.prototype`.
 
 ```swift
 struct AppSettings: Codable {
-  var version = 4; var servers: [ServerRecord]; var shares: [ServerGrant]
+  var servers: [ServerRecord]; var shares: [ServerGrant]
   var locations: [LocationRecord]; var savedKeeps: [SavedKeepList]
 }
 struct ServerRecord: Codable {
   let id: UUID; let address: URL  // server only; no password
 }
 struct ServerGrant: Codable {
-  let id: UUID; var serverID: UUID?  // assigned when migrating version 1
+  let id: UUID; var serverID: UUID
   var bookmark: Data    // app-scoped, .withSecurityScope + .securityScopeAllowOnlyReadAccess
   let mountFrom: String // f_mntfromname, "//account@host/share"
   let host: String, account: String, share: String  // from NSURLVolumeURLForRemountingKey
@@ -285,7 +285,8 @@ struct LocationRecord: Codable {
   var retiredDomainID: String?  // Apply in progress: the old domain still to remove
   var removing = false
   var pendingKeeps: [KeepPath] = []  // saved path and kind, from the share root, not found yet
-  var writeBookmark: Data?      // explicit per-location write grant; absent on old locations
+  var writeBookmark: Data?      // per-location write grant, given with the SMB-only confirmation
+  var readOnly = true           // retains an inactive writeBookmark
 }
 struct SavedKeepList: Codable {
   let host: String, share: String  // not the grant ID, so a new grant for the share matches
@@ -293,12 +294,8 @@ struct SavedKeepList: Codable {
 }
 ```
 
-Settings versions 1 through 4 migrate atomically to version 5 without changing grant, location or
-domain IDs. Existing string paths become typed file requests. Folder requests retain their kind
-so a restored file request cannot expand to a replacement folder. `LocationRecord.serverID`
-remains the share grant ID. New per-location write grants are optional and absent on old locations.
-Version 5 adds optional SMB-only editing confirmation, absent on existing locations. Older
-builds refuse version 5, so they cannot discard edit receipts or pending writes they do not understand.
+Settings have no version field and no migration. Folder requests retain their kind so a restored
+file request cannot expand to a replacement folder. `LocationRecord.serverID` is the share grant ID.
 
 The bookmark, `mountFrom`, host, account and saved paths are private. They are never logged and
 never in the App Group: the bookmark holds the SMB account and the server address [V]. Drafts
@@ -343,9 +340,8 @@ CREATE TABLE meta (
   epoch BLOB NOT NULL,                 -- 16 random bytes, fixed for the catalog's life
   last_seq INTEGER NOT NULL,           -- highest change_seq handed out
   listing_gen INTEGER NOT NULL,        -- number of complete listings applied
-  allows_creation INTEGER NOT NULL DEFAULT 0, -- opt-in; existing catalogs start read-only
-  allows_editing INTEGER NOT NULL DEFAULT 0,  -- separate SMB-only editing opt-in
-  paused INTEGER NOT NULL DEFAULT 0);  -- Pause Downloads; the app clears it at launch
+  paused INTEGER NOT NULL DEFAULT 0,  -- Pause Downloads; the app clears it at launch
+  allows_writing INTEGER NOT NULL DEFAULT 0); -- the location's write mode; new catalogs are read-only
 CREATE TABLE items (
   row INTEGER PRIMARY KEY,             -- never reused, because rows are never deleted
   id TEXT NOT NULL UNIQUE,             -- UUID; the root row holds the root container constant

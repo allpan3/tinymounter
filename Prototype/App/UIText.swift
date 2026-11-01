@@ -22,10 +22,8 @@ enum UIText {
     // Location pane
     static let access = "Access"
     static let readOnly = "Read only"
-    static let completeWriteSetup = "Complete Write Setup…"
     static let confirmWriteSetup = "Confirm Write Access"
-    static let writeRequirements = "Use write access only in folders where every program changes files through SMB. New files can be visible before upload finishes. Programs must leave tinymounter’s temporary save files alone. The original file is unavailable during a save. An interrupted save can leave it unavailable until recovery."
-    static let incompleteWriteSetup = "Complete setup to edit and rename files. Existing creation access stays available."
+    static let writeRequirements = "Allow changes only if every program that changes files in this share does so over SMB. Programs on the server itself, such as its apps, sync tools and scripts, bypass tinymounter’s protection. Other computers can see a new file before its upload finishes. During a save, the file is briefly unavailable, and tinymounter keeps hidden temporary files next to it. Do not delete them. An interrupted save can keep the file unavailable until tinymounter recovers it."
     static let writeModeHint = "Read only prevents changes to files on the server. Turn it off to create items, edit files, and rename or move ordinary files within this location. Folder moves, deleting and replacing items remain unavailable."
     static let exportEdit = "Export Local Copy…"
     static let retryEdits = "Retry Pending Changes"
