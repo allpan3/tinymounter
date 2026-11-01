@@ -327,8 +327,12 @@ identifier, because the settings and catalogs are in containers named after them
 formats stay the same, the locations, their downloads and their Keep Downloaded requests stay.
 Until release, no build migrates settings, catalogs or pending changes from an earlier build.
 After a format change, finish or export pending changes with the old build, remove the
-locations, and add them again with the new build. A location's write grant implies the SMB-only
-write confirmation, and an inactive grant is retained when Read only is enabled.
+locations, and add them again with the new build. If that isn't possible, the new build shows
+Start Fresh… in General when it can't read the settings. It removes every location with
+macOS's option to keep changes that did not upload, opens that folder in Finder, and moves the
+earlier settings, outboxes and catalogs aside in the containers. A location's write grant
+implies the SMB-only write confirmation, and an inactive grant is retained when Read only is
+enabled.
 
 Pending saves of a file keep their arrival order, and only the newest complete save publishes.
 The [ordering implementation](results/2026-10-29-pending-save-order.md) passes core checks and a

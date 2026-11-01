@@ -152,7 +152,18 @@ enum UIText {
     static let notNow = "Not Now"
 
     // Errors
-    static let settingsUnreadable = "tinymounter cannot read its settings file. You cannot add or change a location."
+    static let settingsUnreadable = """
+        tinymounter cannot read its settings file. You cannot add or change a location. If an earlier \
+        version made the file, click Start Fresh in General.
+        """
+    static let startFresh = "Start Fresh"
+    static let startFreshMenu = "Start Fresh…"
+    static let startFreshTitle = "Remove all locations and start fresh?"
+    static let startFreshMessage = """
+        tinymounter cannot read the data of an earlier version. Start Fresh removes all locations from \
+        this Mac. Then you add them again. The files on the server do not change. Changes that did not \
+        upload are kept in a folder that opens in Finder.
+        """
     static let domainsUnreadable = "tinymounter cannot read its locations from macOS. Quit tinymounter. Then open it again."
     static let wrongFolderPath = "This folder path is not correct. Type a path in the share."
     static let wrongName = "This name is not correct. Type a different name."
