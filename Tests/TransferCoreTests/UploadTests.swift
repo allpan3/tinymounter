@@ -233,17 +233,25 @@ final class UploadTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: remote.appending(path: "new.bin")), payload)
     }
 
-    func testCrashBeforeRemoteIdentityRemainsUnresolved() throws {
+    func testCrashBeforeRemoteIdentityCreatesOnlyWhileTheNameIsAbsent() throws {
         var record = try prepared()
         XCTAssertThrowsError(try outbox.upload(&record, locationRoot: fd, progress: Progress()) { state in
             if state == .attempting { throw UploadError.unresolved }
         })
+        // The interrupted attempt may have created the file; an item at the name stays unresolved.
+        let partial = Data("partial".utf8)
+        try partial.write(to: remote.appending(path: "new.bin"))
         record = try XCTUnwrap(outbox.records().first)
         XCTAssertThrowsError(try outbox.upload(&record, locationRoot: fd, progress: Progress())) {
             XCTAssertEqual($0 as? UploadError, .unresolved)
         }
-        XCTAssertEqual(try outbox.pendingCount, 1)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: remote.appending(path: "new.bin").path))
+        XCTAssertEqual(try outbox.records().first?.state, .attempting)
+        XCTAssertEqual(try Data(contentsOf: remote.appending(path: "new.bin")), partial)
+        try FileManager.default.removeItem(at: remote.appending(path: "new.bin"))
+        record = try XCTUnwrap(outbox.records().first)
+        try outbox.upload(&record, locationRoot: fd, progress: Progress())
+        XCTAssertEqual(record.state, .verified)
+        XCTAssertEqual(try Data(contentsOf: remote.appending(path: "new.bin")), payload)
     }
 
     func testCollisionRetryPreservesInputAndEveryExistingDestination() throws {

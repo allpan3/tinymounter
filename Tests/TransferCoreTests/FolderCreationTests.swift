@@ -38,17 +38,25 @@ final class FolderCreationTests: XCTestCase {
         XCTAssertEqual(record.state, .verified)
     }
 
-    func testInterruptedAttemptWithoutReceiptCannotCreateAgain() throws {
+    func testInterruptedAttemptWithoutReceiptCreatesOnlyWhileTheNameIsAbsent() throws {
         var record = try prepared()
         XCTAssertThrowsError(try outbox.createFolder(&record, progress: Progress(), checkpoint: { state in
             if state == .attempting { throw TransferError.cancelled }
         }) { _, _, _ in XCTFail("Stopped before send"); return 0 })
+        // A folder at the name may be the one the interrupted attempt created.
         record = try XCTUnwrap(outbox.records().first)
-        XCTAssertThrowsError(try outbox.createFolder(&record, progress: Progress()) { _, _, _ in
-            XCTFail("An uncertain create cannot be repeated")
-            return 0
-        })
-        XCTAssertEqual(try outbox.pendingCount, 1)
+        XCTAssertThrowsError(try outbox.createFolder(&record, progress: Progress()) { _, expected, _ in
+            XCTAssertNil(expected)
+            throw FolderMutationFailure(code: EEXIST, mayHaveChanged: false)
+        }) { XCTAssertEqual($0 as? UploadError, .unresolved) }
+        XCTAssertEqual(try outbox.records().first?.state, .attempting)
+        record = try XCTUnwrap(outbox.records().first)
+        try outbox.createFolder(&record, progress: Progress()) { _, expected, persist in
+            XCTAssertNil(expected)
+            try persist(identity)
+            return 999
+        }
+        XCTAssertEqual(record.state, .verified)
     }
 
     func testSavedReceiptRecoversWithAnIdentityCheck() throws {

@@ -253,17 +253,22 @@ public final class UploadOutbox {
                             O_RDONLY | O_DIRECTORY | O_NOFOLLOW_ANY | O_RESOLVE_BENEATH | O_CLOEXEC)
         guard parent >= 0 else { throw posixError("open upload parent") }
         defer { close(parent) }
-        if record.state != .prepared {
+        // An attempt without a server identity may or may not have created the file. Creating it
+        // again is the check: it succeeds only while the name is absent.
+        let uncertain = record.state == .attempting && record.remoteID == nil
+        if record.state != .prepared, !uncertain {
             try verify(record, parent: parent, name: name)
             record.state = .verified
             try save(record)
             return
         }
-        record.state = .attempting
-        try save(record)
-        try checkpoint(.attempting)
+        if !uncertain {
+            record.state = .attempting
+            try save(record)
+            try checkpoint(.attempting)
+        }
         let fd = openat(parent, name, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o644)
-        guard fd >= 0 else { try creationFailed(&record, parent: parent, name: name); return }
+        guard fd >= 0 else { try creationFailed(&record, parent: parent, name: name, uncertain: uncertain); return }
         defer { close(fd) }
         var info = stat()
         guard fstat(fd, &info) == 0 else { throw posixError("stat created upload") }
@@ -286,8 +291,10 @@ public final class UploadOutbox {
         try checkpoint(.verified)
     }
 
-    private func creationFailed(_ record: inout PendingUpload, parent: Int32, name: String) throws {
+    private func creationFailed(_ record: inout PendingUpload, parent: Int32, name: String, uncertain: Bool) throws {
         let code = errno
+        // After an uncertain attempt, the item at the name may be the one that attempt created.
+        if code == EEXIST, uncertain { throw UploadError.unresolved }
         if code == EEXIST {
             record.state = .collision
             try save(record)

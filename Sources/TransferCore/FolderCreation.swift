@@ -21,11 +21,14 @@ extension UploadOutbox {
         guard !progress.isCancelled else { throw TransferError.cancelled }
         if record.state == .completed { return }
         if record.state == .collision { throw UploadError.collision }
+        // An attempt without a server identity is checked by creating the folder again, which
+        // succeeds only while the name is absent.
+        let uncertain = record.state == .attempting && record.serverFolder == nil
         if record.state == .prepared {
             record.state = .attempting
             try save(record)
             try checkpoint(.attempting)
-        } else if record.serverFolder == nil {
+        } else if record.serverFolder == nil, !uncertain {
             throw UploadError.unresolved
         }
         do {
@@ -39,6 +42,8 @@ extension UploadOutbox {
             guard nativeID != 0, record.serverFolder != nil else { throw UploadError.unresolved }
             record.remoteID = nativeID
         } catch let failure as FolderMutationFailure where !failure.mayHaveChanged && record.serverFolder == nil {
+            // After an uncertain attempt, the folder at the name may be the one that attempt created.
+            if failure.code == EEXIST, uncertain { throw UploadError.unresolved }
             record.state = failure.code == EEXIST ? .collision : .prepared
             try save(record)
             if failure.code == EEXIST { throw UploadError.collision }
