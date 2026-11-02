@@ -55,9 +55,38 @@ extension LocationSource {
                 _ = try? listOnLane(request.parent, requestID: request.id)
                 scheduleSignal()
             }
+            noteCreate(request, result: result)
             Self.uploadLog.info("upload request=\(request.id.uuidString, privacy: .public) domain=\(self.domainID, privacy: .public) ok=\((try? result.get()) != nil ? 1 : 0)")
             reply(result)
         }
+    }
+
+    func pendingCreates() throws -> [PendingCreate] {
+        let records = try uploadLock.withLock { try outbox().records().filter(\.isPending) }
+        let failures = failedCreatesLock.withLock { failedCreates }
+        let known = Set(records.map(\.template))
+        let waiting = records.map {
+            PendingCreate(id: $0.template, path: $0.path, kind: $0.kind, failure: failures[$0.template])
+        }
+        let failed = failures.filter { !known.contains($0.key) }.map {
+            PendingCreate(id: $0.key, path: $0.value.path, kind: $0.value.kind, failure: $0.value)
+        }
+        return (waiting + failed).sorted { $0.path < $1.path }
+    }
+
+    /// Retry asks macOS to send the items again, and each attempt records its result again.
+    func clearFailedCreates() { failedCreatesLock.withLock { failedCreates = [:] } }
+
+    private func noteCreate(_ request: CreateRequest, result: Result<CreateReceipt, Error>) {
+        guard case .failure(let error) = result else {
+            failedCreatesLock.withLock { failedCreates[request.template] = nil }
+            return
+        }
+        guard error as? TransferError != .cancelled else { return }
+        let parent = try? withCatalog { try $0.relativePath(of: request.parent) }
+        let path = parent?.appending(request.name)?.string ?? request.name
+        let failure = FailedCreate(path: path, kind: request.kind, reason: UIText.uploadFailure(error), date: .now)
+        failedCreatesLock.withLock { failedCreates[request.template] = failure }
     }
 
     private func createOnLane(_ request: CreateRequest, contents: URL?, progress: Progress,
@@ -115,4 +144,18 @@ extension LocationSource {
             return try session.identity.guarding(root: root) { try body(session, root) }
         }
     }
+}
+
+struct FailedCreate: Sendable {
+    let path: String
+    let kind: CatalogRow.Kind
+    let reason: String
+    let date: Date
+}
+
+struct PendingCreate: Identifiable, Sendable {
+    let id: String
+    let path: String
+    let kind: CatalogRow.Kind
+    let failure: FailedCreate?
 }

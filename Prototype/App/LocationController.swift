@@ -349,10 +349,28 @@ final class LocationController {
         try await Self.offMain { try source.exportEdit(id, destination: destination) }
     }
 
-    func retryEdits(_ record: LocationRecord) {
+    func retryPending(_ record: LocationRecord) {
         sources[record.domainID]?.retryEdits(recoverRetired: true)
         guard let source = sources[record.domainID] else { return }
-        for candidate in sources.values where candidate.editNamespace === source.editNamespace { candidate.retryRenames() }
+        let shared = sources.values.filter { $0.editNamespace === source.editNamespace }
+        for candidate in shared {
+            candidate.retryRenames()
+            candidate.clearFailedCreates()
+        }
+        Task { for candidate in shared { await resumeCreates(candidate.domainID) } }
+    }
+
+    func pendingCreates(_ record: LocationRecord) async throws -> [PendingCreate] {
+        guard let source = sources[record.domainID] else { throw LocationError.catalogClosed }
+        return try await Self.offMain { try source.pendingCreates() }
+    }
+
+    /// macOS stops sending an item that failed with `cannotSynchronize` until this signal.
+    private func resumeCreates(_ domainID: String) async {
+        guard let domain = domains[domainID], let manager = NSFileProviderManager(for: domain) else { return }
+        do { try await manager.signalErrorResolved(NSFileProviderError(.cannotSynchronize)) } catch {
+            Self.shareLog.error("resume_creates domain=\(domainID, privacy: .public) \(logFields(error), privacy: .public)")
+        }
     }
 
     func renameRecords(_ record: LocationRecord) async throws -> [RenameIntent] {
@@ -1300,6 +1318,7 @@ final class LocationController {
                     """)
             }
         }
+        await resumeCreates(domainID)
         do { try await manager.signalEnumerator(for: .workingSet) } catch {
             Self.listingLog.error("signal domain=\(domainID, privacy: .public) \(logFields(error), privacy: .public)")
         }

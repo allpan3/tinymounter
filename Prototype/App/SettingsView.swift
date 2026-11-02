@@ -22,8 +22,7 @@ struct SettingsView: View {
         }
         .frame(minWidth: 780, minHeight: 540)
         .background(WindowReader { window in
-            // Settings… in the menu bar item opens the window on the current desktop, not the one
-            // where it was first shown; otherwise it stays out of sight on another Space.
+            // Otherwise Settings… in the menu bar item leaves the window on another desktop.
             window?.collectionBehavior.insert(.moveToActiveSpace)
             model.window = window
         })
@@ -589,6 +588,7 @@ private struct UploadStatus: View {
     @State private var count: Int?
     @State private var edits: [PendingEdit] = []
     @State private var renames: [RenameIntent] = []
+    @State private var creates: [PendingCreate] = []
     @State private var savedBytes: Int64 = 0
     @State private var statusUnavailable = false
 
@@ -600,13 +600,20 @@ private struct UploadStatus: View {
             if let count, count > 0 {
                 Label(UIText.pendingUploads(count), systemImage: "arrow.up.circle")
                 Text(UIText.pendingUploadHint).font(.callout).foregroundStyle(.secondary)
-                if edits.contains(where: \.isPending) || !renames.isEmpty {
-                    Button(UIText.retryEdits) { model.retryEdits(record) }
-                }
+            }
+            if count ?? 0 > 0 || !creates.isEmpty {
+                Button(UIText.retryPending) { model.retryPending(record) }
             }
             if savedBytes > 0 {
                 Text(UIText.savedChangeBytes(savedBytes))
                 Text(UIText.savedChangeSpace).font(.callout).foregroundStyle(.secondary)
+            }
+            ForEach(creates) { item in
+                VStack(alignment: .leading) {
+                    Text(item.kind == .folder ? UIText.newFolderPending(item.path) : UIText.newFilePending(item.path))
+                    Text(item.failure.map { UIText.createFailed($0.reason, at: $0.date) } ?? UIText.waitingToUpload)
+                        .font(.callout).foregroundStyle(.secondary)
+                }
             }
             ForEach(renames, id: \.id) { rename in
                 VStack(alignment: .leading) {
@@ -633,6 +640,7 @@ private struct UploadStatus: View {
                     count = try await model.pendingUploads(record)
                     edits = try await model.editRecords(record)
                     renames = try await model.renameRecords(record)
+                    creates = try await model.pendingCreates(record)
                     savedBytes = try await model.savedChangeBytes(record)
                     statusUnavailable = false
                 } catch {
@@ -664,7 +672,7 @@ private struct UploadStatus: View {
             return edit.conflict ? UIText.conflictRecovery : UIText.publishedRecovery
         }
         if edit.conflict { return edit.state == .completed ? UIText.conflictSaved : UIText.editConflict }
-        if edit.state == .prepared { return UIText.editWaiting }
+        if edit.state == .prepared { return UIText.waitingToUpload }
         return UIText.editNeedsRecovery
     }
 }

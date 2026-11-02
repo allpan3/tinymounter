@@ -26,8 +26,40 @@ enum UIText {
     static let writeRequirements = "Allow changes only if every program that changes files in this share does so over SMB. Programs on the server itself, such as its apps, sync tools and scripts, bypass tinymounter’s protection. Other computers can see a new file before its upload finishes. During a save, the file is briefly unavailable, and tinymounter keeps hidden temporary files next to it. Do not delete them. An interrupted save can keep the file unavailable until tinymounter recovers it."
     static let writeModeHint = "Read only prevents changes to files on the server. Turn it off to create items, edit files, and rename or move ordinary files within this location. Folder moves, deleting and replacing items remain unavailable."
     static let exportEdit = "Export Local Copy…"
-    static let retryEdits = "Retry Pending Changes"
-    static let editWaiting = "Waiting to upload"
+    static let retryPending = "Retry Pending Changes"
+    static let waitingToUpload = "Waiting to upload"
+    static func newFolderPending(_ path: String) -> String { "New folder: \(path)" }
+    static func newFilePending(_ path: String) -> String { "New file: \(path)" }
+    static func createFailed(_ reason: String, at date: Date) -> String {
+        "Did not upload: \(reason) Last try: \(date.formatted(date: .abbreviated, time: .shortened))."
+    }
+    static func uploadFailure(_ error: Error) -> String {
+        if let upload = error as? UploadError {
+            switch upload {
+            case .pendingWrites: return "Other changes on this share must finish first."
+            case .readOnly: return "tinymounter has no write access to this share."
+            case .collision: return "An item with this name is already on the server."
+            case .unresolved: return "tinymounter cannot confirm the result on the server."
+            case .invalidRequest: return "tinymounter cannot create this item in this folder."
+            case .editConflict: return "The item changed on the server."
+            }
+        }
+        if let failure = error as? FolderMutationFailure {
+            return "The server refused the change: \(String(cString: strerror(failure.code)))."
+        }
+        if DownloadSpace.isFull(error) { return "There is not sufficient space on this Mac." }
+        switch SourceFailure.classify(error, context: .listing) {
+        case .serverUnreachable, .notConnected: return "There is no connection to the server."
+        case .notAuthenticated: return "The server did not accept the sign-in."
+        case .noPermission: return "The server does not give write access."
+        default:
+            let failure = error as NSError
+            if failure.domain == NSPOSIXErrorDomain, let code = Int32(exactly: failure.code) {
+                return "The upload failed: \(String(cString: strerror(code)))."
+            }
+            return "Error \(failure.domain) \(failure.code)."
+        }
+    }
     static let editPreparing = "Local save not yet confirmed. Keep the document open."
     static let editNeedsRecovery = "Recovery needed. The local save is retained."
     static let editConflict = "Conflict. The local save is retained."
