@@ -45,7 +45,13 @@ enum UIText {
             }
         }
         if let failure = error as? FolderMutationFailure {
+            if failure.mayHaveChanged { return uploadFailure(UploadError.unresolved) }
             return "The server refused the change: \(String(cString: strerror(failure.code)))."
+        }
+        // A system error comes from the share; the Mac's own space check throws a Cocoa error.
+        let system = error as NSError
+        if system.domain == NSPOSIXErrorDomain, [Int(ENOSPC), Int(EDQUOT)].contains(system.code) {
+            return "There is not sufficient space on the server."
         }
         if DownloadSpace.isFull(error) { return "There is not sufficient space on this Mac." }
         switch SourceFailure.classify(error, context: .listing) {
