@@ -25,7 +25,7 @@ extension LocationSource {
     }
 
     func pendingUploads() throws -> Int {
-        do { return try uploadLock.withLock { try Self.pendingWrites(domainID: domainID) } }
+        do { return try uploadLock.readForStatus { try Self.pendingWrites(domainID: domainID) } }
         catch {
             Self.uploadLog.error("pending_writes failed \(logFields(error), privacy: .public)")
             throw error
@@ -62,7 +62,7 @@ extension LocationSource {
     }
 
     func pendingCreates() throws -> [PendingCreate] {
-        let records = try uploadLock.withLock { try outbox().records().filter(\.isPending) }
+        let records = try uploadLock.readForStatus { try outbox().records().filter(\.isPending) }
         let failures = failedCreatesLock.withLock { failedCreates }
         let known = Set(records.map(\.template))
         let waiting = records.map {
@@ -158,4 +158,18 @@ struct PendingCreate: Identifiable, Sendable {
     let path: String
     let kind: CatalogRow.Kind
     let failure: FailedCreate?
+}
+
+protocol StatusLock: NSLocking { func lock(before limit: Date) -> Bool }
+extension NSLock: StatusLock {}
+extension NSRecursiveLock: StatusLock {}
+
+extension StatusLock {
+    /// An upload or an unresponsive share can hold the lock for minutes. Records are saved
+    /// atomically, so after half a second Settings reads them without the lock.
+    func readForStatus<T>(_ read: () throws -> T) rethrows -> T {
+        guard lock(before: Date(timeIntervalSinceNow: 0.5)) else { return try read() }
+        defer { unlock() }
+        return try read()
+    }
 }

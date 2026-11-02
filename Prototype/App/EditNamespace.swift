@@ -73,6 +73,8 @@ final class EditNamespace: @unchecked Sendable {
 
     func perform<T>(_ operation: () throws -> T) rethrows -> T { try lock.withLock(operation) }
 
+    func readForStatus<T>(_ read: () throws -> T) rethrows -> T { try lock.readForStatus(read) }
+
     /// Every configured location root in this namespace, including locations without an open source.
     func locationRoots() -> [RelativePath] { lock.withLock { Array(domains.values) } }
 

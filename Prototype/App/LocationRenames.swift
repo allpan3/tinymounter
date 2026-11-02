@@ -9,7 +9,7 @@ extension LocationSource {
     }
 
     func renameRecords() throws -> [RenameIntent] {
-        try editNamespace.perform {
+        try editNamespace.readForStatus {
             try Self.renameOutbox().intents().filter { $0.isPending && $0.domains.contains(domainID) }
         }
     }
