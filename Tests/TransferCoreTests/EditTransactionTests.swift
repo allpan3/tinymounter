@@ -476,6 +476,7 @@ final class EditTransactionTests: XCTestCase {
         edit = try stored(edit)
         XCTAssertEqual(edit.state, .prepared)
         XCTAssertNil(edit.stageIdentity)
+        XCTAssertTrue(EditOutbox.canStopForRemoval(edit))
         XCTAssertEqual(Set(remote.files.keys), ["file.txt"])
         try finish(&edit)
         XCTAssertEqual(remote.files["file.txt"]?.digest, edit.digest)

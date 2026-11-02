@@ -695,6 +695,21 @@ public final class EditOutbox {
         try FileManager.default.removeItem(at: directory)
     }
 
+    /// The save never reached the server, so removing the location loses nothing that macOS does not keep.
+    public static func canStopForRemoval(_ record: PendingEdit) -> Bool {
+        record.isLocalOnly && record.stageIdentity == nil && record.backupIdentity == nil && record.published == nil
+            && !record.recoveryRetained
+    }
+
+    /// Location removal after macOS kept the local copies of saves that never reached the server.
+    public func removeForLocationRemoval() throws {
+        let records = try records()
+        let pending = records.filter(\.isPending)
+        guard pending.allSatisfy(Self.canStopForRemoval), try pendingCount == pending.count,
+              !records.contains(where: \.recoveryRetained) else { throw UploadError.pendingWrites }
+        try FileManager.default.removeItem(at: directory)
+    }
+
     private func files(ending suffix: String) throws -> [URL] {
         try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == suffix }

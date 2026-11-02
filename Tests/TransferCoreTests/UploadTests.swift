@@ -267,6 +267,21 @@ final class UploadTests: XCTestCase {
         try outbox.removeIfCompleted()
     }
 
+    func testLocationRemovalTakesOnlyItemsThatDidNotReachTheServer() throws {
+        var attempted = try prepared(name: "attempted.bin")
+        XCTAssertThrowsError(try outbox.upload(&attempted, locationRoot: fd, progress: Progress()) { state in
+            if state == .attempting { throw UploadError.unresolved }
+        })
+        _ = try prepared()
+        XCTAssertThrowsError(try outbox.removeForLocationRemoval())
+        // The uncertain attempt finishes once its name proves absent; then only a stoppable item stays.
+        attempted = try XCTUnwrap(outbox.records().first { $0.id == attempted.id })
+        try outbox.upload(&attempted, locationRoot: fd, progress: Progress())
+        try outbox.complete(&attempted, item: UUID().uuidString)
+        try outbox.removeForLocationRemoval()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appending(path: "pending").path))
+    }
+
     func testOnlyAnItemThatDidNotReachTheServerCanBeStopped() throws {
         var attempted = try prepared()
         XCTAssertThrowsError(try outbox.upload(&attempted, locationRoot: fd, progress: Progress()) { state in

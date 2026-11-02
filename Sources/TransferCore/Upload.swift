@@ -209,6 +209,14 @@ public final class UploadOutbox {
         try FileManager.default.removeItem(at: directory)
     }
 
+    /// Location removal after macOS kept the local items: every pending record must be stoppable,
+    /// and no contents may lack a record.
+    public func removeForLocationRemoval() throws {
+        let pending = try records().filter(\.isPending)
+        guard pending.allSatisfy(\.isStoppable), try pendingCount == pending.count else { throw UploadError.pendingWrites }
+        try FileManager.default.removeItem(at: directory)
+    }
+
     // A complete payload can outlive a failed state update; only incomplete staging is disposable.
     func recoverLocalPreparation(_ id: UUID, size: Int64, digest: String) throws -> Bool {
         if var record = try records().first(where: { $0.id == id }) {

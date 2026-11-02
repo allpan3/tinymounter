@@ -481,15 +481,22 @@ final class LocationController {
         return updated
     }
 
+    func removalItems(_ record: LocationRecord) async throws -> RemovalItems {
+        try await Self.offMain { try LocationSource.removalItems(domainID: record.domainID) }
+    }
+
     /// Plan §7: save the kept paths if asked, mark the record, remove the domain, delete the
-    /// catalog, delete the record.
-    func remove(_ recordID: UUID, saveKeeps: Bool) async throws {
+    /// catalog, delete the record. `stopping` is what the user confirmed would stop.
+    func remove(_ recordID: UUID, saveKeeps: Bool, stopping: [String] = []) async throws {
         guard isReady, let settings = store.settings, let record = settings.locations.first(where: { $0.id == recordID }) else {
             throw CocoaError(.fileReadUnknown)
         }
         let previousSource = sources[record.domainID]
-        if let previousSource { try await Self.offMain { try previousSource.suspendMutations() } }
-        else if try LocationSource.pendingWrites(domainID: record.domainID) > 0 { throw UploadError.pendingWrites }
+        if let previousSource { try await Self.offMain { try previousSource.suspendForRemoval(stopping: stopping) } }
+        else {
+            let items = try LocationSource.removalItems(domainID: record.domainID)
+            guard items.blocking.isEmpty, items.stoppable == stopping else { throw UploadError.pendingWrites }
+        }
         defer { previousSource?.resumeMutations() }
         let grant = settings.shares.first { $0.id == record.grantID }
         // A location whose catalog can't be read saves only its pending paths; it must stay removable.
@@ -506,8 +513,8 @@ final class LocationController {
         sources.removeValue(forKey: record.domainID)?.close()
         domains[record.domainID] = nil
         try Catalog.delete(at: SharedContainer.catalogURL(domainID: record.domainID))
-        try LocationSource.outbox(domainID: record.domainID).removeIfCompleted()
-        try LocationSource.editOutbox(domainID: record.domainID).removeIfCompleted()
+        try LocationSource.outbox(domainID: record.domainID).removeForLocationRemoval()
+        try LocationSource.editOutbox(domainID: record.domainID).removeForLocationRemoval()
         try LocationSource.renameOutbox().removeCompletedIntents(removedDomain: record.domainID)
         try LocationSource.deletionOutbox().removeSettled(domain: record.domainID)
         previousSource?.editNamespace.unregister(record.domainID)
@@ -935,7 +942,7 @@ final class LocationController {
     private func run(_ step: LaunchReconciliation.Step, registered: [String: NSFileProviderDomain]) async throws {
         switch step {
         case .removeDomain(let id):
-            guard try LocationSource.pendingWrites(domainID: id) == 0 else { throw UploadError.pendingWrites }
+            guard try LocationSource.removalItems(domainID: id).blocking.isEmpty else { throw UploadError.pendingWrites }
             guard let domain = registered[id] else { return }
             // Items that never reached the server, also ones that the user stopped, stay on this Mac.
             let preserved = try await NSFileProviderManager.remove(domain, mode: .preserveDirtyUserData)
@@ -944,10 +951,10 @@ final class LocationController {
             Self.catalogLog.info("domain_removed domain=\(id, privacy: .public) preserved=\(kept ? 1 : 0)")
             if kept, let preserved { onPreserved?(preserved) }
         case .deleteCatalog(let id):
-            guard try LocationSource.pendingWrites(domainID: id) == 0 else { throw UploadError.pendingWrites }
+            guard try LocationSource.removalItems(domainID: id).blocking.isEmpty else { throw UploadError.pendingWrites }
             try Catalog.delete(at: SharedContainer.catalogURL(domainID: id))
-            try LocationSource.outbox(domainID: id).removeIfCompleted()
-            try LocationSource.editOutbox(domainID: id).removeIfCompleted()
+            try LocationSource.outbox(domainID: id).removeForLocationRemoval()
+            try LocationSource.editOutbox(domainID: id).removeForLocationRemoval()
             try LocationSource.renameOutbox().removeCompletedIntents(removedDomain: id)
             try LocationSource.deletionOutbox().removeSettled(domain: id)
         case .deleteRecord(let id):
