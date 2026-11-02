@@ -130,12 +130,13 @@ extension LocationSource {
 
     func withWriteSession<Result>(_ bookmark: Data, progress: Progress? = nil,
                                   _ body: (ShareSession, Int32) throws -> Result) throws -> Result {
-        var stale = false
-        let url = try URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope, .withoutUI, .withoutMounting],
-                          relativeTo: nil, bookmarkDataIsStale: &stale)
-        guard url.startAccessingSecurityScopedResource() else { throw UploadError.readOnly }
-        defer { url.stopAccessingSecurityScopedResource() }
         return try access.withSession { session, progressed in
+            // Resolution waits while the server does not answer, so it counts toward the stall limit.
+            var stale = false
+            let url = try URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope, .withoutUI, .withoutMounting],
+                              relativeTo: nil, bookmarkDataIsStale: &stale)
+            guard url.startAccessingSecurityScopedResource() else { throw UploadError.readOnly }
+            defer { url.stopAccessingSecurityScopedResource() }
             let observation = progress?.observe(\.completedUnitCount) { _, _ in progressed() }
             defer { observation?.invalidate() }
             let mount = try ShareAccess.connectedShares().first { $0.path == ShareAccess.filePath(url) }
