@@ -263,7 +263,7 @@ public final class UploadOutbox {
         try save(record)
         try checkpoint(.attempting)
         let fd = openat(parent, name, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o644)
-        guard fd >= 0 else { try creationFailed(&record); return }
+        guard fd >= 0 else { try creationFailed(&record, parent: parent, name: name); return }
         defer { close(fd) }
         var info = stat()
         guard fstat(fd, &info) == 0 else { throw posixError("stat created upload") }
@@ -286,16 +286,17 @@ public final class UploadOutbox {
         try checkpoint(.verified)
     }
 
-    private func creationFailed(_ record: inout PendingUpload) throws {
+    private func creationFailed(_ record: inout PendingUpload, parent: Int32, name: String) throws {
         let code = errno
         if code == EEXIST {
             record.state = .collision
             try save(record)
             throw UploadError.collision
         }
-        // The server refused the create, so nothing exists and the next attempt starts again. After a
-        // timeout or a lost connection the outcome is unknown, so the record stays unresolved.
-        if Self.refusals.contains(code) {
+        // A refusal with the name still absent means nothing was created, so the next attempt starts
+        // again. After a timeout or a lost connection the outcome is unknown, so the record stays unresolved.
+        var info = stat()
+        if Self.refusals.contains(code), fstatat(parent, name, &info, AT_SYMLINK_NOFOLLOW) != 0, errno == ENOENT {
             record.state = .prepared
             try save(record)
         }
