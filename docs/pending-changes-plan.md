@@ -1,7 +1,8 @@
 # Stuck pending changes
 
 Date: 2026-11-02. Decision status: accepted on 2026-11-02 with the recommendations below.
-The user asked for simple, effective methods. Parts 1–3 are implemented; parts 4–5 come next.
+The user asked for simple, effective methods. Parts 1–3 are implemented and pass a signed VM
+check ([results](results/2026-11-02-pending-changes-list.md)); parts 4–5 come next.
 
 On 2026-11-01 three pending records kept the physical Mac's location from being removed and
 stopped NAS change discovery. Settings showed only "Pending changes: 3", and nothing the user
@@ -113,13 +114,15 @@ Records in uncertain states still block removal, and the dialog names them.
 
 **VM checks.** Signed VM checks cover these cases:
 
-- A folder created while the share is disconnected uploads after reconnect.
-- A forced folder failure shows its reason in Settings and clears with Retry.
-- Stop Uploading followed by Remove Location keeps the local files.
-- An edit whose NAS copy changed can be stopped, with its local copy saved.
+- A folder created while the share is disconnected uploads after reconnect. Passed.
+- A forced folder failure shows its reason in Settings and clears with Retry. Passed.
+- Stop Uploading followed by Remove Location keeps the local files. Part 5.
+- An edit whose NAS copy changed can be stopped, with its local copy saved. Part 4.
 
-**Not yet confirmed:**
+**Answered by the check.** Items that macOS holds as `parentCreation` need no signal of their
+own: macOS sends them as soon as the parent folder uploads.
 
-- Whether `signalErrorResolved(.cannotSynchronize)` makes macOS call `createItem` again for an
-  item it holds as `parentCreation`.
-  Apple does not document it, so the signed VM check has to show it.
+**Open.** On a share whose connections take longer than the 15 s health limit, each create
+makes the share look unresponsive, and the recovery that follows sends the signal again. An
+item that keeps failing is then retried about every 21 s, with a notification each time. The
+health limit, not the signal, needs the fix.
