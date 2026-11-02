@@ -5,13 +5,14 @@ A macOS app that brings a network disk, such as a NAS, into Apple's file system:
 Migration removal, 2026-11-01: builds no longer migrate or guard settings, catalogs and pending
 changes from earlier builds. One write permission replaces the old creation-only state, so the
 Complete Write Setup step is gone, and the folder picker now explains the write conditions. All
-540 VM tests (one skipped) and the required checks pass. This change is not installed on the
-physical Mac. Installing it means finishing or exporting pending changes and adding locations again.
+540 VM tests (one skipped) and the required checks pass. Settings from an earlier build are
+rejected; Start Fresh in General removes the earlier locations so they can be added again.
 
-Physical-Mac update, 2026-11-01: the latest normal build is installed and running from Applications.
-Startup retained the existing location and domain with no migration failures. Folder organization
-and deletion remain disabled. Physical-Mac write behavior and speed remain unmeasured. See the
-[installation checks](docs/results/2026-11-01-local-update.md).
+Physical-Mac update, 2026-11-02: the build with Start Fresh is installed. Start Fresh removed the
+earlier location, which stuck pending changes kept the earlier build from removing. The location
+was added again with write access, and the files that never uploaded were restored to the NAS
+with checksum verification. Stuck pending changes still block removal. See the
+[installation record](docs/results/2026-11-02-start-fresh-install.md).
 
 Read diagnostics, 2026-11-01: required VM checks and five signed app checks pass. Logs distinguish
 full verification, cached block verification and share-lock waits; cancellation during the local
