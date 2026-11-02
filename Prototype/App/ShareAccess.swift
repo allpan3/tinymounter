@@ -773,6 +773,10 @@ final class LocationSource: @unchecked Sendable {
     private var catalog: Catalog?
     let uploadLock = NSLock()
     var writeBookmark: Data?
+    /// The last failure of each new item, by its macOS template, for Settings; kept in memory only.
+    var failedCreates: [String: FailedCreate] = [:]
+    // Retry clears the failures on the main actor, so it can't wait for an upload's lock.
+    let failedCreatesLock = NSLock()
     var editNamespace: EditNamespace { access.editNamespace }
     var mutationsSuspended = false
     // Namespace and upload locks protect a bounded proof; no SMB handle survives a request.

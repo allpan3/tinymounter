@@ -438,7 +438,10 @@ The system admits one content upload and one metadata upload per domain at a tim
 see the new file during upload. It is not acknowledged until its remote identity and complete
 content are verified. An interrupted partial upload stays pending rather than opening the
 remote file for writing again. The source cannot change, and the location cannot be removed,
-while a write is pending. Completed receipts deduplicate system replay and are removed with a
+while a write is pending. Settings lists each new item that is not on the server yet, with the
+reason for its last failure since the app started. A failed creation reports `cannotSynchronize`,
+so macOS stops sending it until Retry Pending Changes or a share recovery signals it again
+([plan](pending-changes-plan.md)). Completed receipts deduplicate system replay and are removed with a
 finished location. Pending records and content stay in private app storage; the extension sends authenticated create and initial-name requests.
 See the accepted [phase 4 plan](phase4-plan.md).
 

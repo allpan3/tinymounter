@@ -593,7 +593,11 @@ final class AppModel {
 
     func savedChangeBytes(_ record: LocationRecord) async throws -> Int64 { try await controller.savedChangeBytes(record) }
 
-    func retryEdits(_ record: LocationRecord) { controller.retryEdits(record) }
+    func retryPending(_ record: LocationRecord) { controller.retryPending(record) }
+
+    func pendingCreates(_ record: LocationRecord) async throws -> [PendingCreate] {
+        try await controller.pendingCreates(record)
+    }
 
     func dismissEditNotice(_ edit: PendingEdit, record: LocationRecord) {
         Task {
