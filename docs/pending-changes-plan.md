@@ -122,7 +122,9 @@ Records in uncertain states still block removal, and the dialog names them.
 **Answered by the check.** Items that macOS holds as `parentCreation` need no signal of their
 own: macOS sends them as soon as the parent folder uploads.
 
-**Open.** On a share whose connections take longer than the 15 s health limit, each create
-makes the share look unresponsive, and the recovery that follows sends the signal again. An
-item that keeps failing is then retried about every 21 s, with a notification each time. The
-health limit, not the signal, needs the fix.
+**Fixed after the check.** On a share whose connections took longer than the 15 s health
+limit, each create made the share look unresponsive, and the recovery that followed sent the
+signal again, so a failing item was retried about every 21 s. tinymounter's own SMB calls now
+have a 60 s limit while they run. The same follow-up keeps the Settings status updating while
+a write waits for the server, and lets a file that the server refused upload again after
+Retry. See the [follow-up check](results/2026-11-02-pending-changes-list.md#follow-up-check-of-the-limits).
