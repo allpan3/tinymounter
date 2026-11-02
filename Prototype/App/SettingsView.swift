@@ -613,6 +613,9 @@ private struct UploadStatus: View {
                     Text(item.kind == .folder ? UIText.newFolderPending(item.path) : UIText.newFilePending(item.path))
                     Text(item.failure.map { UIText.createFailed($0.reason, at: $0.date) } ?? UIText.waitingToUpload)
                         .font(.callout).foregroundStyle(.secondary)
+                    if item.stoppable {
+                        Button(UIText.stopUploading) { model.confirmStop(item, record: record) }
+                    }
                 }
             }
             ForEach(renames, id: \.id) { rename in

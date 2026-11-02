@@ -49,10 +49,16 @@ extension LocationSource {
             started()
             // Retry releases only throttled items, so a failure clears when its item is tried again.
             failedCreatesLock.withLock { failedCreates[request.template] = nil }
-            let result = Result { try editNamespace.perform {
-                try editNamespace.requireSettled()
-                return try createOnLane(request, contents: contents, progress: progress, checkSpace: checkSpace)
-            } }
+            let result = Result { () throws -> CreateReceipt in
+                // A stopped item is told to stay on this Mac before anything else is checked.
+                if try uploadLock.withLock({ try outbox().takeStopped(template: request.template) }) {
+                    throw UploadError.excluded
+                }
+                return try editNamespace.perform {
+                    try editNamespace.requireSettled()
+                    return try createOnLane(request, contents: contents, progress: progress, checkSpace: checkSpace)
+                }
+            }
             if case .failure(let error) = result, error as? UploadError == .collision {
                 _ = try? listOnLane(request.parent, requestID: request.id)
                 scheduleSignal()
@@ -68,16 +74,30 @@ extension LocationSource {
         let failures = failedCreatesLock.withLock { failedCreates }
         let known = Set(records.map(\.template))
         let waiting = records.map {
-            PendingCreate(id: $0.template, path: $0.path, kind: $0.kind, failure: failures[$0.template])
+            PendingCreate(id: $0.template, path: $0.path, kind: $0.kind, failure: failures[$0.template],
+                          stoppable: $0.isStoppable)
         }
         let failed = failures.filter { !known.contains($0.key) }.map {
-            PendingCreate(id: $0.key, path: $0.value.path, kind: $0.value.kind, failure: $0.value)
+            PendingCreate(id: $0.key, path: $0.value.path, kind: $0.value.kind, failure: $0.value, stoppable: false)
         }
         return (waiting + failed).sorted { $0.path < $1.path }
     }
 
+    /// The stopped record is no longer pending; macOS keeps the item on this Mac when it sends the
+    /// item again.
+    func stopCreate(_ template: String) throws {
+        try uploadLock.withLock {
+            let outbox = try outbox()
+            guard let record = try outbox.records().first(where: { $0.template == template && $0.isPending }) else {
+                throw UploadError.invalidRequest
+            }
+            try outbox.stop(record.id)
+        }
+        failedCreatesLock.withLock { failedCreates[template] = nil }
+    }
+
     private func noteCreate(_ request: CreateRequest, result: Result<CreateReceipt, Error>) {
-        guard case .failure(let error) = result else {
+        guard case .failure(let error) = result, error as? UploadError != .excluded else {
             failedCreatesLock.withLock { failedCreates[request.template] = nil }
             return
         }
@@ -158,6 +178,8 @@ struct PendingCreate: Identifiable, Sendable {
     let path: String
     let kind: CatalogRow.Kind
     let failure: FailedCreate?
+    /// Nothing reached the server, so Stop Uploading is offered.
+    let stoppable: Bool
 }
 
 protocol StatusLock: NSLocking { func lock(before limit: Date) -> Bool }

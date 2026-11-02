@@ -318,6 +318,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
         }
         switch error as? UploadError {
         case .editConflict: return NSFileProviderError(.localVersionConflictingWithServer) as NSError
+        case .excluded: return NSFileProviderError(.excludedFromSync) as NSError
         case .collision: return NSFileProviderError(.filenameCollision) as NSError
         case .readOnly: return CocoaError(.fileWriteNoPermission) as NSError
         case .invalidRequest: return CocoaError(.fileWriteInvalidFileName) as NSError

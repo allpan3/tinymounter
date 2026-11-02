@@ -240,6 +240,8 @@ public enum UploadError: Error, Equatable, Sendable {
     case pendingWrites
     case readOnly
     case editConflict
+    /// The user stopped the upload; macOS keeps the item on this Mac.
+    case excluded
 }
 
 public struct EditRequest: Codable, Sendable {

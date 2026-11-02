@@ -153,6 +153,7 @@ final class AppModel {
         controller.onKeepsRestored = { [weak self] record, ids in self?.keepsRestored(record, ids) }
         controller.onLocationChange = { [weak self] domainID in self?.locationChanged(domainID) }
         controller.onMaterializedChange = { [weak self] in self?.materializedRevision += 1 }
+        controller.onPreserved = { [weak self] url in self?.showPreserved(url) }
         refresh()
         if records.isEmpty {
             newLocation()
@@ -548,6 +549,12 @@ final class AppModel {
         }
     }
 
+    /// macOS can return a folder with nothing in it; an unreadable folder is shown.
+    private func showPreserved(_ url: URL) {
+        if let contents = try? FileManager.default.contentsOfDirectory(atPath: url.path), contents.isEmpty { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
     func setReadOnly(_ id: UUID, _ readOnly: Bool) {
         guard !busy.contains(id) else { return }
         if let index = drafts.firstIndex(where: { $0.id == id }) {
@@ -610,6 +617,20 @@ final class AppModel {
 
     func pendingCreates(_ record: LocationRecord) async throws -> [PendingCreate] {
         try await controller.pendingCreates(record)
+    }
+
+    func confirmStop(_ item: PendingCreate, record: LocationRecord) {
+        let alert = NSAlert()
+        alert.messageText = UIText.stopUploadingTitle(item.path)
+        alert.informativeText = UIText.stopUploadingMessage(item.kind)
+        alert.addButton(withTitle: UIText.stopUploading)
+        alert.addButton(withTitle: UIText.cancel)
+        Task {
+            guard await present(alert) == .alertFirstButtonReturn else { return }
+            do { try await controller.stopCreate(record, template: item.id) }
+            catch UploadError.unresolved { show(UIText.stopRefused) }
+            catch { show(error, grantID: record.grantID) }
+        }
     }
 
     func dismissEditNotice(_ edit: PendingEdit, record: LocationRecord) {

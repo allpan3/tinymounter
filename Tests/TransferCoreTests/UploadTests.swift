@@ -254,6 +254,34 @@ final class UploadTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: remote.appending(path: "new.bin")), payload)
     }
 
+    func testStoppedItemKeepsNoContentsAndIsNotPending() throws {
+        let record = try prepared()
+        try outbox.stop(record.id)
+        XCTAssertEqual(try outbox.records().map(\.state), [.stopped])
+        XCTAssertEqual(try outbox.pendingCount, 0)
+        XCTAssertEqual(try outbox.contentBytes, 0)
+        XCTAssertFalse(try outbox.takeStopped(template: UUID().uuidString))
+        XCTAssertTrue(try outbox.takeStopped(template: record.template))
+        XCTAssertTrue(try outbox.records().isEmpty)
+        XCTAssertFalse(try outbox.takeStopped(template: record.template))
+        try outbox.removeIfCompleted()
+    }
+
+    func testOnlyAnItemThatDidNotReachTheServerCanBeStopped() throws {
+        var attempted = try prepared()
+        XCTAssertThrowsError(try outbox.upload(&attempted, locationRoot: fd, progress: Progress()) { state in
+            if state == .attempting { throw UploadError.unresolved }
+        })
+        XCTAssertThrowsError(try outbox.stop(attempted.id))
+        XCTAssertEqual(try outbox.records().first?.state, .attempting)
+        try Data("taken".utf8).write(to: remote.appending(path: "taken.bin"))
+        var collided = try prepared(name: "taken.bin")
+        XCTAssertThrowsError(try outbox.upload(&collided, locationRoot: fd, progress: Progress()))
+        try outbox.stop(collided.id)
+        XCTAssertEqual(try outbox.pendingCount, 1)
+        XCTAssertEqual(try Data(contentsOf: remote.appending(path: "taken.bin")), Data("taken".utf8))
+    }
+
     func testCollisionRetryPreservesInputAndEveryExistingDestination() throws {
         let original = Data("original".utf8), alternate = Data("alternate".utf8)
         try original.write(to: remote.appending(path: "new.bin"))

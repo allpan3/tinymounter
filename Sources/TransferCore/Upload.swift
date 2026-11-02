@@ -3,7 +3,11 @@ import Darwin
 import Foundation
 
 public struct PendingUpload: Codable, Sendable {
-    public enum State: String, Codable, Sendable { case staging, prepared, attempting, created, verified, completed, collision }
+    public enum State: String, Codable, Sendable {
+        case staging, prepared, attempting, created, verified, completed, collision
+        /// The user stopped it; the record stays until macOS sends the item again and is told to keep it local.
+        case stopped
+    }
     public let id: UUID
     public let template: String
     public let parent: String
@@ -18,7 +22,11 @@ public struct PendingUpload: Codable, Sendable {
     public var initialName: InitialFolderName?
     public var serverFolder: RemoteFolderIdentity?
 
-    public var isPending: Bool { state != .completed || initialName?.isPending == true }
+    public var isPending: Bool { ![.completed, .stopped].contains(state) || initialName?.isPending == true }
+    /// Nothing reached the server: no create was sent, or the server refused it, or the name was taken.
+    public var isStoppable: Bool {
+        [.staging, .prepared, .collision].contains(state) && remoteID == nil && serverFolder == nil && initialName == nil
+    }
 }
 
 /// Private app storage; callers serialize operations and preserve unresolved remote attempts.
@@ -172,6 +180,28 @@ public final class UploadOutbox {
         record.state = .completed
         try save(record)
         if record.kind == .file { try FileManager.default.removeItem(at: contentURL(record.id)) }
+    }
+
+    /// The local item stays; the record is marked stopped and its copy of the contents goes.
+    public func stop(_ id: UUID) throws {
+        guard var record = try records().first(where: { $0.id == id }), record.isStoppable else {
+            throw UploadError.unresolved
+        }
+        record.state = .stopped
+        try save(record)
+        guard unlink(contentURL(id).path) == 0 || errno == ENOENT else { throw posixError("discard stopped contents") }
+    }
+
+    /// True if the item was stopped; its record is removed, so a later change of the item uploads it.
+    public func takeStopped(template: String) throws -> Bool {
+        guard let record = try records().first(where: { $0.template == template && $0.state == .stopped }) else {
+            return false
+        }
+        for suffix in ["data", "json"] {
+            guard unlink(directory.appending(path: record.id.uuidString + "." + suffix).path) == 0 || errno == ENOENT
+            else { throw posixError("remove stopped record") }
+        }
+        return true
     }
 
     public func removeIfCompleted() throws {
