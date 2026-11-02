@@ -219,6 +219,20 @@ final class UploadTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: remote.appending(path: "new.bin")), Data("existing".utf8))
     }
 
+    func testRefusedCreateCanBeAttemptedAgain() throws {
+        try XCTSkipIf(geteuid() == 0, "root ignores the folder's permissions")
+        var record = try prepared()
+        XCTAssertEqual(chmod(remote.path, 0o555), 0)
+        XCTAssertThrowsError(try outbox.upload(&record, locationRoot: fd, progress: Progress())) {
+            XCTAssertEqual(($0 as NSError).code, Int(EACCES))
+        }
+        XCTAssertEqual(chmod(remote.path, 0o755), 0)
+        record = try XCTUnwrap(outbox.records().first)
+        XCTAssertEqual(record.state, .prepared)
+        try outbox.upload(&record, locationRoot: fd, progress: Progress())
+        XCTAssertEqual(try Data(contentsOf: remote.appending(path: "new.bin")), payload)
+    }
+
     func testCrashBeforeRemoteIdentityRemainsUnresolved() throws {
         var record = try prepared()
         XCTAssertThrowsError(try outbox.upload(&record, locationRoot: fd, progress: Progress()) { state in
