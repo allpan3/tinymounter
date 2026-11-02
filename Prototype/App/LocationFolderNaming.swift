@@ -107,10 +107,12 @@ extension LocationSource {
                     }
                     return try folderReceipt(root: pin, path: destination, persist: { _ in }) { context in
                         var sent: Int32 = 0
-                        let code = tm_smb_name_folder(endpoint.host, endpoint.share, endpoint.account,
-                                                      from.string, to.string, identity.fileID,
-                                                      identity.birthMicroseconds, recovering ? 1 : 0,
-                                                      receiveFolder, context, &sent)
+                        let code = ShareAccess.withDirectSMB {
+                            tm_smb_name_folder(endpoint.host, endpoint.share, endpoint.account,
+                                               from.string, to.string, identity.fileID,
+                                               identity.birthMicroseconds, recovering ? 1 : 0,
+                                               receiveFolder, context, &sent)
+                        }
                         guard code == 0 else { throw FolderMutationFailure(code: code, mayHaveChanged: sent != 0) }
                     }
                 }
@@ -136,9 +138,11 @@ extension LocationSource {
             return try folderReceipt(root: root, path: path, persist: persist) { context in
                 var sent: Int32 = 0
                 var trace = tm_smb_folder_trace()
-                let code = tm_smb_create_folder(endpoint.host, endpoint.share, endpoint.account, source.string,
-                                                identity?.fileID ?? 0, identity?.birthMicroseconds ?? 0,
-                                                receiveFolder, context, &sent, &trace)
+                let code = ShareAccess.withDirectSMB {
+                    tm_smb_create_folder(endpoint.host, endpoint.share, endpoint.account, source.string,
+                                         identity?.fileID ?? 0, identity?.birthMicroseconds ?? 0,
+                                         receiveFolder, context, &sent, &trace)
+                }
                 Self.logCreate(requestID, trace, Unmanaged<FolderReceipt>.fromOpaque(context).takeUnretainedValue())
                 guard code == 0 else { throw FolderMutationFailure(code: code, mayHaveChanged: sent != 0) }
             }

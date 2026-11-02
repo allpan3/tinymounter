@@ -260,7 +260,9 @@ final class ShareAccess: @unchecked Sendable {
         let activity = changeHealth { $0.begin() }
         defer { changeHealth { $0.end(activity) } }
         do {
-            let result = try body(session) { [weak self] in self?.changeHealth { $0.progressed(activity) } }
+            let result = try Self.$current.withValue(CurrentActivity(access: self, activity: activity)) {
+                try body(session) { [weak self] in self?.changeHealth { $0.progressed(activity) } }
+            }
             let recovered = changeHealth { health in
                 self.session === session ? health.operationSucceeded() : []
             }
@@ -270,6 +272,22 @@ final class ShareAccess: @unchecked Sendable {
             noteFailure(SourceFailure.classify(error, context: .listing), session: session)
             throw error
         }
+    }
+
+    private struct CurrentActivity: Sendable {
+        let access: ShareAccess
+        let activity: ShareHealth.Activity
+    }
+
+    /// The activity of the `withSession` call running on this thread.
+    @TaskLocal private static var current: CurrentActivity?
+
+    /// Runs a call over tinymounter's own SMB connection, which has its own request timeouts.
+    static func withDirectSMB<T>(_ call: () throws -> T) rethrows -> T {
+        guard let current else { return try call() }
+        current.access.changeHealth { $0.beginDirectCall(current.activity) }
+        defer { current.access.changeHealth { $0.endDirectCall(current.activity) } }
+        return try call()
     }
 
     /// Runs `work` on the lane, after every metadata operation queued before it.

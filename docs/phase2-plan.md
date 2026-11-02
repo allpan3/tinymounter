@@ -651,7 +651,9 @@ only, as today.
 
 **Unresponsive share.** A blocked kernel SMB call can't be cancelled [V]. `ShareHealth` marks the
 share unresponsive when a lane operation or a transfer makes no progress for 15 s, or a call fails
-with a timeout-class errno. A listing makes progress with each `getattrlistbulk` batch, and a
+with a timeout-class errno. A call of tinymounter's own SMB client, which times out each request
+itself, has 60 s, so a slow connection setup is not a stall (added 2026-11-02). A listing makes
+progress with each `getattrlistbulk` batch, and a
 confirmation (listing step 6) with each `fstatat`. Otherwise a large folder or a large removal would
 count as one long call: at the measured cold rate (169 entries in 39.6 ms), 100,000 entries take
 about 23 s, an estimate [I]. A lane operation of one call, such as one `fstatat`, makes no progress
@@ -1009,7 +1011,7 @@ same listing. The cause remains under investigation in the
 | First-listing wait in the extension | 5 s |
 | Background relist when a listed folder is enumerated again | listing older than 60 s |
 | Relisting at launch and reconnect | materialized folders only, one at a time |
-| Operation or transfer stall that marks a share unresponsive | 15 s |
+| Operation or transfer stall that marks a share unresponsive | 15 s; 60 s during a call of tinymounter's own SMB client |
 | Probe interval while unresponsive; mount-table poll | 5 s; 10 s |
 | Entries per folder | at most 100,000 |
 | Pending listings per session | 16 |
