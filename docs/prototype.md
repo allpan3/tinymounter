@@ -436,10 +436,12 @@ The app records the request before local staging, then saves immutable pending b
 exclusive remote creation. A replay can restage matching system input after a staging interruption.
 The system admits one content upload and one metadata upload per domain at a time. Other devices can
 see the new file during upload. It is not acknowledged until its remote identity and complete
-content are verified. An interrupted partial upload stays pending rather than opening the
-remote file for writing again. The source cannot change, and the location cannot be removed,
-while a write is pending. Settings lists each new item that is not on the server yet, with the
-reason for its last failure since the app started. A failed creation reports `cannotSynchronize`,
+content are verified. An interrupted upload is tried again only with another exclusive create,
+so it continues only while the name is absent, and an item at the name keeps it pending. The
+source cannot change while a write is pending. The location can be removed when its only pending
+items never reached the server; macOS keeps them on this Mac. Settings lists each new item that
+is not on the server yet, with the reason for its last failure since the app started, and offers
+Stop Uploading when nothing reached the server. A failed creation reports `cannotSynchronize`,
 so macOS stops sending it until Retry Pending Changes or a share recovery signals it again
 ([plan](pending-changes-plan.md)). Completed receipts deduplicate system replay and are removed with a
 finished location. Pending records and content stay in private app storage; the extension sends authenticated create and initial-name requests.

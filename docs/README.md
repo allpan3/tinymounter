@@ -25,6 +25,7 @@ it wrong.
 
 ## Results logs
 
+- [Stuck pending changes, parts 4–5](results/2026-11-02-stop-uploading.md). Signed VM check: Stop Uploading keeps a refused new item on this Mac, and Remove Location keeps items that never reached the server in a folder shown in Finder. A refused save no longer blocks the share. Stop Uploading for edits is deferred.
 - [Stuck pending changes, parts 1–3](results/2026-11-02-pending-changes-list.md). Signed VM check: Retry and share recovery resume new items that macOS throttled, and Settings lists failures with reasons. Follow-up fixes remove a retry loop on slow connections, keep the status updating during outages and let refused files and folders upload again.
 - [Start Fresh installation](results/2026-11-02-start-fresh-install.md). The physical Mac's earlier location was removed and added again, and files that never uploaded were restored to the NAS.
 - [Protected-read diagnostics](results/2026-11-01-read-diagnostics.md). Signed VM checks distinguish verification from namespace waits and verify checksum-cancellation cleanup; no new speed claim.

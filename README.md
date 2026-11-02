@@ -2,6 +2,13 @@
 
 A macOS app that brings a network disk, such as a NAS, into Apple's file system: browse it from Finder or another file manager such as QSpace, download on demand, and keep selected files available offline. Finder is the first file manager and SMB the first protocol it will support. A later mode will mount server volumes, the ordinary macOS SMB mounts, automatically.
 
+Stop Uploading and removal, 2026-11-02: Settings offers Stop Uploading for a new file or folder
+that never reached the server; macOS then keeps it on this Mac only. Remove Location works when
+the only pending items never reached the server, keeps them in a folder and shows it in Finder.
+A save that the server refused no longer blocks new uploads on the share. A signed VM check and
+all 549 VM tests pass; not installed on the physical Mac. Stop Uploading for edits is deferred.
+See the [VM results](docs/results/2026-11-02-stop-uploading.md).
+
 Pending changes, 2026-11-02: Settings lists each new item that did not upload, with the reason
 and the time of the last try. Retry Pending Changes, and share recovery, make macOS send items
 it had stopped retrying. A signed VM check passes; the build is not installed on the physical

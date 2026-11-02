@@ -104,7 +104,10 @@ Selecting a location shows one grouped form with all of its settings:
 5. **Remove Location.** A destructive button. Its confirmation says that the files on the server do
    not change and that the downloaded copies are removed from this Mac. It also asks whether to save
    the Keep Downloaded list. A saved list comes back when the user adds a location on the same share
-   that contains those items.
+   that contains those items. If the location has new items or saves that never reached the
+   server, the confirmation lists them: macOS keeps them on this Mac in a folder, which
+   tinymounter shows in Finder after the removal. Changes that can be on the server prevent the
+   removal, and a dialog names them.
 
 A change to Name applies immediately. A change to Source or Connection Mode shows Revert and Apply
 in a bar at the bottom of the pane. Apply replaces the location's File Provider domain. A
@@ -263,7 +266,9 @@ forms. Check Reduce Transparency and Increase Contrast.
 
 Creation access requires a location's scoped write grant. Pending uploads retain their full
 local copies and prevent location removal or source changes. Other devices can see a new file
-before its upload finishes. The controls are now defined by the unified write mode below.
+before its upload finishes. The controls are now defined by the unified write mode below. On
+2026-11-02 the [pending-changes plan](pending-changes-plan.md) changed the removal rule: pending
+items that never reached the server no longer prevent removal, because macOS keeps them.
 
 ## Unified write mode, accepted 2026-10-29
 

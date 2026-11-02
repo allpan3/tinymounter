@@ -2,7 +2,9 @@
 
 Date: 2026-11-02. Decision status: accepted on 2026-11-02 with the recommendations below.
 The user asked for simple, effective methods. Parts 1–3 are implemented and pass a signed VM
-check ([results](results/2026-11-02-pending-changes-list.md)); parts 4–5 come next.
+check ([results](results/2026-11-02-pending-changes-list.md)). Parts 4–5 are implemented for new
+items and pass a signed VM check ([results](results/2026-11-02-stop-uploading.md)); Stop
+Uploading for edits of existing files is deferred.
 
 On 2026-11-01 three pending records kept the physical Mac's location from being removed and
 stopped NAS change discovery. Settings showed only "Pending changes: 3", and nothing the user
@@ -82,9 +84,9 @@ progress:
 
 | Record | States | Stop Uploading |
 |---|---|---|
-| New folder or new file | `staging`, `prepared` (definite failure), `collision` | Removes the record. The local item stays in Finder as not uploaded. |
+| New folder or new file | `staging`, `prepared` (definite failure), `collision` | Marks the record `stopped` and discards its copy of the contents. macOS sends the item again and receives `excludedFromSync`, so the item stays on this Mac and is no longer pending. |
 | New folder or new file | `attempting`, `created`, `verified` | Not offered. The server may have the item, so Retry checks it first. |
-| Edit | `isLocalOnly`, or the conflict copy is published | Saves the local copy to a dated "Not uploaded" folder, then retires the record through the existing retire path. |
+| Edit | `isLocalOnly`, or the conflict copy is published | Deferred. Remove Location keeps saves that never reached the server (part 5). |
 | Edit | `mayHaveChangedOriginal` | Not offered. Recovery has to finish first (existing rule). |
 | Rename | `refused` | Already final. The row offers Dismiss. |
 | Rename or deletion, still pending | any | Retry only. |
@@ -105,10 +107,27 @@ Records in uncertain states still block removal, and the dialog names them.
 
 1. **Removal rule.** Part 5 changes the accepted M18 rule that pending uploads prevent removal
    ([ui-design.md](ui-design.md#m18-creation-access-accepted-2026-10-23)), because the kept
-   folder preserves the data. The rule changes when part 5 is implemented.
-2. **Edits.** Stop Uploading saves the local copy automatically instead of requiring Export first.
+   folder preserves the data. Part 5 changed the rule.
+2. **Edits.** Stop Uploading for edits of existing files is deferred to a later change. It needs
+   its own path through `modifyItem`. Remove Location already keeps saves that never reached
+   the server, because macOS still holds them as not uploaded.
 3. **Order.** Parts 1–3 come first, because they fix the stall and show the cause. Parts 4–5
    follow in a second PR.
+4. **Exclusion.** Stop Uploading answers the item's next `createItem` with
+   `NSFileProviderError.excludedFromSync`. macOS then keeps the item and its contents on this Mac
+   and stops sending it. Apple documents that macOS calls `createItem` again whenever the item's
+   metadata changes. The stopped record is gone by then, so the item uploads normally. A new item
+   in a stopped folder changes the folder's metadata, so the dialog says this.
+5. **Removal keeps local data.** Every domain removal uses `.preserveDirtyUserData`. macOS keeps
+   items that did not upload, stopped items included, in a folder that tinymounter shows in
+   Finder.
+6. **Uncertain creates.** A new file or folder left at `attempting` without a server identity is
+   tried again by creating it again. This succeeds only while the name is absent, so an item that
+   the earlier attempt created is never created twice. A name that exists keeps the record
+   uncertain. This replaces the check on Retry that part 4 planned.
+7. **Refused saves.** When the server refuses the private stage file of a save, and a lookup on
+   the same connection finds nothing at its name, the save returns to waiting. Before this, the
+   save stayed uncertain, and `requireSettled` blocked new items on the whole share.
 
 ## Checks and unknowns
 
@@ -116,8 +135,10 @@ Records in uncertain states still block removal, and the dialog names them.
 
 - A folder created while the share is disconnected uploads after reconnect. Passed.
 - A forced folder failure shows its reason in Settings and clears with Retry. Passed.
-- Stop Uploading followed by Remove Location keeps the local files. Part 5.
-- An edit whose NAS copy changed can be stopped, with its local copy saved. Part 4.
+- Stop Uploading followed by Remove Location keeps the local files. See the
+  [results](results/2026-11-02-stop-uploading.md).
+- An edit whose NAS copy changed can be stopped, with its local copy saved. Deferred with
+  Stop Uploading for edits.
 
 **Answered by the check.** Items that macOS holds as `parentCreation` need no signal of their
 own: macOS sends them as soon as the parent folder uploads.
