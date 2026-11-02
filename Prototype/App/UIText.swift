@@ -28,6 +28,19 @@ enum UIText {
     static let exportEdit = "Export Local Copy…"
     static let retryPending = "Retry Pending Changes"
     static let waitingToUpload = "Waiting to upload"
+    static let stopUploading = "Stop Uploading"
+    static func stopUploadingTitle(_ path: String) -> String {
+        "Stop the upload of “\((path as NSString).lastPathComponent)”?"
+    }
+    /// macOS sends a stopped item again when its metadata changes, and a new item in a folder changes it.
+    static func stopUploadingMessage(_ kind: CatalogRow.Kind) -> String {
+        kind == .folder ? """
+            The folder and its contents stay on this Mac and are not uploaded. If you change the folder or put an \
+            item in it, tinymounter tries to upload the folder again.
+            """
+            : "The file stays on this Mac and is not uploaded. If you change the file, tinymounter tries to upload it again."
+    }
+    static let stopRefused = "tinymounter cannot stop this item, because the server can have it. Use Retry Pending Changes to check the server."
     static func newFolderPending(_ path: String) -> String { "New folder: \(path)" }
     static func newFilePending(_ path: String) -> String { "New file: \(path)" }
     static func createFailed(_ reason: String, at date: Date) -> String {
@@ -42,6 +55,7 @@ enum UIText {
             case .unresolved: return "tinymounter cannot confirm the result on the server."
             case .invalidRequest: return "tinymounter cannot create this item in this folder."
             case .editConflict: return "The item changed on the server."
+            case .excluded: return "The upload was stopped."
             }
         }
         if let failure = error as? FolderMutationFailure {

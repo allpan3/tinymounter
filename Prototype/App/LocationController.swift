@@ -40,6 +40,8 @@ final class LocationController {
     var onLocationChange: ((String) -> Void)?
     /// The system's set of downloaded files changed, in any domain.
     var onMaterializedChange: (() -> Void)?
+    /// A domain was removed, and macOS kept its items that had not uploaded in this folder.
+    var onPreserved: ((URL) -> Void)?
     /// Saved Keep Downloaded paths that a complete listing showed are not on the server, by record.
     private(set) var notOnServer: [UUID: Set<KeepPath>] = [:]
     private var restoring: Set<UUID> = []
@@ -355,6 +357,13 @@ final class LocationController {
         let shared = sources.values.filter { $0.editNamespace === source.editNamespace }
         for candidate in shared { candidate.retryRenames() }
         Task { for candidate in shared { await resumeCreates(candidate.domainID) } }
+    }
+
+    /// macOS sends the item again after the signal and is told to keep it on this Mac.
+    func stopCreate(_ record: LocationRecord, template: String) async throws {
+        guard let source = sources[record.domainID] else { throw LocationError.catalogClosed }
+        try await Self.offMain { try source.stopCreate(template) }
+        await resumeCreates(record.domainID)
     }
 
     func pendingCreates(_ record: LocationRecord) async throws -> [PendingCreate] {
@@ -928,7 +937,12 @@ final class LocationController {
         case .removeDomain(let id):
             guard try LocationSource.pendingWrites(domainID: id) == 0 else { throw UploadError.pendingWrites }
             guard let domain = registered[id] else { return }
-            _ = try await NSFileProviderManager.remove(domain, mode: .removeAll)
+            // Items that never reached the server, also ones that the user stopped, stay on this Mac.
+            let preserved = try await NSFileProviderManager.remove(domain, mode: .preserveDirtyUserData)
+            // macOS returns a location even when it kept nothing, and then creates no folder there.
+            let kept = preserved.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+            Self.catalogLog.info("domain_removed domain=\(id, privacy: .public) preserved=\(kept ? 1 : 0)")
+            if kept, let preserved { onPreserved?(preserved) }
         case .deleteCatalog(let id):
             guard try LocationSource.pendingWrites(domainID: id) == 0 else { throw UploadError.pendingWrites }
             try Catalog.delete(at: SharedContainer.catalogURL(domainID: id))

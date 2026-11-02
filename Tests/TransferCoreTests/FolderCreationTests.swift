@@ -59,6 +59,17 @@ final class FolderCreationTests: XCTestCase {
         XCTAssertEqual(record.state, .verified)
     }
 
+    func testStoppedFolderIsNotPending() throws {
+        var record = try prepared()
+        XCTAssertThrowsError(try outbox.createFolder(&record, progress: Progress()) { _, _, _ in
+            throw FolderMutationFailure(code: EACCES, mayHaveChanged: false)
+        })
+        XCTAssertEqual(try outbox.records().first?.state, .prepared)
+        try outbox.stop(record.id)
+        XCTAssertEqual(try outbox.pendingCount, 0)
+        XCTAssertTrue(try outbox.takeStopped(template: record.template))
+    }
+
     func testSavedReceiptRecoversWithAnIdentityCheck() throws {
         var record = try prepared()
         XCTAssertThrowsError(try outbox.createFolder(&record, progress: Progress()) { _, _, persist in
