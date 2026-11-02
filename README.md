@@ -5,7 +5,8 @@ A macOS app that brings a network disk, such as a NAS, into Apple's file system:
 Pending changes, 2026-11-02: Settings lists each new item that did not upload, with the reason
 and the time of the last try. Retry Pending Changes, and share recovery, make macOS send items
 it had stopped retrying. A signed VM check passes; the build is not installed on the physical
-Mac. A failure that persists on a slow-connecting share is retried about every 21 s. See the
+Mac. Follow-up fixes stop a retry loop on slow-connecting shares, keep the status updating while
+a write waits for the server, and let a refused file upload after Retry. See the
 [VM results](docs/results/2026-11-02-pending-changes-list.md).
 
 Migration removal, 2026-11-01: builds no longer migrate or guard settings, catalogs and pending

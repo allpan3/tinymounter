@@ -25,7 +25,7 @@ it wrong.
 
 ## Results logs
 
-- [Stuck pending changes, parts 1–3](results/2026-11-02-pending-changes-list.md). Signed VM check: Retry and share recovery resume new items that macOS throttled, and Settings lists failures with reasons. Slow fixture connections cause a retry loop.
+- [Stuck pending changes, parts 1–3](results/2026-11-02-pending-changes-list.md). Signed VM check: Retry and share recovery resume new items that macOS throttled, and Settings lists failures with reasons. Follow-up fixes remove a retry loop on slow connections, keep the status updating during outages and let refused files upload after Retry.
 - [Start Fresh installation](results/2026-11-02-start-fresh-install.md). The physical Mac's earlier location was removed and added again, and files that never uploaded were restored to the NAS.
 - [Protected-read diagnostics](results/2026-11-01-read-diagnostics.md). Signed VM checks distinguish verification from namespace waits and verify checksum-cancellation cleanup; no new speed claim.
 - [Verified range reads](results/2026-11-01-verified-range-reads.md). Signed VM small-read improvement, full-download cost, restart/remount checks and remaining mutation coverage; physical Mac keeps the earlier build.
