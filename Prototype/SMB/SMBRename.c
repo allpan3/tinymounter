@@ -319,6 +319,12 @@ int tm_smb_create_folder(const char *server, const char *share, const char *acco
     error = open_folder(smb, path, 0, !expected_id, create_sent, &reply);
     trace->stage = reply.queried ? TM_FOLDER_QUERY : TM_FOLDER_TARGET;
     trace->sent_queued = reply.queued;
+    if (error && *create_sent && reply.done && !reply.queried) {
+        // Samba can refuse a CREATE and still leave the directory, so a refused create stays
+        // uncertain unless a lookup on this connection finds nothing at the name.
+        struct reply lookup = {0};
+        if (open_folder(smb, path, 0, 0, NULL, &lookup) == ENOENT) *create_sent = 0;
+    }
     if (error) goto done;
     trace->stage = TM_FOLDER_IDENTITY;
     if (!reply.identity || !reply.birth) { error = ENOTSUP; goto done; }

@@ -131,7 +131,7 @@ static int check_entry_cases(void)
 {
     const uint64_t birth = birth_seconds * 1000000 + birth_micros;
     const struct {
-        struct step steps[6];
+        struct step steps[7];
         size_t count;
         uint64_t expected_id;
         int receipt_result, error, stage, parents, sent_queued, sent, receipts;
@@ -139,7 +139,11 @@ static int check_entry_cases(void)
     } cases[] = {
         {{{SMB2_CREATE, 0}, {SMB2_QUERY_INFO, 0}, {SMB2_CREATE, SMB2_STATUS_ACCESS_DENIED}}, 3,
          0, 0, EACCES, TM_FOLDER_PARENT, 1, 0, 0, 0, SMB2_STATUS_ACCESS_DENIED},
-        {{PARENTS, {SMB2_CREATE, SMB2_STATUS_ACCESS_DENIED}}, 5,
+        {{PARENTS, {SMB2_CREATE, SMB2_STATUS_ACCESS_DENIED}, {SMB2_CREATE, SMB2_STATUS_OBJECT_NAME_NOT_FOUND}}, 6,
+         0, 0, EACCES, TM_FOLDER_TARGET, 2, 1, 0, 0, SMB2_STATUS_ACCESS_DENIED},
+        {{PARENTS, {SMB2_CREATE, SMB2_STATUS_ACCESS_DENIED}, {SMB2_CREATE, SMB2_STATUS_ACCESS_DENIED}}, 6,
+         0, 0, EACCES, TM_FOLDER_TARGET, 2, 1, 1, 0, SMB2_STATUS_ACCESS_DENIED},
+        {{PARENTS, {SMB2_CREATE, SMB2_STATUS_ACCESS_DENIED}, {SMB2_CREATE, 0}, {SMB2_QUERY_INFO, 0}}, 7,
          0, 0, EACCES, TM_FOLDER_TARGET, 2, 1, 1, 0, SMB2_STATUS_ACCESS_DENIED},
         {{PARENTS, {SMB2_CREATE, SMB2_STATUS_OBJECT_NAME_COLLISION}}, 5,
          0, 0, EEXIST, TM_FOLDER_TARGET, 2, 1, 0, 0, SMB2_STATUS_OBJECT_NAME_COLLISION},
