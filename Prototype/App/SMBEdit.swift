@@ -218,7 +218,17 @@ final class SMBEdit: EditRemote, FileRenameRemote {
     }
 
     func stage(path: String, contents: URL, created: (EditFileIdentity) throws -> Void) throws -> EditFileVersion {
-        let handle = try makePrivate(path: path, uploading: true, created: created)
+        let handle: Handle
+        do { handle = try makePrivate(path: path, uploading: true, created: created) }
+        catch where handles[path] == nil && Self.serverStatus(error) != nil {
+            // Samba can refuse a create and still leave the file, so the refusal counts only when a
+            // lookup on this connection finds nothing at the name.
+            let refused = error
+            var absent = false
+            do { absent = try inspect(path: path, original: false) == nil } catch {}
+            if absent { throw EditStageRefusal(refused) }
+            throw refused
+        }
         let expected = try info(handle)
         let input = try ReadOnlyFile(url: contents)
         let fd = openat(root, path, O_WRONLY | O_NOFOLLOW_ANY | O_RESOLVE_BENEATH | O_CLOEXEC)

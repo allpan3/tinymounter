@@ -468,6 +468,20 @@ final class EditTransactionTests: XCTestCase {
         try outbox.validateContents(edit)
     }
 
+    func testRefusedStageReturnsTheSaveToWaitingAndPublishesLater() throws {
+        remote.failure = .refusedStage
+        XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote)) {
+            XCTAssertEqual($0 as? UploadError, .readOnly)
+        }
+        edit = try stored(edit)
+        XCTAssertEqual(edit.state, .prepared)
+        XCTAssertNil(edit.stageIdentity)
+        XCTAssertEqual(Set(remote.files.keys), ["file.txt"])
+        try finish(&edit)
+        XCTAssertEqual(remote.files["file.txt"]?.digest, edit.digest)
+        XCTAssertEqual(remote.stages, 2)
+    }
+
     func testStageWithoutProvenIdentityIsNeverRemovedByPath() throws {
         edit.state = .creatingStage
         try outbox.save(edit)
@@ -930,7 +944,7 @@ final class EditTransactionTests: XCTestCase {
     private final class Remote: EditRemote {
         enum Failure {
             case partialCopy, completeCopy, publication, collision, conflictName, conflictReply, backupReply
-            case partialStage, partialBackup
+            case partialStage, partialBackup, refusedStage
         }
         var failure: Failure?
         var files: [String: EditFileVersion]
@@ -958,6 +972,10 @@ final class EditTransactionTests: XCTestCase {
             let data = try Data(contentsOf: contents)
             let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
             stages += 1
+            if failure == .refusedStage {
+                failure = nil
+                throw EditStageRefusal(UploadError.readOnly)
+            }
             if failure == .partialStage {
                 failure = nil
                 let partial = try Self.version(identity: newIdentity(), size: Int64(data.count / 2),
