@@ -21,7 +21,12 @@ struct SettingsView: View {
             }
         }
         .frame(minWidth: 780, minHeight: 540)
-        .background(WindowReader { model.window = $0 })
+        .background(WindowReader { window in
+            // Settings… in the menu bar item opens the window on the current desktop, not the one
+            // where it was first shown; otherwise it stays out of sight on another Space.
+            window?.collectionBehavior.insert(.moveToActiveSpace)
+            model.window = window
+        })
         .onAppear { model.openSettings = { openWindow(id: SettingsWindow.id) } }
     }
 }
