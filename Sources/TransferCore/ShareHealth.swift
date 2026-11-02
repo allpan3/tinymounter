@@ -13,11 +13,14 @@ public struct ShareHealth: Sendable {
     }
 
     public static let stallLimit = Duration.seconds(15)
+    /// A direct SMB call times out each request itself, so a slow connection there is not a stall.
+    public static let directCallLimit = Duration.seconds(60)
     public static let probeInterval = Duration.seconds(5)
 
     public private(set) var state = State.notConnected
     private let now: @Sendable () -> Duration
     private var lastProgress: [UInt64: Duration] = [:]
+    private var directCalls: Set<UInt64> = []
     private var nextID: UInt64 = 0
     private var probing = false
     private var lastProbe = Duration.zero
@@ -31,7 +34,9 @@ public struct ShareHealth: Sendable {
 
     public mutating func evaluate() -> State {
         let time = now()
-        if state == .connected, lastProgress.values.contains(where: { time - $0 > Self.stallLimit }) {
+        if state == .connected, lastProgress.contains(where: { id, last in
+            time - last > (directCalls.contains(id) ? Self.directCallLimit : Self.stallLimit)
+        }) {
             enter(.unresponsive)
         }
         return state
@@ -70,6 +75,17 @@ public struct ShareHealth: Sendable {
 
     public mutating func end(_ activity: Activity) {
         lastProgress[activity.id] = nil
+        directCalls.remove(activity.id)
+    }
+
+    public mutating func beginDirectCall(_ activity: Activity) {
+        if lastProgress[activity.id] != nil { directCalls.insert(activity.id) }
+    }
+
+    /// The call returned, which is progress; the activity's next wait has the ordinary limit.
+    public mutating func endDirectCall(_ activity: Activity) {
+        directCalls.remove(activity.id)
+        progressed(activity)
     }
 
     public mutating func operationSucceeded() -> [SourceFailure] {
@@ -121,6 +137,7 @@ public struct ShareHealth: Sendable {
     private mutating func enter(_ next: State) {
         state = next
         lastProgress.removeAll()
+        directCalls.removeAll()
         lastProbe = now()
     }
 }

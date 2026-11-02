@@ -38,7 +38,9 @@ final class SMBEdit: EditRemote, FileRenameRemote {
 
     init(endpoint: ShareAddress, folder: RelativePath, root: Int32, progress: Progress) throws {
         var error: Int32 = 0
-        guard let client = tm_edit_connect(endpoint.host, endpoint.share, endpoint.account, &error) else {
+        guard let client = ShareAccess.withDirectSMB({
+            tm_edit_connect(endpoint.host, endpoint.share, endpoint.account, &error)
+        }) else {
             throw posixError("connect protected save", code: error)
         }
         self.client = client

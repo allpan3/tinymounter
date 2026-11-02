@@ -49,6 +49,28 @@ final class ShareHealthTests: XCTestCase {
         XCTAssertEqual(health.evaluate(), .unresponsive)
     }
 
+    func testADirectSMBCallHasTheLongerLimitOnlyWhileItRuns() {
+        let clock = ManualClock()
+        var health = connected(clock)
+        let activity = health.begin()
+        health.beginDirectCall(activity)
+        clock.now += ShareHealth.directCallLimit
+        XCTAssertEqual(health.evaluate(), .connected)
+        // The call's return counts as progress, and the next wait has the ordinary limit.
+        health.endDirectCall(activity)
+        clock.now += ShareHealth.stallLimit
+        XCTAssertEqual(health.evaluate(), .connected)
+        clock.now += .milliseconds(1)
+        XCTAssertEqual(health.evaluate(), .unresponsive)
+
+        // A direct call that never returns still makes the share unresponsive.
+        _ = health.operationSucceeded()
+        let stuck = health.begin()
+        health.beginDirectCall(stuck)
+        clock.now += ShareHealth.directCallLimit + .milliseconds(1)
+        XCTAssertEqual(health.evaluate(), .unresponsive)
+    }
+
     func testSuccessfulOperationResolvesTimeoutBeforeTheNextRequest() {
         let clock = ManualClock()
         var health = connected(clock)
