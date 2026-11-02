@@ -96,9 +96,11 @@ static struct smb2_pdu *fake_create(struct smb2_context *smb, struct smb2_create
     return fail_encoding ? NULL : smb2_cmd_create_async(smb, request, callback, context);
 }
 
+static int connect_result;
+
 static int fake_connect(struct smb2_context *smb, const char *server, const char *share, const char *user)
 {
-    return 0;
+    return connect_result;
 }
 
 static OM_uint32 fake_credentials(OM_uint32 *minor, OM_uint32 flags, gss_const_OID mechanism, void *context,
@@ -179,6 +181,20 @@ static int check_entry_cases(void)
         fprintf(stderr, "folder create argument case failed\n");
         return 1;
     }
+    // A connection that fails in libsmb2's wait loop returns -1, which is not -EPERM.
+    const struct { int result, error; } connects[] = {{-1, ENOTCONN}, {-EACCES, EACCES}, {1, EIO}};
+    for (size_t i = 0; i < sizeof(connects) / sizeof(connects[0]); i++) {
+        connect_result = connects[i].result;
+        run(NULL, 0);
+        sent = -1;
+        int error = tm_smb_create_folder("fixture", "share", "guest", "parent/folder", 0, 0, receive, NULL,
+                                         &sent, &trace);
+        if (error != connects[i].error || trace.stage != TM_FOLDER_CONNECT || sent || trace.sent || queued) {
+            fprintf(stderr, "folder create connect case %zu failed\n", i);
+            return 1;
+        }
+    }
+    connect_result = 0;
     return 0;
 }
 
