@@ -69,6 +69,19 @@ final class ShareHealthTests: XCTestCase {
         health.beginDirectCall(stuck)
         clock.now += ShareHealth.directCallLimit + .milliseconds(1)
         XCTAssertEqual(health.evaluate(), .unresponsive)
+        // Its late return after the transition counts for nothing.
+        health.endDirectCall(stuck)
+        XCTAssertEqual(health.evaluate(), .unresponsive)
+    }
+
+    func testADirectCallDoesNotHideAnotherStalledActivity() {
+        let clock = ManualClock()
+        var health = connected(clock)
+        let direct = health.begin()
+        health.beginDirectCall(direct)
+        _ = health.begin()
+        clock.now += ShareHealth.stallLimit + .milliseconds(1)
+        XCTAssertEqual(health.evaluate(), .unresponsive)
     }
 
     func testSuccessfulOperationResolvesTimeoutBeforeTheNextRequest() {
