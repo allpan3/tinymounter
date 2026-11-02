@@ -521,22 +521,32 @@ final class AppModel {
 
     func confirmRemove(_ recordID: UUID) {
         guard let record = record(recordID), !busy.contains(recordID) else { return }
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = UIText.removeTitle(record.name)
-        alert.informativeText = UIText.removeMessage
-        alert.showsSuppressionButton = true
-        alert.suppressionButton?.title = UIText.saveKeepList
-        alert.suppressionButton?.state = .on
-        alert.addButton(withTitle: UIText.removeLocation).hasDestructiveAction = true
-        alert.addButton(withTitle: UIText.cancel)
         Task {
+            // Unreadable records leave the decision to the removal, which checks them again.
+            let items = (try? await controller.removalItems(record)) ?? RemovalItems()
+            guard items.blocking.isEmpty else {
+                let blocked = NSAlert()
+                blocked.messageText = UIText.removeBlockedTitle(record.name)
+                blocked.informativeText = UIText.removeBlockedMessage(items.blocking)
+                _ = await present(blocked)
+                return
+            }
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = UIText.removeTitle(record.name)
+            alert.informativeText = items.stoppable.isEmpty ? UIText.removeMessage
+                : UIText.removeMessage + "\n\n" + UIText.removeStops(items.stoppable)
+            alert.showsSuppressionButton = true
+            alert.suppressionButton?.title = UIText.saveKeepList
+            alert.suppressionButton?.state = .on
+            alert.addButton(withTitle: UIText.removeLocation).hasDestructiveAction = true
+            alert.addButton(withTitle: UIText.cancel)
             guard await present(alert) == .alertFirstButtonReturn else { return }
             let save = alert.suppressionButton?.state == .on
             busy.insert(recordID)
             defer { busy.remove(recordID) }
             do {
-                try await controller.remove(recordID, saveKeeps: save)
+                try await controller.remove(recordID, saveKeeps: save, stopping: items.stoppable)
                 for index in drafts.indices where drafts[index].original == recordID { drafts[index].original = nil }
                 edits[recordID] = nil
                 names[recordID] = nil

@@ -41,6 +41,22 @@ enum UIText {
             : "The file stays on this Mac and is not uploaded. If you change the file, tinymounter tries to upload it again."
     }
     static let stopRefused = "tinymounter cannot stop this item, because the server can have it. Use Retry Pending Changes to check the server."
+    static func editPending(_ path: String) -> String { "Edited file: \(path)" }
+    static func pendingDeletions(_ count: Int) -> String { "Pending deletions: \(count)" }
+    static func unnamedPending(_ count: Int) -> String { "Other pending changes: \(count)" }
+    static func renameDescription(_ rename: RenameIntent) -> String {
+        switch rename {
+        case .file(let record):
+            return record.views.contains(where: { $0.targetParent != $0.parent })
+                ? pendingMove(from: record.oldName, to: record.destination)
+                : pendingRename(from: record.oldName, to: record.name)
+        case .folder(let record):
+            let moved = RelativePath(record.source)?.components.dropLast()
+                != RelativePath(record.destination)?.components.dropLast()
+            return moved ? pendingMove(from: record.oldName, to: record.destination)
+                : pendingRename(from: record.oldName, to: record.name)
+        }
+    }
     static func newFolderPending(_ path: String) -> String { "New folder: \(path)" }
     static func newFilePending(_ path: String) -> String { "New file: \(path)" }
     static func createFailed(_ reason: String, at date: Date) -> String {
@@ -192,6 +208,20 @@ enum UIText {
         The files on the server do not change. tinymounter removes the downloaded copies of this location \
         from this Mac.
         """
+    static func removeStops(_ items: [String]) -> String {
+        "These items did not upload. macOS keeps them on this Mac in a folder. tinymounter shows the folder in "
+            + "Finder after the removal.\n" + list(items)
+    }
+    static func removeBlockedTitle(_ name: String) -> String { "tinymounter cannot remove “\(name)” now" }
+    static func removeBlockedMessage(_ items: [String]) -> String {
+        "These changes can be on the server. Use Retry Pending Changes in Settings. Then remove the location "
+            + "again.\n" + list(items)
+    }
+    private static func list(_ items: [String]) -> String {
+        let shown = items.prefix(10).map { "• " + $0 }
+        let more = items.count > shown.count ? ["\(items.count - shown.count) more"] : []
+        return (shown + more).joined(separator: "\n")
+    }
     static let saveKeepList = "Save the Keep Downloaded list"
     static let removeLocation = "Remove Location"
     static func applyTitle(_ name: String) -> String { "Change the source of “\(name)”?" }

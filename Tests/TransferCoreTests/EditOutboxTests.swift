@@ -226,6 +226,20 @@ final class EditOutboxTests: XCTestCase {
             from: JSONSerialization.data(withJSONObject: values)))
     }
 
+    func testLocationRemovalTakesOnlySavesThatNeverReachedTheServer() throws {
+        let record = try prepare()
+        XCTAssertTrue(EditOutbox.canStopForRemoval(record))
+        var staged = record
+        staged.state = .creatingStage
+        XCTAssertFalse(EditOutbox.canStopForRemoval(staged))
+        let orphan = directory.appending(path: "Edits/Contents/\(UUID().uuidString).data")
+        try Data("retained".utf8).write(to: orphan)
+        XCTAssertThrowsError(try outbox.removeForLocationRemoval())
+        try FileManager.default.removeItem(at: orphan)
+        try outbox.removeForLocationRemoval()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appending(path: "Edits").path))
+    }
+
     func testOrphanPayloadBlocksRemoval() throws {
         let orphan = directory.appending(path: "Edits/Contents/\(UUID().uuidString).data")
         try Data("retained".utf8).write(to: orphan)

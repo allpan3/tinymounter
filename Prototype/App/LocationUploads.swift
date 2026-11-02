@@ -41,6 +41,37 @@ extension LocationSource {
 
     func resumeMutations() { uploadLock.withLock { mutationsSuspended = false } }
 
+    /// What Remove Location would stop, and what blocks it.
+    static func removalItems(domainID: String) throws -> RemovalItems {
+        var stoppable: [String] = [], blocking: [String] = []
+        for record in try outbox(domainID: domainID).records() where record.isPending {
+            let text = record.kind == .folder ? UIText.newFolderPending(record.path) : UIText.newFilePending(record.path)
+            if record.isStoppable { stoppable.append(text) } else { blocking.append(text) }
+        }
+        for record in try editOutbox(domainID: domainID).records() where record.isPending {
+            let text = UIText.editPending(record.path)
+            if EditOutbox.canStopForRemoval(record) { stoppable.append(text) } else { blocking.append(text) }
+        }
+        blocking += try renameOutbox().intents().filter { $0.isPending && $0.domains.contains(domainID) }
+            .map(UIText.renameDescription)
+        let deletions = try deletionOutbox().pendingCount(domain: domainID)
+        if deletions > 0 { blocking.append(UIText.pendingDeletions(deletions)) }
+        // Contents whose record is missing count as pending but have no name.
+        let unnamed = try pendingWrites(domainID: domainID) - stoppable.count - blocking.count
+            - (deletions > 0 ? deletions - 1 : 0)
+        if unnamed > 0 { blocking.append(UIText.unnamedPending(unnamed)) }
+        return RemovalItems(stoppable: stoppable.sorted(), blocking: blocking.sorted())
+    }
+
+    /// Remove Location: refuses unless the items it would stop are the ones the user confirmed.
+    func suspendForRemoval(stopping confirmed: [String]) throws {
+        try editNamespace.perform { try uploadLock.withLock {
+            let items = try Self.removalItems(domainID: domainID)
+            guard items.blocking.isEmpty, items.stoppable == confirmed else { throw UploadError.pendingWrites }
+            mutationsSuspended = true
+        } }
+    }
+
     func create(_ request: CreateRequest, contents: URL?, progress: Progress,
                 started: @escaping @Sendable () -> Void,
                 checkSpace: @escaping @Sendable (Int64) throws -> Void,
@@ -164,6 +195,13 @@ extension LocationSource {
             return try session.identity.guarding(root: root) { try body(session, root) }
         }
     }
+}
+
+struct RemovalItems: Equatable, Sendable {
+    /// Items that never reached the server; macOS keeps them on this Mac when the location goes.
+    var stoppable: [String] = []
+    /// Changes that may have reached the server; they must finish first.
+    var blocking: [String] = []
 }
 
 struct FailedCreate: Sendable {
