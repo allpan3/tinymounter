@@ -257,7 +257,8 @@ static struct smb2_context *connect_folder_share(const char *server, const char 
     log = os_log_create("dev.tinymounter.prototype", "smb");
     os_log_info(log, "smb_connect result=%d", connected);
     os_release(log);
-    if (connected) { *error = connected < 0 ? -connected : EIO; goto done; }
+    // libsmb2's wait loop returns -1, not -EPERM, when it fails without a connection.
+    if (connected) { *error = connected == -1 ? ENOTCONN : connected < 0 ? -connected : EIO; goto done; }
     free(principal);
     return smb;
 done:
