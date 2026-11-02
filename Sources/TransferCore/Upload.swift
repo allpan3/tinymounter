@@ -293,8 +293,17 @@ public final class UploadOutbox {
             try save(record)
             throw UploadError.collision
         }
+        // The server refused the create, so nothing exists and the next attempt starts again. After a
+        // timeout or a lost connection the outcome is unknown, so the record stays unresolved.
+        if Self.refusals.contains(code) {
+            record.state = .prepared
+            try save(record)
+        }
         throw posixError("create upload", code: code)
     }
+
+    private static let refusals: Set<Int32> = [EACCES, EPERM, ENOENT, ENOTDIR, ENAMETOOLONG, EINVAL, EILSEQ,
+                                                EROFS, ENOSPC, EDQUOT]
 
     private func verify(_ record: PendingUpload, parent: Int32, name: String) throws {
         guard let identity = record.remoteID, identity != 0 else { throw UploadError.unresolved }
