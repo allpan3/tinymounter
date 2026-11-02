@@ -11,7 +11,8 @@ codes. One limit remains. On this fixture, an item that keeps failing is retried
 
 **Note, later on 2026-11-02.** Both limits below are fixed, and the follow-up check found and
 fixed one more defect: a file that the server refused could never upload. See the
-[follow-up check](#follow-up-check-of-the-limits).
+[follow-up check](#follow-up-check-of-the-limits). A code review and its runtime check then found
+seven more defects, all fixed; see the [code review follow-up](#code-review-follow-up).
 
 ## Setup
 
@@ -143,3 +144,58 @@ stacks during the blocked creates) and `checks-06.log` are in both folders; `bui
 `build-06.log` are in the VM folder. Screenshots `settings-vetoed-04.jpg`,
 `settings-held-during-pause-04.jpg`, `settings-unresponsive-05.jpg`,
 `settings-posix-text-05.jpg` and `settings-refused-file-06.jpg` are in the Mac folder.
+
+## Code review follow-up
+
+Date: 2026-11-02, later the same night. A code review of PR #24 by a separate model found five
+defects. The runtime check of their fixes found two more. All seven are fixed.
+
+| Review finding | Fix |
+|---|---|
+| Retry cleared every failure reason before it signaled macOS. The signal releases only items throttled with `cannotSynchronize`, so an item refused for another reason was not sent again, yet its row changed to "Waiting to upload" with no reason. | A reason clears when its item's next attempt starts. |
+| An unlocked status read failed when the lane removed a record during the read, as when an upload completes. Settings showed the status as unavailable for one poll. | The status is read once more. |
+| A full server share was described as missing space on this Mac, and a folder change that may have reached the server as refused. | ENOSPC and EDQUOT from the share say that the server has no space. An uncertain folder change says that tinymounter cannot confirm the result. |
+| A refused file create returned to prepared even if the server had created the name before it refused. Starting again would then report a collision. | The record returns to prepared only when the name is still absent. |
+| No test showed that a long direct SMB call cannot hide another stalled activity, or that a call that ends after the share turned unresponsive does not count. | Two unit tests. |
+
+**Defects found by the runtime check.**
+
+1. **A refused folder never left the pending list.** On a read-only share, the server answered
+   a new folder's SMB create with access denied. The create had been sent, so the record stayed
+   uncertain on purpose: Samba's temporary mkdir path once refused a create and still left a
+   mode-000 directory ([everyday-use review](2026-10-31-everyday-use-review.md#folder-creation-and-correctness)).
+   Nothing resolved that uncertainty, so every later try failed at once with "tinymounter cannot
+   confirm the result on the server". Now, after the server answers a create with an error,
+   tinymounter looks up the name on the same SMB connection. When the server reports that
+   nothing is there, the record returns to prepared. A leftover directory or any other result
+   keeps it uncertain.
+2. **A failed connection read as a permission refusal.** When libsmb2 fails without a
+   connection, `smb2_connect_share` returns -1, which the adapter read as `-EPERM`. The first
+   folder create after a launch failed that way after 10 s, and Finder and Settings reported a
+   permission error ("Operation not permitted"). -1 now means no connection, and Settings says
+   "There is no connection to the server." The protected-save connection used the same mapping.
+
+| Check | Result |
+|---|---|
+| Retry keeps reasons (build 07) | With a refused folder and an unresolved file listed, Retry released both throttles. macOS sent each create once. Both reasons stayed visible, and "Last try" changed to the new attempt. |
+| Refused folder (build 08) | `denied-folder-08` on the read-only share: access denied (`0xc0000022`), the lookup found nothing, and the record returned to prepared (`sent=1>0` in the log). Settings showed "Did not upload: The server refused the change: Permission denied." macOS retried the permission error by itself after about 6, 9 and 38 s. |
+| Write access restored (build 08) | About one minute after the share became writable, macOS's next retry created the folder. No Retry click was needed. |
+| Normal folder after launch (build 09) | `connect-folder-09`, created 4 s after launch, uploaded on the first connection. The -1 connection failure did not recur, so its new Settings text was seen only in the fixture check. |
+
+Two records stay as test cases for part 4. `denied-folder-07` was refused under build 07,
+before the folder fix, and still shows "cannot confirm"; the fix does not change records that are
+already uncertain, so part 4's check on Retry must cover them. `vetoed-file-05.txt` is the
+record described above. Failure reasons are kept only in memory, so after a relaunch it showed
+"Waiting to upload" until its next attempt.
+
+**Checks.** `Tools/run-checks.sh` passed in VM 1 on build 09: 543 tests, one skipped, no
+failures or Swift warnings. The folder-create fixture check covers the lookup after a refusal and
+the connection results.
+
+**Cleanup.** The fixture share was unmounted, Samba stopped, and Apple's smbd bootstrapped again;
+its state matches the state recorded before build 07. The test app is quit, with build 09
+installed. Build archives other than build 09 were removed from both folders.
+
+**Evidence.** `runtime-review.log` (app and fileproviderd logs from 03:47 to 04:07) and
+`checks-09.log` are in both folders; `build-07.log` to `build-09.log` are in the VM folder.
+`settings-refused-folder-08.jpg` is in the Mac folder.
