@@ -128,3 +128,8 @@ signal again, so a failing item was retried about every 21 s. tinymounter's own 
 have a 60 s limit while they run. The same follow-up keeps the Settings status updating while
 a write waits for the server, and lets a file that the server refused upload again after
 Retry. See the [follow-up check](results/2026-11-02-pending-changes-list.md#follow-up-check-of-the-limits).
+
+**Fixed after the code review.** A folder that the server refused stayed uncertain forever. It
+now returns to waiting when a lookup shows that nothing was created. Records that an older build
+left uncertain do not change, so part 4's check on Retry must cover them. See the
+[code review follow-up](results/2026-11-02-pending-changes-list.md#code-review-follow-up).
