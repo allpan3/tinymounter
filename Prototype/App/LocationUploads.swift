@@ -47,6 +47,8 @@ extension LocationSource {
                 reply: @escaping @Sendable (Result<CreateReceipt, Error>) -> Void) {
         access.enqueue { [self] in
             started()
+            // Retry releases only throttled items, so a failure clears when its item is tried again.
+            failedCreatesLock.withLock { failedCreates[request.template] = nil }
             let result = Result { try editNamespace.perform {
                 try editNamespace.requireSettled()
                 return try createOnLane(request, contents: contents, progress: progress, checkSpace: checkSpace)
@@ -73,9 +75,6 @@ extension LocationSource {
         }
         return (waiting + failed).sorted { $0.path < $1.path }
     }
-
-    /// Retry asks macOS to send the items again, and each attempt records its result again.
-    func clearFailedCreates() { failedCreatesLock.withLock { failedCreates = [:] } }
 
     private func noteCreate(_ request: CreateRequest, result: Result<CreateReceipt, Error>) {
         guard case .failure(let error) = result else {

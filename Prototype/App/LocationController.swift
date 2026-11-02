@@ -353,10 +353,7 @@ final class LocationController {
         sources[record.domainID]?.retryEdits(recoverRetired: true)
         guard let source = sources[record.domainID] else { return }
         let shared = sources.values.filter { $0.editNamespace === source.editNamespace }
-        for candidate in shared {
-            candidate.retryRenames()
-            candidate.clearFailedCreates()
-        }
+        for candidate in shared { candidate.retryRenames() }
         Task { for candidate in shared { await resumeCreates(candidate.domainID) } }
     }
 

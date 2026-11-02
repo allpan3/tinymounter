@@ -793,7 +793,7 @@ final class LocationSource: @unchecked Sendable {
     var writeBookmark: Data?
     /// The last failure of each new item, by its macOS template, for Settings; kept in memory only.
     var failedCreates: [String: FailedCreate] = [:]
-    // Retry clears the failures on the main actor, so it can't wait for an upload's lock.
+    // Settings reads the failures while the lane can hold the upload lock for a whole create.
     let failedCreatesLock = NSLock()
     var editNamespace: EditNamespace { access.editNamespace }
     var mutationsSuspended = false
