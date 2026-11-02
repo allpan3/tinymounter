@@ -34,11 +34,11 @@ extension LocationSource {
     }
 
     func editRecords() throws -> [PendingEdit] {
-        try uploadLock.withLock { try Self.editOutbox(domainID: domainID).records() }
+        try uploadLock.readForStatus { try Self.editOutbox(domainID: domainID).records() }
     }
 
     func savedChangeBytes() throws -> Int64 {
-        try uploadLock.withLock {
+        try uploadLock.readForStatus {
             let uploads = try Self.outbox(domainID: domainID).contentBytes
             let edits = try Self.editOutbox(domainID: domainID).contentBytes
             let (total, overflow) = uploads.addingReportingOverflow(edits)
