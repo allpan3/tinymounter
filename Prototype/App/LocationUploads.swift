@@ -169,7 +169,11 @@ extension StatusLock {
     /// An upload or an unresponsive share can hold the lock for minutes. Records are saved
     /// atomically, so after half a second Settings reads them without the lock.
     func readForStatus<T>(_ read: () throws -> T) rethrows -> T {
-        guard lock(before: Date(timeIntervalSinceNow: 0.5)) else { return try read() }
+        guard lock(before: Date(timeIntervalSinceNow: 0.5)) else {
+            // A change of several files can remove one between listing and reading; read once more.
+            if let result = try? read() { return result }
+            return try read()
+        }
         defer { unlock() }
         return try read()
     }
