@@ -9,6 +9,13 @@ public protocol EditRemote {
     func removeArtifact(path: String, version: EditFileVersion) throws
 }
 
+/// The server answered the stage create with an error, and a lookup on the same connection found
+/// nothing at the stage name, so the save did not reach the server.
+public struct EditStageRefusal: Error {
+    public let error: Error
+    public init(_ error: Error) { self.error = error }
+}
+
 /// Every mutation follows durable intent; recovery never repeats an uncertain content write.
 public enum EditTransaction {
     public static func publish(_ record: inout PendingEdit, outbox: EditOutbox, remote: EditRemote) throws {
@@ -33,9 +40,16 @@ public enum EditTransaction {
         if record.state == .prepared {
             record.state = .creatingStage
             try outbox.save(record)
-            let version = try remote.stage(path: record.stagePath, contents: outbox.contentURL(record)) { identity in
-                record.stageIdentity = identity
+            let version: EditFileVersion
+            do {
+                version = try remote.stage(path: record.stagePath, contents: outbox.contentURL(record)) { identity in
+                    record.stageIdentity = identity
+                    try outbox.save(record)
+                }
+            } catch let refusal as EditStageRefusal where record.stageIdentity == nil {
+                record.state = .prepared
                 try outbox.save(record)
+                throw refusal.error
             }
             guard matchesEdit(version, record), version.identity == record.stageIdentity else {
                 throw UploadError.unresolved
