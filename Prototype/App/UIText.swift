@@ -88,7 +88,7 @@ enum UIText {
         case .authentication: "The server did not accept the sign-in."
         case .pendingChanges, .busy: "Other changes on this share must finish first."
         case .readOnly: "tinymounter has no write access for this deletion."
-        case .cancelled: "Deletion was stopped."
+        case .cancelled, .stopped: "Deletion was stopped."
         case .storage: "There is not sufficient space on this Mac."
         case .unknown: "tinymounter could not finish the deletion. Retry to check the recorded request."
         }

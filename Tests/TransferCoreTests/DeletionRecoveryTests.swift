@@ -118,9 +118,18 @@ final class DeletionRecoveryTests: XCTestCase {
         XCTAssertFalse(record.canDismiss)
         for domain in [fixture.owner, fixture.neighbor] { try fixture.outbox.finishDomain(domain, record: &record) }
         XCTAssertTrue(record.canDismiss)
+        XCTAssertThrowsError(try record.requireConfirmedDeletion()) {
+            XCTAssertEqual($0 as? ItemDeletionError, .stopped)
+        }
         try fixture.outbox.dismiss(&record)
-        XCTAssertThrowsError(try record.requireConfirmedDeletion()) { XCTAssertEqual($0 as? TransferError, .cancelled) }
-        try fixture.run(&record)
+        fixture.outbox = try fixture.makeOutbox()
+        var replay = try XCTUnwrap(fixture.outbox.replay(endpoint: fixture.endpoint,
+            owner: fixture.owner, request: record.plan.request))
+        XCTAssertThrowsError(try replay.requireConfirmedDeletion()) {
+            XCTAssertEqual(DeletionFailure.classify($0), .stopped)
+        }
+        try fixture.run(&replay)
+        XCTAssertEqual(replay, record)
         XCTAssertTrue(fixture.server.marks.isEmpty)
     }
 
@@ -179,6 +188,7 @@ final class DeletionRecoveryTests: XCTestCase {
         XCTAssertEqual(DeletionFailure.classify(ItemDeletionError.busy), .busy)
         XCTAssertEqual(DeletionFailure.classify(UploadError.readOnly), .readOnly)
         XCTAssertEqual(DeletionFailure.classify(TransferError.cancelled), .cancelled)
+        XCTAssertEqual(DeletionFailure.classify(ItemDeletionError.stopped), .stopped)
         XCTAssertEqual(DeletionFailure.classify(CocoaError(.userCancelled)), .cancelled)
         XCTAssertEqual(DeletionFailure.classify(CocoaError(.fileWriteOutOfSpace)), .storage)
     }

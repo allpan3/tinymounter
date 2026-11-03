@@ -16,7 +16,8 @@ and update the README after the run. Leave the original NAS and physical-Mac ins
   and recursive option through bounded JSON. A tombstone still requires durable app replay.
 - Changed, replaced, moved, unsupported and refused selected items return `deletionRejected`.
   Remaining children return `directoryNotEmpty`. Unknown results return `cannotSynchronize`.
-  Connection, authentication, cancellation and space errors retain their specific error codes.
+  Connection, authentication, active cancellation and space errors retain their specific error
+  codes. A completed stopped request replays `deletionRejected`, never `userCancelled`.
 - Admission blocked only by another deletion, or by the reader's full job queue, returns
   `CocoaError.xpcConnectionReplyInvalid` for automatic retry. Other pending-write refusals still
   return `cannotSynchronize`. This avoids depending on a completion signal in every overlapping
@@ -35,6 +36,11 @@ and update the README after the run. Leave the original NAS and physical-Mac ins
   An unconfirmed selected outcome does not get this refresh.
 - The cancellation token and counted-Stop decisions now live in TransferCore. App KVO,
   progress cancellation, lane scheduling and Settings callbacks retain their existing roles.
+- Only `cancelDeletion` from a cancelled provider Progress, or Settings Stop Deleting, requests
+  durable Stop. Releasing a deletion job after completion or timeout, or invalidating its XPC
+  connection, detaches the waiter without cancelling the transaction. Other reader jobs retain
+  their release behavior. The existing plan can finish without its original waiter or remain
+  recoverable after a remote error.
 
 ## Prepare the VM candidate
 
@@ -101,6 +107,13 @@ deletion to be retried." It specifies `NSCocoaErrorDomain/NSXPCConnectionReplyIn
 without a suitable existing code. This is the contract used for busy admission; actual Finder
 retry timing remains a VM check.
 
+The same header says `deletionRejected` causes the system to "re-create the deleted item on
+disk based on the latest metadata available from the extension." It reserves `NSUserCancelledError`
+for completing the active cancelled Progress. Thus a durable stopped replay is a refusal, while
+the original cancelled provider call still completes with `userCancelled`. The header also says
+macOS can cancel Progress when a call takes too long. The API does not identify whether that
+explicit cancellation came from the user or the system.
+
 ## Changed items, arriving children and a new user request
 
 1. In the signed test helper, suspend execution after admission releases its traversal handles
@@ -166,6 +179,23 @@ retry timing remains a VM check.
    Downloaded restoration. Expect settled records to resume reconciliation, unsettled records
    to require explicit Retry, and both location views to receive parent/working-set updates.
    Check these callbacks against the real persisted Settings and foreign records.
+6. Hold a recursive deletion before a node mark, then after a mark but before close acknowledgement.
+   At each point separately let the provider's 60-second response deadline expire, invalidate the
+   reader connection, and restart the extension. Do not cancel provider Progress. Resume the held
+   node and inspect the actual outbox. None of these paths may set `progress.stopped`, create a
+   `.stopped` node, or queue a counted Stop. An app-side transaction with a live source may finish;
+   an interrupted transaction must retain its original plan and uncertain in-flight evidence.
+   Reconnect and replay, or use Settings Retry after a remote failure, and audit every node.
+7. Repeat with an explicit provider Progress cancellation and with Settings Stop Deleting.
+   Expect durable Stop only in these runs, after active protection ends. The original provider
+   cancellation must complete once with `userCancelled`. Once settlement completes, replay the
+   same base before and after process restart and Dismiss Notice. Expect `deletionRejected`,
+   no new remote attempts, and Finder restoration of surviving items. Observe that callbacks
+   cease instead of looping on `userCancelled`.
+8. Release an already completed deletion job and repeat the XPC lifecycle checks with joined
+   waiters. Releasing one waiter must not stop the shared transaction; explicit cancellation by
+   a joined waiter must still request Stop. Verify ordinary read/upload release still cancels
+   its job and removes owned staging files.
 
 ## Remove Location and finish
 

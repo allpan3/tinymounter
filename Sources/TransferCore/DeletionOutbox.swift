@@ -408,7 +408,7 @@ public struct PendingDeletion: Equatable, Sendable {
         case .accessDenied?: throw ItemDeletionError.accessDenied
         case .cannotDelete?: throw ItemDeletionError.cannotDelete
         case .directoryNotEmpty?: throw ItemDeletionError.directoryNotEmpty
-        case .stopped?: throw TransferError.cancelled
+        case .stopped?: throw ItemDeletionError.stopped
         case .unconfirmed?, nil: throw ItemDeletionError.unresolved
         }
     }
