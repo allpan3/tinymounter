@@ -523,6 +523,63 @@ final class EditTransactionTests: XCTestCase {
         XCTAssertNil(try outbox.records().first { $0.id == edit.id })
     }
 
+    func testLeftoverOfAnUnansweredStageCreateIsRemovedAndTheStageCreatedAgain() throws {
+        edit.state = .creatingStage
+        try outbox.save(edit)
+        try remote.plantLeftover(at: edit.stagePath)
+        try finish(&edit)
+        XCTAssertEqual(remote.leftoverChecks, [edit.stagePath])
+        XCTAssertEqual(remote.stages, 2)
+        XCTAssertEqual(remote.files["file.txt"]?.digest, edit.digest)
+        XCTAssertEqual(Set(remote.files.keys), ["file.txt"])
+        XCTAssertEqual(try outbox.pendingCount, 0)
+    }
+
+    func testOtherOccupantOfAnUnansweredStageNameStaysAndKeepsTheSaveUncertain() throws {
+        edit.state = .creatingStage
+        try outbox.save(edit)
+        let occupant = try Remote.version(identity: 77, size: 0, digest: edit.digest)
+        remote.files[edit.stagePath] = occupant
+        XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote)) {
+            XCTAssertEqual($0 as? UploadError, .unresolved)
+        }
+        XCTAssertEqual(remote.leftoverChecks, [edit.stagePath])
+        XCTAssertEqual(remote.files[edit.stagePath], occupant)
+        XCTAssertEqual(remote.stages, 1)
+        XCTAssertEqual(try stored(edit).state, .creatingStage)
+        XCTAssertNil(try stored(edit).stageIdentity)
+    }
+
+    func testStageNameTakenAgainAfterTheLeftoverRemovalKeepsTheSaveUncertain() throws {
+        edit.state = .creatingStage
+        try outbox.save(edit)
+        try remote.plantLeftover(at: edit.stagePath)
+        remote.leftoverReturns = true
+        XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote)) {
+            XCTAssertEqual($0 as? UploadError, .unresolved)
+        }
+        XCTAssertEqual(remote.leftoverChecks, [edit.stagePath])
+        XCTAssertEqual(remote.stages, 2)
+        XCTAssertEqual(try stored(edit).state, .creatingStage)
+        XCTAssertNil(try stored(edit).stageIdentity)
+    }
+
+    func testRetiredUnansweredStageSettlesAfterItsLeftoverIsRemoved() throws {
+        edit.state = .creatingStage
+        try outbox.save(edit)
+        try remote.plantLeftover(at: edit.stagePath)
+        var latest = try save("latest version")
+        try EditTransaction.retire(&edit, outbox: outbox, remote: remote)
+        XCTAssertEqual(remote.probes, [edit.stagePath, edit.stagePath])
+        XCTAssertEqual(remote.leftoverChecks, [edit.stagePath])
+        XCTAssertEqual(remote.removals, [])
+        XCTAssertNil(try outbox.records().first { $0.id == edit.id })
+        try finish(&latest)
+        XCTAssertEqual(remote.files["file.txt"]?.digest, latest.digest)
+        XCTAssertEqual(Set(remote.files.keys), ["file.txt"])
+        XCTAssertEqual(try outbox.pendingCount, 0)
+    }
+
     func testPartiallyUploadedNewestSaveKeepsTheArtifactAndCompleteLocalCopy() throws {
         remote.failure = .partialStage
         XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))
@@ -919,11 +976,37 @@ final class EditTransactionTests: XCTestCase {
             XCTAssertEqual($0 as? UploadError, .unresolved)
         }
         XCTAssertEqual(remote.files, before)
+        XCTAssertEqual(remote.leftoverChecks, [edit.recoveryPath])
         XCTAssertEqual(remote.moves, 0)
         XCTAssertEqual(remote.updates, 0)
         XCTAssertEqual(try stored(edit).state, .creatingBackup)
         XCTAssertNil(try stored(edit).backupIdentity)
         try outbox.validateContents(edit)
+    }
+
+    func testLeftoverOfAnUnansweredBackupCreateIsRemovedAndTheBackupCreatedAgain() throws {
+        try unansweredBackup()
+        try remote.plantLeftover(at: edit.recoveryPath)
+        try finish(&edit)
+        XCTAssertEqual(remote.leftoverChecks, [edit.recoveryPath])
+        XCTAssertEqual(remote.backups, 3)
+        XCTAssertEqual(remote.files["file.txt"]?.digest, edit.digest)
+        XCTAssertEqual(remote.files["file.txt"]?.identity.fileID, 1)
+        XCTAssertEqual(Set(remote.files.keys), ["file.txt"])
+        XCTAssertEqual(try outbox.pendingCount, 0)
+    }
+
+    func testSupersededUnansweredBackupSettlesAfterItsLeftoverIsRemoved() throws {
+        try unansweredBackup()
+        try remote.plantLeftover(at: edit.recoveryPath)
+        var latest = try save("latest version")
+        try EditTransaction.retire(&edit, outbox: outbox, remote: remote)
+        XCTAssertEqual(remote.probes, [edit.recoveryPath, edit.recoveryPath])
+        XCTAssertEqual(remote.leftoverChecks, [edit.recoveryPath])
+        XCTAssertEqual(remote.removals, [edit.stagePath])
+        XCTAssertNil(try outbox.records().first { $0.id == edit.id })
+        try finish(&latest)
+        XCTAssertEqual(Set(remote.files.keys), ["file.txt"])
     }
 
     func testSupersededUnansweredBackupIsCleanedUpAfterItsNameIsProvedFree() throws {
@@ -1136,6 +1219,11 @@ final class EditTransactionTests: XCTestCase {
         var inspections: [String] = []
         var removals: [String] = []
         var probes: [String] = []
+        /// Names whose occupant is the empty private file of a create that got no answer.
+        var leftovers: Set<String> = []
+        var leftoverChecks: [String] = []
+        /// Another lost create lands again right after the removal.
+        var leftoverReturns = false
         var failRemovalAt: String?
         var loseRemovalReplyAt: String?
         private var nextIdentity: UInt64 = 200
@@ -1243,6 +1331,22 @@ final class EditTransactionTests: XCTestCase {
                 failure = nil
                 throw UploadError.unresolved
             }
+        }
+
+        func removeLeftoverCreate(path: String) throws -> Bool {
+            leftoverChecks.append(path)
+            guard files[path] == nil || leftovers.contains(path) else { return false }
+            files[path] = nil
+            leftovers.remove(path)
+            if leftoverReturns { try plantLeftover(at: path) }
+            return true
+        }
+
+        func plantLeftover(at path: String) throws {
+            files[path] = try Self.version(identity: 88, size: 0, digest: SHA256.hash(data: Data()).map {
+                String(format: "%02x", $0)
+            }.joined())
+            leftovers.insert(path)
         }
 
         func removeArtifact(path: String, version: EditFileVersion) throws {

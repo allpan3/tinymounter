@@ -348,6 +348,34 @@ final class SMBEdit: EditRemote, FileRenameRemote {
         }
     }
 
+    func removeLeftoverCreate(path: String) throws -> Bool {
+        guard handles[path] == nil, stageVerifiers[path] == nil, !originals.contains(path),
+              !hiddenOriginals.contains(path), path.hasSuffix(".stage") || path.hasSuffix(".recovery") else {
+            throw UploadError.unresolved
+        }
+        try cancellation()
+        let handle: Handle
+        do {
+            // Sharing 0 with delete access fails while any other open can read, write or delete.
+            handle = try open(path: path, access: Self.delete | 0x20080, sharing: 0)
+        } catch let error as NSError where error.domain == NSPOSIXErrorDomain && error.code == Int(ENOENT) {
+            return true
+        } catch where Self.serverStatus(error) != nil {
+            return false
+        }
+        var removed = false
+        defer { if !removed { handle.use { _ = tm_edit_close(client, $0) } } }
+        // The private create sets an empty DACL; makePrivate replaces it only after `created`.
+        let values = try info(handle)
+        guard values[2] == 0, values[3] == 1, values[4] & 0x410 == 0,
+              try Self.dacl(metadata(handle, security: true)) == Self.dacl(Self.privateSecurity(owner: [])),
+              try artifactQuarantine(handle, path: path, size: 0) == nil else { return false }
+        try handle.use { try check(tm_edit_delete(client, $0)) }
+        removed = true
+        try handle.use { try check(tm_edit_close(client, $0)) }
+        return true
+    }
+
     private func makePrivate(path: String, uploading: Bool,
                              created: (EditFileIdentity) throws -> Void) throws -> Handle {
         var security = Self.privateSecurity(owner: [])

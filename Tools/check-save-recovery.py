@@ -41,6 +41,14 @@ The helper flushes occupant-before.json before successor publication and cleanup
 then occupant-after.json after the full version equality check. Preserve both.
 This new case cannot retroactively prove the earlier run's occupant preservation.
 
+c05 also runs only as a fresh case: --fresh-c05 with seed and audit, then
+--m23-fresh c05 UUID LOCATION_UUID. It fails the identity callback of a stage
+create, then of a backup create, so each leaves an empty private file that its
+record never saw. The head save must remove its leftover and publish; the
+superseded save must remove its leftover and settle. The server can still hold the
+failed session's handle, which refuses the removal, so each removal runs up to
+three times, 2 s apart. The report's observed entries list every attempt.
+
 c01 injects reserve loss; c02 cancels a native stage upload after 1 MiB; c03 fails
 after one acknowledged cleanup; c04 simulates a lost cleanup reply. These are
 core/adapter checks, not File Provider callbacks or real disk exhaustion. The
@@ -155,12 +163,16 @@ def main():
     parser.add_argument("--approved-vm-session", action="store_true", required=True)
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument("--fresh-c03", action="store_true")
+    parser.add_argument("--fresh-c05", action="store_true")
     args = parser.parse_args()
     if str(uuid.UUID(args.run)).upper() != args.run:
         raise RuntimeError("uppercase run UUID required")
     evidence = args.evidence.absolute()
-    root = MOUNT / ("probe-m23-final-" + args.run) if args.fresh_c03 else ROOT
-    cases = ("c03",) if args.fresh_c03 else CASES
+    if args.fresh_c03 and args.fresh_c05:
+        raise RuntimeError("choose one fresh case")
+    fresh = args.fresh_c03 or args.fresh_c05
+    root = MOUNT / ("probe-m23-final-" + args.run) if fresh else ROOT
+    cases = ("c03",) if args.fresh_c03 else ("c05",) if args.fresh_c05 else CASES
     if evidence.parent.name != root.name or evidence.exists():
         raise RuntimeError("use a new private probe-m23-final evidence file")
     require_fixture()

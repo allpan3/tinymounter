@@ -340,9 +340,12 @@ signed interrupted-save update check. Retired-save cleanup and status reporting 
 VM checks; their signed checks remain. Retry Pending Changes attempts cleanup only with complete artifact evidence;
 uncertain data stays retained. A private stage or backup create that got no answer is sent
 again. It is exclusive, so it succeeds only while the name is free. An older save settles such
-a create with an exclusive create that the server deletes on close. A name that is taken keeps
-the save uncertain. A lost create that the server carries out later can leave an empty private
-file. The pane reports local saved-copy bytes under the existing
+a create with an exclusive create that the server deletes on close. When the name is taken, the
+app opens the occupant on the same connection with delete access and no sharing. It deletes the
+occupant only if it is a regular file of 0 bytes with one link, no named streams and the empty
+DACL that the private create sets, and then sends the create once more. Anything else keeps the
+save uncertain. A lost create that the server carries out after the save settled can still leave
+an empty private file. The pane reports local saved-copy bytes under the existing
 2 GiB free-space reserve and can dismiss resolved conflict notices without removing receipts.
 The 2026-10-30 completed-cleanup follow-up passes required VM checks; signed checks remain.
 Its cleaningUp state retains uncertain removals and keeps publication receipts.

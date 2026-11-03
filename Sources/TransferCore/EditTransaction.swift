@@ -10,6 +10,9 @@ public protocol EditRemote {
     /// Creates a private file exclusively at `path`, which the server deletes when it closes.
     /// Success proves that nothing was at the name; an occupied name throws `UploadError.collision`.
     func proveAbsent(path: String) throws
+    /// Deletes the empty private file that a create without an answer left at `path`, under an
+    /// exclusive handle. Returns false, and changes nothing, when the occupant is anything else.
+    func removeLeftoverCreate(path: String) throws -> Bool
 }
 
 /// The server answered the stage create with an error, and a lookup on the same connection found
@@ -46,17 +49,17 @@ public enum EditTransaction {
             try outbox.save(record)
             let version: EditFileVersion
             do {
-                version = try remote.stage(path: record.stagePath, contents: outbox.contentURL(record)) { identity in
-                    record.stageIdentity = identity
-                    try outbox.save(record)
+                version = try createExclusively(record.stagePath, remote: remote,
+                                                answered: { record.stageIdentity != nil }) {
+                    try remote.stage(path: record.stagePath, contents: outbox.contentURL(record)) { identity in
+                        record.stageIdentity = identity
+                        try outbox.save(record)
+                    }
                 }
             } catch let refusal as EditStageRefusal where record.stageIdentity == nil {
                 record.state = .prepared
                 try outbox.save(record)
                 throw refusal.error
-            } catch UploadError.collision where record.stageIdentity == nil {
-                // The name can hold a partial stage of the lost attempt.
-                throw UploadError.unresolved
             }
             guard matchesEdit(version, record), version.identity == record.stageIdentity else {
                 throw UploadError.unresolved
@@ -88,14 +91,12 @@ public enum EditTransaction {
         if record.state == .staged || record.state == .creatingBackup && record.backupIdentity == nil {
             record.state = .creatingBackup
             try outbox.save(record)
-            let backup: EditFileVersion
-            do {
-                backup = try remote.backup(original: record.path, path: record.recoveryPath) { identity in
+            let backup = try createExclusively(record.recoveryPath, remote: remote,
+                                               answered: { record.backupIdentity != nil }) {
+                try remote.backup(original: record.path, path: record.recoveryPath) { identity in
                     record.backupIdentity = identity
                     try outbox.save(record)
                 }
-            } catch UploadError.collision where record.backupIdentity == nil {
-                throw UploadError.unresolved
             }
             guard backup.identity == record.backupIdentity, backup.size == original.size,
                   backup.digest == original.digest else { throw UploadError.unresolved }
@@ -313,8 +314,19 @@ public enum EditTransaction {
     }
 
     private static func proveAbsent(_ path: String, remote: EditRemote) throws {
-        do { try remote.proveAbsent(path: path) }
-        catch UploadError.collision { throw UploadError.unresolved }
+        try createExclusively(path, remote: remote, answered: { false }) { try remote.proveAbsent(path: path) }
+    }
+
+    /// Sends an exclusive create that has no recorded answer yet. A taken name keeps the save
+    /// uncertain, unless the occupant is the empty leftover of an earlier create without an answer.
+    private static func createExclusively<T>(_ path: String, remote: EditRemote, answered: () -> Bool,
+                                             _ create: () throws -> T) throws -> T {
+        do { return try create() } catch UploadError.collision where !answered() {
+            guard try remote.removeLeftoverCreate(path: path) else { throw UploadError.unresolved }
+        }
+        do { return try create() } catch UploadError.collision where !answered() {
+            throw UploadError.unresolved
+        }
     }
 
     private static func publishConflict(_ record: inout PendingEdit, outbox: EditOutbox, remote: EditRemote) throws {

@@ -76,7 +76,7 @@ enum M23Mode: Sendable {
     init?(_ args: [String]) {
         switch (args[1], args[2], args.count) {
         case ("--m23-final", let caseID, 5) where ["c01", "c02", "c03", "c04"].contains(caseID): self = .original
-        case ("--m23-fresh", "c03", 5): self = .original
+        case ("--m23-fresh", "c03", 5), ("--m23-fresh", "c05", 5): self = .original
         case ("--m23-continue", "c02", 5): self = .continuation
         case ("--m23-inspect", "c03", 8):
             guard let pins = M23Pins(retired: args[5], retiredStage: args[6], occupant: args[7]) else { return nil }
@@ -198,20 +198,31 @@ private enum M23FinalProbe {
     final class Fault: EditRemote {
         let remote: SMBEdit
         var beforeMove = false
+        /// Fails the identity callback, so the server keeps a create that the record never saw.
+        var loseStageAnswer = false
+        var loseBackupAnswer = false
+        var stages = 0
+        var probes = 0
+        var leftovers: [String: Bool] = [:]
         var beforeRemoval: String?
         var afterRemoval: String?
         var inspected: [String] = []
         var removed: [String] = []
         init(_ remote: SMBEdit) { self.remote = remote }
         func stage(path: String, contents: URL, created: (EditFileIdentity) throws -> Void) throws -> EditFileVersion {
-            try remote.stage(path: path, contents: contents, created: created)
+            stages += 1
+            if loseStageAnswer { return try remote.stage(path: path, contents: contents) { _ in throw Failure.injected } }
+            return try remote.stage(path: path, contents: contents, created: created)
         }
         func inspect(path: String, original: Bool) throws -> EditFileVersion? {
             inspected.append(path)
             return try remote.inspect(path: path, original: original)
         }
         func backup(original: String, path: String, created: (EditFileIdentity) throws -> Void) throws -> EditFileVersion {
-            try remote.backup(original: original, path: path, created: created)
+            if loseBackupAnswer {
+                return try remote.backup(original: original, path: path) { _ in throw Failure.injected }
+            }
+            return try remote.backup(original: original, path: path, created: created)
         }
         func move(source: String, destination: String) throws {
             if beforeMove { throw Failure.injected }
@@ -226,7 +237,15 @@ private enum M23FinalProbe {
             try remote.removeArtifact(path: path, version: version)
             if path == afterRemoval { throw Failure.injected }
         }
-        func proveAbsent(path: String) throws { try remote.proveAbsent(path: path) }
+        func proveAbsent(path: String) throws {
+            probes += 1
+            try remote.proveAbsent(path: path)
+        }
+        func removeLeftoverCreate(path: String) throws -> Bool {
+            let removed = try remote.removeLeftoverCreate(path: path)
+            leftovers[path] = removed
+            return removed
+        }
     }
 
     struct Share {
@@ -383,7 +402,7 @@ private enum M23FinalProbe {
 
     static func run(_ mode: M23Mode, _ caseID: String, run: UUID, endpoint: ShareAddress, folder: RelativePath,
                     root: Int32, identity: MountIdentity, progress: Progress) throws {
-        guard ["c01", "c02", "c03", "c04"].contains(caseID) else { throw Failure.assertion }
+        guard ["c01", "c02", "c03", "c04", "c05"].contains(caseID) else { throw Failure.assertion }
         let parent = URL.applicationSupportDirectory.appending(path: "tinymounter/" + folder.string)
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
@@ -408,6 +427,7 @@ private enum M23FinalProbe {
                 case "c01": try admission(fixture)
                 case "c02": try partialStage(fixture)
                 case "c03": try cleanup(fixture, loseReply: false)
+                case "c05": try leftoverCreates(fixture)
                 default: try cleanup(fixture, loseReply: true)
                 }
             case .continuation: try continuePartialStage(share, local: local, output: output)
@@ -605,6 +625,97 @@ private enum M23FinalProbe {
             let digest = SHA256.hash(data: Data(repeating: 65, count: 1 << 20))
                 .map { String(format: "%02x", $0) }.joined()
             try require(stage?.identity == first.stageIdentity && stage?.size == 1 << 20 && stage?.digest == digest)
+        }
+    }
+
+    /// The empty private file of a create without a recorded answer is removed, then created again.
+    static func leftoverCreates(_ fixture: Fixture) throws {
+        let trace = fixture.trace
+        trace.enter("prepare-first")
+        var first = try fixture.prepare(Data("first complete save\n".utf8))
+        let lostStage = try failure {
+            try fixture.withRemote("lost-stage-answer") { remote in
+                let fault = Fault(remote)
+                fault.loseStageAnswer = true
+                try EditTransaction.publish(&first, outbox: fixture.outbox, remote: fault)
+            }
+        }
+        trace.enter("lost-stage-state")
+        try require(lostStage as? Failure == .injected)
+        try require(first.state == .creatingStage && first.stageIdentity == nil)
+        // A second stage create proves that the first one met the leftover at the name.
+        var refused = false
+        try retryWhileRefused({ refused }) { attempt in
+            try fixture.withRemote("remove-stage-leftover-\(attempt)") { remote in
+                let fault = Fault(remote)
+                defer {
+                    refused = fault.leftovers[first.stagePath] == false
+                    trace.observed["stageLeftover\(attempt)"] = fault.leftovers[first.stagePath].map {
+                        $0 ? "removed" : "refused"
+                    } ?? "unchecked"
+                }
+                try EditTransaction.publish(&first, outbox: fixture.outbox, remote: fault)
+                try require(fault.stages == 2 && fault.leftovers == [first.stagePath: true])
+                try require(first.state == .published)
+                try fixture.outbox.complete(&first, item: first.item)
+                try EditTransaction.cleanup(&first, outbox: fixture.outbox, remote: remote)
+            }
+        }
+        try require(first.state == .completed && !first.recoveryRetained && !first.conflict)
+        try fixture.verifyRemote(first)
+        trace.enter("prepare-second")
+        var second = try fixture.prepare(Data("second complete save\n".utf8))
+        let lostBackup = try failure {
+            try fixture.withRemote("lost-backup-answer") { remote in
+                let fault = Fault(remote)
+                fault.loseBackupAnswer = true
+                try EditTransaction.publish(&second, outbox: fixture.outbox, remote: fault)
+            }
+        }
+        trace.enter("lost-backup-state")
+        try require(lostBackup as? Failure == .injected)
+        try require(second.state == .creatingBackup && second.stageIdentity != nil && second.backupIdentity == nil)
+        trace.enter("prepare-latest")
+        var latest = try fixture.prepare(Data("latest complete save\n".utf8))
+        refused = false
+        try retryWhileRefused({ refused }) { attempt in
+            try fixture.withRemote("remove-backup-leftover-\(attempt)") { remote in
+                let fault = Fault(remote)
+                defer {
+                    refused = fault.leftovers[second.recoveryPath] == false
+                    trace.observed["backupLeftover\(attempt)"] = fault.leftovers[second.recoveryPath].map {
+                        $0 ? "removed" : "refused"
+                    } ?? "unchecked"
+                }
+                // A refused attempt has already retired the save; only its cleanup remains.
+                if second.state == .retired {
+                    try EditTransaction.cleanupRetired(&second, outbox: fixture.outbox, remote: fault)
+                } else {
+                    try EditTransaction.retire(&second, outbox: fixture.outbox, remote: fault)
+                }
+                try require(fault.probes == 2 && fault.leftovers == [second.recoveryPath: true])
+                try require(fault.removed == [second.stagePath])
+            }
+        }
+        trace.enter("retired-second")
+        try require(fixture.reopened().records().first(where: { $0.id == second.id }) == nil)
+        try fixture.finish(&latest)
+        try fixture.verifyRemote(latest)
+        trace.enter("final-names")
+        try require(fixture.share.names("c05") == ["document.txt", "neighbor.txt"])
+        try require(fixture.reopened().pendingCount == 0)
+    }
+
+    /// The server closes the failed session's handles on its own schedule. Until then the leftover
+    /// check is refused and the save stays uncertain, so only that refusal is tried again.
+    static func retryWhileRefused(_ refused: () -> Bool, _ body: (Int) throws -> Void) throws {
+        for attempt in 1...3 {
+            do {
+                try body(attempt)
+                return
+            } catch UploadError.unresolved where attempt < 3 && refused() {
+                Thread.sleep(forTimeInterval: 2)
+            }
         }
     }
 
