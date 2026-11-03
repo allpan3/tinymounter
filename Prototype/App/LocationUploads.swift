@@ -166,7 +166,7 @@ extension LocationSource {
                 }
             }
             _ = try listOnLane(request.parent, requestID: request.id)
-            let listed = try liveChild(of: request.parent, named: request.name)
+            let listed = try liveChild(of: record.parent, named: record.name)
             guard let row = listed, row.kind == request.kind, row.size == record.size || record.kind == .folder,
                   try withCatalog({ try $0.remoteIdentity(row.id) }) == record.remoteID else {
                 Self.uploadLog.error("""

@@ -453,8 +453,10 @@ The system admits one content upload and one metadata upload per domain at a tim
 see the new file during upload. It is not acknowledged until its remote identity and complete
 content are verified. The verified editing base records metadata from the protected open file;
 the mount's cached directory timestamps can still predate the completed upload. An interrupted
-upload is tried again only with another exclusive create,
-so it continues only while the name is absent, and an item at the name keeps it pending. The
+upload with an unacknowledged create is tried again only with another exclusive create;
+an item at the name keeps it pending. In the single-client prototype, an acknowledged partial
+file can resume after exact identity and complete prefix verification under exclusive SMB
+sharing. Only missing bytes are appended; existing bytes are never overwritten. The
 source cannot change while a write is pending. The location can be removed when its only pending
 items never reached the server; macOS keeps them on this Mac. Settings lists each new item that
 is not on the server yet, with the reason for its last failure since the app started, and offers
@@ -521,8 +523,9 @@ The separate single-client branch now uses direct SMB for remote listings, metad
 uploads, with fresh catalog state. Required VM checks, 20 signed saves, Unicode content, upload
 acknowledgment and a fresh read-only 2 GiB download pass. Conflict and interrupted-save recovery
 preserve complete contents. Retired saves no longer block unrelated listings and mutations.
-Interrupted new uploads retain a complete local copy beside the partial server item and require
-manual recovery. Preliminary full-read callback rates are comparable with native staging in the
+Interrupted new uploads retain a complete local copy beside the partial server item. Automatic
+continuation of a proven partial upload is implemented; signed VM validation is pending.
+Preliminary full-read callback rates are comparable with native staging in the
 VM, with cache residency unverified. End-to-end handoff, writable and partial-read benchmarks,
 Finder's read-only copy warning and native-mount export interactions remain open. The physical
 Mac still runs the earlier transport. See the

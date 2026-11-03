@@ -154,6 +154,12 @@ and complete end-to-end/partial/writable performance checks remain open. The phy
 the earlier transport; production adoption remains undecided. See the
 [experiment record](results/2026-11-02-samba-names-and-uploads.md#single-client-transport-experiment).
 
+The November 3 continuation adds recovery of acknowledged partial new uploads. It reopens the
+recorded file with exclusive SMB sharing, proves the exact identity and every existing byte
+against the retained complete payload, and appends only missing bytes. Changed identities,
+changed prefixes, oversized files and uncertain create replies remain unresolved. Full flush,
+close and reopen verification still precedes acknowledgment. Signed VM validation is pending.
+
 ### Selection rule
 
 Keep the native bridge if it meets the throughput gate and works cleanly under the shipping permissions/lifecycle model. Prefer direct SMB if it is comparably fast and materially simpler to deploy/recover. If direct SMB is slow while native-backed File Provider is fast, optimize or replace the SMB transport. If both provider paths are slow but their staging controls are fast, investigate provider scheduling and materialization. Do not switch frameworks solely because one first implementation is slow.
