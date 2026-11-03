@@ -311,6 +311,12 @@
 			"path" = "Prototype/App/AppModel.swift";
 			"sourceTree" = "<group>";
 		};
+		"C19B2642649D6B798E173AF7" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Prototype/App/PermanentDeletionConfirmation.swift";
+			"sourceTree" = "<group>";
+		};
 		"8C0544DE6E753E6B1463BC74" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
@@ -893,6 +899,7 @@
 				"E16DF99AE10C698F0554125D",
 				"569CBA877F5135D2D6D4A127",
 				"F673ED087BE84B6F0A8DB858",
+				"C19B2642649D6B798E173AF7",
 				"8C0544DE6E753E6B1463BC74",
 				"CBE57BE4ABF4B06010FAFFA9",
 				"1AAD80DB936D27C960F568C1",
@@ -1788,6 +1795,10 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "F673ED087BE84B6F0A8DB858";
 		};
+		"0E4B113B3F2AF171F1153FEC" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "C19B2642649D6B798E173AF7";
+		};
 		"B8D4B1475854BF2127F73A38" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "8C0544DE6E753E6B1463BC74";
@@ -1899,6 +1910,7 @@
 				"CE726ADF5E7695684E1E4244",
 				"060D1D419E35D027B55BFAA3",
 				"E95A2E7E0E273484A2B6FE5D",
+				"0E4B113B3F2AF171F1153FEC",
 				"B8D4B1475854BF2127F73A38",
 				"B5CFDEF30E899AC5AA29703F",
 				"25801110F7643601847CA1C2",
