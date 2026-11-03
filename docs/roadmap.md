@@ -208,8 +208,11 @@ The November 3 [Finder Replace observation](results/2026-11-03-editor-replacemen
 unbound delete/create requests for unopened and verified destinations. This blocks both Replace
 and normal deletion enablement under the accepted guarantee. The user approved a separate
 **Delete Permanently…** command with confirmation on 2026-11-03. Its gated implementation
-reuses protected deletion and recovery, while refusing ordinary delete callbacks. Signed custom
-action, cancellation and local-edit preservation checks remain. Ordinary document Save and Save As
+reuses protected deletion and recovery, while refusing ordinary delete callbacks. Signed
+[command checks](results/2026-11-03-permanent-command.md) pass for Cancel, one-click file/folder
+deletion, stale-file and pending-save refusal, connection loss before confirmation, and
+permission-loss recovery. A concurrent-save repair passes signed retention, export and
+Stop Uploading checks without recreating the server file. Ordinary document Save and Save As
 pass for the tested TextEdit, Preview and Xcode files. Signed TextEdit checks also pass for repeated
 offline saves, intentional Quit/relaunch, main-app crash and extension termination. A moved-original
 trial exposed unwanted conflict publication; the signed repair retains and exports local contents.
