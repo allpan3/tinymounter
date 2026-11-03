@@ -9,8 +9,9 @@ and a genuine stale save publishes a separate conflict copy. Recovery between tw
 passes. Combined rename/modification-date replay and the parent-enumeration checkpoint repair
 pass signed checks. Crashes followed by an independent SMB move or replacement retire both
 views' old bindings and keeps; fresh items never inherit their downloaded bytes.
-An independent SMB Unicode respelling leaves recovery pending; its comparison repair awaits
-signed validation.
+The literal-server-name repair passes signed Unicode-respelling recovery in both views.
+Case-colliding and Unicode-equivalent names block recovery without changing original content;
+removing the synthetic collisions permits completion with IDs, downloads and keeps preserved.
 Folder capabilities stay disabled.
 
 ## Setup and evidence
@@ -326,6 +327,41 @@ normalized requested pathname. Complete protected listings can retire the change
 they cannot preserve it merely because Unicode normalization makes the names equivalent.
 NFD catalog names still match NFC server names. The focused host suite passes 102 tests,
 including server-respelling retirement, refusal to preserve that binding, native catalog
-normalization and the special Unicode ranges the client sends unchanged. Signed validation
-is next. Evidence is `check-spelling-*`, `check-unicode-respelling.json` and the independent
+normalization and the special Unicode ranges the client sends unchanged. Evidence is
+`check-spelling-*`, `check-unicode-respelling.json` and the independent
 Linux name-byte and digest inspection in the same VM session.
+
+Build 25 recovers the pending move in both views. Only the respelled child's old ID retires;
+the folders and every other catalog row preserve their IDs, versions and keeps. Working-set
+enumeration delivers both old-ID deletions. Each newly discovered child starts dataless, and
+the eight downloaded neighbors retain their inodes and digests. Pending moves and saves clear,
+with unrelated Settings unchanged. The required VM checks pass with 628 tests, one optional
+skip and no Swift warnings (`checks-stored-name.log`).
+
+The new child inherits its parent's keep request, but its server-stored NFD name remains
+unsupported for reads. After an independent no-replace SMB rename restores NFC, a fresh fetch
+downloads the correct bytes under the new ID; the retired ID stays absent. This does not prove
+general support for server-stored NFD names. Evidence is `spelling-preservation-report.json`,
+`check-spelling-opened*` and the Linux `spelling-restored-audit.json`.
+
+## Ambiguous directory names
+
+Two fresh moves stop at the durable attempting checkpoint, before the server rename, followed
+by confirmed SIGSTOP and SIGKILL. One run adds an unseen case-colliding child pair; the other
+adds an unseen NFC/NFD-equivalent pair. Independent complete SMB listings return both exact
+names. Every protected parent and the selected root still match their recorded identities,
+so a changed root identity cannot explain the refusal.
+
+Restart leaves each move attempting and the original server folder untouched. No original
+object, file bytes, ownership or attributes change. Removing only the two recorded test files
+and restarting completes the original move in both views. All catalog IDs, versions and keeps
+survive, as do the downloaded copies' inodes and complete digests. No pending move or save
+remains. The final backing audit finds exactly the original objects under the planned folder
+name; all four collision files are removed.
+
+Evidence is `check-case-collision-*`, `check-unicode-collision-*`, both `*-collision-protocol.json`
+reports, the crash controls and `collision-preservation-report.json`. Linux creation, cleanup
+and final inventories are `case-collision-*`, `unicode-collision-*` and
+`collision-final-audit.json`. These checks close the earlier unavailable ambiguous-name cases.
+Loss before the protected-parent checkpoint and changed destination ancestors retain their
+documented uncertain outcomes; no identity check or capability gate was relaxed.
