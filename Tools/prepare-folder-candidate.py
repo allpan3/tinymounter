@@ -16,6 +16,8 @@ app. Kill that exact process to test recovery; each control ID fires only once.
 --overlap-checks accepts an overlap-setup request to add one registered view of
 the same fixture. Later requests export both views, with -peer on the second
 snapshot. Catalog and finished-domain stops include both catalogs' current rows.
+--deletion-checks records deletion callbacks and durable operations in these views.
+--enable-deletion additionally enables deletion only in the generated candidate.
 """
 import argparse
 from pathlib import Path
@@ -44,7 +46,11 @@ def main():
     parser.add_argument("--enable", action="store_true")
     parser.add_argument("--crash-checks", action="store_true")
     parser.add_argument("--overlap-checks", action="store_true")
+    parser.add_argument("--deletion-checks", action="store_true")
+    parser.add_argument("--enable-deletion", action="store_true")
     args = parser.parse_args()
+    if args.enable_deletion and not args.deletion_checks:
+        parser.error("--enable-deletion requires --deletion-checks")
     source = Path(__file__).resolve().parent.parent
     if Path.home() != Path("/Users/user") or not Path("/Volumes/tinymounter-single").is_mount():
         raise RuntimeError("run only in the mounted macOS VM fixture")
@@ -150,6 +156,31 @@ def main():
             '                            try await m22FinderSnapshot(view,\n'
             '                                label: request.label + (index == 0 ? "" : "-peer"))\n'
             '                        }')
+    if args.deletion_checks:
+        helper = replace(helper, '    struct Snapshot: Codable {', '''    struct Deletion: Codable {
+        let plan: DeletionPlan
+        let progress: DeletionProgress
+        let complete: Bool
+        let pending: Bool
+        let canDismiss: Bool
+    }
+
+    struct Snapshot: Codable {''')
+        helper = replace(helper, '        let pendingEdits: Int\n',
+                         '        let pendingEdits: Int\n        let deletions: [Deletion]\n')
+        helper = replace(helper, '        let snapshot = M22FinderProbe.Snapshot(config: config, label: label,',
+            '''        let deletions = try await Self.offMain {
+            try LocationSource.deletionOutbox().records().filter { operation in
+                operation.plan.views.contains { $0.domain == config.domain }
+            }.map { operation in
+                M22FinderProbe.Deletion(plan: operation.plan, progress: operation.progress,
+                    complete: operation.isComplete, pending: operation.isPending,
+                    canDismiss: operation.canDismiss)
+            }
+        }
+        let snapshot = M22FinderProbe.Snapshot(config: config, label: label,''')
+        helper = replace(helper, '            editBases: bases, pendingEdits: pendingEdits)',
+                         '            editBases: bases, pendingEdits: pendingEdits, deletions: deletions)')
     app = root / "Prototype/App/LocationController.swift"
     content = replace(app.read_text(), '        isReady = true\n',
                       '        isReady = true\n        Task {\n'
@@ -206,12 +237,41 @@ def main():
             options: UInt(options.rawValue), reply: completionHandler)
 '''
         content = content[:position] + hook + content[position:]
+    if args.deletion_checks:
+        start = content.index("    func deleteItem(")
+        position = content.index(" -> Progress {\n", start) + len(" -> Progress {\n")
+        content = content[:position] + '''        let completionHandler = M22FinderProbe.deletion(
+            domain: domain.identifier.rawValue, item: identifier, base: version,
+            options: options, reply: completionHandler)
+''' + content[position:]
+        content += '''
+extension M22FinderProbe {
+    static func deletion(domain: String, item: NSFileProviderItemIdentifier,
+                         base: NSFileProviderItemVersion, options: NSFileProviderDeleteItemOptions,
+                         reply: @escaping (Error?) -> Void) -> (Error?) -> Void {
+        guard let config = selected(domain) else { return reply }
+        let call = UUID()
+        emit(config, call: call, kind: "delete-begin", fields: ["item": item.rawValue,
+            "baseContent": base.contentVersion.base64EncodedString(),
+            "baseMetadata": base.metadataVersion.base64EncodedString(),
+            "recursive": String(options.contains(.recursive)), "options": String(options.rawValue)])
+        return { error in
+            emit(config, call: call, kind: "delete-end", fields: failure(error))
+            reply(error)
+        }
+    }
+}
+'''
     provider.write_text(content + "\n" + helper.split("#if !M22_FINDER_PROVIDER")[0]
                         + "\n" + overlap.split("#if !M22_FINDER_PROVIDER")[0])
     if args.enable:
         gates = root / "Prototype/Shared/SourceReaderProtocol.swift"
         gates.write_text(replace(gates.read_text(), "static let folderOrganizationEnabled = false",
                                 "static let folderOrganizationEnabled = true"))
+    if args.enable_deletion:
+        gates = root / "Prototype/Shared/SourceReaderProtocol.swift"
+        gates.write_text(replace(gates.read_text(), "static let deletionEnabled = false",
+                                "static let deletionEnabled = true"))
     subprocess.run(["git", "diff", "--stat"], cwd=root, check=True)
 
 
