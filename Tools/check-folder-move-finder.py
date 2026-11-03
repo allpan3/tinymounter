@@ -127,9 +127,10 @@ Interpretation and remaining gates
   traces, proving that the fetch hook was active. Matching files plus no later
   fetch and the same local inode support preserved copies. This is not a speed run.
 
-  For old-parent departure/new-parent arrival, require completed parent-scoped
-  deletion/update callbacks or complete initial enumerations of both parents,
-  plus the parent recording. A working-set update alone leaves this gate open.
+  Require completed working-set updates for the moved folder and its known
+  descendants, with their original IDs and new parent/name, plus the recording.
+  Replicated extensions deliver moves through the working set; macOS ignores
+  signals for other containers. Revisit both parents to check their contents.
   Reopening Finder or taking a second snapshot is not mutation replay. Replay
   needs a repeated real modify callback with the same request fields/base and a
   successful unchanged receipt, or stays unverified. Do not call moveFolder or
@@ -445,25 +446,19 @@ def organization_pair(events, item, parent, name, succeeds):
     return None
 
 
-def parent_enumeration(events, parent, item, present):
-    terminal = {event["call"] for event in events if event["kind"] in ("changes-end", "enumerate-end")
+def working_set_delivery(events, expected):
+    terminal = {event["call"] for event in events if event["kind"] == "changes-end"
                 and event["fields"].get("ok") == "true"}
+    delivered = {}
     for event in events:
-        if event["call"] not in terminal or event["fields"].get("parent") != parent:
+        if event["call"] not in terminal or event["fields"].get("parent") != "NSFileProviderWorkingSetContainerItemIdentifier":
             continue
-        if event["kind"] == ("updated" if present else "deleted"):
-            if any(row["id"] == item for row in event["items"]):
-                return True
-    for begin, end in callback_pairs(events, "enumerate"):
-        if begin["fields"].get("parent") != parent or begin["fields"].get("initial") != "true":
-            continue
-        if end["fields"].get("ok") != "true" or end["fields"].get("next") != "":
-            continue
-        items = [row for event in events if event["call"] == begin["call"] and event["kind"] == "enumerated"
-                 for row in event["items"]]
-        if any(row["id"] == item for row in items) == present:
-            return True
-    return False
+        if event["kind"] == "deleted" and any(row["id"] in expected for row in event["items"]):
+            return False
+        if event["kind"] == "updated":
+            delivered.update({row["id"]: row for row in event["items"]})
+    return all(all(delivered.get(item, {}).get(key) == value for key, value in values.items())
+               for item, values in expected.items())
 
 
 def audit(args):
@@ -555,10 +550,11 @@ def audit(args):
                    for field, key in (("baseContent", "content"), ("baseMetadata", "metadata"))):
                 gaps.append("modify callback base differs from the preceding snapshot; inspect intervening changes")
     if args.label == "moved":
-        if not parent_enumeration(interval, before["Source"]["id"], item, False):
-            gaps.append("old-parent departure through completed provider enumeration")
-        if not parent_enumeration(interval, before["Dest"]["id"], item, True):
-            gaps.append("new-parent arrival through completed provider enumeration")
+        expected = {row["id"]: {"parent": row["parent"], "name": name.rsplit("/", 1)[-1],
+                    "content": base64.b64encode(row["content"].encode()).decode()}
+                    for name, row in after.items() if name == "Dest/Renamed" or name.startswith("Dest/Renamed/")}
+        if not working_set_delivery(interval, expected):
+            gaps.append("moved subtree delivery through completed working-set updates")
     if args.label == "relisted":
         require(all(row["listed"] and row["complete"] for row in snapshot["rows"] if row["kind"] == "directory"),
                 "relisted-catalog-incomplete")
@@ -569,7 +565,7 @@ def audit(args):
                    and end["fields"]["ok"] == "true" and any(row["id"] == new_id for row in end["items"])]
         if not created or not organization_pair(interval, new_id, after[""]["id"], "Named", True):
             gaps.append("new-folder create and naming callbacks retaining the same ID")
-        gaps.append("parent must bind new-folder naming to the initial-name route")
+        gaps.append("parent must record the new-folder naming route with the candidate capability state")
     if args.label == "replay":
         require(snapshot["moves"] == previous["moves"], "replay-folder-history-changed")
         repeated = False

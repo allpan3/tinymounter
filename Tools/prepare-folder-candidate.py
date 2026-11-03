@@ -8,6 +8,9 @@ Write request-RANDOM_UUID.json there using the existing Request structure.
 The app exports only this fixture's snapshots and callback events there.
 The checkout and ordinary feature gates are unchanged. --enable permits folder
 organization in the candidate; omit it for the matching disabled baseline.
+--crash-checks adds run/item-bound stop points controlled by fault.json in the
+granted evidence directory. A hit exports its durable intent, then SIGSTOPs the
+app. Kill that exact process to test recovery; each control ID fires only once.
 """
 import argparse
 from pathlib import Path
@@ -34,6 +37,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
     parser.add_argument("--enable", action="store_true")
+    parser.add_argument("--crash-checks", action="store_true")
     args = parser.parse_args()
     source = Path(__file__).resolve().parent.parent
     if Path.home() != Path("/Users/user") or not Path("/Volumes/tinymounter-single").is_mount():
@@ -54,6 +58,11 @@ def main():
                      '$0.name == "Writable" && $0.folder == "Writable"')
     helper = replace(helper, 'reference.name == "M21 Files", reference.folder == "probe-m21-finder",',
                      'reference.name == "Writable", reference.folder == "Writable",')
+    helper = replace(helper, '"collision-file", "relisted", "named", "replay"]',
+                     '"collision-file", "relisted", "named", "replay", "recovery-baseline", '
+                     '"recovery-attempting", "recovery-moved", "recovery-verified", "recovery-catalog", '
+                     '"recovery-settings", "recovery-finished-domain", "recovery-before-reply", '
+                     '"recovery-changed"]')
     start = helper.index("                let root = try session.locationRoot(RelativePath(folder)!)")
     end = helper.index('\n            }\n        }\n        let channel', start)
     helper = helper[:start] + '''                let remote = try SMBEdit(endpoint: endpoint, folder: .root,
@@ -99,12 +108,45 @@ def main():
                     }
                 }
                 try await Task.sleep(for: .seconds(1))''')
+    if args.crash_checks:
+        helper = replace(helper, '            while !Task.isCancelled {',
+                         '            M22FinderCrash.setExport(export)\n'
+                         '            defer { M22FinderCrash.setExport(nil) }\n'
+                         '            while !Task.isCancelled {')
     app = root / "Prototype/App/LocationController.swift"
     content = replace(app.read_text(), '        isReady = true\n',
                       '        isReady = true\n        Task {\n'
                       '            try? await Task.sleep(for: .seconds(3))\n'
                       '            await self.runM22FinderFixture()\n        }\n')
     app.write_text(content + "\n" + helper)
+    if args.crash_checks:
+        app.write_text(app.read_text() + "\n" + (root / "Tools/check-folder-move-crash.swift").read_text())
+        moves = root / "Prototype/App/LocationFolderMoves.swift"
+        content = replace(moves.read_text(),
+            'do { try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote) }',
+            '''let admitted = record
+        do {
+            try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote) { state in
+                try M22FinderCrash.checkpoint(admitted, stage: state.rawValue)
+            }
+        }''')
+        content = replace(content, '            try waitForFolderMoveSettings(current)',
+            '            try waitForFolderMoveSettings(current)\n'
+            '            try M22FinderCrash.checkpoint(current, stage: "settings")')
+        content = replace(content,
+            '                    try FolderMoveTransaction.finishDomain(view.domain, record: &current, outbox: outbox)',
+            '                    try FolderMoveTransaction.finishDomain(view.domain, record: &current, outbox: outbox)\n'
+            '                    try M22FinderCrash.checkpoint(current, stage: "finished-domain")')
+        content = replace(content,
+            '                try source.withCatalog { try $0.settleFolderMove(view.move, settlement: settlement.settlement) }\n'
+            '            }\n        }',
+            '                try source.withCatalog { try $0.settleFolderMove(view.move, settlement: settlement.settlement) }\n'
+            '            }\n            try M22FinderCrash.checkpoint(record, stage: "catalog")\n        }')
+        content = replace(content, '        try record.requireMoved()\n        return CreateReceipt(item: request.item)',
+            '        try record.requireMoved()\n'
+            '        try M22FinderCrash.checkpoint(record, stage: "before-reply")\n'
+            '        return CreateReceipt(item: request.item)')
+        moves.write_text(content)
     provider = root / "Prototype/Provider/FileProviderExtension.swift"
     content = provider.read_text()
     content = replace(content, 'try CatalogEnumerator.make(for: containerItemIdentifier, catalog: catalog, reader: sourceReader, domain: domain)',
