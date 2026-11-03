@@ -222,15 +222,53 @@ static int valid_path(const char *path)
     }
 }
 
+// The macOS client, like HFS+ (TN1150), never decomposes these ranges. NFC would turn singletons
+// such as U+2126 OHM SIGN or U+F900 into other characters, which name other files.
+static int kept_as_is(UTF32Char c)
+{
+    return (c >= 0x2000 && c <= 0x2FFF) || (c >= 0xF900 && c <= 0xFAFF) || (c >= 0x2F800 && c <= 0x2FAFF);
+}
+
+static int append_composed(CFMutableStringRef result, const UniChar *characters, CFIndex count)
+{
+    CFMutableStringRef run = CFStringCreateMutable(NULL, 0);
+    if (!run) return 0;
+    CFStringAppendCharacters(run, characters, count);
+    CFStringNormalize(run, kCFStringNormalizationFormC);
+    CFStringAppend(result, run);
+    CFRelease(run);
+    return 1;
+}
+
 // SMB clients send names composed (NFC), as the macOS and Windows clients do; the macOS client
 // shows them decomposed. Returns 1 when `composed` holds the whole result.
 int tm_smb_compose(const char *path, char *composed, size_t capacity)
 {
     CFStringRef text = path ? CFStringCreateWithCString(NULL, path, kCFStringEncodingUTF8) : NULL;
-    CFMutableStringRef normalized = text ? CFStringCreateMutableCopy(NULL, 0, text) : NULL;
-    if (normalized) CFStringNormalize(normalized, kCFStringNormalizationFormC);
-    int fits = normalized && CFStringGetCString(normalized, composed, (CFIndex)capacity, kCFStringEncodingUTF8);
-    if (normalized) CFRelease(normalized);
+    CFIndex length = text ? CFStringGetLength(text) : 0, start = 0;
+    UniChar *characters = text ? malloc(sizeof(UniChar) * (size_t)(length ? length : 1)) : NULL;
+    CFMutableStringRef result = characters ? CFStringCreateMutable(NULL, 0) : NULL;
+    int fits = result != NULL;
+    if (fits) CFStringGetCharacters(text, CFRangeMake(0, length), characters);
+    for (CFIndex i = 0; fits && i < length; ) {
+        UTF32Char c = characters[i];
+        CFIndex width = 1;
+        if (CFStringIsSurrogateHighCharacter(characters[i]) && i + 1 < length &&
+            CFStringIsSurrogateLowCharacter(characters[i + 1])) {
+            c = CFStringGetLongCharacterForSurrogatePair(characters[i], characters[i + 1]);
+            width = 2;
+        }
+        if (kept_as_is(c)) {
+            fits = append_composed(result, characters + start, i - start);
+            CFStringAppendCharacters(result, characters + i, width);
+            start = i + width;
+        }
+        i += width;
+    }
+    fits = fits && append_composed(result, characters + start, length - start) &&
+        CFStringGetCString(result, composed, (CFIndex)capacity, kCFStringEncodingUTF8);
+    if (result) CFRelease(result);
+    free(characters);
     if (text) CFRelease(text);
     return fits;
 }
