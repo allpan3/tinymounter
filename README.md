@@ -3,9 +3,10 @@
 A macOS app that brings a network disk, such as a NAS, into Apple's file system: browse it from Finder or another file manager such as QSpace, download on demand, and keep selected files available offline. Finder is the first file manager and SMB the first protocol it will support. A later mode will mount server volumes, the ordinary macOS SMB mounts, automatically.
 
 Deletion, 2026-11-03: signed VM checks pass for refusal restoration, Finder's permanent warning
-and Cancel, verified and unopened files, and an empty folder. Nested deletion safely stopped
-when Samba changed parent creation times after child removal. Its protected checkpoint repair
-passes focused host tests; signed recursive and remaining recovery checks are in progress.
+and Cancel, verified and unopened files, and nested folders. Protected parent checkpoints fix
+Samba creation-time changes and survive a process restart. A lost checkpoint retains uncertainty;
+a replacement survives replay. All 635 VM tests and required checks pass. Settings, concurrency
+and remaining recovery checks are in progress.
 Deletion remains disabled in normal builds. See the
 [deletion results](docs/results/2026-10-29-deletion-protocol.md#finder-deletion-and-parent-checkpoints-2026-11-03).
 

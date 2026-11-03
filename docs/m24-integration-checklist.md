@@ -63,6 +63,11 @@ Adding `--crash-checks` enables `deletion-fault.json`, bound to the fixture run,
 `Deletion/` path, node index and checkpoint. It exports the durable plan/progress and stops
 the app before or after an attempting, close-acknowledged or deleted checkpoint. Each control
 fires once. Kill only the recorded test process, preserve the hit and resume the fixture app.
+The `admitted` stage stops after traversal handles are released. `action: "fail"` throws a
+synthetic error instead of stopping, so the real callback can fail while retaining pending work.
+The `settings` stage requires `action: "hold"` and suspends only the asynchronous Settings
+callback. Create `deletion-release-CONTROL_UUID` in the evidence directory to release it;
+after 180 seconds it fails without settling. This leaves the main actor and request lanes free.
 
 1. Integrate the commits and run `Tools/run-checks.sh` in the VM. App-target changes have not
    been compiled on the host. No generator changes are needed because all production changes
