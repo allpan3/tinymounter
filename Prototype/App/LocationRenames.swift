@@ -44,6 +44,7 @@ extension LocationSource {
                     .error("file_rename request=\(request.id.uuidString, privacy: .public) failed \(logFields(error), privacy: .public)")
                 _ = try? listOnLane(request.parent, requestID: request.id)
                 scheduleSignal()
+                scheduleRenameRetry(after: error)
                 finish(.failure(error))
             }
         }
@@ -119,6 +120,7 @@ extension LocationSource {
     func retryRenames() {
         access.enqueue { [self] in
             let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
+            var sharingFailure: Error?
             do {
                 let (ready, folders) = try editNamespace.perform { () -> ([PendingFileRename], [UUID]) in
                     let outbox = try Self.renameOutbox()
@@ -133,6 +135,7 @@ extension LocationSource {
                             try finishRename(&record, outbox: outbox, progress: Progress())
                             ready.append(record)
                         } catch {
+                            if Self.renameSharingFailure(error) { sharingFailure = error }
                             logger.error("rename_retry id=\(record.id.uuidString, privacy: .public) failed \(logFields(error), privacy: .public)")
                         }
                     }
@@ -148,13 +151,49 @@ extension LocationSource {
                 for id in folders {
                     do { try retryFolderMove(id) }
                     catch {
+                        if Self.renameSharingFailure(error) { sharingFailure = error }
                         logger.error("folder_move_retry id=\(id.uuidString, privacy: .public) failed \(logFields(error), privacy: .public)")
                     }
                 }
             } catch {
                 logger.error("rename_retry failed \(logFields(error), privacy: .public)")
             }
+            if let sharingFailure { scheduleRenameRetry(after: sharingFailure) }
+            else {
+                renameRetryLock.withLock {
+                    renameRetryWork?.work.cancel()
+                    renameRetryWork = nil
+                    renameRetryDelay = 2
+                }
+            }
             scheduleSignal()
+        }
+    }
+
+    private static func renameSharingFailure(_ error: Error) -> Bool {
+        let failure = error as NSError
+        return failure.domain == NSPOSIXErrorDomain && failure.code == Int(ETXTBSY)
+    }
+
+    func scheduleRenameRetry(after error: Error) {
+        guard Self.renameSharingFailure(error) else { return }
+        renameRetryLock.withLock {
+            guard !renameRetryClosed, renameRetryWork == nil else { return }
+            let id = UUID()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                let active = self.renameRetryLock.withLock {
+                    guard self.renameRetryWork?.id == id else { return false }
+                    self.renameRetryWork = nil
+                    return !self.renameRetryClosed
+                }
+                if active { self.retryRenames() }
+            }
+            renameRetryWork = (id, work)
+            Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
+                .info("rename_retry_scheduled domain=\(self.domainID, privacy: .public) delay=\(self.renameRetryDelay)")
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + .seconds(renameRetryDelay), execute: work)
+            renameRetryDelay = min(renameRetryDelay * 2, 60)
         }
     }
 

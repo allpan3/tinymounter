@@ -780,6 +780,10 @@ final class LocationSource: @unchecked Sendable {
     let deletionSettings: DeletionSettings?
     // The share lane owns these replies while settings completion awaits the main actor.
     var renameCompletions: [UUID: [RenameReply]] = [:]
+    let renameRetryLock = NSLock()
+    var renameRetryWork: (id: UUID, work: DispatchWorkItem)?
+    var renameRetryDelay = 2
+    var renameRetryClosed = false
     var deletionRecoveries: [UUID: LocationDeletionRecovery] = [:]
     // Stop and close must cancel remote work without waiting for the owner's lane.
     let deletionRecoveryLock = NSLock()
@@ -831,6 +835,11 @@ final class LocationSource: @unchecked Sendable {
 
     /// Closes the writer connection; later calls fail with `catalogClosed`.
     func close() {
+        renameRetryLock.withLock {
+            renameRetryClosed = true
+            renameRetryWork?.work.cancel()
+            renameRetryWork = nil
+        }
         closeDeletionRecovery()
         editNamespace.perform {
             verifiedRead = nil

@@ -18,6 +18,7 @@ extension LocationSource {
                 Self.folderMoveLog.error("folder_move request=\(request.id.uuidString, privacy: .public) failed \(logFields(error), privacy: .public)")
                 _ = try? listOnLane(request.parent, requestID: request.id)
                 scheduleSignal()
+                scheduleRenameRetry(after: error)
             }
             reply(result)
         }
