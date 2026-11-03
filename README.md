@@ -2,6 +2,12 @@
 
 A macOS app that brings a network disk, such as a NAS, into Apple's file system: browse it from Finder or another file manager such as QSpace, download on demand, and keep selected files available offline. Finder is the first file manager and SMB the first protocol it will support. A later mode will mount server volumes, the ordinary macOS SMB mounts, automatically.
 
+Save recovery, 2026-11-03: a real disk-full check on a disposable APFS image preserves and
+exports the previous complete save, including document metadata. Reopening and retry after
+freeing space preserve both complete generations. This verifies the local recovery core;
+signed low-space callbacks and deletion workflows remain in progress. See the
+[save recovery results](docs/results/2026-10-29-pending-save-order.md#real-disk-exhaustion-2026-11-03).
+
 Folder organization, 2026-11-03: the protected-parent checkpoint repair passes signed Finder
 rename, move, case-only rename and relisting checks on Linux Samba. Item IDs, content versions,
 downloaded copies and keep selections survive without new fetches. All 628 VM tests and required
