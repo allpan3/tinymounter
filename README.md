@@ -6,9 +6,10 @@ Folder organization, 2026-11-03: the protected-parent checkpoint repair passes s
 rename, move, case-only rename and relisting checks on Linux Samba. Item IDs, content versions,
 downloaded copies and keep selections survive without new fetches. All 624 VM tests and required
 checks pass. All seven tested crash checkpoints recover in one view, including automatic retry
-after a temporary sharing error and successful Finder replay. Concurrent changes preserve server
-data; stale-save callbacks, overlapping views and a saved-file attribute change remain under
-investigation. Folder capabilities remain off in normal builds.
+after a temporary sharing error and successful Finder replay. Recovery also passes between two
+catalog updates and after the first view finishes. Concurrent changes preserve server data;
+stale-save callbacks and a saved-file attribute change remain under investigation.
+Folder capabilities remain off in normal builds.
 See the [folder organization results](docs/results/2026-11-03-folder-organization.md).
 
 Single-client validation, 2026-11-03: interrupted uploads now resume after proving the original

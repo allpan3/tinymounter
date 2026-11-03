@@ -4,8 +4,8 @@ Date: 2026-11-03. Status: integration in progress; normal-build folder capabilit
 
 Signed Finder organization and recovery at all seven tested crash checkpoints now pass in one
 registered view. Item IDs, downloads and keeps survive unchanged contents. A concurrent edit
-retires a child whose reported creation time changes; genuine stale-save callbacks and
-overlapping-view recovery remain open. Folder capabilities stay disabled.
+retires a child whose reported creation time changes; genuine stale-save callbacks remain open.
+Recovery between two catalogs also passes. Folder capabilities stay disabled.
 
 ## Setup and evidence
 
@@ -162,5 +162,21 @@ inspection of the SMB attributes. Evidence includes `concurrent-*`, `textedit-sa
 
 `--overlap-checks` prepares the next candidate. A scoped `overlap-setup` request adds one second
 registered view through the normal controller. Snapshots and provider events cover both views,
-and catalog/domain crash checkpoints record both catalogs before the kill. These checks have
-not run yet. The earlier single-client pending move remains preserved separately.
+and catalog/domain crash checkpoints record both catalogs before the kill. The earlier
+single-client pending move remains preserved separately.
+
+## Recovery across two registered views
+
+Build 19 passes recovery after a crash between catalog updates and after the first domain
+completion. The first stop exports one catalog at the old path and the other at the new path.
+The second exports both catalogs at the new path, with only one domain marked finished.
+After SIGKILL and ordinary restart, both operations complete automatically in both views.
+
+The primary view preserves all 20 IDs and six downloaded copies. The second view preserves
+all 10 known IDs and two downloaded copies, including its inherited Keep Downloaded requests.
+Content versions, local file identities and digests survive, with no further fetch callbacks.
+Independent Linux inventories preserve all 20 objects and their contents, modes, owners and
+attributes. The known saved-file attribute change is already present in this baseline; these
+checks do not repair or excuse it. Required VM checks and the candidate build pass without
+Swift warnings. Evidence is `overlap-*` and the two corresponding `fault-hit-*` reports in
+`repair/`, plus the Linux `overlap-*-audit.json` reports.
