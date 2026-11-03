@@ -13,6 +13,8 @@ a signed save without adding Samba's hidden flag. The combined name/modification
 now succeeds. Reading protected parents before checkpointing their identity fixes a later
 cross-folder failure. Signed crash checks also retire moved-away or replaced roots in both
 views, reset their keeps and discover fresh IDs without reusing downloaded copies.
+An independent SMB Unicode respelling exposes a comparison error that leaves recovery pending;
+the literal-server-name repair passes focused tests and awaits signed validation.
 Folder capabilities remain off in normal builds.
 See the [folder organization results](docs/results/2026-11-03-folder-organization.md).
 

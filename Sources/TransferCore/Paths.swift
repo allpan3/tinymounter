@@ -82,4 +82,9 @@ public enum SMBName {
 
     /// Case-sensitive, unlike `NameKey`; only the normalization may differ.
     public static func same(_ lhs: String, _ rhs: String) -> Bool { key(lhs) == key(rhs) }
+
+    // Server listings are literal; normalize only the path the client sends.
+    public static func matchesStored(_ stored: String, requested: String) -> Bool {
+        Data(stored.utf8) == key(requested)
+    }
 }

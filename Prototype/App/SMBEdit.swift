@@ -798,7 +798,7 @@ extension SMBEdit: FolderMoveRemote {
         _ = try folderMoveMountIdentity()
         let parents = try protectRenameParents(source: source, destination: destination)
         for parent in parents {
-            guard SMBName.same(parent.name, RelativePath(parent.path)!.components.last ?? "") else {
+            guard SMBName.matchesStored(parent.name, requested: RelativePath(parent.path)!.components.last ?? "") else {
                 throw UploadError.unresolved
             }
         }
@@ -852,7 +852,7 @@ extension SMBEdit: FolderMoveRemote {
               let rootEntry = move.entries.first(where: { $0.item == move.item }), rootEntry.kind == .folder,
               let rootRelative = RelativePath(rootEntry.path), let rootPath = folder.appending(rootRelative),
               let root = try inspectFolderMoveRoot(path: rootPath.string),
-              SMBName.same(root.name, rootEntry.name) else { throw SourceFailure.versionChanged }
+              SMBName.matchesStored(root.name, requested: rootEntry.name) else { throw SourceFailure.versionChanged }
         var proofs: [String: CatalogFolderMoveProof] = [:]
         for entry in folderMoveOrdered(move.entries) {
             guard let path = folder.appending(RelativePath(entry.path)!),
@@ -1085,10 +1085,10 @@ extension SMBEdit: FolderMoveRemote {
                                    expected: EditFileIdentity?, moveRoot: Bool = false) throws -> FolderMoveCurrent? {
         let parent = path.components.dropLast().joined(separator: "/"), name = path.components.last!
         guard let entry = try folderMoveListing(parent).first(where: { NameKey($0.name) == NameKey(name) }),
-              expected == nil || (entry.identity == expected && SMBName.same(entry.name, name)) else {
+              expected == nil || (entry.identity == expected && SMBName.matchesStored(entry.name, requested: name)) else {
             return nil
         }
-        guard entry.kind == kind, SMBName.same(entry.name, name) else { throw UploadError.unresolved }
+        guard entry.kind == kind, SMBName.matchesStored(entry.name, requested: name) else { throw UploadError.unresolved }
         // Open the root with delete access before a read handle can deny that access.
         if moveRoot { _ = try inspectFolderMoveRoot(path: path.string) }
         let handle: Handle
@@ -1114,7 +1114,7 @@ extension SMBEdit: FolderMoveRemote {
         guard try folderMoveIdentity(values) == entry.identity,
               values[4] & 0x450 == (kind == .folder ? 0x10 : 0),
               let confirmed = try folderMoveListing(parent).first(where: { NameKey($0.name) == NameKey(name) }),
-              confirmed.identity == entry.identity, SMBName.same(confirmed.name, name) else {
+              confirmed.identity == entry.identity, SMBName.matchesStored(confirmed.name, requested: name) else {
             throw UploadError.unresolved
         }
         let native = try folderMoveFingerprint(kind: kind, values: values)

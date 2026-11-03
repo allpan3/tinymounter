@@ -1073,13 +1073,16 @@ final class FolderMoveTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(catalog.item(id: childID("Café", in: first))).deleted)
     }
 
-    func testSettlementCannotRetireAnotherNormalizationOfTheSameName() throws {
+    func testSettlementRetiresARespeltServerName() throws {
         var record = try prepare()
         remote.settlement = { try self.settlements($0, renamed: ["Café": "Cafe\u{301}"]) }
-        XCTAssertThrowsError(try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote)) {
-            XCTAssertEqual($0 as? UploadError, .invalidRequest)
-        }
-        XCTAssertNil(try saved().settlements)
+        try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote)
+        let view = try XCTUnwrap(record.views.first)
+        let cafe = try childID("Café", in: view)
+        let target = try record.latestTarget(domain: domain)
+        XCTAssertEqual(target.entries.filter(\.retired).map(\.item), [cafe])
+        try catalog.settleFolderMove(view.move, settlement: XCTUnwrap(record.settlements?.first).settlement)
+        XCTAssertTrue(try XCTUnwrap(catalog.item(id: cafe)).deleted)
     }
 
     func testRecoveryRetiresRenamedFilesAndDirectoryDescendantsAcrossViews() throws {
@@ -1110,13 +1113,30 @@ final class FolderMoveTests: XCTestCase {
         }
     }
 
-    func testRecoveryKeepsAChildListedInAnotherNormalization() throws {
+    func testRecoveryRejectsPreservationOfARespeltServerName() throws {
         var record = try prepare()
         try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote)
         let expected = try Dictionary(uniqueKeysWithValues: record.views.map {
             ($0.domain, try record.latestTarget(domain: $0.domain))
         })
         remote.refresh = { try self.refreshes($0, removed: ["deep"], spelled: ["Café": "Cafe\u{301}"]) }
+        XCTAssertThrowsError(try FolderMoveTransaction.replan(&record, outbox: outbox, expected: expected, remote: remote))
+        XCTAssertNil(try saved().recovery)
+        remote.refresh = { try self.refreshes($0, renamed: ["Café": "Cafe\u{301}"]) }
+        try FolderMoveTransaction.replan(&record, outbox: outbox, expected: expected, remote: remote)
+        let current = try XCTUnwrap(record.recovery?.first)
+        let cafe = try childID("Café", in: XCTUnwrap(record.views.first))
+        XCTAssertEqual(current.target.entries.filter(\.retired).map(\.item), [cafe])
+    }
+
+    func testRecoveryPreservesADecomposedCatalogNameWithAComposedServerName() throws {
+        try list(tree.id, [file("plain", 30), file("verified", 40), folder("Nested", 50), file("Cafe\u{301}", 70)])
+        var record = try prepare()
+        try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote)
+        let expected = try Dictionary(uniqueKeysWithValues: record.views.map {
+            ($0.domain, try record.latestTarget(domain: $0.domain))
+        })
+        remote.refresh = { try self.refreshes($0, removed: ["deep"], spelled: ["Cafe\u{301}": "Café"]) }
         try FolderMoveTransaction.replan(&record, outbox: outbox, expected: expected, remote: remote)
         let current = try XCTUnwrap(record.recovery?.first)
         let cafe = try childID("Café", in: XCTUnwrap(record.views.first))

@@ -9,6 +9,8 @@ and a genuine stale save publishes a separate conflict copy. Recovery between tw
 passes. Combined rename/modification-date replay and the parent-enumeration checkpoint repair
 pass signed checks. Crashes followed by an independent SMB move or replacement retire both
 views' old bindings and keeps; fresh items never inherit their downloaded bytes.
+An independent SMB Unicode respelling leaves recovery pending; its comparison repair awaits
+signed validation.
 Folder capabilities stay disabled.
 
 ## Setup and evidence
@@ -308,3 +310,22 @@ replacement objects differ. Neither clean run restores a timestamp. Evidence is
 `repair/check-parent-*`, `check-retirement-*`, `check-replacement-*` and the associated
 `fault-hit-*`/`fault-killed-*` records. Linux audits are `parent-listing-move-audit.json`,
 `retirement-smb-recovery-audit.json` and `replacement-smb-recovery-audit.json`.
+
+## Literal server spelling during recovery
+
+After a Settings checkpoint and SIGKILL, an independent libsmb2 client renames an NFC child
+to NFD without the app's path normalization. Its no-replace operation preserves the child's
+inode and complete digest; the parent has a stored creation time. Restart leaves the folder
+intent verified but pending with POSIX error 2. The old child ID and its downloaded copy remain.
+The adapter normalized both the requested path and the literal server entry, considered them
+equal, then tried to open the now-absent NFC pathname. This also disproves the earlier claim
+that no SMB client can distinguish those spellings.
+
+Folder-move admission, settlement and recovery now compare literal server names with the
+normalized requested pathname. Complete protected listings can retire the changed binding;
+they cannot preserve it merely because Unicode normalization makes the names equivalent.
+NFD catalog names still match NFC server names. The focused host suite passes 102 tests,
+including server-respelling retirement, refusal to preserve that binding, native catalog
+normalization and the special Unicode ranges the client sends unchanged. Signed validation
+is next. Evidence is `check-spelling-*`, `check-unicode-respelling.json` and the independent
+Linux name-byte and digest inspection in the same VM session.
