@@ -314,6 +314,8 @@ If the original is absent before publication begins, retain the local edit for r
 without creating a remote conflict copy. The single-client candidate applies M26's accepted
 missing-original policy to both connected and disconnected saves, without a separate offline
 record format. An already-started transaction still follows its recorded recovery evidence.
+Before starting a pending publication, also require its original live catalog binding. Once
+reconciliation retires that binding, a file returning at the old pathname cannot authorize retry.
 
 If another client occupies the original name after the old file moved, preserve that file,
 the old recovery file and the pending edit. Report the conflict. If the parent disappeared or

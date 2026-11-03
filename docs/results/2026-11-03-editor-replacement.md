@@ -12,7 +12,8 @@ normal deletion enablement. A timing heuristic cannot distinguish this from inde
 Ordinary Save and Save As passed for the tested TextEdit, Preview and Xcode documents. Repeated
 disconnected TextEdit saves survived intentional Quit/relaunch, main-app crash and extension
 termination. A competing server edit preserved both versions. A moved-original trial instead
-published an unwanted conflict copy; the repair below awaits signed verification. These checks
+published an unwanted conflict copy. Build 18 retains and exports the edit, but returning the
+original exposed a catalog-binding retry defect. The additional guard awaits signed verification. These checks
 do not complete the metadata, storage or offline-editing acceptance matrix.
 
 ## Setup and evidence
@@ -145,7 +146,23 @@ transactions still recover their own moved object from recorded evidence. Existi
 content conflicts retain their separate-copy behavior. This policy also applies to connected
 saves with missing originals; no offline schema flag is needed. Focused regression tests cover
 absence across reopening/retry, export, moved-original preservation and return, and an existing
-private stage. Signed verification of the repair is pending.
+private stage. Required VM checks pass with 647 tests, two optional skips and no Swift warnings
+in `results/replace-20261103/checks-missing-original.log`; build 18 also has no Swift warnings.
+
+Build 18 retained sequence 20 after Linux moved the original again. Reconnect and the normal
+Retry Pending Changes action created no stage or conflict copy and left the moved file unchanged.
+Export Local Copy produced all 47 expected bytes. The `check-editor-state-fixed-move-*`
+snapshots, `fixed-move-export-report.json` and Linux `fixed-move-{control,report}.json` record this.
+
+Returning the original then exposed a second defect. Reconciliation had tombstoned the old
+catalog item and assigned a new ID when its name returned. Retry published the save remotely,
+but catalog completion refused that new occupant. The record remained published with recovery
+artifacts. Evidence is the Linux `fixed-move-returned-audit.json` and app logs; no completion is
+claimed. Full snapshots waited in user-visible URL resolution, so queue-only snapshots omit
+that step explicitly. The app now validates the original catalog binding before beginning any
+pending publication, including Retry. A deleted binding stays local even if its pathname returns.
+Already-started recovery still uses its recorded evidence. A catalog regression test covers the
+read-only, deleted and returned-name cases. Signed verification of this guard remains pending.
 
 ## Remaining work and decision
 

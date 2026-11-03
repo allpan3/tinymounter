@@ -24,6 +24,7 @@ Settings hold from deletion-fault.json; see the M24 integration checklist.
 before app/server work. It requires --overlap-checks and --deletion-checks.
 --editor-checks exports local hashes, pending uploads and verified edit outbox state
 for check-editor-state-* requests, including while the fixture is disconnected.
+check-editor-state-queue-* omits local URL resolution when an unsettled publication blocks it.
 """
 import argparse
 from pathlib import Path

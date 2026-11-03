@@ -97,6 +97,30 @@ final class CatalogTests: XCTestCase {
         XCTAssertThrowsError(try catalog.rememberEditBase(receipt, expectedVersion: before.contentVersion))
     }
 
+    func testEditTargetRefusesReadOnlyAndDeletedBindingsEvenWhenTheNameReturns() throws {
+        let catalog = try makeCatalog()
+        try reconcile(catalog, [file("data")])
+        try catalog.setAllowsWriting(true)
+        let original = try child(catalog, "data")
+        let input = directory.appending(path: "input")
+        try Data("pending contents".utf8).write(to: input)
+        let outbox = try EditOutbox(directory: directory.appending(path: "Edits"))
+        let edit = try outbox.prepare(item: original.id, parent: root, path: XCTUnwrap(RelativePath("data")),
+                                     baseVersion: original.contentVersion, failOnConflict: false,
+                                     contents: input, progress: Progress())
+        try catalog.validateEditTarget(edit)
+        try catalog.setAllowsWriting(false)
+        XCTAssertThrowsError(try catalog.validateEditTarget(edit))
+        try catalog.setAllowsWriting(true)
+        try catalog.validateEditTarget(edit)
+        try reconcile(catalog, [])
+        XCTAssertThrowsError(try catalog.validateEditTarget(edit))
+        try reconcile(catalog, [file("data")])
+        XCTAssertNotEqual(try child(catalog, "data").id, original.id)
+        XCTAssertThrowsError(try catalog.validateEditTarget(edit))
+        try outbox.validateContents(edit)
+    }
+
     func testPublishedEditKeepsIdentityAndConflictCreatesSeparateItem() throws {
         let catalog = try makeCatalog()
         try reconcile(catalog, [file("data")])
