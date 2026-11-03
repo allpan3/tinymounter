@@ -568,6 +568,8 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 }
                 try FileManager.default.copyItem(at: contents, to: target)
                 staged = target
+                // File Provider delivers syncable attributes separately from the content snapshot.
+                try Staging.retainExtendedAttributes(attributes, at: target)
                 let message = try EditRequest(item: row.id, parent: item.parentItemIdentifier.rawValue,
                                                name: item.filename, baseVersion: base, staging: id,
                                                failOnConflict: options.contains(.failOnConflict))

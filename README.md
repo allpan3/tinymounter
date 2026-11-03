@@ -10,8 +10,12 @@ Finder Replace sends separate delete/create requests for both unopened and verif
 which fails the accepted replacement gate and blocks normal deletion enablement. The candidate
 refuses deletion and preserves both files through Finder's collision handling. A moved-original
 trial exposed unwanted conflict publication; the signed repair retains and exports the local edit.
-Returning the original exposed a catalog-binding retry defect; its guard awaits signed checks.
-OS restart, storage and broader metadata checks remain. See the
+The catalog-binding guard also passes signed moved, returned and deleted-original checks.
+Finder refuses eviction of an unsent TXT file while the app is quit; relaunch publishes the
+complete revision. An offline RTF save survives an app crash and preserves both conflicting
+versions. Recovery export retains the tested tags and resource fork, but omitted attributes
+delivered separately by macOS. The repair awaits signed verification. OS restart, low-space
+admission and broader metadata checks remain. See the
 [editor and replacement results](docs/results/2026-11-03-editor-replacement.md).
 
 Deletion, 2026-11-03: signed VM checks pass for refusal restoration, Finder's permanent warning
