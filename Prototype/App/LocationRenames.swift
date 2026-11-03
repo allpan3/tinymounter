@@ -142,14 +142,19 @@ extension LocationSource {
                     return (ready, folders)
                 }
                 for record in ready {
-                    completeRename(record) { result in
+                    completeRename(record) { [self] result in
                         if case .failure(let error) = result {
                             logger.error("rename_settings id=\(record.id.uuidString, privacy: .public) failed \(logFields(error), privacy: .public)")
+                        } else {
+                            renameRecovered()
                         }
                     }
                 }
                 for id in folders {
-                    do { try retryFolderMove(id) }
+                    do {
+                        try retryFolderMove(id)
+                        renameRecovered()
+                    }
                     catch {
                         if Self.renameSharingFailure(error) { sharingFailure = error }
                         logger.error("folder_move_retry id=\(id.uuidString, privacy: .public) failed \(logFields(error), privacy: .public)")

@@ -113,3 +113,17 @@ Build 15 and the required VM checks pass without Swift warnings. Evidence includ
 `fault-control-*`, `fault-hit-*`, `fault-killed-*`, `recovery-*` reports and
 `catalog-crash-recovery.log` in the repair directory. The failed first catalog audit remains;
 `replay.json` records the successful manual retry, not a claim of automatic recovery.
+
+Build 17 passes the required VM checks and the held-handle test. After the Settings checkpoint,
+a second process opens the fixture child for writing without changing bytes. The app is killed
+and restarted while that handle stays open. Recovery receives error 26 and schedules retries
+after 2, 4, 8 and 16 seconds. After the handle closes, the intent completes without manual retry.
+All 20 rows, six local copies, keeps and the independent server inventory match their baseline.
+The evidence is `sharing-hold-*`, `sharing-retry-*` and `recovery-settings*` in `repair/`.
+
+Finder still retains the failed callback after this server recovery. Its next rename carries
+the earlier metadata version and fails before any server change. The attempted finished-domain
+checkpoint therefore never fires; its failed Linux audit is preserved. Successful background
+recovery now also signals File Provider that the synchronization error is resolved, so macOS
+can replay the original callback and receive its completed receipt. This notification repair
+awaits a signed test.

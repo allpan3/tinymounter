@@ -777,6 +777,7 @@ final class LocationSource: @unchecked Sendable {
     /// Signals the domain's working set; `scheduleSignal` debounces it.
     private let signal: @Sendable ([String]) -> Void
     let renameSettings: @Sendable (RenameIntent) async throws -> Void
+    let renameRecovered: @Sendable () -> Void
     let deletionSettings: DeletionSettings?
     // The share lane owns these replies while settings completion awaits the main actor.
     var renameCompletions: [UUID: [RenameReply]] = [:]
@@ -821,6 +822,7 @@ final class LocationSource: @unchecked Sendable {
 
     init(domainID: String, folder: RelativePath, catalog: Catalog, access: ShareAccess,
          renameSettings: @escaping @Sendable (RenameIntent) async throws -> Void,
+         renameRecovered: @escaping @Sendable () -> Void = {},
          deletionSettings: DeletionSettings? = nil,
          signal: @escaping @Sendable ([String]) -> Void) {
         self.domainID = domainID
@@ -829,6 +831,7 @@ final class LocationSource: @unchecked Sendable {
         self.access = access
         self.signal = signal
         self.renameSettings = renameSettings
+        self.renameRecovered = renameRecovered
         self.deletionSettings = deletionSettings
         editNamespace.register(self)
     }
