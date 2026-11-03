@@ -5,7 +5,8 @@ in the normal build through `SourceReaderBridge.deletionEnabled = false`. The co
 compile the app and complete the signed checks below in `macOS VM 1` before enabling it.
 Host Swift package checks do not verify Finder, XPC, signing or controller lifecycle behavior.
 
-This is a handoff procedure, not a results log. Use the disposable loopback Samba fixture.
+This is a handoff procedure, not a results log. Use the approved disposable Samba fixture;
+the current single-client candidate uses the Linux VM fixture from the November 3 checks.
 Record runtime evidence in the existing [deletion results](results/2026-10-29-deletion-protocol.md)
 and update the README after the run. Leave the original NAS and physical-Mac installation alone.
 
@@ -46,6 +47,12 @@ and update the README after the run. Leave the original NAS and physical-Mac ins
   recoverable after a remote error.
 
 ## Prepare the VM candidate
+
+`Tools/prepare-folder-candidate.py --enable --overlap-checks --deletion-checks OUTPUT`
+reuses the existing signed folder fixture and exports deletion callbacks and both views'
+durable deletion records. Add `--enable-deletion` for the enabled comparison. It leaves the
+normal-build gate unchanged; use unique `check-` snapshot labels and the existing local
+evidence picker. The current candidate is still a VM-only transport experiment.
 
 1. Integrate the commits and run `Tools/run-checks.sh` in the VM. App-target changes have not
    been compiled on the host. No generator changes are needed because all production changes
