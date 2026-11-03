@@ -28,8 +28,6 @@ final class CatalogItem: NSObject, NSFileProviderItem {
     var documentSize: NSNumber? { isFolder ? nil : NSNumber(value: row.size) }
     var contentModificationDate: Date? { row.parentID == nil ? nil : row.modificationDate }
     var capabilities: NSFileProviderItemCapabilities {
-        if row.name == "copy-writing-probe.txt" { return [.allowsReading, .allowsWriting] }
-        if row.name == "copy-rename-probe.txt" { return [.allowsReading, .allowsRenaming] }
         var result = organizationCapabilities
         if SourceReaderBridge.deletionEnabled, row.parentID != nil, allowsEditing,
            FileRenameRequest.supportsName(row.name),
@@ -53,12 +51,12 @@ final class CatalogItem: NSObject, NSFileProviderItem {
         if allowsEditing {
             return [.allowsReading, .allowsRenaming, .allowsReparenting, .allowsWriting]
         }
-        return row.allowsWriting ? [.allowsReading, .allowsRenaming] : .allowsReading
+        // Read-only mode preserves copyability; removing write capability makes copies immutable.
+        return row.allowsWriting ? [.allowsReading, .allowsRenaming] : [.allowsReading, .allowsWriting]
     }
     var fileSystemFlags: NSFileProviderFileSystemFlags {
-        if row.name == "copy-writing-probe.txt" { return .userReadable }
         if isFolder { return row.allowsWriting ? [.userReadable, .userWritable, .userExecutable] : [.userReadable, .userExecutable] }
-        return [.userReadable, .userWritable]
+        return allowsEditing ? [.userReadable, .userWritable] : .userReadable
     }
     /// While paused, kept files are lazy, so the system starts no eager downloads (plan §6).
     var contentPolicy: NSFileProviderContentPolicy {

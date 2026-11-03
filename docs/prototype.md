@@ -535,3 +535,9 @@ Recovery export now defaults to Desktop and requires a local filesystem. The des
 checked before exclusive creation, and checked again through the open file before copying.
 Network destinations are refused before creation. Existing files are not replaced.
 Signed VM validation is pending.
+
+Read-only regular files advertise the File Provider write capability but retain read-only
+POSIX permissions, read-only parent folders and both provider/app mutation guards. On the
+tested macOS build, omitting that capability makes exported copies immutable and breaks
+Finder Keep Both. The isolated capability trial copies successfully without allowing a
+TextEdit save back to the read-only location. Rename capability remains absent.
