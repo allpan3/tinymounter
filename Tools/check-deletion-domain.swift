@@ -2,17 +2,7 @@ import FileProvider
 import Foundation
 
 // This fixture probe refuses every deletion before it reaches the app or server.
-extension FileProviderExtension: NSFileProviderDomainState {
-    var domainVersion: NSFileProviderDomainVersion {
-        let sequence = (try? catalog.read { try $0.counts().lastSeq }) ?? 0
-        precondition((0...10_000).contains(sequence))
-        var version = NSFileProviderDomainVersion()
-        for _ in 0..<sequence { version = version.next() }
-        return version
-    }
-
-    var userInfo: [AnyHashable: Any] { [:] }
-
+extension FileProviderExtension {
     func probeDeletionDomain(_ identifier: NSFileProviderItemIdentifier,
                              base: NSFileProviderItemVersion, request: NSFileProviderRequest,
                              reply: @escaping (Error?) -> Void) -> Progress {

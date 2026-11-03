@@ -51,6 +51,7 @@ extension LocationSource {
     func deleteItem(_ request: DeletionRequest, recursive: Bool, progress: Progress,
                     started: @escaping @Sendable () -> Void, reply: @escaping DeletionReply) {
         access.enqueue { [self] in
+            var request = request
             started()
             var recovery: LocationDeletionRecovery?
             defer {
@@ -59,6 +60,7 @@ extension LocationSource {
             do {
                 try requireDeletionRecoverySource()
                 guard deletionSettings != nil else { throw UploadError.readOnly }
+                if let previous = try replayedDeletion(request) { request = previous.plan.request }
                 if let running = deletionRecoveries.values.first(where: { $0.record.plan.request == request }) {
                     joinDeletionRecovery(running, progress: progress, reply: reply)
                     return
@@ -103,6 +105,7 @@ extension LocationSource {
                 }
                 // A process can exit after settlement is durable but before Finder receives its signal.
                 if records.contains(where: { $0.plan.owner == domainID && $0.isComplete }) {
+                    try advanceDeletionDomainVersion()
                     deletionRecovered()
                 }
             } catch {
@@ -320,6 +323,7 @@ extension LocationSource {
             try requireDeletionRecoverySource()
             try result.get()
             do {
+                try advanceDeletionDomainVersion()
                 try finishDeletionSettlementOnLane(&recovery.record, afterKeepPathCleanup: &attempt)
             } catch {
                 recovery.attempt = attempt
@@ -348,6 +352,14 @@ extension LocationSource {
                 recovery.scheduled = nil
                 self.continueDeletionOnLane(recovery, resume: resume)
             }
+        }
+    }
+
+    private func advanceDeletionDomainVersion() throws {
+        try withCatalog { catalog in
+            guard let data = try catalog.providerDomainVersion() else { throw ItemDeletionError.invalidRequest }
+            let next = try ProviderDomainVersion.decode(data).next()
+            try catalog.setProviderDomainVersion(ProviderDomainVersion.encode(next))
         }
     }
 

@@ -1,4 +1,5 @@
 import Darwin
+import FileProvider
 import Foundation
 
 // Replace only TinyMounterApp.swift in a private signed archive; see the companion runbook.
@@ -662,7 +663,15 @@ private final class CancellationProbe: @unchecked Sendable {
 
     private func request(_ path: String) throws -> DeletionRequest {
         let item = try row(path)
-        return DeletionRequest(item: item.id, contentVersion: item.contentVersion, metadataVersion: item.metadataVersion)
+        let event = try source.withCatalog { catalog in
+            let current = try catalog.providerDomainVersion().map(ProviderDomainVersion.decode)
+                ?? NSFileProviderDomainVersion()
+            let data = try ProviderDomainVersion.encode(current.next())
+            try catalog.setProviderDomainVersion(data)
+            return data
+        }
+        return DeletionRequest(item: item.id, contentVersion: item.contentVersion,
+                               metadataVersion: item.metadataVersion, eventVersion: event)
     }
 
     private func start(_ request: DeletionRequest, progress: Progress, label: String,

@@ -277,18 +277,20 @@ def main():
         position = content.index(" -> Progress {\n", start) + len(" -> Progress {\n")
         content = content[:position] + '''        let completionHandler = M22FinderProbe.deletion(
             domain: domain.identifier.rawValue, item: identifier, base: version,
-            options: options, reply: completionHandler)
+            event: request.domainVersion, options: options, reply: completionHandler)
 ''' + content[position:]
         content += '''
 extension M22FinderProbe {
     static func deletion(domain: String, item: NSFileProviderItemIdentifier,
-                         base: NSFileProviderItemVersion, options: NSFileProviderDeleteItemOptions,
+                         base: NSFileProviderItemVersion, event: NSFileProviderDomainVersion?,
+                         options: NSFileProviderDeleteItemOptions,
                          reply: @escaping (Error?) -> Void) -> (Error?) -> Void {
         guard let config = selected(domain) else { return reply }
         let call = UUID()
         emit(config, call: call, kind: "delete-begin", fields: ["item": item.rawValue,
             "baseContent": base.contentVersion.base64EncodedString(),
             "baseMetadata": base.metadataVersion.base64EncodedString(),
+            "eventVersion": (try? event.map { try ProviderDomainVersion.encode($0).base64EncodedString() }) ?? "missing",
             "recursive": String(options.contains(.recursive)), "options": String(options.rawValue)])
         return { error in
             let restored = (error as NSError?)?.userInfo[NSFileProviderErrorItemKey] as? NSFileProviderItem
@@ -310,6 +312,21 @@ extension M22FinderProbe {
         content += "\n" + (root / "Tools/check-deletion-domain.swift").read_text()
         app.write_text(replace(app.read_text(),
             '                        for (index, view) in try M22FinderProbe.configs(config).enumerated() {',
+            '                        if ["check-domain-advance", "check-domain-reject"].contains(request.label) {\n'
+            '                            guard let source = sources[config.domain] else {\n'
+            '                                throw LocationError.catalogClosed\n'
+            '                            }\n'
+            '                            try await Self.offMain {\n'
+            '                                try source.withCatalog { catalog in\n'
+            '                                    guard let data = try catalog.providerDomainVersion() else {\n'
+            '                                        throw CocoaError(.fileReadCorruptFile)\n'
+            '                                    }\n'
+            '                                    let next = try ProviderDomainVersion.decode(data).next()\n'
+            '                                    try catalog.setProviderDomainVersion(ProviderDomainVersion.encode(next))\n'
+            '                                }\n'
+            '                            }\n'
+            '                            source.signalFolders([])\n'
+            '                        }\n'
             '                        if request.label == "check-domain-reject" {\n'
             '                            try M22FinderProbe.save(true,\n'
             '                                to: channel.appending(path: "domain-reject"))\n'

@@ -12,7 +12,7 @@ private enum ReadAheadPolicy {
 }
 
 final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, NSFileProviderPartialContentFetching, NSFileProviderServicing,
-                                    NSFileProviderCustomAction {
+                                    NSFileProviderCustomAction, NSFileProviderDomainState {
     /// First read by the first init, before this process can stage anything.
     private static let processStart = Date()
 
@@ -35,6 +35,20 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
     private let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "fetch")
     private let actionLogger = Logger(subsystem: "dev.tinymounter.prototype", category: "actions")
     private let catalogLogger = Logger(subsystem: "dev.tinymounter.prototype", category: "catalog")
+
+    var domainVersion: NSFileProviderDomainVersion {
+        do {
+            guard let data = try catalog.read({ try $0.providerDomainVersion() }) else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            return try ProviderDomainVersion.decode(data)
+        } catch {
+            catalogLogger.error("domain_version unavailable")
+            return NSFileProviderDomainVersion()
+        }
+    }
+
+    var userInfo: [AnyHashable: Any] { [:] }
 
     required init(domain: NSFileProviderDomain) {
         self.domain = domain
@@ -598,13 +612,15 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             do {
                 guard !progress.isCancelled else { throw TransferError.cancelled }
                 guard identifier != .rootContainer,
+                      let eventVersion = request.domainVersion,
                       let content = String(data: version.contentVersion, encoding: .utf8),
                       let metadata = String(data: version.metadataVersion, encoding: .utf8) else {
                     throw NSFileProviderError(.deletionRejected)
                 }
                 // Replay precedes current-path and permission checks in the app.
                 guard let message = try? DeleteItemRequest(item: identifier.rawValue, contentVersion: content,
-                    metadataVersion: metadata, recursive: options.contains(.recursive)) else {
+                    metadataVersion: metadata, eventVersion: ProviderDomainVersion.encode(eventVersion),
+                    recursive: options.contains(.recursive)) else {
                     throw NSFileProviderError(.deletionRejected)
                 }
                 try sourceReader.deleteItem(message, progress: progress)

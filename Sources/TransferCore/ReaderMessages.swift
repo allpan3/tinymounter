@@ -2,7 +2,7 @@ import Foundation
 
 /// Bounded JSON between the extension and the app; source values are never logged.
 public enum ReaderMessage {
-    public static let maxBytes = 4096
+    public static let maxBytes = 8192
 
     /// The catalog's item IDs: the root constant, or a UUID string as `UUID().uuidString` writes it.
     public static func isItemID(_ id: String) -> Bool {
@@ -10,7 +10,9 @@ public enum ReaderMessage {
     }
 
     public static func encode(_ message: some Encodable) throws -> Data {
-        let data = try JSONEncoder().encode(message)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .withoutEscapingSlashes
+        let data = try encoder.encode(message)
         guard data.count <= maxBytes else { throw CocoaError(.fileReadCorruptFile) }
         return data
     }
@@ -213,19 +215,22 @@ public struct DeleteItemRequest: Codable, Equatable, Sendable {
     public let item: String
     public let contentVersion: String
     public let metadataVersion: String
+    public let eventVersion: Data
     public let recursive: Bool
 
     public init(id: UUID = UUID(), item: String, contentVersion: String, metadataVersion: String,
-                recursive: Bool) throws {
+                eventVersion: Data, recursive: Bool) throws {
         guard ReaderMessage.isItemID(item), item != Catalog.rootItemID,
               !contentVersion.isEmpty, contentVersion.utf8.count <= 128,
-              metadataVersion.utf8.count <= 20, Int64(metadataVersion).map({ $0 >= 0 }) == true else {
+              metadataVersion.utf8.count <= 20, Int64(metadataVersion).map({ $0 >= 0 }) == true,
+              !eventVersion.isEmpty, eventVersion.count <= Catalog.maxProviderDomainVersionBytes else {
             throw CocoaError(.fileReadCorruptFile)
         }
         self.id = id
         self.item = item
         self.contentVersion = contentVersion
         self.metadataVersion = metadataVersion
+        self.eventVersion = eventVersion
         self.recursive = recursive
     }
 
@@ -234,6 +239,7 @@ public struct DeleteItemRequest: Codable, Equatable, Sendable {
         try self.init(id: values.decode(UUID.self, forKey: .id), item: values.decode(String.self, forKey: .item),
                       contentVersion: values.decode(String.self, forKey: .contentVersion),
                       metadataVersion: values.decode(String.self, forKey: .metadataVersion),
+                      eventVersion: values.decode(Data.self, forKey: .eventVersion),
                       recursive: values.decode(Bool.self, forKey: .recursive))
     }
 }

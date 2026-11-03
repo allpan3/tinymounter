@@ -752,3 +752,29 @@ Finder can restore the item. Verify replay and a fresh user action before changi
 Sources are the macOS SDK headers `NSFileProviderRequest.h` and
 `NSFileProviderReplicatedExtension.h`, protocol `NSFileProviderDomainState`. Actor flags in the
 request are explicitly unavailable for create/modify/delete and cannot distinguish replay.
+
+### Stable deletion events, 2026-11-03
+
+Signed build 33 passes the non-mutating domain-version probe in macOS VM 1 against the same
+Samba 4.19.5/ext4 fixture, with the existing catalogs and downloads. Every deletion callback
+was intercepted before app or server work. The original event version survived target and
+neighbor metadata changes, retry signals and app/extension restart. Terminal rejection restored
+the selected file. A subsequent explicit Finder Delete carried a newer event version. All
+39 server objects survived the independent Linux audit. Versions were compared after secure
+Apple decoding; archive byte equality does not establish semantic equality.
+
+The implementation now persists the current Apple domain version in each catalog and requires
+the original event archive in deletion IPC and durable plans. Replay uses owner, item and event,
+ignoring refreshed item bases. Fresh admission still checks those bases. Settlement advances
+the domain version before completion, and launch recovery republishes completed outcomes before
+signaling retry. It no longer changes item metadata merely to separate deletion requests.
+Missing, malformed, future or ambiguously matched events refuse mutation. Old events for other
+items remain eligible for first admission. Fresh test state is required; earlier evidence and
+pending records must remain preserved. Integrated VM checks and signed Stop/replay verification
+are pending, and the normal deletion gate remains off.
+
+Evidence includes `check-domain-baseline.json`, `check-domain-changed.json`,
+`check-domain-retry.json`, `check-domain-restarted.json`, `check-domain-reject.json`,
+`check-domain-new-action.json`, their callback events, and the independent
+`deletion-domain-refusals-audit.json`. This result validates the event protocol, not the complete
+production deletion recovery path.

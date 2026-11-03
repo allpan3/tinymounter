@@ -18,6 +18,58 @@ final class CatalogTests: XCTestCase {
         try FileManager.default.removeItem(at: directory)
     }
 
+    func testProviderDomainVersionPersistsWithoutChangingCatalogItems() throws {
+        var catalog: Catalog? = try makeCatalog()
+        XCTAssertNil(try catalog!.providerDomainVersion())
+        try reconcile(catalog!, [file("data")])
+        let before = try dump(catalog!), anchor = try catalog!.currentAnchor()
+        let archive = Data(repeating: 0xa5, count: 4096)
+        try catalog!.setProviderDomainVersion(archive)
+        XCTAssertEqual(try dump(catalog!), before)
+        XCTAssertEqual(try catalog!.currentAnchor(), anchor)
+        catalog = nil
+        let reader = try Catalog.open(at: url("catalog"), domainID: "domain-A")
+        XCTAssertEqual(try reader.providerDomainVersion(), archive)
+        catalog = try Catalog.openWriter(at: url("catalog"), domainID: "domain-A")
+        XCTAssertEqual(try catalog!.providerDomainVersion(), archive)
+        let next = Data([0x01])
+        try catalog!.setProviderDomainVersion(next)
+        XCTAssertEqual(try reader.providerDomainVersion(), next)
+        XCTAssertEqual(try dump(catalog!), before)
+        XCTAssertEqual(try catalog!.currentAnchor(), anchor)
+    }
+
+    func testInvalidProviderDomainVersionsAndReadOnlyWritesPreserveStoredValue() throws {
+        let catalog = try makeCatalog(), archive = Data([0x01, 0x02])
+        try catalog.setProviderDomainVersion(archive)
+        for invalid in [Data(), Data(repeating: 1, count: 4097)] {
+            XCTAssertThrowsError(try catalog.setProviderDomainVersion(invalid)) {
+                XCTAssertEqual($0 as? CatalogError, .unsupportedSchema)
+            }
+            XCTAssertEqual(try catalog.providerDomainVersion(), archive)
+        }
+        let reader = try Catalog.open(at: url("catalog"), domainID: "domain-A")
+        XCTAssertThrowsError(try reader.setProviderDomainVersion(Data([0x03])))
+        XCTAssertEqual(try catalog.providerDomainVersion(), archive)
+    }
+
+    func testMalformedPersistedProviderDomainVersionsAreUnavailable() throws {
+        let catalog = try makeCatalog()
+        for value in ["X''", "zeroblob(4097)", "'not-a-blob'"] {
+            try catalog.database.execute("UPDATE meta SET provider_domain_version = \(value)", operation: "test")
+            XCTAssertThrowsError(try catalog.providerDomainVersion(), value)
+            XCTAssertThrowsError(try Catalog.open(at: url("catalog"), domainID: "domain-A"), value)
+            XCTAssertThrowsError(try Catalog.openWriter(at: url("catalog"), domainID: "domain-A"), value)
+        }
+    }
+
+    func testCatalogWithoutProviderDomainVersionColumnIsUnavailable() throws {
+        let catalog = try makeCatalog()
+        try catalog.database.execute("ALTER TABLE meta DROP COLUMN provider_domain_version", operation: "test")
+        XCTAssertThrowsError(try Catalog.open(at: url("catalog"), domainID: "domain-A"))
+        XCTAssertThrowsError(try Catalog.openWriter(at: url("catalog"), domainID: "domain-A"))
+    }
+
     func testStrongRevisionKeepsItemAndKeepRequestButExternalChangeInvalidatesIt() throws {
         let catalog = try makeCatalog()
         try reconcile(catalog, [file("data")])

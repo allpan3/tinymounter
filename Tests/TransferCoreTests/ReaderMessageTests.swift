@@ -7,7 +7,8 @@ final class ReaderMessageTests: XCTestCase {
 
     func testDeletionMessagesBindVersionAndRecursiveIntentWithoutPaths() throws {
         for recursive in [true, false] {
-            let request = try DeleteItemRequest(item: item, contentVersion: "v1", metadataVersion: "7", recursive: recursive)
+            let request = try DeleteItemRequest(item: item, contentVersion: "v1", metadataVersion: "7",
+                                                eventVersion: Data([1]), recursive: recursive)
             let data = try ReaderMessage.encode(request)
             XCTAssertEqual(try ReaderMessage.decode(DeleteItemRequest.self, from: data), request)
             XCTAssertLessThan(data.count, ReaderMessage.maxBytes)
@@ -17,11 +18,13 @@ final class ReaderMessageTests: XCTestCase {
     }
 
     func testDeletionMessagesRejectRootsPathsAndInvalidVersionsAtDecode() throws {
-        let request = try DeleteItemRequest(item: item, contentVersion: "v1", metadataVersion: "7", recursive: true)
+        let request = try DeleteItemRequest(item: item, contentVersion: "v1", metadataVersion: "7",
+                                            eventVersion: Data([1]), recursive: true)
         let original = try XCTUnwrap(JSONSerialization.jsonObject(with: ReaderMessage.encode(request)) as? [String: Any])
         let invalid: [(String, Any)] = [("item", Catalog.rootItemID), ("item", "folder/file"),
             ("item", item.lowercased()), ("contentVersion", ""), ("contentVersion", String(repeating: "x", count: 129)),
             ("metadataVersion", "-1"), ("metadataVersion", "unknown"), ("metadataVersion", String(repeating: "1", count: 21)),
+            ("eventVersion", ""), ("eventVersion", Data(repeating: 1, count: 4097).base64EncodedString()),
             ("recursive", "yes")]
         for (key, value) in invalid {
             var changed = original
@@ -29,10 +32,27 @@ final class ReaderMessageTests: XCTestCase {
             XCTAssertThrowsError(try ReaderMessage.decode(DeleteItemRequest.self,
                 from: JSONSerialization.data(withJSONObject: changed)), key)
         }
-        var missing = original
-        missing["recursive"] = nil
+        for key in ["recursive", "eventVersion"] {
+            var missing = original
+            missing[key] = nil
+            XCTAssertThrowsError(try ReaderMessage.decode(DeleteItemRequest.self,
+                from: JSONSerialization.data(withJSONObject: missing)), key)
+        }
+    }
+
+    func testDeletionEventArchiveFitsWithinTheBoundedEnvelope() throws {
+        let event = Data(repeating: 0xff, count: 4096)
+        let request = try DeleteItemRequest(item: item, contentVersion: String(repeating: "v", count: 128),
+            metadataVersion: String(Int64.max), eventVersion: event, recursive: true)
+        let data = try ReaderMessage.encode(request)
+        XCTAssertLessThanOrEqual(data.count, ReaderMessage.maxBytes)
+        XCTAssertEqual(try ReaderMessage.decode(DeleteItemRequest.self, from: data), request)
         XCTAssertThrowsError(try ReaderMessage.decode(DeleteItemRequest.self,
-            from: JSONSerialization.data(withJSONObject: missing)))
+            from: padded(data, to: ReaderMessage.maxBytes + 1)))
+        for invalid in [Data(), Data(repeating: 1, count: 4097)] {
+            XCTAssertThrowsError(try DeleteItemRequest(item: item, contentVersion: "v1", metadataVersion: "7",
+                eventVersion: invalid, recursive: true))
+        }
     }
 
     func testEditMessagesKeepBaseAndConflictPolicyAndRejectUnsafePaths() throws {

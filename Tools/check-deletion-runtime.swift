@@ -1,5 +1,6 @@
 import CryptoKit
 import Darwin
+import FileProvider
 import Foundation
 
 // Replace TinyMounterApp.swift only in an isolated signed archive; the runbook is in the .py file.
@@ -1228,8 +1229,15 @@ private final class M24Probe: @unchecked Sendable {
 
     private func deletionRequest(_ source: LocationSource, _ path: String) throws -> DeletionRequest {
         let selected = try catalogRow(source, path)
+        let event = try source.withCatalog { catalog in
+            let current = try catalog.providerDomainVersion().map(ProviderDomainVersion.decode)
+                ?? NSFileProviderDomainVersion()
+            let data = try ProviderDomainVersion.encode(current.next())
+            try catalog.setProviderDomainVersion(data)
+            return data
+        }
         return DeletionRequest(item: selected.id, contentVersion: selected.contentVersion,
-                               metadataVersion: selected.metadataVersion)
+                               metadataVersion: selected.metadataVersion, eventVersion: event)
     }
 
     private func full(_ path: String) throws -> RelativePath {

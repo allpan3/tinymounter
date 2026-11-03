@@ -504,7 +504,9 @@ final class DeletionFixture {
     var neighborItems: [String: String] = [:]
 
     var outboxDirectory: URL { directory.appending(path: "Deletions", directoryHint: .isDirectory) }
-    var request: DeletionRequest { DeletionRequest(item: items["Docs/Tree"]!, contentVersion: "v1", metadataVersion: "7") }
+    var request: DeletionRequest {
+        DeletionRequest(item: items["Docs/Tree"]!, contentVersion: "v1", metadataVersion: "7", eventVersion: Data([1]))
+    }
 
     init() throws {
         directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
@@ -579,7 +581,7 @@ final class DeletionFixture {
 
     func prepare(_ selected: String = "Docs/Tree", recursive: Bool = true) throws -> PendingDeletion {
         let request = selected == "Docs/Tree" ? self.request
-            : DeletionRequest(item: items[selected]!, contentVersion: "v1", metadataVersion: "7")
+            : DeletionRequest(item: items[selected]!, contentVersion: "v1", metadataVersion: "7", eventVersion: Data([1]))
         return try outbox.prepare(endpoint: endpoint, owner: owner, request: request, traversal: traversal(selected),
                                   views: views(selected: selected), protectedRoots: [], recursive: recursive)
     }

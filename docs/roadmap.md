@@ -251,7 +251,9 @@ Dismiss Notice actions. November 3 VM checks pass for the app build, refusal res
 Finder's permanent warning and Cancel, verified and unopened files, and nested folders.
 Protected-parent checkpoints account for Samba's synthetic creation-time changes and pass signed
 restart, lost-checkpoint and replacement-refusal checks. Required VM checks pass with 635 tests.
-Concurrency, recovery UI and controller lifecycle checks remain. Deletion stays disabled in the normal build. Follow the
+Delayed Settings completion and explicit Retry pass. Stop Deleting exposed unsafe rebasing of
+the callback's item metadata. The domain-version protocol probe passes; the integrated repair
+and remaining lifecycle checks are pending. Deletion stays disabled in the normal build. Follow the
 [integration checklist](m24-integration-checklist.md) before enablement.
 
 The supported write boundary remains folders whose writers use SMB and leave tinymounter's

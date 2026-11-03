@@ -8,7 +8,8 @@ Samba creation-time changes and survive a process restart. A lost checkpoint ret
 a replacement survives replay. All 635 VM tests and required checks pass. Settings, concurrency
 and remaining recovery checks are in progress. Stop Deleting exposed a replay safety defect:
 Finder retried with refreshed metadata and the candidate treated it as a new deletion.
-A domain-version protocol probe is in progress; deletion remains unsafe to enable.
+A signed protocol probe now distinguishes the original event from a new user action across
+metadata changes and restart. The integrated replay repair awaits VM checks and signed testing.
 Deletion remains disabled in normal builds. See the
 [deletion results](docs/results/2026-10-29-deletion-protocol.md#finder-deletion-and-parent-checkpoints-2026-11-03).
 

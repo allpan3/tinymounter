@@ -1045,7 +1045,7 @@ final class LocationController {
                       let folder = RelativePath(record.folder) else { throw CocoaError(.fileReadCorruptFile) }
                 let catalog = try Catalog.openWriter(at: SharedContainer.catalogURL(domainID: record.domainID),
                                                      domainID: record.domainID)
-                let source = makeSource(record, folder: folder, grant: grant, catalog: catalog)
+                let source = try makeSource(record, folder: folder, grant: grant, catalog: catalog)
                 sources[record.domainID] = source
                 // Pause Downloads ends with the app process that set it. If it stays, offer Resume.
                 if !Self.pause(source, false) { paused = true }
@@ -1059,7 +1059,12 @@ final class LocationController {
     }
 
     private func makeSource(_ record: LocationRecord, folder: RelativePath, grant: ServerGrant,
-                            catalog: Catalog) -> LocationSource {
+                            catalog: Catalog) throws -> LocationSource {
+        if let version = try catalog.providerDomainVersion() {
+            _ = try ProviderDomainVersion.decode(version)
+        } else {
+            try catalog.setProviderDomainVersion(ProviderDomainVersion.encode(NSFileProviderDomainVersion()))
+        }
         offlineVerification[record.domainID] = nil
         offlineGeneration[record.domainID] = nil
         let domain = domain(for: record)
@@ -1488,7 +1493,7 @@ final class LocationController {
                                   grant: ServerGrant) async throws -> LocationSource {
         let url = try SharedContainer.catalogURL(domainID: record.domainID)
         try FileManager.default.createDirectory(at: SharedContainer.catalogsDirectory(), withIntermediateDirectories: true)
-        let source = makeSource(record, folder: folder, grant: grant,
+        let source = try makeSource(record, folder: folder, grant: grant,
                                 catalog: try Catalog.create(at: url, domainID: record.domainID, rootName: record.name))
         do {
             let receipt = try await source.list(Catalog.rootItemID, requestID: UUID())
