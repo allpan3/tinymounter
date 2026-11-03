@@ -109,9 +109,12 @@ final class SourceReaderHost {
 private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchecked Sendable {
     private final class Job: @unchecked Sendable {
         let progress = Progress()
+        let isDeletion: Bool
         var staging: URL?
         /// Bytes last sent to the extension; only the progress queue touches it.
         var reported: Int64 = 0
+
+        init(isDeletion: Bool = false) { self.isDeletion = isDeletion }
     }
     static let maxJobs = 4
     private let domainID: String
@@ -315,7 +318,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
         do {
             let request = try ReaderMessage.decode(DeleteItemRequest.self, from: data)
             guard let source else { throw LocationError.catalogClosed }
-            let job = Job()
+            let job = Job(isDeletion: true)
             job.progress.totalUnitCount = Int64.max
             try lock.withLock {
                 guard !closed, jobs[request.id] == nil else { throw UploadError.pendingWrites }
@@ -345,7 +348,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
         }
         switch DeletionFailure.classify(error) {
         case .changed, .replaced, .moved, .parentChanged, .unsupported, .sharingViolation,
-             .accessDenied, .cannotDelete, .readOnly:
+             .accessDenied, .cannotDelete, .readOnly, .stopped:
             return NSFileProviderError(.deletionRejected) as NSError
         case .directoryNotEmpty: return NSFileProviderError(.directoryNotEmpty) as NSError
         case .busy: return CocoaError(.xpcConnectionReplyInvalid) as NSError
@@ -406,10 +409,17 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
         }
     }
 
+    func cancelDeletion(_ requestID: String) {
+        guard let id = UUID(uuidString: requestID),
+              let job = lock.withLock({ jobs[id] }), job.isDeletion else { return }
+        job.progress.cancel()
+    }
+
     func release(_ requestID: String) {
         guard let id = UUID(uuidString: requestID) else { return }
         let job = lock.withLock { jobs.removeValue(forKey: id) }
-        job?.progress.cancel()
+        // Losing an XPC waiter must not turn a durable deletion into a user-requested Stop.
+        if let job, !job.isDeletion { job.progress.cancel() }
         space.end(id)
         if let url = job?.staging { try? FileManager.default.removeItem(at: url) }
     }

@@ -14,6 +14,7 @@ import FileProvider
     func renameFile(_ request: Data, reply: @escaping (Data?, NSError?) -> Void)
     func moveFolder(_ request: Data, reply: @escaping (Data?, NSError?) -> Void)
     func deleteItem(_ request: Data, reply: @escaping (Data?, NSError?) -> Void)
+    func cancelDeletion(_ requestID: String)
     func release(_ requestID: String)
 }
 

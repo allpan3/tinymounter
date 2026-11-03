@@ -255,6 +255,7 @@ final class SourceReaderService: NSObject, NSFileProviderServiceSource, NSXPCLis
         lock.withLock { waiting[id] = response }
         defer {
             lock.withLock { waiting[id] = nil }
+            if progress.isCancelled { proxy.cancelDeletion(id) }
             proxy.release(id)
         }
         proxy.deleteItem(try ReaderMessage.encode(request)) { data, error in
