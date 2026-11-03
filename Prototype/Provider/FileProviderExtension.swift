@@ -437,9 +437,11 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                                   options: options, completion: completionHandler)
         }
         let organization: NSFileProviderItemFields = [.filename, .parentItemIdentifier]
+        let organizationAndDate = organization.union(.contentModificationDate)
         let folderOrganization = SourceReaderBridge.folderOrganizationEnabled && Self.kind(of: item) == .folder
             && (try? catalog.liveRow(item.itemIdentifier.rawValue).allowsWriting) == true
-        if !changedFields.isEmpty, changedFields.subtracting(organization).isEmpty,
+        if !changedFields.intersection(organization).isEmpty,
+           changedFields.subtracting(organizationAndDate).isEmpty,
            newContents == nil, Self.kind(of: item) == .file || folderOrganization {
             return organizeItem(item, baseVersion: version, changedFields: changedFields, completion: completionHandler)
         }
@@ -489,7 +491,10 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         let progress = Progress(totalUnitCount: Int64.max)
         let once = Once()
         let finish = { (item: NSFileProviderItem?, error: Error?) in
-            if once.claim() { completion(item, [], false, error) }
+            if once.claim() {
+                let pending = changedFields.subtracting([.filename, .parentItemIdentifier])
+                completion(item, error == nil ? pending : [], false, error)
+            }
         }
         progress.cancellationHandler = { finish(nil, CocoaError(.userCancelled)) }
         DispatchQueue.global(qos: .userInitiated).async { [self] in

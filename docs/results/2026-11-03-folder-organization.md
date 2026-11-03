@@ -4,8 +4,10 @@ Date: 2026-11-03. Status: integration in progress; normal-build folder capabilit
 
 Signed Finder organization and recovery at all seven tested crash checkpoints now pass in one
 registered view. Item IDs, downloads and keeps survive unchanged contents. A concurrent edit
-retires a child whose reported creation time changes; genuine stale-save callbacks remain open.
-Recovery between two catalogs also passes. Folder capabilities stay disabled.
+retires a child whose reported creation time changes. A same-identity change preserves its ID,
+and a genuine stale save publishes a separate conflict copy. Recovery between two catalogs also
+passes. A combined rename/modification-date callback repair awaits validation.
+Folder capabilities stay disabled.
 
 ## Setup and evidence
 
@@ -200,6 +202,41 @@ The implementation changes only the original's work name to `tinymounter-<operat
 It retains exclusive rename, copy, verification and recovery, and never rewrites attributes.
 Other SMB clients may show the work file; the write-setup text now says so. Stage and backup
 names remain hidden. Finish or export earlier prototype saves before installing this naming
-change. Existing incorrectly hidden files are not silently modified. The implementation still
-needs signed validation. Evidence is `save-work-attributes*` and `save-stage-attributes*` under
+change. Existing incorrectly hidden files are not silently modified. Evidence is
+`save-work-attributes*` and `save-stage-attributes*` under
 `results/folder-single-20261103/`, with the separate Linux save-attribute inventory.
+
+Build 20 passes a real TextEdit save on the existing ordinary file. Its server identity survives,
+its attributes become archive-only, and both views show the verified new contents without pending
+saves. The independent audit preserves every unrelated object and attribute. The required VM
+checks pass with 626 tests, one optional skip and no Swift warnings. Evidence is `save-ready*`,
+`save-visible*` and `checks-work-name.log`.
+
+## Same-identity changes and a genuine stale save
+
+The completed save gives Samba a stored creation time. At the next folder move's Settings
+checkpoint, an independent Linux writer changes that file in place while preserving its
+identity and attributes. TextEdit was opened through Finder at the new folder path before
+the external edit. Its local save carries the earlier verified content version through a real
+contents callback, avoiding the invalid old-path sandbox grant from the previous test.
+
+After SIGKILL and restart, both views preserve the original IDs and unchanged downloaded bytes.
+The changed file keeps its SMB identity, receives a new content version and retains its external
+contents. The stale local contents publish as one separate conflict file; both views discover it,
+and inherited Keep Downloaded applies in the second view. The successful callback requests a
+refresh of the original only after conflict publication. Three fetches cover changed contents
+and the new conflict; no unchanged file is fetched. Both outboxes have zero pending saves.
+The independent Linux audit preserves all original objects, modes, owners and attributes, with
+only the deliberate main-content change and new conflict. Evidence is `recovery-same-identity*`,
+`same-identity-preservation.json` and the Linux `same-identity-*` reports.
+
+During the concurrent-save test, Finder adds the folder's modification date to its rename replay.
+The provider rejects that combination with Cocoa error
+513 even though server recovery completed. Organization now permits this specific combination
+and returns the modification date as unsupported pending metadata, as the existing metadata-only route
+does. It still rejects other unverified combinations. This routing repair awaits signed replay
+validation; the saved contents and completed server move remain safe.
+
+Build 21 still rejects replay. Its first repair misidentified field 128 as last-used date;
+the installed SDK reports content-modification date as 128 and last-used date as 8. The corrected
+route follows those values and requires another signed check. The failed traces remain preserved.
