@@ -140,7 +140,7 @@ final class AppModel {
     private(set) var loginStatus = SMAppService.mainApp.status
     /// The Settings window, for sheets; its view sets it.
     @ObservationIgnored weak var window: NSWindow?
-    @ObservationIgnored private var deletionConfirmationVisible = false
+    @ObservationIgnored private var deletionConfirmation: PermanentDeletionConfirmation?
     /// Opens the Settings window; the window and the menu bar item set it when they show.
     @ObservationIgnored var openSettings: (() -> Void)?
     @ObservationIgnored private static let log = Logger(subsystem: "dev.tinymounter.prototype", category: "catalog")
@@ -1284,27 +1284,15 @@ final class AppModel {
     }
 
     private func confirmPermanentDeletion(_ selection: PermanentDeletionSelection, progress: Progress) async -> Bool {
-        guard !deletionConfirmationVisible, !progress.isCancelled else { return false }
-        deletionConfirmationVisible = true
-        defer { deletionConfirmationVisible = false }
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = "Delete “\(selection.name)” permanently?"
-        alert.informativeText = selection.isFolder
-            ? "This removes the folder and its contents from the server for everyone. It does not move them to the Trash and cannot be undone."
-            : "This removes the file from the server for everyone. It does not move it to the Trash and cannot be undone."
-        alert.addButton(withTitle: UIText.cancel)
-        alert.addButton(withTitle: "Delete Permanently").hasDestructiveAction = true
-        let cancellation = progress.observe(\.isCancelled, options: [.initial, .new]) { _, _ in
-            guard progress.isCancelled else { return }
-            DispatchQueue.main.async {
-                if let parent = alert.window.sheetParent { parent.endSheet(alert.window, returnCode: .cancel) }
-                else if NSApp.modalWindow === alert.window { NSApp.abortModal() }
+        guard deletionConfirmation == nil, !progress.isCancelled else { return false }
+        defer { deletionConfirmation = nil }
+        return await withCheckedContinuation { continuation in
+            let confirmation = PermanentDeletionConfirmation(selection, progress: progress) {
+                continuation.resume(returning: $0)
             }
+            deletionConfirmation = confirmation
+            confirmation.show()
         }
-        defer { cancellation.invalidate() }
-        NSApp.activate()
-        return await present(alert) == .alertSecondButtonReturn && !progress.isCancelled
     }
 
     /// A sheet on the Settings window if it shows, otherwise a window of its own.

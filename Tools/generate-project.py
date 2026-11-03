@@ -58,6 +58,7 @@ app_paths = ["Sources/TransferCore/FileRename.swift", "Sources/TransferCore/Cata
              "Prototype/App/DirectoryWatch.swift", "Sources/TransferCore/DirectoryRefresh.swift",
              "Prototype/App/SettingsStore.swift", "Prototype/App/ShareAccess.swift",
              "Prototype/App/LocationController.swift", "Prototype/App/AppModel.swift",
+             "Prototype/App/PermanentDeletionConfirmation.swift",
              "Prototype/App/SettingsView.swift", "Prototype/App/MenuBar.swift", "Prototype/App/Notifier.swift",
              "Prototype/App/UIText.swift",
              "Sources/TransferCore/CatalogReconcile.swift", "Sources/TransferCore/DirectoryListing.swift",

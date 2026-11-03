@@ -343,8 +343,10 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         if action == "dev.tinymounter.action.delete-permanently" {
             DispatchQueue.global(qos: .userInitiated).async { [self] in
                 do {
-                    guard SourceReaderBridge.permanentDeletionEnabled, itemIdentifiers.count == 1,
-                          !progress.isCancelled else { throw CocoaError(.userCancelled) }
+                    guard !progress.isCancelled else { throw CocoaError(.userCancelled) }
+                    guard SourceReaderBridge.permanentDeletionEnabled, itemIdentifiers.count == 1 else {
+                        throw NSFileProviderError(.deletionRejected)
+                    }
                     let message = try catalog.read { catalog in
                         guard let row = try catalog.item(id: itemIdentifiers[0].rawValue), !row.deleted,
                               CatalogItem(row).allowsPermanentDeletion,
@@ -357,7 +359,11 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                     try sourceReader.deletePermanently(message, progress: progress)
                     progress.completedUnitCount = progress.totalUnitCount
                     finish(1, nil)
-                } catch { finish(0, providerError(error)) }
+                } catch {
+                    let failure = providerError(error) as NSError
+                    let cancelled = failure.domain == NSCocoaErrorDomain && failure.code == CocoaError.userCancelled.rawValue
+                    finish(0, cancelled && !progress.isCancelled ? nil : failure)
+                }
             }
             return progress
         }
