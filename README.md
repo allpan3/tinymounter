@@ -19,7 +19,8 @@ a later deliberate Delete preserve the original uncertain result. macOS recreate
 files, so uninterrupted download retention is not established. Delayed catalog errors remain
 nonterminal, and actual share reconnect finishes cleanup. An older Keep Downloaded restoration
 also delays completion correctly; cleanup removes only confirmed-deleted keep requests.
-Successful location removal still needs its final check.
+Removing the secondary location preserves owner replay; removing the owner cleans its settled
+records after domain removal. Unrelated settings and server files remain intact.
 Deletion remains disabled in normal builds. See the
 [deletion results](docs/results/2026-10-29-deletion-protocol.md#finder-deletion-and-parent-checkpoints-2026-11-03).
 
