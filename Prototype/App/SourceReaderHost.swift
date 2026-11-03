@@ -327,7 +327,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
             }
             let timer = progressTimer(request.id, job)
             let deletion = DeletionRequest(item: request.item, contentVersion: request.contentVersion,
-                                           metadataVersion: request.metadataVersion)
+                                           metadataVersion: request.metadataVersion, eventVersion: request.eventVersion)
             source.deleteItem(deletion, recursive: request.recursive, progress: job.progress, started: { [weak self] in
                 try? self?.registration()?.started(ReaderMessage.encode(SourceReadStarted(id: request.id)))
             }) { [self] result in
@@ -335,7 +335,11 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
                 lock.withLock { jobs[request.id] = nil }
                 do {
                     let record = try result.get()
-                    guard record.plan.request == deletion else { throw ItemDeletionError.unresolved }
+                    guard record.plan.request.item == deletion.item,
+                          try ProviderDomainVersion.matches(record.plan.request.eventVersion,
+                                                            deletion.eventVersion) else {
+                        throw ItemDeletionError.unresolved
+                    }
                     reply(try ReaderMessage.encode(DeleteItemReceipt(id: request.id, item: request.item)), nil)
                 } catch { reply(nil, Self.deletionError(error)) }
             }

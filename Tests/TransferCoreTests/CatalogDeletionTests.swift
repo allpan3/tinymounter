@@ -41,7 +41,7 @@ final class CatalogDeletionTests: XCTestCase {
         fixture = nil
     }
 
-    func testSettledRefusalRefreshesSelectedMetadataOnceAndKeepsOldReplay() throws {
+    func testSettledRefusalPreservesSelectedMetadataAndKeepsOldEventReplay() throws {
         let tree = try XCTUnwrap(ids["Tree"]), before = try XCTUnwrap(owner.item(id: tree))
         var record = try prepare()
         server.markFailures["Docs/Tree/a"] = ItemDeletionError.sharingViolation
@@ -51,7 +51,7 @@ final class CatalogDeletionTests: XCTestCase {
         let final = try complete(record, first)
         XCTAssertTrue(final.isSettled)
         let after = try XCTUnwrap(owner.item(id: tree))
-        XCTAssertNotEqual(after.metadataVersion, record.plan.request.metadataVersion)
+        XCTAssertEqual(after.metadataVersion, record.plan.request.metadataVersion)
         XCTAssertEqual(after.id, before.id)
         XCTAssertEqual(after.contentVersion, before.contentVersion)
         XCTAssertEqual(after.keep, before.keep)
@@ -63,10 +63,10 @@ final class CatalogDeletionTests: XCTestCase {
         XCTAssertEqual(replay.selectedOutcome, .directoryNotEmpty)
         XCTAssertNil(try fixture.outbox.replay(endpoint: fixture.endpoint, owner: fixture.owner,
             request: DeletionRequest(item: tree, contentVersion: after.contentVersion,
-                                     metadataVersion: after.metadataVersion)))
+                                     metadataVersion: after.metadataVersion, eventVersion: Data([2]))))
     }
 
-    func testUnconfirmedSurvivorRefreshesMetadataOnlyAfterFreshListingAndKeepsOldReplay() throws {
+    func testUnconfirmedSurvivorPreservesMetadataAfterFreshListingAndKeepsOldEventReplay() throws {
         let tree = try XCTUnwrap(ids["Tree"])
         try owner.setKeep(ids: [tree], value: true)
         let before = try XCTUnwrap(owner.item(id: tree))
@@ -83,14 +83,14 @@ final class CatalogDeletionTests: XCTestCase {
         let anchor = try owner.currentAnchor()
         let final = try complete(record, first)
         let after = try XCTUnwrap(owner.item(id: tree))
-        XCTAssertNotEqual(after.metadataVersion, before.metadataVersion)
+        XCTAssertEqual(after.metadataVersion, before.metadataVersion)
         XCTAssertEqual(after.id, before.id)
         XCTAssertEqual(after.contentVersion, before.contentVersion)
         XCTAssertEqual(after.keep, before.keep)
         XCTAssertEqual(after.keepRequested, before.keepRequested)
         XCTAssertFalse(after.deleted)
         XCTAssertTrue(final.refresh.contains(root))
-        XCTAssertTrue(try owner.changes(after: anchor, limit: 100).updated.contains { $0.id == tree })
+        XCTAssertFalse(try owner.changes(after: anchor, limit: 100).updated.contains { $0.id == tree })
         XCTAssertTrue(try settle(record, previous: final).isSettled)
         XCTAssertEqual(try owner.item(id: tree)?.metadataVersion, after.metadataVersion)
         XCTAssertEqual(try owner.item(id: XCTUnwrap(ids["neighbor"])), neighborBefore)
@@ -106,7 +106,7 @@ final class CatalogDeletionTests: XCTestCase {
         XCTAssertEqual(replay, record)
         XCTAssertNil(try fixture.outbox.replay(endpoint: fixture.endpoint, owner: fixture.owner,
             request: DeletionRequest(item: tree, contentVersion: after.contentVersion,
-                                     metadataVersion: after.metadataVersion)))
+                                     metadataVersion: after.metadataVersion, eventVersion: Data([2]))))
     }
 
     func testConfirmedDeletionTombstonesEachAdmittedRowOnceInEachView() throws {
@@ -557,7 +557,8 @@ final class CatalogDeletionTests: XCTestCase {
         let views = try views ?? [view(owner, location: "Docs"), view(neighbor, location: "")]
         let selected = try XCTUnwrap(views[0].items.first { $0.path == "Tree" })
         let request = DeletionRequest(item: selected.item, contentVersion: selected.contentVersion,
-                                      metadataVersion: try owner.item(id: selected.item)?.metadataVersion ?? "0")
+                                      metadataVersion: try owner.item(id: selected.item)?.metadataVersion ?? "0",
+                                      eventVersion: Data([1]))
         return try fixture.outbox.prepare(endpoint: fixture.endpoint, owner: fixture.owner, request: request,
                                           traversal: fixture.traversal(), views: views, protectedRoots: [], recursive: true)
     }

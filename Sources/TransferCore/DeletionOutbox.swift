@@ -30,16 +30,28 @@ public struct DeletionRequest: Codable, Equatable, Sendable {
     public let item: String
     public let contentVersion: String
     public let metadataVersion: String
+    public let eventVersion: Data
 
-    public init(item: String, contentVersion: String, metadataVersion: String) {
+    public init(item: String, contentVersion: String, metadataVersion: String, eventVersion: Data) {
         self.item = item
         self.contentVersion = contentVersion
         self.metadataVersion = metadataVersion
+        self.eventVersion = eventVersion
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(item: try values.decode(String.self, forKey: .item),
+                  contentVersion: try values.decode(String.self, forKey: .contentVersion),
+                  metadataVersion: try values.decode(String.self, forKey: .metadataVersion),
+                  eventVersion: try values.decode(Data.self, forKey: .eventVersion))
+        try validate()
     }
 
     func validate() throws {
         guard ReaderMessage.isItemID(item), item != Catalog.rootItemID, Self.isVersion(contentVersion),
-              metadataVersion.utf8.count <= 20, Int64(metadataVersion).map({ $0 >= 0 }) == true else {
+              metadataVersion.utf8.count <= 20, Int64(metadataVersion).map({ $0 >= 0 }) == true,
+              !eventVersion.isEmpty, eventVersion.count <= Catalog.maxProviderDomainVersionBytes else {
             throw ItemDeletionError.invalidRequest
         }
     }
@@ -544,10 +556,18 @@ public final class DeletionOutbox {
         try records().filter { $0.isPending && $0.plan.domains.contains(domain) }.count
     }
 
-    public func replay(endpoint: ShareAddress, owner: String, request: DeletionRequest) throws -> PendingDeletion? {
-        try records().first {
-            $0.plan.owner == owner && $0.plan.request == request && $0.plan.endpoint.matches(endpoint)
+    public func replay(endpoint: ShareAddress, owner: String, request: DeletionRequest,
+                       sameEvent: (Data, Data) throws -> Bool = { $0 == $1 }) throws -> PendingDeletion? {
+        try request.validate()
+        var matched: PendingDeletion?
+        for record in try records() where record.plan.owner == owner
+            && record.plan.request.item == request.item && record.plan.endpoint.matches(endpoint) {
+            if try sameEvent(record.plan.request.eventVersion, request.eventVersion) {
+                guard matched == nil else { throw ItemDeletionError.unresolved }
+                matched = record
+            }
         }
+        return matched
     }
 
     /// The traversal must be fresh and protected; `protectedRoots` lists every configured location root.

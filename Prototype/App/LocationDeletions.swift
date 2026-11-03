@@ -63,13 +63,24 @@ extension LocationSource {
         }
     }
 
-    private func replayedDeletion(_ request: DeletionRequest) throws -> PendingDeletion? {
+    func replayedDeletion(_ request: DeletionRequest) throws -> PendingDeletion? {
         try editNamespace.perform {
             try access.withSession { share, _ in
                 guard let endpoint = ShareAddress(share.identity.mountFrom) else { throw UploadError.readOnly }
-                return try Self.deletionOutbox().replay(endpoint: endpoint, owner: domainID, request: request)
+                return try replayedDeletion(request, endpoint: endpoint, outbox: Self.deletionOutbox())
             }
         }
+    }
+
+    private func replayedDeletion(_ request: DeletionRequest, endpoint: ShareAddress,
+                                  outbox: DeletionOutbox) throws -> PendingDeletion? {
+        let event = try ProviderDomainVersion.decode(request.eventVersion)
+        try withCatalog { catalog in
+            guard let current = try catalog.providerDomainVersion(),
+                  try event <= ProviderDomainVersion.decode(current) else { throw ItemDeletionError.invalidRequest }
+        }
+        return try outbox.replay(endpoint: endpoint, owner: domainID, request: request,
+                                 sameEvent: ProviderDomainVersion.matches)
     }
 
     func ownedDeletion(_ id: UUID) throws -> PendingDeletion {
@@ -117,7 +128,7 @@ extension LocationSource {
         return try withWriteSession(bookmark, progress: progress) { share, _ in
             guard let endpoint = ShareAddress(share.identity.mountFrom) else { throw UploadError.readOnly }
             let outbox = try Self.deletionOutbox()
-            if let replayed = try outbox.replay(endpoint: endpoint, owner: domainID, request: request) {
+            if let replayed = try replayedDeletion(request, endpoint: endpoint, outbox: outbox) {
                 admitted(replayed)
                 return replayed
             }

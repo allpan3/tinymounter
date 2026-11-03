@@ -13,8 +13,9 @@ and update the README after the run. Leave the original NAS and physical-Mac ins
 ## Implementation details to review
 
 - The provider advertises `allowsDeleting` only for supported writable items when the gate is
-  enabled. It never advertises `allowsTrashing`. The callback forwards the exact base versions
-  and recursive option through bounded JSON. A tombstone still requires durable app replay.
+  enabled. It never advertises `allowsTrashing`. The callback forwards the event domain version,
+  exact item base versions and recursive option through bounded JSON. A tombstone still requires
+  durable app replay.
 - Changed, replaced, moved, unsupported and refused selected items return `deletionRejected`.
   The extension constructs that error with `fileProviderErrorForRejectedDeletion(of:)` and
   the surviving catalog item; a bare error code makes macOS retry without restoring the item.
@@ -43,10 +44,12 @@ and update the README after the run. Leave the original NAS and physical-Mac ins
   times changing after child removal. The admitted plan stays immutable; new handles must match
   the checkpoint exactly. Missing checkpoints retain the earlier evidence and can leave work
   unconfirmed. No Settings/catalog format or migration is added.
-- Settlement advances the surviving selected item's metadata version after a definite refusal
-  or Stop, and after fresh reconciliation of an unconfirmed outcome. This lets a new Finder
-  action use a new base while old callbacks replay the old outcome. Content versions, IDs and
-  keeps do not change through that metadata refresh. Uncertainty remains in the old record.
+- Replay matches the owner, item and original event domain version, even when Finder changes
+  the callback's item base versions. The app compares decoded Apple versions semantically.
+  It advances the persisted domain version before terminal settlement and republishes completed
+  recovery after launch. A fresh action on the restored item then carries a newer event version.
+  Settlement no longer increments item metadata solely to distinguish requests. Fresh listings
+  still update real metadata; unchanged content, IDs and keeps survive.
 - The cancellation token and counted-Stop decisions now live in TransferCore. App KVO,
   progress cancellation, lane scheduling and Settings callbacks retain their existing roles.
 - Only `cancelDeletion` from a cancelled provider Progress, or Settings Stop Deleting, requests
@@ -74,8 +77,8 @@ after 180 seconds it fails without settling. This leaves the main actor and requ
 The `settled` checkpoint stops after durable completion, before signaling File Provider retry.
 
 1. Integrate the commits and run `Tools/run-checks.sh` in the VM. App-target changes have not
-   been compiled on the host. No generator changes are needed because all production changes
-   use files already included in both targets as appropriate.
+   been compiled on the host. The generator includes the shared domain-version archive helper
+   in both targets. Use fresh catalogs and deletion records for the required event field.
 2. Capture the baseline Finder/Settings recordings with deletion disabled. Direct filesystem
    deletion may succeed locally before its callback. Confirm rejection restores the local item,
    stops callback retries and leaves the remote item intact.
@@ -122,7 +125,7 @@ The `settled` checkpoint stops after durable completion, before signaling File P
    completed. Audit backing storage, both catalogs and the durable records.
 2. Repeat with requests originating in both overlapping domains, including a selected item
    visible in only one view. Delay completion of the second catalog too. Every busy request
-   must resume after the blocking record completes, with one record per item/base version.
+   must resume after the blocking record completes, with one record per item/event version.
 3. In a signed callback probe, occupy all four reader job slots with held reads or uploads,
    then request deletion. Expect the same transient error and no deletion record. Release a
    slot and verify automatic retry completes. Repeat with deletion jobs holding the slots.
@@ -159,20 +162,20 @@ the deletion error and cancellation contract is at lines 805–846.
    to survive, and their nonempty parents to remain. Finder must get `directoryNotEmpty`.
    Settings must name every admitted item with its actual outcome and an accurate confirmed
    deletion count. A new child must not appear as an attempted node of the old record.
-3. Replay the original item and base versions. Expect the same terminal result with no new
-   traversal or deletion. Repeat after process restart and after Dismiss Notice.
+3. Replay the original item/event version, including refreshed item base versions. Expect the
+   same terminal result with no new traversal or deletion. Repeat after restart and Dismiss Notice.
 4. After admission releases its handles, open the target with an incompatible SMB handle and
    resume execution. Expect a definite refusal. Let settlement finish and verify that Finder
-   reconstructs the selected live item with its updated metadata version. Close the competing handle and explicitly select Delete again. Expect a fresh admission and
-   success. Replay the earlier base again and expect its original refusal. This checks that
+   reconstructs the selected live item. Close the competing handle and explicitly select Delete again. Expect a newer event version, fresh admission and
+   success. Replay the earlier event again and expect its original refusal. This checks that
    Finder distinguishes a new user action from an old callback.
 5. Inject a transport failure at the selected item's mark after the attempting checkpoint while
    leaving that object present, then Stop and settle. Suspend the fresh listing first. Its
-   metadata version must not advance yet. Let reconciliation finish and verify the surviving
-   selected row advances once, signals the working set, and reappears in Finder. Its ID,
-   content version and keeps must survive. Repeating settlement must not advance it again.
-   Replay the old base before and after restart and expect `cannotSynchronize` with the same
-   unconfirmed record. An explicit new Finder deletion must use the new metadata version.
+   outcome must not be treated as confirmed. Let reconciliation finish and verify the surviving
+   selected row signals the working set. Its ID, content version and keeps must survive.
+   Replay the original event before and after restart and expect `cannotSynchronize` with the
+   same unconfirmed record, including when item base versions changed. No replay may admit
+   another operation. A new Finder action after restoration must carry a newer event version.
 6. Interrupt recursive deletion after a confirmed child, then change the location-root inode
    before Retry so `withDeletionAdmissionRoot` fails with `versionChanged`. Expect
    `cannotSynchronize`, an incomplete record and accurate partial outcomes, never an early

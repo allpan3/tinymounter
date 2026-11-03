@@ -95,6 +95,17 @@ extension Catalog {
         try database.execute("PRAGMA fullfsync = ON", operation: "fullfsync")
     }
 
+    public func setProviderDomainVersion(_ data: Data) throws {
+        try Self.validateProviderDomainVersion(data)
+        try database.write {
+            try database.prepare("UPDATE meta SET provider_domain_version = ? WHERE id = 1") { statement in
+                try statement.bind(1, data)
+                try statement.run()
+            }
+            guard database.changes == 1 else { throw CatalogError.unsupportedSchema }
+        }
+    }
+
     /// D5: a refused plan waits for a second complete listing, which the app applies as it is.
     public static func needsConfirmation(_ plan: ReconcilePlan) -> Bool {
         plan.removesEveryChild || plan.keptFilesRemoved > 0

@@ -296,6 +296,16 @@ Upload to a uniquely named temporary sibling; close/flush as required, validate 
 
 Crashes after remote commit but before local acknowledgement must be recoverable without duplicate writes or deletions. Renames, safe saves, moves across folders, packages, case-only renames, and remote deletes during local edits are first-class tests. Never silently discard an outbox during domain removal, reset, upgrade, or uninstall. Do not promise arbitrary live SQLite databases, VM disk images, or remote POSIX lock semantics on a synchronized local replica.
 
+Deletion replay binds the owner domain, item ID and `NSFileProviderRequest.domainVersion`.
+Finder can refresh a retry's item base versions, so those versions only validate new admission.
+The app securely archives Apple's event version and compares decoded versions semantically.
+Each catalog persists the current domain version before registration and advances it before
+terminal deletion settlement. Launch recovery advances and republishes completed settlement
+before waking stopped requests. A delayed event for another item may still be a first request.
+Missing, malformed or future events fail without mutation. This format requires fresh catalogs
+and deletion records; no migration is provided. The signed protocol probe passes, but integrated
+Stop/replay checks remain pending. See the [deletion results](results/2026-10-29-deletion-protocol.md).
+
 ## 9. Future server volume mode
 
 Use public `NetFSMountURLAsync`/cancellation and mount inspection. Run at **user login and wake** through a registered per-user component; pre-login boot mounting is separate future scope. Store no plaintext credentials in shell commands or launch configuration.

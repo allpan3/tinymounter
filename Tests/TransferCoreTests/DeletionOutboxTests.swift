@@ -13,6 +13,74 @@ final class DeletionOutboxTests: XCTestCase {
         fixture = nil
     }
 
+    func testReplayUsesTheEventWhenItemVersionsChange() throws {
+        let record = try fixture.prepare()
+        let refreshed = DeletionRequest(item: record.plan.request.item, contentVersion: "refreshed",
+            metadataVersion: "309", eventVersion: record.plan.request.eventVersion)
+        XCTAssertEqual(try fixture.outbox.replay(endpoint: fixture.endpoint, owner: fixture.owner,
+            request: refreshed), record)
+        XCTAssertEqual(try fixture.outbox.prepare(endpoint: fixture.endpoint, owner: fixture.owner,
+            request: refreshed, traversal: fixture.traversal(), views: fixture.views(), protectedRoots: [],
+            recursive: true), record)
+        fixture.outbox = try fixture.makeOutbox()
+        XCTAssertEqual(try fixture.outbox.replay(endpoint: fixture.endpoint, owner: fixture.owner,
+            request: refreshed)?.plan.request, record.plan.request)
+        XCTAssertTrue(fixture.server.marks.isEmpty)
+    }
+
+    func testNewEventWithUnchangedItemVersionsAdmitsASeparateRequestAfterCompletion() throws {
+        var first = try fixture.prepare()
+        try fixture.outbox.stop(&first)
+        for domain in [fixture.owner, fixture.neighbor] { try fixture.outbox.finishDomain(domain, record: &first) }
+        let request = DeletionRequest(item: first.plan.request.item, contentVersion: first.plan.request.contentVersion,
+            metadataVersion: first.plan.request.metadataVersion, eventVersion: Data([2]))
+        XCTAssertNil(try fixture.outbox.replay(endpoint: fixture.endpoint, owner: fixture.owner, request: request))
+        let second = try fixture.outbox.prepare(endpoint: fixture.endpoint, owner: fixture.owner,
+            request: request, traversal: fixture.traversal(), views: fixture.views(), protectedRoots: [], recursive: true)
+        XCTAssertNotEqual(second.id, first.id)
+        XCTAssertEqual(second.plan.request, request)
+        XCTAssertEqual(try fixture.outbox.replay(endpoint: fixture.endpoint, owner: fixture.owner,
+            request: first.plan.request), first)
+        XCTAssertThrowsError(try fixture.outbox.replay(endpoint: fixture.endpoint, owner: fixture.owner,
+            request: request, sameEvent: { _, _ in true })) {
+            XCTAssertEqual($0 as? ItemDeletionError, .unresolved)
+        }
+    }
+
+    func testSemanticEventComparisonCanMatchDistinctArchivesAndPropagatesFailure() throws {
+        let record = try fixture.prepare()
+        let request = DeletionRequest(item: record.plan.request.item, contentVersion: "refreshed",
+            metadataVersion: "309", eventVersion: Data([1, 2]))
+        XCTAssertEqual(try fixture.outbox.replay(endpoint: fixture.endpoint, owner: fixture.owner,
+            request: request, sameEvent: { stored, incoming in
+                stored.first == incoming.first
+            }), record)
+        XCTAssertThrowsError(try fixture.outbox.replay(endpoint: fixture.endpoint, owner: fixture.owner,
+            request: request, sameEvent: { _, _ in throw DeletionFixture.Fault.persistence })) {
+            XCTAssertEqual($0 as? DeletionFixture.Fault, .persistence)
+        }
+    }
+
+    func testDeletionEventsAreRequiredAndBoundedInStoredRequests() throws {
+        let original = fixture.request
+        let encoded = try JSONEncoder().encode(original)
+        var values = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        values["eventVersion"] = nil
+        XCTAssertThrowsError(try JSONDecoder().decode(DeletionRequest.self,
+            from: JSONSerialization.data(withJSONObject: values)))
+        for invalid in [Data(), Data(repeating: 1, count: 4097)] {
+            let request = DeletionRequest(item: original.item, contentVersion: original.contentVersion,
+                metadataVersion: original.metadataVersion, eventVersion: invalid)
+            XCTAssertThrowsError(try fixture.outbox.replay(endpoint: fixture.endpoint, owner: fixture.owner,
+                request: request))
+            XCTAssertThrowsError(try JSONDecoder().decode(DeletionRequest.self,
+                from: JSONEncoder().encode(request)))
+        }
+        let largest = DeletionRequest(item: original.item, contentVersion: original.contentVersion,
+            metadataVersion: original.metadataVersion, eventVersion: Data(repeating: 1, count: 4096))
+        XCTAssertEqual(try JSONDecoder().decode(DeletionRequest.self, from: JSONEncoder().encode(largest)), largest)
+    }
+
     func testRecordStaysPendingUntilEveryViewSettles() throws {
         var record = try fixture.prepare()
         XCTAssertEqual(try fixture.storedFiles(), [record.id.uuidString + ".deletion", record.id.uuidString + ".progress"])

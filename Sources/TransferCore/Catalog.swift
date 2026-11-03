@@ -129,6 +129,7 @@ public struct CatalogCounts: Equatable, Sendable {
 public final class Catalog {
     /// `NSFileProviderItemIdentifier.rootContainer.rawValue`; core doesn't import FileProvider.
     public static let rootItemID = "NSFileProviderRootContainerItemIdentifier"
+    public static let maxProviderDomainVersionBytes = 4096
     static let maxDepth = 256
     // No real number of writes reaches it, so a writer's `seq += 1` can't overflow.
     static let maxLastSeq = Int64.max / 2
@@ -142,7 +143,8 @@ public final class Catalog {
           last_seq INTEGER NOT NULL,
           listing_gen INTEGER NOT NULL,
           paused INTEGER NOT NULL DEFAULT 0,
-          allows_writing INTEGER NOT NULL DEFAULT 0);
+          allows_writing INTEGER NOT NULL DEFAULT 0,
+          provider_domain_version BLOB);
         CREATE TABLE items (
           row INTEGER PRIMARY KEY,
           id TEXT NOT NULL UNIQUE,
@@ -209,11 +211,14 @@ public final class Catalog {
             SELECT domain_id, epoch, last_seq BETWEEN 0 AND ?1 AND listing_gen >= 0
               AND (SELECT max(change_seq) FROM items) <= last_seq
               AND EXISTS (SELECT 1 FROM items WHERE id = ?2 AND parent_id IS NULL AND kind = ?3 AND deleted = 0)
+              AND (provider_domain_version IS NULL OR (typeof(provider_domain_version) = 'blob'
+                AND length(provider_domain_version) BETWEEN 1 AND ?4))
             FROM meta WHERE id = 1
             """) { statement in
             try statement.bind(1, maxLastSeq)
             try statement.bind(2, rootItemID)
             try statement.bind(3, CatalogRow.Kind.folder.rawValue)
+            try statement.bind(4, maxProviderDomainVersionBytes)
             return try statement.step() ? (domainID: statement.text(0), epoch: statement.blob(1),
                                            sound: statement.bool(2)) : nil
         }
@@ -226,6 +231,23 @@ public final class Catalog {
     static func enableWAL(_ database: SQLiteDatabase) throws {
         let mode = try database.prepare("PRAGMA journal_mode = WAL") { try $0.step() ? $0.text(0) : "" }
         guard mode == "wal" else { throw SQLiteError(code: SQLITE_ERROR, operation: "journal_mode") }
+    }
+
+    public func providerDomainVersion() throws -> Data? {
+        try database.prepare("SELECT provider_domain_version, typeof(provider_domain_version) FROM meta WHERE id = 1") { statement in
+            guard try statement.step() else { throw CatalogError.unsupportedSchema }
+            guard !statement.isNull(0) else { return nil }
+            guard statement.text(1) == "blob" else { throw CatalogError.unsupportedSchema }
+            let data = statement.blob(0)
+            try Self.validateProviderDomainVersion(data)
+            return data
+        }
+    }
+
+    static func validateProviderDomainVersion(_ data: Data) throws {
+        guard !data.isEmpty, data.count <= maxProviderDomainVersionBytes else {
+            throw CatalogError.unsupportedSchema
+        }
     }
 
     /// The item, tombstones included; nil for an unknown ID.
