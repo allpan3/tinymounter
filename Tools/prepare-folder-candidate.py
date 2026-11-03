@@ -6,6 +6,8 @@ supplies the approved test-share grant. Launch with --m22-finder setup RUN (or
 resume RUN); select a local evidence directory in the app's folder picker.
 Write request-RANDOM_UUID.json there using the existing Request structure.
 The app exports only this fixture's snapshots and callback events there.
+Fresh snapshot labels may start with check- and contain up to 64 lowercase ASCII
+letters, digits or hyphens. Each label creates evidence only once.
 The checkout and ordinary feature gates are unchanged. --enable permits folder
 organization in the candidate; omit it for the matching disabled baseline.
 --crash-checks adds run/item-bound stop points controlled by fault.json in the
@@ -52,6 +54,11 @@ def main():
     helper = helper.replace('"tinymounter-m19-edit-test"', '"tinymounter-single"')
     helper = helper.replace('"127.0.0.1"', f'"{fixture_host()}"')
     helper = helper.replace('"_tinymounter_m19"', '"tmtest"')
+    helper = replace(helper, 'M22FinderProbe.labels.contains(request.label)',
+        '(M22FinderProbe.labels.contains(request.label) || (request.label.hasPrefix("check-")\n'
+        '                        && request.label.utf8.count <= 64 && request.label.utf8.allSatisfy {\n'
+        '                            (97...122).contains($0) || (48...57).contains($0) || $0 == 45\n'
+        '                        }))')
     helper = replace(helper, "import Darwin", "import CryptoKit\nimport Darwin")
     helper = replace(helper, '        guard value else { throw Failure.check(label) }',
                      '''        guard value else {
