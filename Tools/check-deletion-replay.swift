@@ -40,6 +40,45 @@ private enum M24KeepRestorationProbe {
 }
 
 extension LocationController {
+    func checkDeletionRemovalState(_ config: M22FinderProbe.Config, label: String) async throws {
+        struct State: Codable {
+            let locations: [String]
+            let registered: [String]
+            let catalogs: [String: Bool]
+            let records: [PendingDeletion]
+            let originalSettingsPreserved: Bool
+        }
+        let directory = try M22FinderProbe.directory(config.run)
+        let peer = try M22FinderProbe.load(M22FinderProbe.Config.self,
+            from: directory.appending(path: "peer-config.json"))
+        try M22FinderProbe.require(peer.run == config.run && peer.grant == config.grant
+            && peer.domain != config.domain && peer.location != config.location, "removal-peer-scope")
+        let ids = Set([config.domain, peer.domain])
+        guard let settings = store.settings else { throw LocationError.catalogClosed }
+        let registered = try await NSFileProviderManager.domains().map { $0.identifier.rawValue }.filter(ids.contains)
+        let catalogs = try Dictionary(uniqueKeysWithValues: ids.map {
+            ($0, FileManager.default.fileExists(atPath: try SharedContainer.catalogURL(domainID: $0).path))
+        })
+        let records = try await Self.offMain {
+            try LocationSource.deletionOutbox().records().filter { $0.plan.owner == config.domain }
+        }
+        try M22FinderProbe.require(records.allSatisfy {
+            $0.plan.selected.path.hasPrefix(config.folder + "/Deletion/")
+        }, "removal-fixture-records")
+        let originalURL = URL.applicationSupportDirectory.appending(
+            path: "tinymounter/M22Finder/" + config.run.uuidString + "/original-settings.json")
+        let original = try M22FinderProbe.load(AppSettings.self, from: originalURL)
+        var withoutTask = settings
+        withoutTask.locations.removeAll { ids.contains($0.domainID) }
+        let saved = try M22FinderProbe.load(AppSettings.self, from: store.url)
+        try M22FinderProbe.require(saved == settings, "removal-settings-durable")
+        let state = State(locations: settings.locations.map(\.domainID).filter(ids.contains).sorted(),
+            registered: registered.sorted(), catalogs: catalogs, records: records,
+            originalSettingsPreserved: withoutTask == original)
+        try M22FinderProbe.save(state, to: directory.appending(path: label + "-state.json"))
+        try M22FinderProbe.require(state.originalSettingsPreserved, "removal-original-settings-preserved")
+    }
+
     func checkIncompleteDeletionReplay(_ config: M22FinderProbe.Config, label: String) async throws {
         let report = try await reader.checkIncompleteDeletion(domain: config.domain)
         try M22FinderProbe.save(report,

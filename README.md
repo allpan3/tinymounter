@@ -16,8 +16,10 @@ uncertainty; dismissing its notice preserves the result. Joined requests and sou
 Settings completion also pass. The completed-refusal response restores surviving files after
 an unconfirmed deletion; a catalog notification alone did not. Dismissal, restart, replay and
 a later deliberate Delete preserve the original uncertain result. macOS recreates the local
-files, so uninterrupted download retention is not established. Reconnect and delayed catalog
-settlement checks remain.
+files, so uninterrupted download retention is not established. Delayed catalog errors remain
+nonterminal, and actual share reconnect finishes cleanup. An older Keep Downloaded restoration
+also delays completion correctly; cleanup removes only confirmed-deleted keep requests.
+Successful location removal still needs its final check.
 Deletion remains disabled in normal builds. See the
 [deletion results](docs/results/2026-10-29-deletion-protocol.md#finder-deletion-and-parent-checkpoints-2026-11-03).
 
