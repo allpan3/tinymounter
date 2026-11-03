@@ -853,3 +853,27 @@ Evidence includes `check-concurrency-baseline*.json`, `check-concurrency-held*.j
 `check-concurrency-finished*.json`, `concurrency-report.json`, callback events and the Linux
 `concurrency-held-audit.json` and `concurrency-finished-audit.json`. The Settings hold control
 is archived and inactive.
+
+### Reader capacity, 2026-11-03
+
+The signed eventcheck build passes the full-reader-queue check on the same macOS/Samba VMs,
+with uncontrolled caches and no performance claim. Four constructed reads occupied the actual
+connected reader session while its worker queue was suspended. A real Finder deletion returned
+four transient busy replies, admitted no operation and left the independent server inventory
+unchanged. Releasing one read let Finder retry and complete the deletion, with three reads still
+occupying their slots. Both views settled. Draining the remaining reads produced exactly one
+cancellation reply for each of the four reads, zero jobs and zero queued operations.
+
+The first trial established busy refusal and automatic retry after drain, but drained the last
+three reads before the successful callback. It therefore did not establish that one freed slot
+was sufficient. The second trial retained those reads through success and passed that check.
+The server audit preserved the other 37 objects, including their contents, identity, permissions
+and attached data. The deletion used Finder/XPC; only the held reads used constructed requests.
+
+Evidence is in `event-recovery`: `check-reader-jobs-*-second*.json`,
+`check-reader-second-full*.json`, `check-deletion-session-state-queue-success*.json`, callback
+events and the earlier `reader-capacity-first-report.json`. Linux evidence includes
+`lifecycle-seed.json`, `queue-second-full-audit.json` and `queue-second-success-audit.json`.
+The queue is resumed. Builds 4 and 5 have no Swift warnings. Required VM checks in
+`checks-reader-capacity.log` and `checks-deletion-lifecycle.log` pass all 644 tests with two
+optional skips, plus the project, CLI, app-build and SMB encoder/status checks.
