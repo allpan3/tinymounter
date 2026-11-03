@@ -545,10 +545,20 @@ public final class EditOutbox {
         try validateContents(record)
         let source = try ReadOnlyFile(url: contentURL(record))
         let attributes = try retainedMetadata(record, descriptor: source.descriptor)
-        try FileManager.default.copyItem(at: contentURL(record), to: destination)
-        let fd = open(destination.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
-        guard fd >= 0 else { throw posixError("open exported edit") }
+        let parent = open(destination.deletingLastPathComponent().path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        guard parent >= 0 else { throw posixError("open export folder") }
+        defer { close(parent) }
+        guard try FileSystemInfo(fd: parent).isLocal else {
+            throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnsupportedSchemeError,
+                userInfo: [NSLocalizedDescriptionKey: "Choose a folder on this Mac for the recovery copy."])
+        }
+        let fd = openat(parent, destination.lastPathComponent, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { throw posixError("create exported edit") }
         defer { close(fd) }
+        guard fcopyfile(source.descriptor, fd, nil, copyfile_flags_t(COPYFILE_ALL)) == 0 else {
+            throw posixError("copy exported edit")
+        }
+        try source.validateUnchanged()
         guard fchmod(fd, 0o600) == 0 else { throw posixError("set exported file access") }
         let copied = try Self.metadata(fd)
         for (name, value) in attributes where copied[name] != value {
