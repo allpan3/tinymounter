@@ -662,6 +662,6 @@ private struct UploadStatus: View {
         }
         if edit.conflict { return edit.state == .completed ? UIText.conflictSaved : UIText.editConflict }
         if edit.state == .prepared { return UIText.waitingToUpload }
-        return UIText.editNeedsRecovery
+        return edit.mayHaveChangedOriginal ? UIText.editNeedsRecovery : UIText.editInterrupted
     }
 }
