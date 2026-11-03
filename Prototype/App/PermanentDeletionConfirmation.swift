@@ -2,11 +2,12 @@ import AppKit
 
 // A nested modal loop would block main-actor cancellation and recovery while Finder waits.
 @MainActor
-final class PermanentDeletionConfirmation: NSWindowController {
+final class PermanentDeletionConfirmation: NSObject {
     private let alert: NSAlert
     private let progress: Progress
     private var completion: ((Bool) -> Void)?
     private var cancellation: NSKeyValueObservation?
+    private var escapeMonitor: Any?
     private var isPresented = false
 
     init(_ selection: PermanentDeletionSelection, progress: Progress, completion: @escaping (Bool) -> Void) {
@@ -21,7 +22,7 @@ final class PermanentDeletionConfirmation: NSWindowController {
         self.alert = alert
         self.progress = progress
         self.completion = completion
-        super.init(window: alert.window)
+        super.init()
         for (index, button) in alert.buttons.enumerated() {
             button.keyEquivalent = index == 0 ? "\r" : ""
         }
@@ -30,15 +31,17 @@ final class PermanentDeletionConfirmation: NSWindowController {
         }
     }
 
-    required init?(coder: NSCoder) { nil }
-
-    override func cancelOperation(_ sender: Any?) { finish(false) }
-
     func show(in parent: NSWindow?) {
         guard completion != nil, !isPresented, let parent else { return }
         guard !progress.isCancelled else { finish(false); return }
         guard parent.attachedSheet == nil else { finish(false); return }
         isPresented = true
+        // Return owns Cancel's key equivalent, so handle Escape only in this sheet.
+        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, event.keyCode == 53, event.window === self.alert.window else { return event }
+            self.finish(false)
+            return nil
+        }
         NSApp.activate()
         parent.deminiaturize(nil)
         parent.makeKeyAndOrderFront(nil)
@@ -60,6 +63,8 @@ final class PermanentDeletionConfirmation: NSWindowController {
         self.completion = nil
         cancellation?.invalidate()
         cancellation = nil
+        if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
+        escapeMonitor = nil
         if let parent = alert.window.sheetParent { parent.endSheet(alert.window, returnCode: .abort) }
         alert.window.orderOut(nil)
         completion(confirmed && !progress.isCancelled)
