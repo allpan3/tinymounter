@@ -2,19 +2,21 @@
 
 ## Outcome
 
-The candidate remains VM-only. The separate single-client prototype passes repeated saves,
-Unicode content, fresh read-only downloads, conflict preservation and interrupted-save recovery.
-An interrupted new upload retains a complete local copy, but its partial server file still needs
-manual recovery. All required VM checks pass with 619 tests and one optional skip. Production
-adoption and physical-Mac installation remain undecided.
+The candidate remains VM-only. Signed checks now pass for interrupted-upload continuation,
+local recovery export, and Finder copying and Keep Both from read-only locations. Changed
+upload prefixes and replaced server files are refused. Repeated saves, Unicode content,
+conflict preservation and interrupted-save recovery also pass. Build 08 passes the required
+VM checks with 621 tests and one optional skip. Production adoption and physical-Mac
+installation remain undecided.
 
-Five interleaved 2 GiB trials show comparable provider-callback and native-staging throughput
-in the VM, with cache residency unverified. This does not establish end-to-end handoff time,
-partial File Provider performance or the physical-Mac gates. Finder warns when exporting a
-read-only file, although its contents match. A native-mount export also coincided with an empty
-file appearing at a completed save's old stage name. The earlier probes reproduce that native
-cache failure mechanism; using one client inside the app does not establish safety for every
-operation through the remaining native mount. See the November 3 checks below.
+Five read-only 2 GiB downloads, including File Provider handoff, reached a median 222.43 MB/s
+against 166.74 MB/s for native staging in this VM. Linux page cache was verified empty before
+each sample, and all content hashes matched. Partial reads reached 95.46 MB/s against
+194.07 MB/s, below the unchanged 90% target. After removing a duplicate transfer, five writable
+full downloads reached 195.30 MB/s against 190.82 MB/s for native staging.
+The app refuses network destinations for recovery exports. This prevents the observed export
+interaction but does not establish safety for arbitrary external writes through the remaining
+native mount. The physical Mac and original NAS remain unchanged.
 
 ## Setup and method
 
@@ -297,8 +299,8 @@ change hints. Native root descriptors remain in write admission and deletion set
 experiment does not yet remove the mount infrastructure.
 
 New uploads use exclusive creation and persist file ID plus birth time before writing. A retry
-only verifies an already-created file. The save transaction retains protected handles, complete
-content verification, close/reopen checks and retained recovery copies. Initial direct reads
+can resume after complete identity and prefix verification, as checked below. The save transaction
+retains protected handles, complete content verification, close/reopen checks and retained recovery copies. Initial direct reads
 verify and stage serially; no performance result is claimed. Catalog IDs now use SMB IDs, so the
 candidate requires a fresh domain and separate bundle. It must not open earlier prototype data.
 
@@ -424,7 +426,169 @@ stream stopped early, so the twenty-save transaction count was recovered with `l
 A foreground stream records subsequent tests. `full-download-comparison.json` contains all
 native samples and correlated provider/direct-read lines. `partial-read-probe.json` records the
 range checks. Linux JSON audits record payloads, identities, connections and interrupted stages.
-The log streams and interruption monitors are stopped, Samba is running, and pending records,
-partial server files and exported copies remain intact. The physical Mac and original NAS were
-not changed. The next evaluation should resolve the copy warning and native-mount interaction,
-then run the remaining end-to-end and writable/partial benchmarks before a transport decision.
+Those initial log streams and interruption monitors stopped. Samba remained running, and pending
+records, partial server files and exported copies remained intact. The continuation below resolves
+the copy warning and app export interaction and measures end-to-end and partial reads.
+
+#### Recovery and Finder follow-up, 2026-11-03
+
+Signed build 07 ran on the same isolated VMs, with the sandbox unchanged. All required checks
+passed with 621 package tests and one optional skip. These are correctness checks with
+uncontrolled caches, not performance measurements.
+
+| Case | Observed result |
+| --- | --- |
+| Original interrupted 64 MiB upload | Retry completed the recorded server file, retained its identity, matched the complete local hash and cleared the pending upload. |
+| Fresh upload interrupted at 512 KiB | A changed prefix was refused without modifying it. Replacing the file with another identity was also refused. Restoring the original identity and prefix let Retry finish all 64 MiB with the expected hash. |
+| Recovery export to Desktop | The 4,456,513-byte export matched the retained synthetic save and had no immutable flag. |
+| Recovery export to the disposable native share | The app refused before creating the destination. Linux confirmed its absence and unchanged private recovery artifacts. |
+| Read-only Finder copy and Keep Both | Both copies completed without the earlier warning or error 0. Each had all 104,448 expected bytes, mode 0400 and no immutable flag. |
+| Read-only editing | The capability trial refused TextEdit Save, including after Unlock. The final context menu has no Rename or Delete. Provider and app write guards remain enabled. |
+
+An acknowledged upload now reopens the recorded file with exclusive SMB sharing, compares its
+identity and every existing byte with the complete retained payload, and appends only missing
+bytes. Unknown create replies remain unresolved. Completion still requires flush, close and
+reopen verification. Finder retry naming does not change the recorded publication name.
+
+Recovery export checks the destination volume before exclusive creation and again through the
+open file before copying. The first implementation tried to open the parent directory, which
+the save-panel sandbox grant did not permit. The final implementation uses `statfs` for the
+first check and `fstatfs` for the second, without adding entitlements. Existing files are never
+replaced.
+
+On this macOS build, removing both write and rename capabilities makes read-only provider files
+immutable, and Finder carries that flag into exported copies. Read-only regular files now
+advertise write capability but keep read-only POSIX permissions and read-only parent folders.
+Both mutation guards still refuse remote changes. A writable-mode-only trial did not fix Keep
+Both; a rename-capability trial did, but exposed an inappropriate Rename action. Neither trial
+remains in production code.
+
+Evidence includes `runtime-05.log` through `runtime-08.log`, `checks-07.log`,
+`copy-final-07.json`, `recovery-export-06.json` and the Linux prefix, replacement, restored-upload
+and export-refusal audits. Retired save stages and complete recovery exports remain preserved.
+
+#### Coordinated and partial reads, 2026-11-03
+
+Build 07 used the same encrypted Samba/ext4 share. macOS VM 1 had 8 GiB RAM and nine vCPUs;
+the Linux VM had 3.8 GiB RAM. The existing Swift measurement helper ran in an ad-hoc-signed
+sandboxed app with user-selected read access. Its Open panel granted only the selected test
+file. Selection preceded timing. It did not grant shell access to a provider domain or private
+app storage.
+
+Full samples used the non-sparse 2 GiB fixture. Finder Remove Download preceded each provider
+sample, and the helper verified zero allocation and the dataless flag before timing. After
+coordination returned, it verified 2 GiB allocation and the expected SHA-256 with hydration
+disabled. Native controls used 1 MiB reads, `F_NOCACHE`, APFS staging and sync. Their source and
+staging checksums ran outside timing. Every Linux file-cache eviction used a read-only descriptor
+and `POSIX_FADV_DONTNEED` on the test file only; `mincore` verified zero resident pages before
+each sample. Network counters showed about 2.246 GB per provider full read and 4.492 GB per
+native sample including its separate verification read. Virtual block counters showed about
+2 GiB read per sample. Host and virtual-disk device caches were uncontrolled.
+
+Order was P2, N2, N3, P3, P4, N4, N5, P5, P6, N6. Two picker attempts accidentally reused the
+downloaded provider copy because the automation had not activated Remove Download. Their
+nonzero initial allocation and absent network traffic identified them as local controls;
+they are preserved separately and excluded. A preceding pilot is also separate. No builds
+ran during measurements. Rates below are decimal MB/s, including open/handoff overhead.
+
+| Round | Native staging | Provider full download |
+| --- | ---: | ---: |
+| 2 | 143.18 | 88.45 |
+| 3 | 166.74 | 226.43 |
+| 4 | 179.93 | 246.54 |
+| 5 | 163.61 | 213.96 |
+| 6 | 208.98 | 222.43 |
+| Median | 166.74 | 222.43 |
+
+The median ratio is 1.334. The first valid pair remains in the series despite being slower.
+This passes the read-only full-download comparison for this VM/cache setup, not the complete
+performance gate. A warming attempt left only 490,567 of 524,288 pages resident, so it is not
+reported as a fully hot-cache result.
+
+Partial samples used five fresh 512 MiB extents of the 3 GiB fixture, separated by 64 MiB gaps.
+The helper used 1 MiB `pread` calls and `F_NOCACHE`; native controls used matching reads to a
+sink. Linux residency was zero for each requested extent before each arm. Read-ahead beyond
+the requested extent was not included in that residency assertion. Order alternated by round.
+All provider range hashes matched the independent Linux audits. Each sample allocated 528 MiB,
+about 1.031 times the requested bytes, with no whole-file fallback.
+
+| Round | Native sink MB/s | Provider MB/s | Provider first read, s |
+| --- | ---: | ---: | ---: |
+| 1 | 190.62 | 104.39 | 0.190 |
+| 2 | 196.96 | 95.46 | 0.766 |
+| 3 | 194.07 | 92.44 | 0.759 |
+| 4 | 231.82 | 94.96 | 0.700 |
+| 5 | 180.40 | 96.36 | 0.782 |
+| Median | 194.07 | 95.46 | 0.759 |
+
+The median ratio is 0.492, below the unchanged 90% target. This is close to the earlier
+45.2% seek-priority result, but not a matched old/new-build comparison or a 20-seek/player
+latency pass. Evidence is `cold-full-summary.json`, `partial-summary.json`, the individual
+provider/native JSON files, `runtime-08.log`, and the Linux cache and counter snapshots.
+
+A writable 2 GiB pilot took 24.243 s and fetched 4 GiB plus two stabilization bytes. The
+prototype now stages a protected full read once, verifies its complete local content and
+block proof, then rechecks server identity, metadata and security before accepting the
+version. Partial verification is unchanged.
+
+Signed build 08 passed all required VM checks with 621 package tests, one optional skip,
+no Swift warnings, six SET_INFO cases, 94 edit-status cases, 18 folder-create cases and
+7,205 CCM cases. Five interleaved writable full-download pairs used a separate 2 GiB copy of
+the same random bytes, the same verified empty Linux file cache, and the same picker/native
+methods. The verified edit base survived the app restart for installation. Each provider
+sample fetched 2 GiB plus one stabilization byte, allocated the whole file and matched the
+expected hash. Order was P1, N1, N2, P2, P3, N3, N4, P4, P5, N5.
+
+| Round | Native staging MB/s | Writable provider MB/s |
+| --- | ---: | ---: |
+| 1 | 240.78 | 184.40 |
+| 2 | 192.51 | 195.30 |
+| 3 | 108.59 | 180.45 |
+| 4 | 190.23 | 197.34 |
+| 5 | 190.82 | 199.15 |
+| Median | 190.82 | 195.30 |
+
+The median ratio is 1.023. The native outlier remains included. This passes the writable full
+comparison for this VM/cache setup. The earlier single pilot identifies duplicate traffic;
+it is not a five-pair speedup baseline. Evidence is `writable-full-summary.json`, the individual
+JSON results, `checks-08.log`, `runtime-09.log` and the matching Linux cache/counter snapshots.
+
+Stopping Samba after 140,509,185 payload bytes caused the full-read callback to fail. The helper
+received `serverUnreachable` after 1.056 s, with zero allocated bytes and no checksum or success
+result. Samba restarted after five seconds. The next complete read succeeded in 10.793 s and
+matched the original hash. The failed request therefore did not expose its partial stage as a
+complete file. Evidence is `writable-interrupted-08.json`, `writable-recovered-08.json` and the
+Linux `tinymounter-read-interruption-08.json` audit.
+
+A competing direct client requested write access without writing any bytes during another signed
+full download. The server rejected 48 opens with `STATUS_SHARING_VIOLATION`; opens before and
+after the read succeeded. The provider returned the complete expected hash. This checks both
+protection during the new read path and release afterward. Evidence is
+`competing-write-open-08.json`, its script, and `protected-full-08.json`.
+
+Five fresh 1 MiB reads, 256 MiB apart, then exercised the writable file's retained block proof.
+Each requested extent had verified empty Linux page cache. Reader times were 0.795, 0.804,
+0.863, 0.869 and 0.821 s. Each allocated 16 MiB and fetched 32 MiB plus one stabilization byte,
+covering protected verification and staging. All five hashes matched independent Linux reads.
+After a separate app restart and eviction, the first 1 MiB miss again fetched only 32 MiB plus
+one byte, completed in 0.770 s and matched the same hash. This confirms use of persisted proof
+without another full download. These diagnostic seeks are not a 20-seek/player latency pass.
+Evidence is
+`writable-seek-01.json` through `writable-seek-05.json`, `runtime-10.log` and the Linux seek audit.
+The restart sample is `writable-seek-restart-08.json`, with `protection-runtime-08.log`.
+
+Five fully local 2 GiB reads used the downloaded provider file and its Finder-exported APFS copy,
+alternating order with 1 MiB reads and `F_NOCACHE`, without a local cache flush. The provider
+times were 0.159, 0.114, 0.109, 0.112 and 0.127 s; the local APFS control took 0.810, 0.825,
+0.794, 0.851 and 1.022 s. Both copies had the expected complete hash, and no fetch callback
+occurred during the local series. These cache conditions show no local-read penalty; they do
+not measure physical SSD throughput. Evidence is `local-summary.json`, the individual JSON
+samples and the Desktop checksum record.
+
+The signed update remains installed only in macOS VM 1. Samba is running, diagnostic processes
+are stopped, and recovery artifacts and exported copies remain intact. The original NAS and
+physical-Mac installation were not changed. Remaining validation limits are fully hot server
+cache, the unmet partial-throughput and player-seek targets, broader server/editor compatibility,
+and physical hardware. Production adoption requires a separate decision. The single-client
+catalog uses different remote identities and needs Start Fresh rather than migration; pending
+physical-Mac changes must be completed or exported before any installation.
