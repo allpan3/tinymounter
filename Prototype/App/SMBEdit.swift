@@ -205,12 +205,12 @@ final class SMBEdit: EditRemote, FileRenameRemote {
         return Int(count)
     }
 
-    func allowPublishedReads(path: String, expected: EditFileVersion) throws {
+    func allowPublishedReads(path: String, expected: EditFileVersion, collectReadProof: Bool = false) throws {
         guard let previous = handles[path] else { throw UploadError.unresolved }
         // Revalidate after releasing the exclusive guard so native SMB can inspect the saved file.
         try previous.use { try check(tm_edit_close(client, $0)) }
         handles[path] = nil
-        let current = try readVersion(path: path)
+        let current = try readVersion(path: path, collectReadProof: collectReadProof)
         guard current.hasSameContents(as: expected),
               current.modifiedMicroseconds == expected.modifiedMicroseconds else {
             throw UploadError.unresolved

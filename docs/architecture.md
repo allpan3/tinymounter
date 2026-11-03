@@ -183,6 +183,78 @@ Watch active/materialized directories with SMB `CHANGE_NOTIFY` where supported; 
 
 For ordinary files, validate identity/version at open and after fetching, and keep a stable handle while reading. Validate behavior when other SMB clients write or replace the file. Reliable immutable snapshots, or a tested server-enforced exclusion strategy, provide stronger guarantees. Holding a deny-write/delete handle for an entire partially cached session can interfere with other users and does not survive every restart. If a server cannot uphold the supported consistency contract, disable partial fetch for that case and use a full fetch under a tested stable-read mechanism; if even that cannot obtain consistent content, fail/retry rather than publish known mixed content. Do not claim perfect snapshot semantics for arbitrary external modifications without server support.
 
+### Edited-file read verification
+
+Decision status: implementation authorized by the 2026-11-02 read-performance task;
+performance and app integration await coordinator-run VM checks.
+
+An edit receipt binds server identity to a complete SHA-256 digest. Metadata alone cannot
+prove that mutable SMB content still matches it. The original read path therefore digested
+the entire protected server file before each native transfer, including tiny ranges. The
+November 1 implementation reuses bounded block digests, but loses them on restart/remount
+and serializes complete verification before every full transfer.
+
+Keep the independent server checks and native payload transport. Persist one bounded block
+proof per location in a disposable local cache, bound to the exact receipt and relative path.
+Load it only for that receipt, and validate fresh protected server identity, size, times,
+attributes, security and requested block contents on every use. Never trust the cache as
+evidence of the server's current state. Missing, malformed, mismatched or oversized evidence
+takes the existing complete-verification path. The cache contains at most 2 MiB of digests,
+with 1 MiB blocks and a 64 GiB indexing limit. It changes no catalog or receipt format and
+requires no Start Fresh. A new installation or a different cached item can still incur one
+whole-file verification before the first small read.
+
+Capture the table during the existing complete server verification after a save or upload,
+and after a verified full handoff. This adds block hashing, but no server payload read, to
+publication. Store only after the receipt is committed or the staged read has passed its
+checksum. Cache-write failure leaves the operation valid and the next read uses the slow
+path. Location close removes its cache; normal process exit does not. The cache lives under
+the app's Caches directory and may be purged without losing a receipt or pending save.
+
+For full downloads, run protected whole-file verification alongside native staging. Both
+must succeed, and the local staged checksum must equal the independently obtained server
+digest before handoff. This overlaps the repeated verification cost; it does not eliminate
+the server read or assert a speedup before measurement. Reuse an existing block table instead
+of hashing every block again during full verification when its receipt still matches.
+Mutations retain their complete checks. Persistent metadata-only digest reuse is unsafe;
+keeping deny-write/delete handles between requests would interfere with other clients.
+
+The handle and lock rules are:
+
+- The existing recursive share namespace lock encloses each protected request. Inside it,
+  take the location upload lock. Catalog access takes the catalog lock; session acquisition
+  takes the share start lock and then the share state lock. Location-root lookup briefly
+  takes the session's lock. None of these inner locks spans the transfer or worker join.
+  The namespace lock also serializes proof-cache access, with no separate cache lock.
+  Catalog and share state locks never call back into the namespace while held.
+- Each request owns a fresh protected SMB connection, ancestor handles denying delete,
+  a regular-file handle denying write/delete, and one native read-only descriptor. The
+  same protected handle supplies metadata and all server digest reads. The same native
+  descriptor supplies the entire staged range. No handle is cached or reused by another
+  request; the persisted proof contains only immutable data.
+- For a full transfer, only the native worker performs payload I/O on the native descriptor.
+  It acquires no namespace, upload, catalog, share start or session-root lock. Space checks
+  take the download-budget lock; progress notification takes the share health/state lock.
+  The owner holds neither while joining, and their callbacks do not acquire the namespace.
+  The owning thread performs protected SMB
+  work, joins the worker on success, failure or cancellation, then checks staging. Both
+  handles stay alive through the join and final checksum. Worker failure cancels verification;
+  verification failure cancels the worker. Cancellation cannot close a descriptor beneath
+  a blocked read. A kernel read must return before its descriptor and protections close.
+- The worker's result/progress lock never encloses I/O, progress/cancellation callbacks or a wait.
+  The owner waits without that lock. The native worker therefore cannot wait for any lock
+  held by its joining owner. Concurrent protected requests serialize under the existing
+  namespace lock; listings can still delay reads. No lock scope is narrowed in this change.
+
+Server protection excludes an SMB replacement or writer between verification and staging.
+Metadata/block mismatch follows full verification and the existing version-change path;
+stale native data fails the independent staged checksum. A failed or cancelled transfer
+removes staging; only verified evidence enters the cache. A remount can reuse only content
+evidence, after fresh server protection and identity/block checks. Metadata-preserving changes outside a
+requested block remain detectable on later access or full verification, as in the existing
+range-read contract. Direct backing-store writes that bypass SMB protection remain outside
+that contract. The VM checks are specified in the benchmark plan.
+
 ## 8. Writes and offline editing, later
 
 Offline editing means saving to the downloaded local copy and uploading when the server returns. Preserve both copies when the server copy also changed. Even online writes require the same foundation to survive an unexpected disconnect.
