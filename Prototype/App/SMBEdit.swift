@@ -26,6 +26,8 @@ final class SMBEdit: EditRemote, FileRenameRemote, UploadRemote {
     private var folderMoveRoots: [String: Handle] = [:]
     private var folderMoveFiles: [String: Handle] = [:]
     private var folderMoveParents: Set<String> = []
+    private var folderMoveParentBindings: [FileRenameParent]?
+    private var folderMoveAttempted = false
     private(set) var readProof: VerifiedRead?
     private(set) var readBytes: Int64 = 0
     /// Set when a deletion traversal starts; that session never deletes.
@@ -801,6 +803,7 @@ extension SMBEdit: FolderMoveRemote {
             }
         }
         folderMoveParents = Set(parents.map(\.path))
+        if folderMoveParentBindings == nil { folderMoveParentBindings = parents }
         return parents
     }
 
@@ -910,9 +913,24 @@ extension SMBEdit: FolderMoveRemote {
               Set(directories.keys) == folderMoveParents else { throw UploadError.unresolved }
         _ = try folderMovePath(destination)
         try cancellation()
+        folderMoveAttempted = true
         try handle.use { try check(tm_edit_rename(client, $0, destination)) }
         folderMoveRoots = folderMoveRoots.filter { $0.value !== handle }
         folderMoveRoots[destination] = handle
+    }
+
+    func folderMoveParentsAfterRename(_ parents: [FileRenameParent]) throws -> [FileRenameParent] {
+        guard folderMoveParentBindings == parents, Set(parents.map(\.path)) == folderMoveParents else {
+            throw UploadError.unresolved
+        }
+        return try parents.map { parent in
+            guard let handle = directories[parent.path] else { throw UploadError.unresolved }
+            let values = try info(handle)
+            let identity = try folderMoveIdentity(values)
+            guard values[4] & 0x450 == 0x10, identity.fileID == parent.identity.fileID,
+                  folderMoveAttempted || identity == parent.identity else { throw UploadError.unresolved }
+            return FileRenameParent(path: parent.path, name: parent.name, identity: identity)
+        }
     }
 
     func settleFolderMove(_ record: PendingFolderMove) throws -> [FolderMoveSettlement] {

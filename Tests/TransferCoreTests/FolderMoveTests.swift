@@ -135,6 +135,58 @@ final class FolderMoveTests: XCTestCase {
         XCTAssertEqual(remote.moves, 1)
     }
 
+    func testParentCreationTimesCheckpointBeforeReleasingMoveProtection() throws {
+        var record = try prepare()
+        let admitted = record.parents
+        remote.changedParentBirthAfterMove = true
+        XCTAssertThrowsError(try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote) { state in
+            if state == .moved { throw UploadError.unresolved }
+        })
+        XCTAssertEqual(record.state, .moved)
+        XCTAssertNotEqual(record.parents, admitted)
+        XCTAssertEqual(try saved().parents, remote.parents)
+        try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote)
+        XCTAssertEqual(record.state, .verified)
+        XCTAssertEqual(remote.moves, 1)
+        try FolderMoveTransaction.finishDomain(domain, record: &record, outbox: outbox)
+        XCTAssertEqual(record.state, .completed)
+    }
+
+    func testLostProtectionCannotRebindChangedParentCreationTimes() throws {
+        var record = try prepare()
+        let admitted = record.parents
+        remote.changedParentBirthAfterMove = true
+        remote.disconnectAfterMove = true
+        XCTAssertThrowsError(try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote))
+        XCTAssertEqual(try saved().parents, admitted)
+        remote.disconnected = false
+        remote.disconnectAfterMove = false
+        XCTAssertThrowsError(try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote))
+        XCTAssertEqual(record.state, .attempting)
+        XCTAssertEqual(remote.moves, 1)
+        XCTAssertEqual(try saved().parents, admitted)
+    }
+
+    func testParentCheckpointNeverAcceptsAnotherDirectoryOrChangesAfterSettlement() throws {
+        var record = try prepare()
+        remote.verifySource = { _ in
+            let old = self.remote.parents[0]
+            self.remote.parents[0] = FileRenameParent(path: old.path, name: old.name,
+                identity: try self.identity(old.identity.fileID + 100))
+        }
+        XCTAssertThrowsError(try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote))
+        XCTAssertEqual(try saved().state, .attempting)
+        remote.parents = record.parents
+        try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote)
+        XCTAssertEqual(record.state, .verified)
+        let old = record.parents[0]
+        record.parents[0] = FileRenameParent(path: old.path, name: old.name,
+            identity: try EditFileIdentity(fileID: old.identity.fileID,
+                                           birthMicroseconds: old.identity.birthMicroseconds + 1))
+        XCTAssertThrowsError(try outbox.save(record))
+        XCTAssertEqual(try saved().parents, remote.parents)
+    }
+
     func testErrorReplyAfterRemoteSuccessCannotBecomeARefusal() throws {
         var record = try prepare()
         remote.replyErrorAfterMove = posixError("lost result", code: EACCES)
@@ -1488,6 +1540,7 @@ private final class FolderRemote: FolderMoveRemote {
     var moveFailure: Error?
     var replyErrorAfterMove: Error?
     var releaseFailure: Error?
+    var changedParentBirthAfterMove = false
     var settlement: ((PendingFolderMove) throws -> [FolderMoveSettlement])!
     var refresh: ((PendingFolderMove) throws -> [FolderMoveRefresh])!
     var verifySource: (PendingFolderMove) throws -> Void = { _ in }
@@ -1533,11 +1586,24 @@ private final class FolderRemote: FolderMoveRemote {
         roots[old] = nil
         roots[new] = FolderMoveEvidence(identity: root.identity, name: RelativePath(destination)!.components.last!)
         moves += 1
+        if changedParentBirthAfterMove {
+            parents = try parents.map {
+                FileRenameParent(path: $0.path, name: $0.name,
+                    identity: try EditFileIdentity(fileID: $0.identity.fileID,
+                                               birthMicroseconds: $0.identity.birthMicroseconds + 1))
+            }
+        }
         if disconnectAfterMove {
             disconnected = true
             throw posixError("lost reply", code: EIO)
         }
         if let replyErrorAfterMove { throw replyErrorAfterMove }
+    }
+
+    func folderMoveParentsAfterRename(_ parents: [FileRenameParent]) throws -> [FileRenameParent] {
+        if disconnected { throw posixError("disconnected", code: EIO) }
+        events.append("checkpoint parents")
+        return self.parents
     }
 
     func settleFolderMove(_ record: PendingFolderMove) throws -> [FolderMoveSettlement] {
