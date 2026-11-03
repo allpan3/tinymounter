@@ -3,7 +3,9 @@ import Foundation
 import OSLog
 
 extension LocationSource {
-    func readProofCache() -> VerifiedReadCache {
+    func readProofCache() -> VerifiedReadCache { Self.readProofCache(domainID: domainID) }
+
+    static func readProofCache(domainID: String) -> VerifiedReadCache {
         VerifiedReadCache(directory: URL.cachesDirectory
             .appending(path: "tinymounter/ReadProofs/\(domainID)", directoryHint: .isDirectory))
     }

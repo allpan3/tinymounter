@@ -233,10 +233,12 @@ public final class VerifiedReadTransfer: @unchecked Sendable {
                 try? FileManager.default.removeItem(at: url)
             }
             // A verification failure cancels native I/O; retain the cause rather than that cancellation.
+            // A version change wins over any native error, so the caller refreshes the item.
             if !progress.isCancelled, case .failure(let reason) = verification {
                 switch outcome {
                 case .success: throw reason
                 case .failure(let nativeError) where nativeError as? TransferError == .cancelled: throw reason
+                case .failure where reason as? SourceFailure == .versionChanged: throw reason
                 default: break
                 }
             }

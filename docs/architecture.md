@@ -208,8 +208,9 @@ Capture the table during the existing complete server verification after a save 
 and after a verified full handoff. This adds block hashing, but no server payload read, to
 publication. Store only after the receipt is committed or the staged read has passed its
 checksum. Cache-write failure leaves the operation valid and the next read uses the slow
-path. Location close removes its cache; normal process exit does not. The cache lives under
-the app's Caches directory and may be purged without losing a receipt or pending save.
+path. Location close and location removal remove its cache; normal process exit does not. The
+cache lives under the app's Caches directory and may be purged without losing a receipt or
+pending save.
 
 For full downloads, run protected whole-file verification alongside native staging. Both
 must succeed, and the local staged checksum must equal the independently obtained server

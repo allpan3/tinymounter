@@ -1002,6 +1002,8 @@ final class LocationController {
             try Catalog.delete(at: SharedContainer.catalogURL(domainID: id))
             try LocationSource.outbox(domainID: id).removeForLocationRemoval()
             try LocationSource.editOutbox(domainID: id).removeForLocationRemoval()
+            // Read proofs are a disposable cache; a leftover only costs space.
+            try? LocationSource.readProofCache(domainID: id).remove()
             try LocationSource.renameOutbox().removeCompletedIntents(removedDomain: id)
             try LocationSource.deletionOutbox().removeSettled(domain: id)
         case .deleteRecord(let id):
