@@ -92,6 +92,8 @@ public struct PendingEdit: Codable, Equatable, Sendable {
     public enum State: String, Codable, Sendable {
         case preparing, prepared, creatingStage, staged, creatingBackup, backedUp, movingOriginal
         case copying, restoring, publishing, published, cleaningUp, completed, retired
+        /// Stop Uploading ended the save; the record only answers macOS's next send of its contents.
+        case stopped
     }
 
     public let id: UUID
@@ -128,7 +130,7 @@ public struct PendingEdit: Codable, Equatable, Sendable {
     public var completedBackupRemoved: Bool?
     public var completedCleanupStarted: Bool?
 
-    public var isPending: Bool { state != .completed || recoveryRetained }
+    public var isPending: Bool { state != .completed && state != .stopped || recoveryRetained }
     public var isPublicationComplete: Bool { state == .completed || state == .cleaningUp }
     public var publishedIdentity: EditFileIdentity? { conflict ? stageIdentity : previous?.identity }
     public var workPath: String { String(recoveryPath.dropLast("recovery".count)) + "work" }
@@ -246,7 +248,7 @@ public final class EditOutbox {
             try recoverPreparations(preparing)
             all = try records()
         }
-        let generations = all.filter { $0.item == item && $0.state != .retired }
+        let generations = all.filter { $0.item == item && $0.state != .retired && $0.state != .stopped }
         let unfinished = generations.filter { !$0.isPublicationComplete }
         var order = EditOrder()
         let earlier: [PendingEdit]
@@ -435,7 +437,7 @@ public final class EditOutbox {
         let all = try records()
         let highest = all.map(\.sequence).max() ?? 0
         guard highest < UInt64.max else { throw UploadError.unresolved }
-        let generations = all.filter { $0.item == item && $0.state != .retired }
+        let generations = all.filter { $0.item == item && $0.state != .retired && $0.state != .stopped }
         let replays = { (record: PendingEdit) in
             record.parent == parent && record.path == path.string && record.baseVersion == baseVersion
                 && record.digest == digest && (record.localMetadataDigest == metadata
@@ -594,7 +596,7 @@ public final class EditOutbox {
 
     public func complete(_ record: inout PendingEdit, item: String) throws {
         guard let stored = try records().first(where: { $0.id == record.id && $0.item == record.item }),
-              stored.state != .retired else { throw UploadError.unresolved }
+              stored.state != .retired, stored.state != .stopped else { throw UploadError.unresolved }
         if stored.isPublicationComplete || stored.state == .published {
             record = stored
         }
@@ -694,6 +696,60 @@ public final class EditOutbox {
             throw UploadError.pendingWrites
         }
         try FileManager.default.removeItem(at: directory)
+    }
+
+    /// Stop Uploading ends a save whose original never changed: one that never reached the server,
+    /// or whose conflict copy is published. No other save of the file may still need work.
+    public static func canStop(_ record: PendingEdit, among records: [PendingEdit]) -> Bool {
+        let localOnly = record.state == .prepared && record.stageIdentity == nil && record.published == nil
+        let conflictCopy = record.state == .published && record.conflict
+        return (localOnly || conflictCopy) && record.backupIdentity == nil && !record.recoveryRetained
+            && !records.contains { $0.item == record.item && $0.id != record.id && $0.isPending }
+    }
+
+    /// Exports the save and checks the copy before it ends the save, so the copy always holds it.
+    public func stop(_ id: UUID, exportingTo destination: URL) throws {
+        let all = try records()
+        guard var record = all.first(where: { $0.id == id }), Self.canStop(record, among: all) else {
+            throw UploadError.unresolved
+        }
+        try export(record, to: destination)
+        let copy = try ReadOnlyFile(url: destination)
+        guard copy.snapshot.size == record.size,
+              try copy.checksum(range: ByteRange(offset: 0, length: record.size, fileSize: record.size)) == record.digest
+        else { throw UploadError.unresolved }
+        try copy.validateUnchanged()
+        // The copy can be on another device, so it must be on disk before the save's contents go.
+        guard fcntl(copy.descriptor, F_FULLFSYNC) == 0 || fsync(copy.descriptor) == 0 else {
+            throw posixError("sync stopped edit copy")
+        }
+        record.state = .stopped
+        try save(record)
+        // The upload is stopped now; takeStopped discards contents that remain.
+        try? discardStoppedContents(record)
+    }
+
+    /// True when macOS sends a stopped save's contents again; the caller answers with the server's
+    /// version. Any send for the file ends its stopped records, so later saves upload normally.
+    public func takeStopped(item: String, contents: URL) throws -> Bool {
+        let stopped = try records().filter { $0.item == item && $0.state == .stopped }
+        guard !stopped.isEmpty else { return false }
+        let input = try ReadOnlyFile(url: contents, allowMaterialization: true)
+        let size = input.snapshot.size
+        let digest = try input.checksum(range: ByteRange(offset: 0, length: size, fileSize: size))
+        try input.validateUnchanged()
+        for record in stopped {
+            try discardStoppedContents(record)
+            try removeLocalRecord(record)
+        }
+        return stopped.contains { $0.size == size && $0.digest == digest }
+    }
+
+    // The record is stopped first, so an interrupted removal never leaves a save without contents.
+    private func discardStoppedContents(_ record: PendingEdit) throws {
+        try payloads.discardUnpublishedPayload(record.id)
+        let metadata = directory.appending(path: record.id.uuidString + ".metadata")
+        guard unlink(metadata.path) == 0 || errno == ENOENT else { throw posixError("discard stopped edit metadata") }
     }
 
     /// The save never reached the server, so removing the location loses nothing that macOS does not keep.

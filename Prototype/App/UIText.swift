@@ -47,6 +47,20 @@ enum UIText {
             : "The file stays on this Mac and is not uploaded. If you change the file, tinymounter tries to upload it again."
     }
     static let stopRefused = "tinymounter cannot stop this item, because the server can have it. Use Retry Pending Changes to check the server."
+    static let stopEditMessage = """
+        Save a copy of the changes that did not upload. tinymounter then stops the upload and replaces \
+        the file on this Mac with the version on the server.
+        """
+    static let stopEditRefused = "tinymounter did not stop the upload. The local save is retained."
+    /// The default name of a stopped save's copy, such as "Report (not uploaded 2026-11-02).txt".
+    static func stoppedEditName(_ path: String, date: Date) -> String {
+        let name = URL(fileURLWithPath: path)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        let suffix = name.pathExtension.isEmpty ? "" : "." + name.pathExtension
+        return name.deletingPathExtension().lastPathComponent + " (not uploaded \(formatter.string(from: date)))" + suffix
+    }
     static func editPending(_ path: String) -> String { "Edited file: \(path)" }
     static func deletionPending(_ path: String) -> String { "Permanent deletion: \(path)" }
     static let deletionEffect = "Deletion permanently removes items from the server and its locations. tinymounter cannot restore deleted items."

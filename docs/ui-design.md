@@ -109,6 +109,12 @@ Selecting a location shows one grouped form with all of its settings:
    tinymounter shows in Finder after the removal. Changes that can be on the server prevent the
    removal, and a dialog names them.
 
+Each pending save offers Export Local Copy. A save that never reached the server, or whose
+conflict copy is published, also offers Stop Uploading. Its save panel suggests a name like
+`Report (not uploaded 2026-11-02).txt`. After tinymounter writes and checks that copy, it stops
+the upload, and macOS replaces the local file with the version on the server. Cancel changes
+nothing.
+
 The pending-changes list includes permanent deletions. Each row names the selected item and
 shows waiting, a failure reason, or an unconfirmed result. Item results show the outcome for
 every admitted child and folder, including confirmed deletions in a partly completed request.

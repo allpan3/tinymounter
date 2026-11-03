@@ -240,6 +240,75 @@ final class EditOutboxTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appending(path: "Edits").path))
     }
 
+    func testStopExportsAVerifiedCopyBeforeItEndsTheSave() throws {
+        let record = try prepare()
+        XCTAssertTrue(EditOutbox.canStop(record, among: try outbox.records()))
+        let copy = directory.appending(path: "copy.txt")
+        try outbox.stop(record.id, exportingTo: copy)
+        XCTAssertEqual(try Data(contentsOf: copy), Data("pending document".utf8))
+        XCTAssertEqual(try stored(record).state, .stopped)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outbox.contentURL(record).path))
+        XCTAssertEqual(try outbox.pendingCount, 0)
+        XCTAssertEqual(try outbox.contentBytes, 0)
+        XCTAssertNil(try outbox.order(item: item).head)
+        try outbox.removeForLocationRemoval()
+    }
+
+    func testStoppedSaveSentAgainIsAnsweredOnceAndLaterSavesUpload() throws {
+        let record = try prepare()
+        try outbox.stop(record.id, exportingTo: directory.appending(path: "copy.txt"))
+        XCTAssertTrue(try outbox.takeStopped(item: item, contents: input))
+        XCTAssertEqual(try outbox.records(), [])
+        XCTAssertFalse(try outbox.takeStopped(item: item, contents: input))
+        let again = try prepare()
+        XCTAssertNotEqual(again.id, record.id)
+        XCTAssertEqual(try outbox.order(item: item).head?.id, again.id)
+    }
+
+    func testNewerContentsEndTheStopAndUploadNormally() throws {
+        let record = try prepare()
+        try outbox.stop(record.id, exportingTo: directory.appending(path: "copy.txt"))
+        try Data("newer document".utf8).write(to: input)
+        XCTAssertFalse(try outbox.takeStopped(item: item, contents: input))
+        XCTAssertEqual(try outbox.records(), [])
+        let newer = try prepare()
+        XCTAssertEqual(try outbox.order(item: item).head?.id, newer.id)
+    }
+
+    func testStopIsRefusedOnceTheServerCanHaveTheSave() throws {
+        var record = try prepare()
+        for state: PendingEdit.State in [.creatingStage, .staged, .creatingBackup, .movingOriginal, .published] {
+            record.state = state
+            try outbox.save(record)
+            XCTAssertFalse(EditOutbox.canStop(record, among: try outbox.records()))
+            let copy = directory.appending(path: state.rawValue + ".txt")
+            XCTAssertThrowsError(try outbox.stop(record.id, exportingTo: copy))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: copy.path))
+        }
+        try outbox.validateContents(record)
+    }
+
+    func testStopIsRefusedWhileAnotherSaveOfTheFileNeedsWork() throws {
+        var older = try prepare("older document")
+        older.state = .creatingStage
+        try outbox.save(older)
+        let newer = try prepare("newer document")
+        try outbox.retainSuperseded(&older)
+        XCTAssertFalse(EditOutbox.canStop(try stored(newer), among: try outbox.records()))
+        XCTAssertThrowsError(try outbox.stop(newer.id, exportingTo: directory.appending(path: "copy.txt")))
+        XCTAssertEqual(try stored(newer).state, .prepared)
+    }
+
+    func testFailedExportLeavesTheSaveWaiting() throws {
+        let record = try prepare()
+        let copy = directory.appending(path: "copy.txt")
+        try Data("existing file".utf8).write(to: copy)
+        XCTAssertThrowsError(try outbox.stop(record.id, exportingTo: copy))
+        XCTAssertEqual(try Data(contentsOf: copy), Data("existing file".utf8))
+        XCTAssertEqual(try stored(record).state, .prepared)
+        try outbox.validateContents(record)
+    }
+
     func testOrphanPayloadBlocksRemoval() throws {
         let orphan = directory.appending(path: "Edits/Contents/\(UUID().uuidString).data")
         try Data("retained".utf8).write(to: orphan)
