@@ -278,11 +278,22 @@ final class SMBEdit: EditRemote, FileRenameRemote {
         do {
             handle = try open(path: path, access: Self.read | Self.delete | (original ? Self.write : 0), sharing: 0)
         } catch let error as NSError where error.domain == NSPOSIXErrorDomain && error.code == Int(ENOENT) {
+            try requireNoOtherSpelling(of: path)
             return nil
         }
         handles[path] = handle
         if original { originals.insert(path) }
         return try version(handle, artifactPath: original ? nil : path)
+    }
+
+    /// A byte-exact server misses a name stored in another normalization, so a missed open proves
+    /// absence only while the held parent lists no other spelling of that name.
+    private func requireNoOtherSpelling(of path: String) throws {
+        let components = RelativePath(try remotePath(path))!.components
+        let name = components.last!, entry: RenameDirectoryEntry?
+        do { entry = try renameEntry(parent: components.dropLast().joined(separator: "/"), name: name) }
+        catch UploadError.collision { throw UploadError.unresolved }
+        if let entry, SMBName.same(entry.name, name) { throw UploadError.unresolved }
     }
 
     func backup(original: String, path: String, created: (EditFileIdentity) throws -> Void) throws -> EditFileVersion {
