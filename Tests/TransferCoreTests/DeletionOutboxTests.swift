@@ -36,15 +36,21 @@ final class DeletionOutboxTests: XCTestCase {
                                                  request: fixture.request), record)
         XCTAssertNil(try fixture.outbox.replay(endpoint: fixture.endpoint, owner: fixture.neighbor,
                                                request: fixture.request))
-        XCTAssertThrowsError(try fixture.prepare("Docs/Tree/a")) { XCTAssertEqual($0 as? UploadError, .pendingWrites) }
+        XCTAssertThrowsError(try fixture.prepare("Docs/Tree/a")) { XCTAssertEqual($0 as? ItemDeletionError, .busy) }
         XCTAssertThrowsError(try fixture.outbox.prepare(endpoint: XCTUnwrap(ShareAddress("//other@fixture/share")),
             owner: fixture.owner, request: fixture.request, traversal: fixture.traversal(), views: fixture.views(),
-            protectedRoots: [], recursive: true)) { XCTAssertEqual($0 as? UploadError, .pendingWrites) }
+            protectedRoots: [], recursive: true)) { XCTAssertEqual($0 as? ItemDeletionError, .busy) }
         try fixture.run(&record)
         XCTAssertThrowsError(try fixture.prepare("Docs/neighbor")) {
-            XCTAssertEqual($0 as? UploadError, .pendingWrites)
+            XCTAssertEqual($0 as? ItemDeletionError, .busy)
         }
-        for domain in [fixture.owner, fixture.neighbor] { try fixture.outbox.finishDomain(domain, record: &record) }
+        try fixture.outbox.finishDomain(fixture.owner, record: &record)
+        fixture.outbox = try fixture.makeOutbox()
+        XCTAssertThrowsError(try fixture.prepare("Docs/neighbor")) {
+            XCTAssertEqual(DeletionFailure.classify($0), .busy)
+        }
+        XCTAssertEqual(try fixture.outbox.records(), [record])
+        try fixture.outbox.finishDomain(fixture.neighbor, record: &record)
         XCTAssertEqual(try fixture.prepare(), record)
         let other = try fixture.prepare("Docs/neighbor", recursive: false)
         XCTAssertNotEqual(other.id, record.id)

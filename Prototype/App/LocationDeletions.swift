@@ -18,7 +18,7 @@ extension LocationSource {
         }
         let reservation = UUID()
         let (path, affected) = try editNamespace.perform { () -> (RelativePath, [LocationSource]) in
-            try editNamespace.requireSettled()
+            try editNamespace.requireSettled(deletionBusyError: ItemDeletionError.busy)
             _ = try renameAccess()
             let path = try deletionPath(request)
             let affected = try deletionSources(path)
@@ -121,7 +121,7 @@ extension LocationSource {
                 admitted(replayed)
                 return replayed
             }
-            try editNamespace.requireSettled()
+            try editNamespace.requireSettled(deletionBusyError: ItemDeletionError.busy)
             guard try deletionPath(request).string.utf8.elementsEqual(path.string.utf8) else {
                 throw SourceFailure.versionChanged
             }

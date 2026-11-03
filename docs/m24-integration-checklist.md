@@ -17,6 +17,10 @@ and update the README after the run. Leave the original NAS and physical-Mac ins
 - Changed, replaced, moved, unsupported and refused selected items return `deletionRejected`.
   Remaining children return `directoryNotEmpty`. Unknown results return `cannotSynchronize`.
   Connection, authentication, cancellation and space errors retain their specific error codes.
+- Admission blocked only by another deletion, or by the reader's full job queue, returns
+  `CocoaError.xpcConnectionReplyInvalid` for automatic retry. Other pending-write refusals still
+  return `cannotSynchronize`. This avoids depending on a completion signal in every overlapping
+  domain, including when a read or upload holds the last job slot.
 - Retry uses the immutable admitted plan. Automatic launch/reconnect recovery only settles
   records whose remote work has ended. No retry adds a newly discovered child.
 - Settings lists records in every admitted view, using paths relative to that location.
@@ -71,6 +75,31 @@ and update the README after the run. Leave the original NAS and physical-Mac ins
    populated folder must return `directoryNotEmpty` and remove nothing through that callback.
 5. Use a signed callback probe for a configured root, an ancestor containing a configured root,
    a read-only location, and an unsupported item. Expect rejection and no remote mutation.
+
+## Concurrent deletions and job capacity
+
+1. Select three independent files in Finder and delete them together. Suspend the first record's
+   `commitDeletionSettings` callback so later callbacks run before `finishDeletionSettings`.
+   Expect each blocked callback to return `NSCocoaErrorDomain/NSXPCConnectionReplyInvalid`,
+   without admitting another record. Release Settings completion. Without Retry, a new user
+   action or `signalErrorResolved`, all three requests must be resent as needed, admitted and
+   completed. Audit backing storage, both catalogs and the durable records.
+2. Repeat with requests originating in both overlapping domains, including a selected item
+   visible in only one view. Delay completion of the second catalog too. Every busy request
+   must resume after the blocking record completes, with one record per item/base version.
+3. In a signed callback probe, occupy all four reader job slots with held reads or uploads,
+   then request deletion. Expect the same transient error and no deletion record. Release a
+   slot and verify automatic retry completes. Repeat with deletion jobs holding the slots.
+4. Separately block admission with a pending edit or rename. Expect `cannotSynchronize`, as
+   before. Verify read-only and stale-base refusals still return `deletionRejected`, and a
+   lost reader returns `serverUnreachable`. Record retry timing and callback counts.
+
+The installed SDK's `NSFileProviderReplicatedExtension.h`, documentation for
+`deleteItemWithIdentifier:baseVersion:options:request:completionHandler:`, says errors other
+than its listed terminal/domain errors "will be considered to be transient and will cause the
+deletion to be retried." It specifies `NSCocoaErrorDomain/NSXPCConnectionReplyInvalid` for errors
+without a suitable existing code. This is the contract used for busy admission; actual Finder
+retry timing remains a VM check.
 
 ## Changed items, arriving children and a new user request
 

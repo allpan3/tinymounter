@@ -509,7 +509,7 @@ public final class DeletionOutbox {
                                     views: views)
         let domains = Set(plan.domains)
         guard !(try records()).contains(where: { $0.blocksWrites && !domains.isDisjoint(with: $0.plan.domains) }) else {
-            throw UploadError.pendingWrites
+            throw ItemDeletionError.busy
         }
         let record = PendingDeletion(plan: plan, progress: DeletionProgress())
         // Progress first: a plan without progress is damage, while progress without a plan is inert.
