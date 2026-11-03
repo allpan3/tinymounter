@@ -17,7 +17,8 @@ app. Kill that exact process to test recovery; each control ID fires only once.
 the same fixture. Later requests export both views, with -peer on the second
 snapshot. Catalog and finished-domain stops include both catalogs' current rows.
 --deletion-checks records deletion callbacks and durable operations in these views.
-With --crash-checks it also enables node-bound stops from deletion-fault.json.
+With --crash-checks it also enables scoped stops/failures and an asynchronous
+Settings hold from deletion-fault.json; see the M24 integration checklist.
 --enable-deletion additionally enables deletion only in the generated candidate.
 """
 import argparse
@@ -229,6 +230,16 @@ def main():
                 '                            try M24FinderCrash.checkpoint(plan, outbox: outbox, node: index,\n'
                 '                                stage: next.state.rawValue + "-after")\n')
             deletion.write_text(content)
+            operations = root / "Prototype/App/LocationDeletions.swift"
+            operations.write_text(replace(operations.read_text(),
+                '    private func runDeletion(_ record: inout PendingDeletion, progress: Progress) throws {\n',
+                '    private func runDeletion(_ record: inout PendingDeletion, progress: Progress) throws {\n'
+                '        try M24FinderCrash.checkpoint(record.plan, outbox: Self.deletionOutbox(),\n'
+                '            node: 0, stage: "admitted")\n'))
+            app.write_text(replace(app.read_text(),
+                '            try await self.commitDeletionSettings(deletion, paths: paths, owner: domainID, grant: grant.id)',
+                '            try await M24FinderCrash.settings(deletion)\n'
+                '            try await self.commitDeletionSettings(deletion, paths: paths, owner: domainID, grant: grant.id)'))
     provider = root / "Prototype/Provider/FileProviderExtension.swift"
     content = provider.read_text()
     content = replace(content, 'try CatalogEnumerator.make(for: containerItemIdentifier, catalog: catalog, reader: sourceReader, domain: domain)',

@@ -406,9 +406,10 @@ the removal.
 - The M24 candidate routes permanent deletion behind `SourceReaderBridge.deletionEnabled`, which
   is false in the normal build. Settings lists its durable requests with per-item outcomes,
   Retry, Stop Deleting and safe Dismiss Notice actions. Signed VM checks pass for refusal
-  restoration, the permanent warning, Cancel, regular files and an empty folder. Nested deletion
-  exposed changing parent creation times; its protected checkpoint repair and the remaining
-  recovery/lifecycle checks are in progress. See the [integration checklist](m24-integration-checklist.md).
+  restoration, the permanent warning, Cancel, regular files and nested folders. Parent identity
+  checkpoints survive restart; lost checkpoints retain uncertainty and replacements survive
+  replay. Settings, concurrency and remaining lifecycle checks are in progress. See the
+  [integration checklist](m24-integration-checklist.md).
 - General modify and delete remain denied. A completed new folder can receive its initial name once; the app checks its receipt and remote identity. Create and initial naming require an explicitly enabled location and a fresh scoped write grant. Existing locations stay read-only. A reimport `createItem` (`.mayAlreadyExist`) completes with the live row of the same name and kind, and with `nil` only for a file without contents that no row matches; anything else keeps the error. A matched file with contents is downloaded again from the NAS unless its size equals the row's and its modification date is less than 1 µs from the row's, as measured between `Date`s. A NAS change that keeps the size and mtime and changes only the ctime is not found on reimport, so the old disk copy stays as the current version. Not verified at runtime: it needs a system reimport.
 - Per-request logs record full or partial mode, demand, sequential or speculative kind, Finder (`viewer`) and system flags, queue and transfer times. They don't instrument actual player first frame or system reader resumption.
 - The measured VM Finder-launched opens waited for a full download. The physical-Mac run includes

@@ -593,7 +593,7 @@ unverified. `SourceReaderBridge.deletionEnabled` remains false.
 Signed Finder checks pass for the permanent warning, Cancel, verified and unopened files, and
 an empty folder. Recursive deletion safely stopped after removing its two files because Samba
 changed a parent directory's synthetic creation time. The protected-parent checkpoint repair
-passes focused host tests; signed verification of that repair remains next. Normal deletion
+now passes signed nested-deletion and recovery checks described below. Normal deletion
 capabilities stay disabled, and the single-client branch remains a VM-only experiment.
 
 Setup: macOS VM 1, macOS 27.0.1, signed FolderCheck builds 26–29, with Samba 4.19.5 on ext4 in
@@ -641,8 +641,7 @@ caches and simulated remotes. Coverage includes restart, same-file-ID replacemen
 checkpoint, arriving children, malformed saved parents and equivalent client/server Unicode
 spellings. Required checks subsequently passed in macOS VM 1 with 635 tests, two optional skips,
 zero failures or Swift warnings, and all project, CLI, unsigned app and SMB checks. The signed
-candidate adds fixture-bound stops before and after deletion checkpoints for recovery testing;
-its runtime result remains pending.
+candidate adds fixture-bound stops before and after deletion checkpoints for recovery testing.
 
 Private evidence is under `results/folder-single-20261103/` in macOS VM 1 and the matching Linux
 fixture evidence directory. It includes `checks-deletion-refusal.log`, `repair/deletion-refusal-report.json`,
@@ -650,3 +649,43 @@ fixture evidence directory. It includes `checks-deletion-refusal.log`, `repair/d
 `deletion-disabled-audit.json`, `deletion-cancelled-audit.json`, `deletion-verified-audit.json`
 and `deletion-basic-partial-audit.json`. Host focused output is
 `/private/tmp/tinymounter-deletion-parents-tests-03.log`. No screen recording remains active.
+
+### Signed parent-checkpoint verification
+
+Build 30 passed four fresh nested-tree checks on the same VM/Samba setup. Each tree contained
+two files and two folders, with no pre-existing downloads. The candidate built without Swift
+warnings; the vendor C conversion and App Intents extraction warnings remain in its build log.
+
+| Check | Result |
+| --- | --- |
+| Finder nested deletion | Four confirmed deletions, no exceptions, both views settled. Independent audit preserved all 41 remaining objects. |
+| Kill after the first child's parent checkpoint | Durable progress held five parent observations. Finder replay after restart completed all four nodes using the identical plan. Audit preserved 37 remaining objects. |
+| Kill before the first child's parent checkpoint | The close acknowledgement survived, but parent observations did not. Replay retained an unconfirmed first child, refused the nested directory with a sharing violation, deleted the independently verified sibling, and retained the nonempty root. Both views settled; neither surviving directory was removed. |
+| Replace the selected folder after checkpoint and process exit | The original was retained outside the share and a different folder placed at its name. Replay reported parent changes for the three remaining nodes. Both views settled and all 33 replacement/neighbor objects remained unchanged. |
+
+The earlier partial tree record remained unchanged throughout. The last replacement check does
+not prove same-file-ID reuse on the live server; that case has simulated-remote coverage.
+Finder replay, rather than Settings Retry, resumed the interrupted operations in these runs.
+Settings, concurrency and further lifecycle cases remain outstanding.
+
+The first stopped-state audit ran after restart and failed because replay had already completed.
+A later lost-checkpoint audit expected only the first removal and failed because the independent
+sibling also deleted. Neither failed assertion wrote a success report. Snapshots and the next
+independent inventory record the actual outcomes above.
+
+Evidence includes `build-30.log`, `checks-deletion-parents.log`,
+`repair/deletion-nested-fixed.mov`, `check-deletion-parent-*.json`,
+`check-deletion-restart-*.json`, `check-deletion-replaced-after*.json`, scoped
+`deletion-fault-hit-*.json`, and the matching Linux `deletion-parents-seed.json`,
+`deletion-parent-fixed-audit.json`, `deletion-restart-after-complete-audit.json`,
+`deletion-restart-before-stopped-audit.json` and `deletion-replacement-*.json`.
+No fault control or recording remains active. The signed candidate stays installed only in the VM.
+
+Settings showed the lost-checkpoint operation as one confirmed deletion out of four, with an
+unconfirmed first child, an in-use nested folder and a nonempty selected root. Remove Location
+refused and named that operation. Dismiss Notice explained that it neither restores items nor
+confirms uncertainty. Dismissing the lost-checkpoint and replacement-refusal notices changed only
+their `dismissed` flags; all eight plans and all outcomes remained. Both views agreed, and the
+peer Settings view hid those two notices while retaining the earlier partial tree notice.
+`repair/deletion-dismissal-report.json` and `check-deletion-dismiss-*.json` retain the comparison.
+Restart/replay after dismissal remains to be checked.
