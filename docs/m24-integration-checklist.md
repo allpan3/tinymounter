@@ -78,6 +78,10 @@ The `settings` stage requires `action: "hold"` and suspends only the asynchronou
 callback. Create `deletion-release-CONTROL_UUID` in the evidence directory to release it;
 after 180 seconds it fails without settling. This leaves the main actor and request lanes free.
 The `settled` checkpoint stops after durable completion, before signaling File Provider retry.
+Snapshot labels starting `check-stopped-replay-` also exercise the production app replay route
+for a completed stopped item with refreshed catalog bases and an equivalent XML event archive.
+The helper requires the original stopped outcome and unchanged durable records. This supplements
+real Finder callbacks; it does not claim that Finder sent the constructed request.
 
 1. Integrate the commits and run `Tools/run-checks.sh` in the VM. App-target changes have not
    been compiled on the host. The generator includes the shared domain-version archive helper
