@@ -121,6 +121,48 @@ final class CatalogTests: XCTestCase {
         try outbox.validateContents(edit)
     }
 
+    func testDeletedFileSaveCanBeRetainedAndExportedWithoutPublishingToReplacement() throws {
+        let catalog = try makeCatalog()
+        try reconcile(catalog, [folder("Docs")])
+        let parent = try child(catalog, "Docs")
+        try reconcile(catalog, [file("data")], in: parent.id)
+        let original = try child(catalog, "data", in: parent.id)
+        try catalog.setAllowsWriting(true)
+        try reconcile(catalog, [])
+        XCTAssertNil(try catalog.relativePath(of: original.id))
+        let retained = try catalog.editRetentionPath(item: original.id, parent: parent.id, name: "data")
+        XCTAssertEqual(retained.string, "Docs/data")
+        let input = directory.appending(path: "input"), exported = directory.appending(path: "exported")
+        let contents = Data("save racing recursive deletion".utf8)
+        try contents.write(to: input)
+        let outbox = try EditOutbox(directory: directory.appending(path: "Edits"))
+        let edit = try outbox.prepare(item: original.id, parent: parent.id, path: retained,
+            baseVersion: original.contentVersion, failOnConflict: false, contents: input, progress: Progress())
+        XCTAssertThrowsError(try catalog.validateEditTarget(edit))
+        try reconcile(catalog, [folder("Docs")])
+        let replacementParent = try child(catalog, "Docs")
+        try reconcile(catalog, [file("data")], in: replacementParent.id)
+        let replacement = try child(catalog, "data", in: replacementParent.id)
+        XCTAssertNotEqual(replacement.id, original.id)
+        XCTAssertThrowsError(try catalog.validateEditTarget(edit))
+        try outbox.export(edit, to: exported)
+        XCTAssertEqual(try Data(contentsOf: exported), contents)
+        XCTAssertEqual(try child(catalog, "data", in: replacementParent.id), replacement)
+    }
+
+    func testEditRetentionRequiresWriteAccessAndTheExactItemBinding() throws {
+        let catalog = try makeCatalog()
+        try reconcile(catalog, [file("data")])
+        let row = try child(catalog, "data")
+        XCTAssertThrowsError(try catalog.editRetentionPath(item: row.id, parent: root, name: row.name))
+        try catalog.setAllowsWriting(true)
+        XCTAssertEqual(try catalog.editRetentionPath(item: row.id, parent: root, name: row.name).string, "data")
+        XCTAssertThrowsError(try catalog.editRetentionPath(item: row.id, parent: root, name: "DATA"))
+        XCTAssertThrowsError(try catalog.editRetentionPath(item: row.id, parent: "unknown", name: row.name))
+        XCTAssertThrowsError(try catalog.editRetentionPath(item: "unknown", parent: root, name: row.name))
+        XCTAssertThrowsError(try catalog.editRetentionPath(item: root, parent: root, name: "Movies"))
+    }
+
     func testPublishedEditKeepsIdentityAndConflictCreatesSeparateItem() throws {
         let catalog = try makeCatalog()
         try reconcile(catalog, [file("data")])

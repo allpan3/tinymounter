@@ -84,16 +84,8 @@ extension LocationSource {
             let result = Result { try editNamespace.perform {
                 try uploadLock.withLock {
                     guard !mutationsSuspended, writeBookmark != nil else { throw UploadError.readOnly }
-                    let path = try withCatalog { catalog -> RelativePath in
-                        // A retired folder-move binding is a tombstone; its old name may hold another object.
-                        guard let row = try catalog.item(id: request.item), !row.deleted, row.allowsWriting,
-                              row.kind == .file, row.parentID == request.parent,
-                              row.name == request.name,
-                              let parent = try catalog.relativePath(of: request.parent),
-                              let path = parent.appending(row.name) else {
-                            throw UploadError.readOnly
-                        }
-                        return path
+                    let path = try withCatalog {
+                        try $0.editRetentionPath(item: request.item, parent: request.parent, name: request.name)
                     }
                     guard let fullPath = folder.appending(path) else { throw UploadError.invalidRequest }
                     let outbox = try Self.editOutbox(domainID: domainID)

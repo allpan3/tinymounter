@@ -24,8 +24,11 @@ disk-pressure eviction and broader metadata checks remain. See the
 
 Deletion command, 2026-11-03: the approved **Delete Permanently…** workflow is implemented
 behind its VM validation gate. It confirms one selected file or folder, rechecks its version and
-refuses admission when macOS reports pending synchronization in either affected view. Ordinary
-delete callbacks remain refused. Compilation and signed command checks are pending.
+refuses admission when macOS reports pending synchronization in either affected view. Signed
+Finder checks pass for Cancel, file/folder deletion, changed-file and pending-save refusal, and
+permission-loss recovery. A save arriving after admission exposed missing app recovery storage;
+the retention repair passes focused tests and awaits signed validation. Ordinary delete callbacks
+remain refused. See the [command results](docs/results/2026-11-03-permanent-command.md).
 
 Deletion recovery, 2026-11-03: signed VM checks pass for refusal restoration, Finder's permanent warning
 and Cancel, verified and unopened files, and nested folders. Protected parent checkpoints fix

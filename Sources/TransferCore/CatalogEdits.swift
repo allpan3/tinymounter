@@ -60,6 +60,16 @@ extension Catalog {
         }
     }
 
+    // A racing save still needs exportable local storage after its file or parent was deleted.
+    public func editRetentionPath(item id: String, parent: String, name: String) throws -> RelativePath {
+        guard let row = try item(id: id), row.allowsWriting, row.kind == .file,
+              row.parentID == parent, row.name.utf8.elementsEqual(name.utf8),
+              let path = try path(of: id, includingDeleted: true), !path.isRoot else {
+            throw UploadError.readOnly
+        }
+        return path
+    }
+
     public func validateEditTarget(_ edit: PendingEdit) throws {
         guard let row = try item(id: edit.item), !row.deleted, row.allowsWriting,
               row.kind == .file, row.parentID == edit.parent,
