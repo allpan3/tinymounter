@@ -14,9 +14,12 @@ The catalog-binding guard also passes signed moved, returned and deleted-origina
 Finder refuses eviction of an unsent TXT file while the app is quit; relaunch publishes the
 complete revision. An offline RTF save survives an app crash and preserves both conflicting
 versions. Recovery export retains the tested tags and resource fork. A signed repair also retains
-text encoding and syncable callback attributes previously omitted from export. All 650 tests
-and required VM checks pass, with two optional skips and no Swift warnings. OS restart, low-space
-admission and broader metadata checks remain. See the
+text encoding and syncable callback attributes previously omitted from export. Signed low-space
+admission checks retain and export the earlier save, then publish the latest revision after
+capacity is restored and Retry is selected. A complete pending RTF also survives a VM restart
+and uploads after test credentials are restored, without Retry. All 650 tests and required VM
+checks pass, with two optional skips and no Swift warnings. Unattended restart reconnection,
+disk-pressure eviction and broader metadata checks remain. See the
 [editor and replacement results](docs/results/2026-11-03-editor-replacement.md).
 
 Deletion, 2026-11-03: signed VM checks pass for refusal restoration, Finder's permanent warning
@@ -44,7 +47,8 @@ Deletion remains disabled in normal builds. See the
 Save recovery, 2026-11-03: a real disk-full check on a disposable APFS image preserves and
 exports the previous complete save, including document metadata. Reopening and retry after
 freeing space preserve both complete generations. This verifies the local recovery core;
-signed low-space callbacks and deletion workflows remain in progress. See the
+signed low-space admission, export and retry also pass. Deletion workflows remain in progress.
+See the
 [save recovery results](docs/results/2026-10-29-pending-save-order.md#real-disk-exhaustion-2026-11-03).
 
 Folder organization, 2026-11-03: the protected-parent checkpoint repair passes signed Finder

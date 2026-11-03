@@ -217,7 +217,11 @@ edit. Recovery export preserves the tested tags and resource fork; the signed re
 preserves text encoding and syncable callback attributes. The remaining offline checks continue.
 The November 3 APFS image check now covers real local outbox exhaustion: the older save and
 metadata remain exportable, reopening selects it, and retry preserves both complete generations.
-Signed low-space admission and Finder behavior remain unverified.
+Signed low-space admission also preserves the earlier save through both provider and app
+refusals. Export succeeds while blocked; restoring capacity and selecting Retry publishes the
+latest local revision and clears its system pending entry. A pending RTF survives a full VM
+restart and publishes after restoring the test credentials, without Retry. Unattended restart
+reconnection and actual disk-pressure eviction remain unverified.
 
 M18 creation, M19 same-object editing and M20 verified-file renaming have signed VM evidence.
 Since 2026-11-02 the physical Mac runs main with the [pending-changes fixes](pending-changes-plan.md)
