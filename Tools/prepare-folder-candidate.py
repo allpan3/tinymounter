@@ -171,6 +171,11 @@ def main():
         replay_hook = ('                        if request.label == "overlap-setup" { try await m22FinderAddPeer(config) }'
                        if args.overlap_checks else '                        try await m22FinderSnapshot(config, label: request.label)')
         helper = replace(helper, replay_hook,
+            '                        if ["check-source-close", "check-source-closed-state"].contains(request.label) {\n'
+            '                            try await checkDeletionSourceClose(config, label: request.label)\n'
+            '                            try M22FinderProbe.save(["label": request.label, "result": "captured"], to: result)\n'
+            '                            continue\n'
+            '                        }\n'
             '                        if request.label.hasPrefix("check-stopped-replay-") {\n'
             '                            try await checkStoppedDeletionReplay(config, label: request.label)\n'
             '                        }\n'
@@ -182,6 +187,9 @@ def main():
             '                        }\n'
             '                        if request.label.hasPrefix("check-provider-cancel-") {\n'
             '                            try await checkProviderDeletionCancellation(config, label: request.label)\n'
+            '                        }\n'
+            '                        if request.label.hasPrefix("check-joined-jobs-") {\n'
+            '                            try await checkJoinedDeletionJobs(config, label: request.label)\n'
             '                        }\n'
             + replay_hook)
         helper = replace(helper, '    struct Snapshot: Codable {', '''    struct Deletion: Codable {

@@ -102,6 +102,18 @@ same observations and invalidates that actual connection. Inspect again after re
 returned by the active real provider callback. Its timer consumes the command once and emits
 `delete-progress-cancel`. This tests the production cancellation path with a constructed trigger;
 it does not establish the behavior of Finder's cancellation UI.
+With one real Finder deletion awaiting Settings, `check-joined-jobs-hold` joins three constructed
+requests to that event in the actual reader session and requires a fifth request to be busy.
+Use `check-joined-jobs-release` to detach one waiter without Stop, then `check-joined-jobs-cancel`
+to queue Stop from a different waiter while a short lane barrier makes that ordering observable.
+After releasing Settings, `check-joined-jobs-verify` requires three single replies, correct receipts,
+no jobs and unchanged confirmed outcomes. The remote deletion has already finished in this trial.
+With `Deletion/SourceClose.txt` awaiting the real Settings callback, `check-source-close` closes
+the controller's existing source directly and requires its recovery waiters to drain without Stop.
+After releasing Settings, `check-source-closed-state` requires the same durable record and no new
+Stop. These commands omit catalog snapshots because that catalog is intentionally closed. Restart
+the app normally to exercise launch reopening and settlement. This is a source API probe, not a
+user-facing Remove Location action, which pending deletion correctly blocks.
 
 1. Integrate the commits and run `Tools/run-checks.sh` in the VM. App-target changes have not
    been compiled on the host. The generator includes the shared domain-version archive helper

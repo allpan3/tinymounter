@@ -96,3 +96,104 @@ extension SourceReaderHost {
 private extension SourceReaderSession {
     func checkJobCount() -> Int { lock.withLock { jobs.count } }
 }
+
+private final class M24JoinedDeletionJobs: @unchecked Sendable {
+    @MainActor static var active: M24JoinedDeletionJobs?
+    let session: SourceReaderSession
+    let source: LocationSource
+    let record: PendingDeletion
+    let ids = (0..<3).map { _ in UUID() }
+    let lock = NSLock()
+    var replies: [UUID: [(Data?, NSError?)]] = [:]
+
+    init(session: SourceReaderSession, source: LocationSource, record: PendingDeletion) {
+        self.session = session
+        self.source = source
+        self.record = record
+    }
+
+    func request(_ id: UUID) throws -> Data {
+        let original = record.plan.request
+        return try ReaderMessage.encode(DeleteItemRequest(id: id, item: original.item,
+            contentVersion: original.contentVersion, metadataVersion: original.metadataVersion,
+            eventVersion: original.eventVersion, recursive: true))
+    }
+}
+
+extension SourceReaderHost {
+    func checkJoinedDeletionJobs(domain: String, phase: String) async throws -> [String: Int] {
+        if phase == "hold" {
+            guard M24JoinedDeletionJobs.active == nil,
+                  let session = connections[domain]?.exportedObject as? SourceReaderSession,
+                  let source = source(domain) else {
+                throw M22FinderProbe.Failure.check("idle-joined-probe-required")
+            }
+            let records = try LocationSource.deletionOutbox().records().filter {
+                $0.plan.owner == domain && !$0.isComplete
+            }
+            try M22FinderProbe.require(records.count == 1 && records[0].isSettled
+                && session.checkJobCount() == 1, "one-held-finder-deletion-required")
+            let held = M24JoinedDeletionJobs(session: session, source: source, record: records[0])
+            M24JoinedDeletionJobs.active = held
+            for id in held.ids {
+                session.deleteItem(try held.request(id)) { data, error in
+                    held.lock.withLock { held.replies[id, default: []].append((data, error)) }
+                }
+            }
+            let joined: Int = await withCheckedContinuation { continuation in
+                source.access.enqueue {
+                    continuation.resume(returning: source.deletionRecoveries[held.record.id]?.replies.count ?? 0)
+                }
+            }
+            try M22FinderProbe.require(joined == 4 && session.checkJobCount() == 4, "four-joined-deletion-jobs")
+            let extra = try held.request(UUID())
+            let busy: NSError? = await withCheckedContinuation { continuation in
+                session.deleteItem(extra) { _, error in continuation.resume(returning: error) }
+            }
+            try M22FinderProbe.require(busy?.domain == NSCocoaErrorDomain
+                && busy?.code == CocoaError.xpcConnectionReplyInvalid.rawValue, "fifth-deletion-job-busy")
+        }
+        guard let held = M24JoinedDeletionJobs.active else {
+            throw M22FinderProbe.Failure.check("held-deletion-jobs-required")
+        }
+        if phase == "release" {
+            held.session.release(held.ids[0].uuidString)
+            try M22FinderProbe.require(!held.source.deletionRecoveryLock.withLock {
+                held.source.deletionCancellation.isStopping(held.record.id)
+            }, "released-waiter-does-not-stop")
+        }
+        if phase == "cancel" {
+            let gate = DispatchSemaphore(value: 0)
+            await withCheckedContinuation { continuation in
+                held.source.access.enqueue {
+                    continuation.resume()
+                    _ = gate.wait(timeout: .now() + 30)
+                }
+            }
+            defer { gate.signal() }
+            held.session.cancelDeletion(held.ids[1].uuidString)
+            try M22FinderProbe.require(held.source.deletionRecoveryLock.withLock {
+                held.source.deletionCancellation.isStopping(held.record.id)
+            }, "joined-cancellation-queues-stop")
+        }
+        let replies = held.lock.withLock { held.replies }
+        if phase == "verify" {
+            try M22FinderProbe.require(replies.count == 3 && replies.values.allSatisfy { $0.count == 1 },
+                                      "three-single-joined-replies")
+            for id in held.ids {
+                let (data, error) = replies[id]![0]
+                guard error == nil, let data else { throw M22FinderProbe.Failure.check("joined-deletion-success") }
+                let receipt = try ReaderMessage.decode(DeleteItemReceipt.self, from: data)
+                try M22FinderProbe.require(receipt.id == id && receipt.item == held.record.plan.request.item,
+                                          "joined-receipt-identity")
+                held.session.release(id.uuidString)
+            }
+            try M22FinderProbe.require(held.session.checkJobCount() == 0, "joined-jobs-drained")
+            let current = try LocationSource.deletionOutbox().reload(held.record)
+            try M22FinderProbe.require(current.isComplete && current.progress.stopped == nil
+                && current.progress.exceptions.isEmpty, "completed-outcome-retained")
+            M24JoinedDeletionJobs.active = nil
+        }
+        return ["jobs": held.session.checkJobCount(), "replies": replies.values.reduce(0) { $0 + $1.count }]
+    }
+}
