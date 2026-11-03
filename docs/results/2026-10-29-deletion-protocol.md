@@ -832,3 +832,24 @@ The earlier failed build's recording remains the before comparison. Linux eviden
 `dismissed-replay-restarted-audit.json`. Build logs are `build-eventcheck-1.log` through
 `build-eventcheck-3.log`; required checks are in `checks-deletion-event-final.log`.
 No deletion fault control or screen recording remains active at the end of these replay checks.
+
+### Concurrent deletions in overlapping views, 2026-11-03
+
+The eventcheck candidate also passes three overlapping requests from two domains. Holding the
+first request's Settings completion left only that request admitted and only its file removed.
+The two peer requests received seven transient `NSCocoaErrorDomain/4101` replies while their
+server files remained unchanged. After release, all three completed without manual Retry,
+with one record per selected item and both views settled. The independent audit preserved all
+11 remaining objects, and the unrelated kept file retained its complete local copy.
+
+One peer-selected child was absent from the owner's catalog at the initial snapshot. Admission
+listed it in both catalogs before recording its plan. An assertion expecting one admitted view
+failed and wrote no success report; the corrected report states both facts. This run therefore
+does not establish settlement for a selected item still unlisted in a participating view at
+admission. The earlier recursive checks cover unlisted descendants. Delaying a second catalog
+and filling the reader job queue remain separate checks.
+
+Evidence includes `check-concurrency-baseline*.json`, `check-concurrency-held*.json`,
+`check-concurrency-finished*.json`, `concurrency-report.json`, callback events and the Linux
+`concurrency-held-audit.json` and `concurrency-finished-audit.json`. The Settings hold control
+is archived and inactive.
