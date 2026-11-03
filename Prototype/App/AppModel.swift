@@ -688,6 +688,8 @@ final class AppModel {
     func exportEdit(_ edit: PendingEdit, record: LocationRecord) {
         Task {
             let panel = NSSavePanel()
+            panel.directoryURL = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
+            panel.message = UIText.localRecoveryDestination
             panel.nameFieldStringValue = (edit.path as NSString).lastPathComponent
             panel.prompt = UIText.exportEdit
             guard await run(panel), let url = panel.url else { return }
@@ -702,8 +704,9 @@ final class AppModel {
     func stopEdit(_ edit: PendingEdit, record: LocationRecord) {
         Task {
             let panel = NSSavePanel()
+            panel.directoryURL = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
             panel.nameFieldStringValue = UIText.stoppedEditName(edit.path, date: .now)
-            panel.message = UIText.stopEditMessage
+            panel.message = UIText.stopEditMessage + " " + UIText.localRecoveryDestination
             panel.prompt = UIText.stopUploading
             guard await run(panel), let url = panel.url else { return }
             let scoped = url.startAccessingSecurityScopedResource()

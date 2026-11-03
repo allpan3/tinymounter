@@ -32,6 +32,7 @@ enum UIText {
         return base + " Deletion permanently removes files and folders from the server. tinymounter cannot restore deleted items."
     }
     static let exportEdit = "Export Local Copy…"
+    static let localRecoveryDestination = "Choose a folder on this Mac for the recovery copy."
     static let retryPending = "Retry Pending Changes"
     static let waitingToUpload = "Waiting to upload"
     static let stopUploading = "Stop Uploading"

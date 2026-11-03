@@ -530,3 +530,7 @@ VM, with cache residency unverified. End-to-end handoff, writable and partial-re
 Finder's read-only copy warning and native-mount export interactions remain open. The physical
 Mac still runs the earlier transport. See the
 [runtime results and accepted staging change](results/2026-11-02-samba-names-and-uploads.md).
+
+Recovery export now defaults to Desktop and requires a local filesystem. The destination is
+created exclusively through the checked parent directory, so a network destination is refused
+before any copy or metadata write. Existing files are not replaced. Signed VM validation is pending.
