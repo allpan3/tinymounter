@@ -25,6 +25,7 @@ before app/server work. It requires --overlap-checks and --deletion-checks.
 --editor-checks exports local hashes, pending uploads and verified edit outbox state
 for check-editor-state-* requests, including while the fixture is disconnected.
 check-editor-state-queue-* omits local URL resolution when an unsettled publication blocks it.
+check-editor-end-trace archives only this run's tracing pointer, preserving its locations and saves.
 """
 import argparse
 from pathlib import Path
@@ -238,6 +239,11 @@ def main():
                          '                    do {\n',
             '                    try M22FinderProbe.save(request, to: start)\n'
             '                    do {\n'
+            '                        if request.label == "check-editor-end-trace" {\n'
+            '                            try endEditorTrace(config)\n'
+            '                            try M22FinderProbe.save(["label": request.label, "result": "captured"], to: result)\n'
+            '                            continue\n'
+            '                        }\n'
             '                        if request.label.hasPrefix("check-editor-state-") {\n'
             '                            try await checkEditorState(config, label: request.label)\n'
             '                            try M22FinderProbe.save(["label": request.label, "result": "captured"], to: result)\n'

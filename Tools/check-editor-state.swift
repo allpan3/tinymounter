@@ -25,6 +25,14 @@ extension M22FinderProbe {
 }
 
 extension LocationController {
+    private func endEditorTrace(_ config: M22FinderProbe.Config) throws {
+        let pointer = try SharedContainer.url().appending(path: "M22Finder-active.json")
+        let active = try M22FinderProbe.load(M22FinderProbe.Config.self, from: pointer)
+        try M22FinderProbe.require(active == config, "editor-trace-owner")
+        try FileManager.default.moveItem(at: pointer,
+            to: M22FinderProbe.directory(config.run).appending(path: "closed-trace.json"))
+    }
+
     private func checkEditorState(_ config: M22FinderProbe.Config, label: String) async throws {
         guard let settings = store.settings,
               let record = settings.locations.first(where: { $0.id == config.location }),
