@@ -110,7 +110,10 @@ Records in uncertain states still block removal, and the dialog names them.
    folder preserves the data. Part 5 changed the rule.
 2. **Edits.** Stop Uploading for edits of existing files is deferred to a later change. It needs
    its own path through `modifyItem`. Remove Location already keeps saves that never reached
-   the server, because macOS still holds them as not uploaded.
+   the server, because macOS still holds them as not uploaded. The route for new items does not
+   carry over: Apple's `NSFileProviderError.h` says that after `excludedFromSync`, macOS
+   downloads the item and then calls `deleteItem` for it. For an existing file, that call asks
+   the provider to delete the file on the server.
 3. **Order.** Parts 1–3 come first, because they fix the stall and show the cause. Parts 4–5
    follow in a second PR.
 4. **Exclusion.** Stop Uploading answers the item's next `createItem` with
