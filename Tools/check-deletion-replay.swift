@@ -93,7 +93,6 @@ extension LocationController {
         guard let source = sources[config.domain] else { throw LocationError.catalogClosed }
         let uncertain = label.hasPrefix("check-unconfirmed-replay-")
         let outcome: DeletionNodeOutcome = uncertain ? .unconfirmed : .stopped
-        let expected: ItemDeletionError = uncertain ? .unresolved : .stopped
         let before = try await Self.offMain { try LocationSource.deletionOutbox().records() }
         let completed = before.filter {
             $0.plan.owner == config.domain && $0.isComplete && $0.selectedOutcome == outcome
@@ -103,7 +102,9 @@ extension LocationController {
         var checked: [String] = [], refreshed = 0
         for record in completed {
             guard let row = try source.withCatalog({ try $0.item(id: record.plan.request.item) }),
-                  !row.deleted else { continue }
+                  uncertain || !row.deleted else { continue }
+            let expected: ItemDeletionError = uncertain
+                ? (row.deleted ? .unresolved : .unconfirmedSurvivor) : .stopped
             let archiver = NSKeyedArchiver(requiringSecureCoding: true)
             archiver.outputFormat = .xml
             archiver.encode(try ProviderDomainVersion.decode(record.plan.request.eventVersion),

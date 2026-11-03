@@ -189,6 +189,7 @@ final class DeletionRecoveryTests: XCTestCase {
         XCTAssertEqual(DeletionFailure.classify(UploadError.readOnly), .readOnly)
         XCTAssertEqual(DeletionFailure.classify(TransferError.cancelled), .cancelled)
         XCTAssertEqual(DeletionFailure.classify(ItemDeletionError.stopped), .stopped)
+        XCTAssertEqual(DeletionFailure.classify(ItemDeletionError.unconfirmedSurvivor), .unconfirmed)
         XCTAssertEqual(DeletionFailure.classify(CocoaError(.userCancelled)), .cancelled)
         XCTAssertEqual(DeletionFailure.classify(CocoaError(.fileWriteOutOfSpace)), .storage)
     }
@@ -208,6 +209,8 @@ final class DeletionRecoveryTests: XCTestCase {
             ItemDeletionError.busy, ItemDeletionError.unresolved]
         func checkIncomplete(_ record: PendingDeletion) {
             XCTAssertFalse(record.isComplete)
+            XCTAssertEqual(record.completionError(ItemDeletionError.unconfirmedSurvivor) as? ItemDeletionError,
+                           .unresolved)
             for error in refusals {
                 XCTAssertEqual(DeletionFailure.classify(record.completionError(error)), .unconfirmed)
             }
@@ -222,6 +225,8 @@ final class DeletionRecoveryTests: XCTestCase {
         try fixture.outbox.finishDomain(fixture.owner, record: &record)
         checkIncomplete(record)
         try fixture.outbox.finishDomain(fixture.neighbor, record: &record)
+        XCTAssertEqual(record.completionError(ItemDeletionError.unconfirmedSurvivor) as? ItemDeletionError,
+                       .unconfirmedSurvivor)
         for error in refusals + recoverable {
             XCTAssertEqual(DeletionFailure.classify(record.completionError(error)), DeletionFailure.classify(error))
         }

@@ -83,7 +83,7 @@ for a completed stopped item with refreshed catalog bases and an equivalent XML 
 The helper requires the original stopped outcome and unchanged durable records. This supplements
 real Finder callbacks; it does not claim that Finder sent the constructed request.
 `check-unconfirmed-replay-` applies the same check to completed unconfirmed selected items,
-requiring the original unresolved result, current item bases and unchanged durable records.
+requiring the original unconfirmed result, current item bases and unchanged durable records.
 The `check-reader-jobs-hold` request suspends the idle reader queue and submits four
 constructed reads through the selected domain's connected reader session. Delete another
 fixture file in Finder while those jobs occupy the session. `check-reader-jobs-release-one`
@@ -213,10 +213,17 @@ the deletion error and cancellation contract is at lines 805–846.
 5. Inject a transport failure at the selected item's mark after the attempting checkpoint while
    leaving that object present, then Stop and settle. Suspend the fresh listing first. Its
    outcome must not be treated as confirmed. Let reconciliation finish and verify the surviving
-   selected row signals the working set. Its ID, content version and keeps must survive.
-   Replay the original event before and after restart and expect `cannotSynchronize` with the
-   same unconfirmed record, including when item base versions changed. No replay may admit
+   selected row returns through File Provider's rejected-deletion response. Its ID, content
+   version and keeps must survive. Replay the original event before and after restart and expect
+   `deletionRejected` only after every view settles and a live selected row is available, with the
+   same unconfirmed record, including when item base versions changed. An absent selected row
+   or incomplete settlement must retain `cannotSynchronize`. No replay may admit
    another operation. A new Finder action after restoration must carry a newer event version.
+
+   The November 3 signed probe showed that working-set updates alone do not restore this item
+   while the callback returns `cannotSynchronize`. The response above rejects further execution
+   of that completed request and restores the observed survivor; it does not confirm deletion.
+   Settings must retain the uncertainty and the original replay record through dismissal.
 6. Interrupt recursive deletion after a confirmed child, then change the location-root inode
    before Retry so `withDeletionAdmissionRoot` fails with `versionChanged`. Expect
    `cannotSynchronize`, an incomplete record and accurate partial outcomes, never an early

@@ -14,7 +14,8 @@ Six timeout, connection-loss and extension-restart checks complete the original 
 turning it into Stop. Explicit cancellation stops later nodes and retains the active node's
 uncertainty; dismissing its notice preserves the result. Joined requests and source closure during
 Settings completion also pass. A surviving selected file remains hidden after an unconfirmed
-deletion settles. A catalog notification repair is awaiting signed verification.
+deletion settles. A catalog notification alone did not restore it. A completion-response repair
+is awaiting signed verification; the durable result remains unconfirmed.
 Deletion remains disabled in normal builds. See the
 [deletion results](docs/results/2026-10-29-deletion-protocol.md#finder-deletion-and-parent-checkpoints-2026-11-03).
 

@@ -66,7 +66,7 @@ final class CatalogDeletionTests: XCTestCase {
                                      metadataVersion: after.metadataVersion, eventVersion: Data([2]))))
     }
 
-    func testUnconfirmedSurvivorSignalsAfterFreshListingAndKeepsOldEventReplay() throws {
+    func testUnconfirmedSurvivorPreservesMetadataAfterFreshListingAndKeepsOldEventReplay() throws {
         let tree = try XCTUnwrap(ids["Tree"])
         try owner.setKeep(ids: [tree], value: true)
         let before = try XCTUnwrap(owner.item(id: tree))
@@ -83,14 +83,14 @@ final class CatalogDeletionTests: XCTestCase {
         let anchor = try owner.currentAnchor()
         let final = try complete(record, first)
         let after = try XCTUnwrap(owner.item(id: tree))
-        XCTAssertGreaterThan(after.changeSeq, before.changeSeq)
+        XCTAssertEqual(after.metadataVersion, before.metadataVersion)
         XCTAssertEqual(after.id, before.id)
         XCTAssertEqual(after.contentVersion, before.contentVersion)
         XCTAssertEqual(after.keep, before.keep)
         XCTAssertEqual(after.keepRequested, before.keepRequested)
         XCTAssertFalse(after.deleted)
         XCTAssertTrue(final.refresh.contains(root))
-        XCTAssertEqual(try owner.changes(after: anchor, limit: 100).updated.map(\.id), [tree])
+        XCTAssertFalse(try owner.changes(after: anchor, limit: 100).updated.contains { $0.id == tree })
         XCTAssertTrue(try settle(record, previous: final).isSettled)
         XCTAssertEqual(try owner.item(id: tree)?.metadataVersion, after.metadataVersion)
         XCTAssertEqual(try owner.item(id: XCTUnwrap(ids["neighbor"])), neighborBefore)

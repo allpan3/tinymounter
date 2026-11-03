@@ -116,24 +116,10 @@ extension Catalog {
                 }
             }
             let folders = try deletionListingOrder(listings)
-            let barrier = previous?.barrier ?? state
-            if blocked.isEmpty, folders.isEmpty, record.selectedOutcome == .unconfirmed,
-               domainID == record.plan.owner, !record.progress.finishedDomains.contains(domainID),
-               let selected = try item(id: record.plan.request.item), !selected.deleted,
-               selected.changeSeq <= barrier.sequence {
-                // An unchanged survivor still needs a working-set update after its local deletion.
-                seq += 1
-                try database.prepare("UPDATE items SET change_seq = ? WHERE id = ?") {
-                    try $0.bind(1, seq)
-                    try $0.bind(2, selected.id)
-                    try $0.run()
-                }
-                if let parent = selected.parentID { refresh.append(parent) }
-            }
             let live = try deletionUnique(refresh + folders + observations.keys.sorted())
                 .filter { try item(id: $0)?.deleted == false }
             return CatalogDeletionSettlement(record: record.id, domain: domainID, tombstoned: tombstoned,
-                blocked: blocked, listings: folders, refresh: live, barrier: barrier,
+                blocked: blocked, listings: folders, refresh: live, barrier: previous?.barrier ?? state,
                 state: DeletionCatalogAdmission(epoch: epoch, sequence: seq, listingGeneration: state.listingGeneration),
                 observations: observations)
         }

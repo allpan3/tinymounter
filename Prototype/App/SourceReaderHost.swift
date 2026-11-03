@@ -347,6 +347,10 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
     }
 
     private static func deletionError(_ error: Error) -> NSError {
+        // Refusal restores the reconciled survivor without confirming its recorded deletion outcome.
+        if error as? ItemDeletionError == .unconfirmedSurvivor {
+            return NSFileProviderError(.deletionRejected) as NSError
+        }
         if error is LocationError || error is CatalogError || error is SQLiteError {
             return NSFileProviderError(.serverUnreachable) as NSError
         }

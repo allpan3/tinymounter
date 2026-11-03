@@ -967,14 +967,42 @@ full contents. Finder replay received `cannotSynchronize`; working-set enumerati
 updated row because fresh listing found unchanged metadata. The local URL remained unavailable.
 The earlier stopped-folder checks do not cover this selected-unconfirmed case.
 
-The candidate now advances the surviving selected row's change sequence after fresh
-reconciliation, once per settlement attempt unless listing already supplied a newer row.
-It preserves the item ID, content version and keeps. Event-based replay retains the original
-uncertain result even when the metadata version changes. Signed verification is pending;
-normal deletion remains disabled. The first Delete in this trial was safely rejected before
+The first candidate advanced the surviving selected row's change sequence after fresh
+reconciliation. Signed build 8 delivered that updated row through the working set, but Finder
+still kept the file hidden while its callback returned `cannotSynchronize`. The durable record
+and independent server inventory remained unchanged. Constructed replay with current item bases
+and equivalent XML archives preserved both unconfirmed records. All 644 tests and required VM
+checks passed, showing why the signed behavior check was necessary. The ineffective metadata
+change is removed.
+
+The next candidate returns `deletionRejected` for a completed unconfirmed selected object only
+when its reconciled catalog row is still live. The provider attaches that row through Apple's
+rejected-deletion API. Incomplete records and absent selected rows retain `cannotSynchronize`.
+The durable node outcome, uncertainty notice and replay binding stay unchanged. This corrects
+the checklist's earlier assumption that a working-set update could restore a survivor while
+retaining `cannotSynchronize`; it does not permit a successful deletion response. Signed
+verification of this response is pending. Normal deletion remains disabled.
+
+The first Delete in each trial was safely rejected before
 admission because Finder still held the metadata version preceding Keep Downloaded. A second
 explicit action reached the intended injected checkpoint.
 
 Evidence is `check-survivor-*.json`, `unconfirmed-control.json`, its checkpoint capture and
 callback events. Linux `survivor-seed.json` and `unconfirmed-stopped-audit.json` preserve the
-independent baseline. The first audit preceded Stop confirmation; a later audit is still needed.
+independent baseline. `unconfirmed-settled-audit.json` confirms the inventory after Stop.
+The second trial uses `check-survivor-fixed-*.json`, `check-unconfirmed-replay-fixed-replay.json`,
+`survivor-fixed-seed.json` and `unconfirmed-fixed-settled-audit.json`. The before recording shows
+the missing file and uncertainty notice; the notification-only result is also recorded.
+
+### Settings Stop during Retry, 2026-11-03
+
+Signed build 7 passes the actual Settings Retry/Stop check. Repeated failure after admission
+left a fresh three-node folder request prepared. Clicking Retry resumed that original plan;
+a hold after the first attempting checkpoint kept its protected file active. Stop Deleting
+remained enabled during Retry, and its confirmation queued Stop and cancelled transaction
+Progress while durable Stop still waited for protection to end. After release, the first node
+remained unconfirmed and both later nodes stopped. Both views settled and Finder restored the
+selected folder. The independent audit preserved all 19 server objects.
+
+Evidence includes `check-deletion-session-state-retry-*.json`, `check-retry-stop-finished*.json`,
+the archived admission/hold controls, callback events and `retry-stop-finished-audit.json`.
