@@ -295,6 +295,9 @@ private final class M24LostClose: DeletionRemote {
     func list(path: String) throws -> ItemDeletionListing { try remote.list(path: path) }
 
     func markDeletion(path: String) throws { try remote.markDeletion(path: path) }
+    func parentsAfterDeletion(_ parents: [ItemDeletionParent]) throws -> [ItemDeletionParent] {
+        try remote.parentsAfterDeletion(parents)
+    }
 
     func closeTarget(path: String) throws {
         try remote.closeTarget(path: path)

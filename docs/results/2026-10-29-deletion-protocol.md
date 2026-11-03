@@ -587,3 +587,63 @@ the remaining signed concurrency, timeout/disconnection, explicit Stop, survivor
 partial-refusal checks. The coordinator must run those and `Tools/run-checks.sh` in the VM.
 App compilation, Finder retry timing, item restoration and XPC lifecycle behavior remain
 unverified. `SourceReaderBridge.deletionEnabled` remains false.
+
+## Finder deletion and parent checkpoints, 2026-11-03
+
+Signed Finder checks pass for the permanent warning, Cancel, verified and unopened files, and
+an empty folder. Recursive deletion safely stopped after removing its two files because Samba
+changed a parent directory's synthetic creation time. The protected-parent checkpoint repair
+passes focused host tests; signed verification of that repair remains next. Normal deletion
+capabilities stay disabled, and the single-client branch remains a VM-only experiment.
+
+Setup: macOS VM 1, macOS 27.0.1, signed FolderCheck builds 26–29, with Samba 4.19.5 on ext4 in
+TinyMounter Samba Test. Both registered views use the approved disposable November 3 fixture.
+These were correctness checks with existing catalog/mount caches; server caches were not reset.
+The verified file was downloaded and kept, the unopened file remained dataless, and the nested
+tree was unlisted before admission. Independent Linux inventories checked remote objects.
+
+With deletion disabled, Terminal unlink initially removed the local file but left the remote
+object intact. Returning a bare `deletionRejected` made macOS retry without restoring the file.
+Build 28 uses `fileProviderErrorForRejectedDeletion(of:)` with the surviving catalog item.
+Replay restored the file's complete contents, ID, versions and keep request; macOS recreated its
+local inode. Six downloaded neighbors retained their inodes, digests, flags and sizes. One
+corrected callback appeared, with no further retry during the approximately 88-second observation.
+No deletion operation was admitted, and the Linux inventory retained all 34 fixture objects.
+Terminal's temporary File Provider privacy permission was reset afterward.
+
+The corrected deletion-enabled build 29 exposed Finder's **Move to Trash** command. It opened
+this warning: “This item will be deleted immediately. You can’t undo this action.” Buttons were
+**Cancel** and **Delete**. Cancel produced no deletion callback, durable operation or remote
+mutation. Confirmed deletion removed the verified file, the unopened file and an empty folder,
+settled both catalogs, and cleared the confirmed file's keep. No retention copy was created.
+Existing Finder capabilities needed a metadata refresh after the test update; this procedure
+is not evidence that normal capability rollout is handled.
+
+Deleting the nested tree sent one recursive callback and admitted four nodes. Both files were
+removed; the nested folder was reported replaced and the selected tree remained nonempty.
+Linux retained both original directory inodes and all unrelated objects. The completed partial
+operation remains unchanged, including its two exceptions. The failed final-audit assertion is
+not a pass; the subsequent partial audit confirms exactly five removed objects across the basic
+checks and 29 remaining objects.
+
+The repair reads and re-queries parent identities through their still-protected handles after
+confirmed child absence. It atomically records those observations with child completion in
+`DeletionProgress.parentUpdates`. Later nodes use these identities, including when selecting
+a now-empty directory. The admitted plan and child list remain immutable. Stored observations
+cannot retarget a parent, alter its server spelling, precede confirmed deletion or discard earlier
+evidence. A new handle must still match the recorded identity exactly; losing protection before
+checkpointing can retain an unconfirmed outcome and refuse later work.
+
+Required VM checks on the refusal repair passed: 629 package tests, two optional skips, no
+failures or Swift warnings, plus project, CLI, unsigned app and SMB encoder/status/crypto checks.
+The parent-checkpoint repair then passed 72 focused host package tests with incremental build
+caches and simulated remotes. Coverage includes restart, same-file-ID replacement, a lost
+checkpoint, arriving children, malformed saved parents and equivalent client/server Unicode
+spellings. It has not yet been built or run in the VM.
+
+Private evidence is under `results/folder-single-20261103/` in macOS VM 1 and the matching Linux
+fixture evidence directory. It includes `checks-deletion-refusal.log`, `repair/deletion-refusal-report.json`,
+`check-deletion-*.json`, callback logs, disabled/enabled Finder recordings, and the Linux
+`deletion-disabled-audit.json`, `deletion-cancelled-audit.json`, `deletion-verified-audit.json`
+and `deletion-basic-partial-audit.json`. Host focused output is
+`/private/tmp/tinymounter-deletion-parents-tests-03.log`. No screen recording remains active.

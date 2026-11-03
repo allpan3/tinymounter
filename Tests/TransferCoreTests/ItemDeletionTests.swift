@@ -436,6 +436,10 @@ final class ItemDeletionTests: XCTestCase {
             return parents
         }
 
+        func parentsAfterDeletion(_ parents: [ItemDeletionParent]) throws -> [ItemDeletionParent] {
+            self.parents
+        }
+
         func inspect(path: String, kind: CatalogRow.Kind) throws -> ItemDeletionLookup {
             inspectCalls += 1
             if let inspectFailure { throw inspectFailure }

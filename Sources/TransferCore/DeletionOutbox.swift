@@ -214,11 +214,13 @@ public struct DeletionPlan: Codable, Equatable, Sendable {
         }
     }
 
-    func directoryIdentities() -> [Data: EditFileIdentity] {
+    func directoryIdentities(updates: [ItemDeletionParent] = []) -> [Data: EditFileIdentity] {
         var result: [Data: EditFileIdentity] = [:]
+        for parent in parents { result[Data(parent.path.utf8)] = parent.identity }
         for node in nodes {
             if case .directory(let identity) = node.evidence { result[Data(node.path.utf8)] = identity }
         }
+        for parent in updates { result[Data(parent.path.utf8)] = parent.identity }
         return result
     }
 
@@ -230,13 +232,22 @@ public struct DeletionPlan: Codable, Equatable, Sendable {
             throw ItemDeletionError.invalidRequest
         }
         let components = path.components
-        var chain = parents
+        var chain = try parents.map { parent in
+            guard let identity = directories[Data(parent.path.utf8)] else { throw ItemDeletionError.invalidRequest }
+            return ItemDeletionParent(path: parent.path, name: parent.name, identity: identity)
+        }
         for depth in parents.count..<components.count {
             let prefix = components.prefix(depth).joined(separator: "/")
             guard let identity = directories[Data(prefix.utf8)] else { throw ItemDeletionError.invalidRequest }
             chain.append(ItemDeletionParent(path: prefix, name: components[depth - 1], identity: identity))
         }
-        return try PendingItemDeletion(id: id, path: path, selected: node.evidence, parents: chain, state: state)
+        let evidence: ItemDeletionEvidence
+        if case .directory = node.evidence, let identity = directories[Data(node.path.utf8)] {
+            evidence = .directory(identity)
+        } else {
+            evidence = node.evidence
+        }
+        return try PendingItemDeletion(id: id, path: path, selected: evidence, parents: chain, state: state)
     }
 }
 
@@ -265,6 +276,8 @@ public struct DeletionProgress: Codable, Equatable, Sendable {
     public internal(set) var stopped: Int?
     public internal(set) var finishedDomains: [String] = []
     public internal(set) var dismissed = false
+    /// Present after a confirmed child deletion checkpoints its still-protected parent identities.
+    public internal(set) var parentUpdates: [ItemDeletionParent]?
 
     func validate(for plan: DeletionPlan) throws {
         let count = plan.nodes.count, end = stopped ?? next
@@ -279,6 +292,15 @@ public struct DeletionProgress: Codable, Equatable, Sendable {
               !dismissed || (finished == domains && (!exceptions.isEmpty || stopped != nil)) else {
             throw ItemDeletionError.invalidRequest
         }
+        let originals = plan.directoryIdentities(), updates = parentUpdates ?? []
+        guard updates.count <= originals.count,
+              Set(updates.map { Data($0.path.utf8) }).count == updates.count,
+              updates.allSatisfy({ parent in
+                  let name = plan.parents.first { $0.path.utf8.elementsEqual(parent.path.utf8) }?.name
+                      ?? RelativePath(parent.path)?.components.last ?? ""
+                  return originals[Data(parent.path.utf8)]?.fileID == parent.identity.fileID
+                      && parent.name.utf8.elementsEqual(name.utf8)
+              }) else { throw ItemDeletionError.invalidRequest }
     }
 
     func validateUpdate(from previous: Self, plan: DeletionPlan) throws {
@@ -287,6 +309,19 @@ public struct DeletionProgress: Codable, Equatable, Sendable {
               finishedDomains.starts(with: previous.finishedDomains), !previous.dismissed || dismissed,
               previous.stopped == nil || previous.stopped == stopped else { throw ItemDeletionError.invalidRequest }
         let added = Array(exceptions.dropFirst(previous.exceptions.count))
+        if parentUpdates != previous.parentUpdates {
+            guard previous.next < plan.nodes.count, next == previous.next + 1, previous.current == .closeAcknowledged,
+                  added.isEmpty, stopped == nil else { throw ItemDeletionError.invalidRequest }
+            let directories = plan.directoryIdentities(updates: previous.parentUpdates ?? [])
+            let item = try plan.item(at: previous.next, state: previous.current, directories: directories)
+            let allowed = Set(item.parents.map { Data($0.path.utf8) })
+            let updated = Dictionary(uniqueKeysWithValues: (parentUpdates ?? []).map { (Data($0.path.utf8), $0) })
+            let old = Dictionary(uniqueKeysWithValues: (previous.parentUpdates ?? []).map { (Data($0.path.utf8), $0) })
+            guard old.allSatisfy({ updated[$0.key] != nil }),
+                  updated.allSatisfy({ allowed.contains($0.key) || old[$0.key] == $0.value }) else {
+                throw ItemDeletionError.invalidRequest
+            }
+        }
         if previous.next == plan.nodes.count {
             guard next == previous.next, added.isEmpty, stopped == previous.stopped else {
                 throw ItemDeletionError.invalidRequest
@@ -336,6 +371,14 @@ public struct DeletionProgress: Codable, Equatable, Sendable {
         }
         result.next += 1
         result.current = .prepared
+        return result
+    }
+
+    func recordingParents(_ parents: [ItemDeletionParent]) -> Self {
+        var result = self
+        var updated = Dictionary(uniqueKeysWithValues: (parentUpdates ?? []).map { (Data($0.path.utf8), $0) })
+        for parent in parents { updated[Data(parent.path.utf8)] = parent }
+        result.parentUpdates = updated.values.sorted { $0.path.utf8.lexicographicallyPrecedes($1.path.utf8) }
         return result
     }
 

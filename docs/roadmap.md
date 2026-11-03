@@ -247,8 +247,11 @@ settled catalog identity. Automatic recovery only settles records whose remote w
 Signed admission and joined cancellation, close, counted Stop and automatic settlement also pass.
 Gated Finder routing and Settings recovery controls are implemented as of 2026-11-02. Settings
 names deletion records, reports per-item outcomes, and offers Retry, Stop Deleting and safe
-Dismiss Notice actions. Host package checks pass; app compilation and signed Finder, recovery UI
-and controller lifecycle checks remain. Deletion stays disabled in the normal build. Follow the
+Dismiss Notice actions. November 3 VM checks pass for the app build, refusal restoration,
+Finder's permanent warning and Cancel, verified and unopened files, and an empty folder.
+Recursive deletion safely stopped after child removal changed Samba's synthetic parent creation
+times. The protected-parent checkpoint repair passes focused host tests; signed recursive,
+recovery UI and controller lifecycle checks remain. Deletion stays disabled in the normal build. Follow the
 [integration checklist](m24-integration-checklist.md) before enablement.
 
 The supported write boundary remains folders whose writers use SMB and leave tinymounter's
