@@ -192,7 +192,7 @@ def main():
             '                        if request.label.hasPrefix("check-joined-jobs-") {\n'
             '                            try await checkJoinedDeletionJobs(config, label: request.label)\n'
             '                        }\n'
-            '                        if request.label == "check-keep-restore-start" {\n'
+            '                        if request.label.hasPrefix("check-keep-restore-start") {\n'
             '                            try checkDeletionKeepRestoration(config)\n'
             '                        }\n'
             '                        if request.label.hasPrefix("check-incomplete-deletion-") {\n'
@@ -286,7 +286,8 @@ def main():
                 '            try await self.commitDeletionSettings(deletion, paths: paths, owner: domainID, grant: grant.id)'))
             app.write_text(replace(app.read_text(),
                 '        var listed: Set<String> = []\n',
-                '        await M24KeepRestorationProbe.hold(record)\n'
+                '        await M24KeepRestorationProbe.hold(record,\n'
+                '            directory: M22FinderCrash.export.lock.withLock { M22FinderCrash.export.url })\n'
                 '        var listed: Set<String> = []\n'))
             app.write_text(replace(app.read_text(),
                 '    private func recovered(_ grantID: UUID, _ failures: [SourceFailure]) async {\n',

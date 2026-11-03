@@ -14,11 +14,10 @@ private enum M24KeepRestorationProbe {
         let id: UUID
     }
 
-    static func hold(_ record: LocationRecord) async {
-        guard let config = M22FinderProbe.selected(record.domainID), config.location == record.id,
+    static func hold(_ record: LocationRecord, directory: URL?) async {
+        guard let directory, let config = M22FinderProbe.selected(record.domainID), config.location == record.id,
               record.folder == config.folder else { return }
         do {
-            let directory = try M22FinderProbe.directory(config.run)
             let url = directory.appending(path: "keep-restore.json")
             guard FileManager.default.fileExists(atPath: url.path) else { return }
             let control = try M22FinderProbe.load(Control.self, from: url)
