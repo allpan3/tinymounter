@@ -312,3 +312,25 @@ save logs, server syscall trace and backing-file audits. The final enumeration p
 in `apple-smb-cache-excerpts-20261103.txt`; `final-probe-audit.json` confirms the final rename
 contents and the native control's metadata placement. All diagnostic processes have stopped; fixture
 files remain for inspection, and no server configuration changed.
+
+#### Initial single-client VM check, 2026-11-03
+
+Required VM checks pass: 619 package tests, one optional skip, the Release CLI, project
+consistency, warning-free Swift app compilation, six SET_INFO cases, 94 edit-status cases,
+18 folder-create cases and 7,205 CCM cases. The separately signed
+`dev.tinymounter.singleclient` app runs in macOS VM 1 with fresh state. Its new Samba share
+requires encryption for both native and direct clients; earlier fixtures remain intact.
+
+Twenty consecutive signed TextEdit saves of a 2 MiB fixture produced exactly the expected
+server contents, retained the original file ID and left no transaction artifacts. During the
+last nineteen saves the server audit observed 57 private transaction names using three file
+IDs. A Unicode filename/content save also passed. The first upload delivered the complete
+payload but failed its post-upload directory refresh, leaving a duplicate pending item in
+Finder. It is not an upload acceptance pass. The candidate now discards a listing whose
+directory metadata changes during enumeration and retries a complete scan up to three times;
+it still refuses a listing that never stabilizes. That follow-up awaits signed validation.
+
+Private evidence is in `results/single-client-20261103/` on the VM. The initial background log
+stream stopped early, so the twenty-save transaction count was recovered with `log show --info`.
+A foreground stream records subsequent tests. The Linux fixture holds independent payload and
+file-ID audits. Interruption, read-only, broader workflow and throughput checks remain pending.

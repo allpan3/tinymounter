@@ -177,28 +177,37 @@ final class SMBEdit: EditRemote, FileRenameRemote, UploadRemote {
         guard let full = folder.appending(path), let handle = directories[full.string] else {
             throw UploadError.unresolved
         }
-        let opened = ContinuousClock.now, before = try info(handle)
-        var entries: [RenameDirectoryEntry] = [], calls = 0
-        while true {
-            try cancellation()
-            var buffer = [UInt8](repeating: 0, count: 65_536), count: UInt32 = 0, finished: Int32 = 0
-            try handle.use {
-                try check(tm_edit_list(client, $0, calls == 0 ? 1 : 0, &buffer, UInt32(buffer.count), &count, &finished))
+        let opened = ContinuousClock.now
+        var totalCalls = 0
+        for attempt in 0..<3 {
+            let before = try info(handle)
+            var entries: [RenameDirectoryEntry] = [], calls = 0
+            while true {
+                try cancellation()
+                var buffer = [UInt8](repeating: 0, count: 65_536), count: UInt32 = 0, finished: Int32 = 0
+                try handle.use {
+                    try check(tm_edit_list(client, $0, calls == 0 ? 1 : 0, &buffer, UInt32(buffer.count), &count, &finished))
+                }
+                calls += 1
+                totalCalls += 1
+                progressed()
+                if finished != 0 { break }
+                let page = try RenameDirectoryEntry.parse(Array(buffer.prefix(Int(count))))
+                guard page.count <= DirectoryListing.defaultLimit - entries.count,
+                      calls <= DirectoryListing.defaultLimit else { throw SourceFailure.tooManyEntries }
+                entries += page
             }
-            calls += 1
-            progressed()
-            if finished != 0 { break }
-            let page = try RenameDirectoryEntry.parse(Array(buffer.prefix(Int(count))))
-            guard page.count <= DirectoryListing.defaultLimit - entries.count,
-                  calls <= DirectoryListing.defaultLimit else { throw SourceFailure.tooManyEntries }
-            entries += page
+            let after = try info(handle)
+            if before[0...1] == after[0...1], before[5...6] == after[5...6] {
+                return try DirectoryListing(smbEntries: entries, openDuration: started.duration(to: opened),
+                                            bulkDuration: opened.duration(to: .now), bulkCalls: totalCalls)
+            }
+            Logger(subsystem: "dev.tinymounter.prototype", category: "listing").info("""
+                direct_list_restart attempt=\(attempt + 1) identity=\(before[0...1] != after[0...1]) \
+                mtime=\(before[5] != after[5]) ctime=\(before[6] != after[6])
+                """)
         }
-        let after = try info(handle)
-        guard before[0...1] == after[0...1], before[5...6] == after[5...6] else {
-            throw SourceFailure.listingIncomplete
-        }
-        return try DirectoryListing(smbEntries: entries, openDuration: started.duration(to: opened),
-                                    bulkDuration: opened.duration(to: .now), bulkCalls: calls)
+        throw SourceFailure.listingIncomplete
     }
 
     func confirmMissing(_ children: [MissingChild], in path: RelativePath, progressed: () -> Void = {}) throws {
