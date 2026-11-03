@@ -328,7 +328,18 @@ IDs. A Unicode filename/content save also passed. The first upload delivered the
 payload but failed its post-upload directory refresh, leaving a duplicate pending item in
 Finder. It is not an upload acceptance pass. The candidate now discards a listing whose
 directory metadata changes during enumeration and retries a complete scan up to three times;
-it still refuses a listing that never stabilizes. That follow-up awaits signed validation.
+it still refuses a listing that never stabilizes. The signed follow-up uploaded and acknowledged
+a 2,400,000-byte file with matching server contents. Retry Pending Changes then acknowledged
+the first upload, and Settings no longer showed pending uploads.
+
+The first read-only 2 GiB fetch transferred the complete remote payload but failed its final
+metadata check. No successful download or performance result is claimed. A separate probe
+observed reported creation time changing on the first enumeration of Linux-created directories,
+with the other metadata unchanged. The candidate now reads one byte through its protected file
+handle before capturing a read version. It permits only creation time to change across that
+initial read; file ID, size, link count, attributes, modification time and change time must match.
+Later version, receipt and transfer checks remain unchanged. Signed validation must use a fresh
+Linux-created file because the failed read may already have changed the original fixture's metadata.
 
 Private evidence is in `results/single-client-20261103/` on the VM. The initial background log
 stream stopped early, so the twenty-save transaction count was recovered with `log show --info`.

@@ -226,7 +226,7 @@ final class SMBEdit: EditRemote, FileRenameRemote, UploadRemote {
     func readMetadata(path: String) throws -> (identity: EditFileIdentity, fingerprint: ContentFingerprint) {
         let handle = try handles[path] ?? open(path: path, access: Self.read, sharing: 1)
         handles[path] = handle
-        let values = try info(handle)
+        let values = try readInfo(handle)
         guard values[2] <= Int64.max, values[3] == 1, values[4] & 0x450 == 0 else {
             throw UploadError.unresolved
         }
@@ -574,7 +574,7 @@ final class SMBEdit: EditRemote, FileRenameRemote, UploadRemote {
 
     private func version(_ handle: Handle, artifactPath: String? = nil,
                          collectReadProof: Bool = false) throws -> EditFileVersion {
-        let before = try info(handle)
+        let before = try readInfo(handle)
         guard before[2] <= Int64.max, before[3] == 1, before[4] & 0x410 == 0 else {
             throw UploadError.unresolved
         }
@@ -592,6 +592,21 @@ final class SMBEdit: EditRemote, FileRenameRemote, UploadRemote {
                                    attributes: UInt32(after[4]), security: Data(security), artifactQuarantine: quarantine)
         readProof = contents.proof
         return result
+    }
+
+    private func readInfo(_ handle: Handle) throws -> [UInt64] {
+        let before = try info(handle)
+        guard before[2] > 0, before[2] <= Int64.max, before[3] == 1, before[4] & 0x450 == 0 else {
+            return before
+        }
+        // Some servers change reported creation time on the first payload read.
+        var byte: UInt8 = 0
+        let count = try withUnsafeMutableBytes(of: &byte) { try read(handle, offset: 0, buffer: $0) }
+        let after = try info(handle)
+        guard count == 1, before[0] == after[0], before[2...6] == after[2...6] else {
+            throw SourceFailure.versionChanged
+        }
+        return after
     }
 
     private func artifactQuarantine(_ handle: Handle, path: String, size: Int64) throws -> Data? {
