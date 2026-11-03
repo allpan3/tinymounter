@@ -45,7 +45,7 @@ extension LocationController {
             let locations: [String]
             let registered: [String]
             let catalogs: [String: Bool]
-            let records: [PendingDeletion]
+            let records: [M22FinderProbe.Deletion]
             let originalSettingsPreserved: Bool
         }
         let directory = try M22FinderProbe.directory(config.run)
@@ -73,7 +73,10 @@ extension LocationController {
         let saved = try M22FinderProbe.load(AppSettings.self, from: store.url)
         try M22FinderProbe.require(saved == settings, "removal-settings-durable")
         let state = State(locations: settings.locations.map(\.domainID).filter(ids.contains).sorted(),
-            registered: registered.sorted(), catalogs: catalogs, records: records,
+            registered: registered.sorted(), catalogs: catalogs, records: records.map {
+                M22FinderProbe.Deletion(plan: $0.plan, progress: $0.progress, complete: $0.isComplete,
+                    pending: $0.isPending, canDismiss: $0.canDismiss)
+            },
             originalSettingsPreserved: withoutTask == original)
         try M22FinderProbe.save(state, to: directory.appending(path: label + "-state.json"))
         try M22FinderProbe.require(state.originalSettingsPreserved, "removal-original-settings-preserved")
