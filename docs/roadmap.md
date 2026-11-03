@@ -206,7 +206,10 @@ also pass. Bounded reserve, partial-stage continuation, lost-cleanup-reply and f
 replacement-artifact preservation probes pass; broader callbacks remain.
 The November 3 [Finder Replace observation](results/2026-11-03-editor-replacement.md) sends
 unbound delete/create requests for unopened and verified destinations. This blocks both Replace
-and normal deletion enablement under the accepted guarantee. Ordinary document Save and Save As
+and normal deletion enablement under the accepted guarantee. The user approved a separate
+**Delete Permanently…** command with confirmation on 2026-11-03. Its gated implementation
+reuses protected deletion and recovery, while refusing ordinary delete callbacks. Signed custom
+action, cancellation and local-edit preservation checks remain. Ordinary document Save and Save As
 pass for the tested TextEdit, Preview and Xcode files. Signed TextEdit checks also pass for repeated
 offline saves, intentional Quit/relaunch, main-app crash and extension termination. A moved-original
 trial exposed unwanted conflict publication; the signed repair retains and exports local contents.

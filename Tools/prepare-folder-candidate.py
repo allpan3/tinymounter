@@ -19,7 +19,8 @@ snapshot. Catalog and finished-domain stops include both catalogs' current rows.
 --deletion-checks records deletion callbacks and durable operations in these views.
 With --crash-checks it also enables scoped stops/failures and an asynchronous
 Settings hold from deletion-fault.json; see the M24 integration checklist.
---enable-deletion additionally enables deletion only in the generated candidate.
+--enable-deletion additionally enables ordinary deletion only in the generated candidate.
+--enable-permanent-deletion enables the confirmed custom command with ordinary deletion disabled.
 --deletion-domain-checks observes domain versions and refuses every fixture deletion
 before app/server work. It requires --overlap-checks and --deletion-checks.
 --editor-checks exports local hashes, pending uploads and verified edit outbox state
@@ -59,12 +60,15 @@ def main():
     parser.add_argument("--overlap-checks", action="store_true")
     parser.add_argument("--deletion-checks", action="store_true")
     parser.add_argument("--enable-deletion", action="store_true")
+    parser.add_argument("--enable-permanent-deletion", action="store_true")
     parser.add_argument("--deletion-domain-checks", action="store_true")
     parser.add_argument("--editor-checks", action="store_true")
     parser.add_argument("--save-space-checks", action="store_true")
     args = parser.parse_args()
     if args.enable_deletion and not args.deletion_checks:
         parser.error("--enable-deletion requires --deletion-checks")
+    if args.enable_permanent_deletion and (args.enable_deletion or not args.deletion_checks):
+        parser.error("--enable-permanent-deletion requires --deletion-checks and ordinary deletion disabled")
     if args.deletion_domain_checks and not (args.deletion_checks and args.overlap_checks):
         parser.error("--deletion-domain-checks requires --deletion-checks and --overlap-checks")
     if args.save_space_checks and not args.editor_checks:
@@ -471,6 +475,10 @@ extension M22FinderProbe {
         gates = root / "Prototype/Shared/SourceReaderProtocol.swift"
         gates.write_text(replace(gates.read_text(), "static let deletionEnabled = false",
                                 "static let deletionEnabled = true"))
+    if args.enable_permanent_deletion:
+        gates = root / "Prototype/Shared/SourceReaderProtocol.swift"
+        gates.write_text(replace(gates.read_text(), "static let permanentDeletionEnabled = false",
+                                "static let permanentDeletionEnabled = true"))
     subprocess.run(["git", "diff", "--stat"], cwd=root, check=True)
 
 

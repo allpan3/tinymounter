@@ -302,13 +302,20 @@ The app securely archives Apple's event version and compares decoded versions se
 Each catalog persists the current domain version before registration and advances it before
 terminal deletion settlement. Launch recovery advances and republishes completed settlement
 before waking stopped requests. A delayed event for another item may still be a first request.
-Missing, malformed or future events fail without mutation. This format requires fresh catalogs
+Missing, malformed or future events fail without mutation. The user approved storing this event
+version on 2026-11-03. This format requires fresh catalogs
 and deletion records; no migration is provided. The signed protocol and integrated Stop/replay
 checks pass, including interruption before notification and refreshed bases after dismissal.
 The signed Finder Replace observation also sends an indistinguishable delete followed by a
 separate create. Normal deletion therefore stays disabled under the accepted replacement
-guarantee. An explicit deletion action is an unresolved workflow decision; no replacement binding
-was found in the reviewed public APIs. See the [replacement gate](results/2026-11-03-editor-replacement.md)
+guarantee. On 2026-11-03 the user approved a separate **Delete Permanently…** command with
+confirmation. It uses a separate XPC entry point; ordinary deletion callbacks remain refused.
+The first command accepts one ordinary file or folder at a time, with recursive folder deletion.
+Cancel is the default, the selected version is rechecked after confirmation, and pending system
+synchronization in either overlapping view blocks admission. This conservative check can also
+block deletion while an unrelated item in that view is syncing. The command remains gated until
+signed tests establish local-edit preservation and cancellation. No replacement binding was
+found in the reviewed public APIs. See the [replacement gate](results/2026-11-03-editor-replacement.md)
 and the [deletion results](results/2026-10-29-deletion-protocol.md).
 
 ## 9. Future server volume mode

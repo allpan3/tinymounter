@@ -1129,3 +1129,27 @@ deletion snapshot type. Physical root replacement and permission loss during inc
 settlement remain unverified as complete scenarios; the injected error-class checks above verify
 their completion-response ordering. Normal-build deletion stays disabled while Finder Replace
 is observed, because unbound delete/create callbacks cannot authorize a safe replacement.
+
+
+## Root replacement during incomplete settlement, 2026-11-03
+
+Signed OfflineCheck build 4 in macOS VM 1 held the second catalog's settlement after an actual
+Finder deletion and confirmed Stop. The record retained one confirmed child deletion, one
+unconfirmed child and a stopped parent. Replacing the configured Linux fixture root with a
+copy containing different inodes, then releasing the hold, completed catalog settlement in
+both views without deleting any replacement object. The immutable plan and outcomes stayed
+unchanged. Independent backing audits checked identities, contents, ownership, modes, times
+and xattrs. This is recovery evidence, not permission to enable ordinary deletion.
+
+The probe expected recovery to remain pending and failed that expectation. Inspection instead
+found legitimate completed settlement with `stopped` / `deletionRejected`. The failed probe is
+retained alongside the independent successful audit; it was not a production mutation defect.
+The original root was restored and the replacement preserved outside the share. A later ordinary
+Delete was refused before admission, so it does not establish permission-loss recovery. All
+failure controls were archived; the server is running and permission-loss testing remains.
+
+Evidence is in the VM's `results/deletion-final-20261103/` run directory and the Linux
+`/tmp/tinymounter-deletion-final-` directory with the same run UUID. Relevant files include
+`check-deletion-stop-confirmed`, `check-root-replaced-stable`, their peer snapshots,
+`root-swap-audit.json` and `root-restored-control.json`. The superseded
+`check-incomplete-deletion-root-replaced` expectation remains marked failed.

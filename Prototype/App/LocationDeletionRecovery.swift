@@ -58,6 +58,7 @@ extension LocationSource {
                 if let recovery { deletionRecoveryLock.withLock { deletionProgress[recovery.record.id] = nil } }
             }
             do {
+                guard !progress.isCancelled else { throw TransferError.cancelled }
                 try requireDeletionRecoverySource()
                 guard deletionSettings != nil else { throw UploadError.readOnly }
                 if let previous = try replayedDeletion(request) { request = previous.plan.request }

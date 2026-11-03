@@ -66,7 +66,13 @@ final class CatalogItem: NSObject, NSFileProviderItem {
         row.keep && !row.paused ? .materializeEagerly : .materializeLazily
     }
     var userInfo: [AnyHashable: Any]? {
-        row.parentID == nil ? nil : ["keep": row.keep ? 1 : 0, "keepRequested": row.keepRequested ? 1 : 0]
+        row.parentID == nil ? nil : ["keep": row.keep ? 1 : 0, "keepRequested": row.keepRequested ? 1 : 0,
+                                    "permanentDeletion": allowsPermanentDeletion ? 1 : 0]
+    }
+    var allowsPermanentDeletion: Bool {
+        SourceReaderBridge.permanentDeletionEnabled && row.parentID != nil && allowsEditing
+            && FileRenameRequest.supportsName(row.name)
+            && UTType(filenameExtension: (row.name as NSString).pathExtension)?.conforms(to: .package) != true
     }
     var itemVersion: NSFileProviderItemVersion {
         NSFileProviderItemVersion(contentVersion: Data(contentVersion.utf8),

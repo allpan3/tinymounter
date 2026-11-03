@@ -6,6 +6,7 @@ import OSLog
 final class SourceReaderHost {
     /// The domain's location when its session starts; nil fails every request of that session.
     var source: (String) -> LocationSource? = { _ in nil }
+    var confirmDeletion: ((String, DeleteItemRequest, Progress) async throws -> Void)?
     private var domains: [String: NSFileProviderDomain] = [:]
     private var connections: [String: NSXPCConnection] = [:]
     private var connecting: Set<String> = []
@@ -45,7 +46,10 @@ final class SourceReaderHost {
                 let connection = try await service.fileProviderConnection()
                 guard domains[id] != nil else { connection.invalidate(); connecting.remove(id); return }
                 let session = SourceReaderSession(domainID: id, source: source(id), queue: queue,
-                                                  space: downloadSpace, spaceChanged: { [weak self] request, blocked in
+                                                  space: downloadSpace, confirmDeletion: { [weak self] request, progress in
+                    guard let confirm = await self?.confirmDeletion else { throw UploadError.readOnly }
+                    try await confirm(id, request, progress)
+                }, spaceChanged: { [weak self] request, blocked in
                     Task { @MainActor in self?.onSpaceChange?(id, request, blocked) }
                 }) { [weak self] failure in
                     Task { @MainActor in self?.onUserFetchFailed?(id, failure) }
@@ -110,6 +114,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
     private final class Job: @unchecked Sendable {
         let progress = Progress()
         let isDeletion: Bool
+        var awaitingConfirmation = false
         var staging: URL?
         /// Bytes last sent to the extension; only the progress queue touches it.
         var reported: Int64 = 0
@@ -122,6 +127,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
     private let queue: OperationQueue
     private let userFetchFailed: @Sendable (SourceFailure) -> Void
     private let space: DownloadSpace
+    private let confirmDeletion: @Sendable (DeleteItemRequest, Progress) async throws -> Void
     private let spaceChanged: @Sendable (SourceReadRequest, Bool) -> Void
     private let progressQueue = DispatchQueue(label: "dev.tinymounter.prototype.reader-progress", qos: .utility)
     /// Set before the connection activates; progress messages go through it.
@@ -133,6 +139,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
     private var logger: Logger { Self.logger }
 
     init(domainID: String, source: LocationSource?, queue: OperationQueue, space: DownloadSpace,
+         confirmDeletion: @escaping @Sendable (DeleteItemRequest, Progress) async throws -> Void,
          spaceChanged: @escaping @Sendable (SourceReadRequest, Bool) -> Void,
          userFetchFailed: @escaping @Sendable (SourceFailure) -> Void) {
         self.domainID = domainID
@@ -140,6 +147,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
         self.queue = queue
         self.userFetchFailed = userFetchFailed
         self.space = space
+        self.confirmDeletion = confirmDeletion
         self.spaceChanged = spaceChanged
     }
 
@@ -315,10 +323,23 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
             reply(nil, NSFileProviderError(.deletionRejected) as NSError)
             return
         }
+        delete(data, confirmedAction: false, reply: reply)
+    }
+
+    func deletePermanently(_ data: Data, reply: @escaping (Data?, NSError?) -> Void) {
+        guard SourceReaderBridge.permanentDeletionEnabled else {
+            reply(nil, NSFileProviderError(.deletionRejected) as NSError)
+            return
+        }
+        delete(data, confirmedAction: true, reply: reply)
+    }
+
+    private func delete(_ data: Data, confirmedAction: Bool, reply: @escaping (Data?, NSError?) -> Void) {
         do {
             let request = try ReaderMessage.decode(DeleteItemRequest.self, from: data)
             guard let source else { throw LocationError.catalogClosed }
             let job = Job(isDeletion: true)
+            job.awaitingConfirmation = confirmedAction
             job.progress.totalUnitCount = Int64.max
             try lock.withLock {
                 guard !closed, jobs[request.id] == nil else { throw UploadError.pendingWrites }
@@ -328,9 +349,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
             let timer = progressTimer(request.id, job)
             let deletion = DeletionRequest(item: request.item, contentVersion: request.contentVersion,
                                            metadataVersion: request.metadataVersion, eventVersion: request.eventVersion)
-            source.deleteItem(deletion, recursive: request.recursive, progress: job.progress, started: { [weak self] in
-                try? self?.registration()?.started(ReaderMessage.encode(SourceReadStarted(id: request.id)))
-            }) { [self] result in
+            let finish: LocationSource.DeletionReply = { [self] result in
                 timer.cancel()
                 lock.withLock { jobs[request.id] = nil }
                 do {
@@ -343,6 +362,25 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
                     reply(try ReaderMessage.encode(DeleteItemReceipt(id: request.id, item: request.item)), nil)
                 } catch { reply(nil, Self.deletionError(error)) }
             }
+            let run = { [self] in
+                source.deleteItem(deletion, recursive: request.recursive, progress: job.progress, started: { [weak self] in
+                    try? self?.registration()?.started(ReaderMessage.encode(SourceReadStarted(id: request.id)))
+                }, reply: finish)
+            }
+            if confirmedAction {
+                Task { [self] in
+                    do {
+                        try await confirmDeletion(request, job.progress)
+                        try lock.withLock {
+                            guard !closed, jobs[request.id] === job, !job.progress.isCancelled else {
+                                throw TransferError.cancelled
+                            }
+                            job.awaitingConfirmation = false
+                        }
+                        run()
+                    } catch { finish(.failure(error)) }
+                }
+            } else { run() }
         } catch { reply(nil, Self.deletionError(error)) }
     }
 
@@ -425,9 +463,12 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
 
     func release(_ requestID: String) {
         guard let id = UUID(uuidString: requestID) else { return }
-        let job = lock.withLock { jobs.removeValue(forKey: id) }
+        let (job, cancel) = lock.withLock {
+            let job = jobs.removeValue(forKey: id)
+            return (job, job.map { !$0.isDeletion || $0.awaitingConfirmation } ?? false)
+        }
         // Losing an XPC waiter must not turn a durable deletion into a user-requested Stop.
-        if let job, !job.isDeletion { job.progress.cancel() }
+        if cancel { job?.progress.cancel() }
         space.end(id)
         if let url = job?.staging { try? FileManager.default.removeItem(at: url) }
     }
