@@ -619,6 +619,12 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                                                name: item.filename, baseVersion: base, staging: id,
                                                failOnConflict: options.contains(.failOnConflict))
                 let receipt = try sourceReader.edit(message, progress: progress)
+                // Stop already exported these exact bytes; a deleted target has no version to fetch.
+                if receipt.contentVersion.isEmpty, !receipt.conflict, receipt.item == row.id,
+                   try catalog.read({ try $0.item(id: row.id)?.deleted == true }) {
+                    completion(nil, [], false, nil)
+                    return
+                }
                 let current = try catalog.liveRow(deletionConflict ? receipt.item : row.id)
                 progress.completedUnitCount = progress.totalUnitCount
                 completion(CatalogItem(current), changedFields.subtracting([.contents, .filename, .parentItemIdentifier]),

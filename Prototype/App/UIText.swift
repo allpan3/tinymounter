@@ -38,6 +38,7 @@ enum UIText {
     static let localRecoveryDestination = "Choose a folder on this Mac for the recovery copy."
     static let retryPending = "Retry Pending Changes"
     static let waitingToUpload = "Waiting to upload"
+    static let editTargetUnavailable = "This save cannot update the original file. Export a local copy."
     static let stopUploading = "Stop Uploading"
     static func stopUploadingTitle(_ path: String) -> String {
         "Stop the upload of “\((path as NSString).lastPathComponent)”?"
@@ -52,8 +53,8 @@ enum UIText {
     }
     static let stopRefused = "tinymounter cannot stop this item, because the server can have it. Use Retry Pending Changes to check the server."
     static let stopEditMessage = """
-        Save a copy of the changes that did not upload. tinymounter then stops the upload and replaces \
-        the file on this Mac with the version on the server.
+        Save a copy of the changes that did not upload. tinymounter then stops the upload and updates \
+        this location to match the server. If the file was deleted, it is removed from this location.
         """
     static let stopEditRefused = "tinymounter did not stop the upload. The local save is retained."
     /// The default name of a stopped save's copy, such as "Report (not uploaded 2026-11-02).txt".
