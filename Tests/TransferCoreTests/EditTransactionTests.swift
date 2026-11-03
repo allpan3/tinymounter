@@ -395,6 +395,20 @@ final class EditTransactionTests: XCTestCase {
         XCTAssertEqual(remote.updates, 1)
     }
 
+    func testPublishedConflictCopyCanBeStoppedAndStaysOnTheServer() throws {
+        let external = try Remote.version(identity: 1, size: 5, digest: String(repeating: "b", count: 64))
+        remote.files["file.txt"] = external
+        try EditTransaction.publish(&edit, outbox: outbox, remote: remote)
+        XCTAssertTrue(edit.conflict)
+        XCTAssertEqual(try stored(edit).state, .published)
+        XCTAssertTrue(EditOutbox.canStop(edit, among: try outbox.records()))
+        try outbox.stop(edit.id, exportingTo: directory.appending(path: "copy.txt"))
+        XCTAssertEqual(remote.files["file.txt"], external)
+        XCTAssertEqual(remote.files[edit.destination]?.digest, edit.digest)
+        XCTAssertEqual(try outbox.pendingCount, 0)
+        XCTAssertTrue(try outbox.takeStopped(item: edit.item, contents: input))
+    }
+
     func testEarlierStartedPublicationResolvesBeforeNewerContents() throws {
         remote.failure = .completeCopy
         XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))

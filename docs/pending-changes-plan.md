@@ -3,8 +3,8 @@
 Date: 2026-11-02. Decision status: accepted on 2026-11-02 with the recommendations below.
 The user asked for simple, effective methods. Parts 1–3 are implemented and pass a signed VM
 check ([results](results/2026-11-02-pending-changes-list.md)). Parts 4–5 are implemented for new
-items and pass a signed VM check ([results](results/2026-11-02-stop-uploading.md)); Stop
-Uploading for edits of existing files is deferred.
+items and pass a signed VM check ([results](results/2026-11-02-stop-uploading.md)). Stop
+Uploading for edits of existing files is implemented and waits for its VM check.
 
 On 2026-11-01 three pending records kept the physical Mac's location from being removed and
 stopped NAS change discovery. Settings showed only "Pending changes: 3", and nothing the user
@@ -86,7 +86,7 @@ progress:
 |---|---|---|
 | New folder or new file | `staging`, `prepared` (definite failure), `collision` | Marks the record `stopped` and discards its copy of the contents. macOS sends the item again and receives `excludedFromSync`, so the item stays on this Mac and is no longer pending. |
 | New folder or new file | `attempting`, `created`, `verified` | Not offered. The server may have the item, so Retry checks it first. |
-| Edit | `isLocalOnly`, or the conflict copy is published | Deferred. Remove Location keeps saves that never reached the server (part 5). |
+| Edit | `prepared`, or the conflict copy is published, and no other save of the file needs work | Opens a save panel. After the app writes the copy and checks it against the save, it marks the record `stopped` and discards its copy of the contents. macOS sends the file again and receives the server's version, which replaces the local file. Cancel changes nothing. |
 | Edit | `mayHaveChangedOriginal` | Not offered. Recovery has to finish first (existing rule). |
 | Rename | `refused` | Already final. The row offers Dismiss. |
 | Rename or deletion, still pending | any | Retry only. |
@@ -108,12 +108,19 @@ Records in uncertain states still block removal, and the dialog names them.
 1. **Removal rule.** Part 5 changes the accepted M18 rule that pending uploads prevent removal
    ([ui-design.md](ui-design.md#m18-creation-access-accepted-2026-10-23)), because the kept
    folder preserves the data. Part 5 changed the rule.
-2. **Edits.** Stop Uploading for edits of existing files is deferred to a later change. It needs
-   its own path through `modifyItem`. Remove Location already keeps saves that never reached
-   the server, because macOS still holds them as not uploaded. The route for new items does not
-   carry over: Apple's `NSFileProviderError.h` says that after `excludedFromSync`, macOS
-   downloads the item and then calls `deleteItem` for it. For an existing file, that call asks
-   the provider to delete the file on the server.
+2. **Edits.** The route for new items does not carry over to edits of existing files: Apple's
+   `NSFileProviderError.h` says that after `excludedFromSync`, macOS downloads the item and then
+   calls `deleteItem` for it. For an existing file, that call asks the provider to delete the
+   file on the server. Stop Uploading for an edit therefore first writes the save to a file that
+   the user selects, named like `Report (not uploaded 2026-11-02).txt`. Only after the app
+   checks that file against the save does it mark the record `stopped` and discard the save.
+   The app then signals macOS, which sends the file again. The app answers with no published
+   version, so `modifyItem` sets `shouldFetchContent`, and macOS fetches the server's version
+   and replaces the local file. This is the documented conflict route in
+   `NSFileProviderReplicatedExtension.h`. Any send for the file removes its `stopped` record,
+   so a later save uploads normally. If the answer does not reach macOS, macOS sends the file
+   again, and the save uploads. Other saves of the file must finish first, because a
+   retired save needs a newer one before its cleanup. The user approved this on 2026-11-02.
 3. **Order.** Parts 1–3 come first, because they fix the stall and show the cause. Parts 4–5
    follow in a second PR.
 4. **Exclusion.** Stop Uploading answers the item's next `createItem` with
@@ -149,8 +156,8 @@ Records in uncertain states still block removal, and the dialog names them.
 - A forced folder failure shows its reason in Settings and clears with Retry. Passed.
 - Stop Uploading followed by Remove Location keeps the local files. See the
   [results](results/2026-11-02-stop-uploading.md).
-- An edit whose NAS copy changed can be stopped, with its local copy saved. Deferred with
-  Stop Uploading for edits.
+- A save that did not upload can be stopped. The selected file holds the save, and Finder and
+  TextEdit then show the server's version. Not run yet.
 - The next attempt removes the empty file of a stage or backup create without an answer
   (fixture case c05). Not run yet. It also shows whether the server lets the owner open a file
   with an empty DACL for delete. If it does not, such a save stays uncertain.

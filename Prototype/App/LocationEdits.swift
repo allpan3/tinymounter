@@ -69,6 +69,10 @@ extension LocationSource {
         }
     }
 
+    func stopEdit(_ id: UUID, destination: URL) throws {
+        try uploadLock.withLock { try Self.editOutbox(domainID: domainID).stop(id, exportingTo: destination) }
+    }
+
     func edit(_ request: EditRequest, contents: URL, progress: Progress,
               started: @escaping @Sendable () -> Void, checkSpace: @escaping @Sendable (Int64) throws -> Void,
               reply: @escaping @Sendable (Result<EditReceipt, Error>) -> Void) {
@@ -90,6 +94,10 @@ extension LocationSource {
                     }
                     guard let fullPath = folder.appending(path) else { throw UploadError.invalidRequest }
                     let outbox = try Self.editOutbox(domainID: domainID)
+                    // No published version makes the provider fetch the server's, which replaces the stopped save.
+                    if try outbox.takeStopped(item: request.item, contents: contents) {
+                        return EditReceipt(item: request.item, conflict: false, contentVersion: "")
+                    }
                     // Retain this file's new save before resolving any of its earlier publications.
                     try editNamespace.requireUncontested(path: fullPath, excluding: request.id,
                                                           retaining: (domainID, request.item))

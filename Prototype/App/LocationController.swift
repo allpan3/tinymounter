@@ -351,6 +351,13 @@ final class LocationController {
         try await Self.offMain { try source.exportEdit(id, destination: destination) }
     }
 
+    /// macOS sends the stopped save again after the signal and receives the server's version.
+    func stopEdit(_ record: LocationRecord, id: UUID, destination: URL) async throws {
+        guard let source = sources[record.domainID] else { throw LocationError.catalogClosed }
+        try await Self.offMain { try source.stopEdit(id, destination: destination) }
+        await resumeCreates(record.domainID)
+    }
+
     func retryPending(_ record: LocationRecord) {
         sources[record.domainID]?.retryEdits(recoverRetired: true)
         guard let source = sources[record.domainID] else { return }

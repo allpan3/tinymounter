@@ -698,6 +698,22 @@ final class AppModel {
         }
     }
 
+    /// The save panel is the confirmation: Cancel changes nothing.
+    func stopEdit(_ edit: PendingEdit, record: LocationRecord) {
+        Task {
+            let panel = NSSavePanel()
+            panel.nameFieldStringValue = UIText.stoppedEditName(edit.path, date: .now)
+            panel.message = UIText.stopEditMessage
+            panel.prompt = UIText.stopUploading
+            guard await run(panel), let url = panel.url else { return }
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            do { try await controller.stopEdit(record, id: edit.id, destination: url) }
+            catch UploadError.unresolved { show(UIText.stopEditRefused) }
+            catch { show(error, grantID: record.grantID) }
+        }
+    }
+
     func pendingUploads(_ record: LocationRecord) async throws -> Int { try await controller.pendingUploads(record) }
 
     func showInFinder(_ recordID: UUID) {

@@ -625,13 +625,18 @@ private struct UploadStatus: View {
                 }
             }
             DeletionStatusList(record: record, model: model)
-            ForEach(edits.filter { $0.isPending || ($0.conflict && !$0.conflictNoticeDismissed) }, id: \.id) { edit in
+            ForEach(edits.filter {
+                $0.isPending || ($0.conflict && $0.state != .stopped && !$0.conflictNoticeDismissed)
+            }, id: \.id) { edit in
                 VStack(alignment: .leading) {
                     Text((edit.path as NSString).lastPathComponent)
                     Text(status(edit))
                         .font(.callout).foregroundStyle(.secondary)
                     if edit.isPending {
                         Button(UIText.exportEdit) { model.exportEdit(edit, record: record) }
+                        if EditOutbox.canStop(edit, among: edits) {
+                            Button(UIText.stopUploading) { model.stopEdit(edit, record: record) }
+                        }
                     } else if edit.state == .completed, edit.conflict {
                         Button(UIText.dismissEditNotice) { model.dismissEditNotice(edit, record: record) }
                     }
