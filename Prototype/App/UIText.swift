@@ -23,7 +23,7 @@ enum UIText {
     static let access = "Access"
     static let readOnly = "Read only"
     static let confirmWriteSetup = "Confirm Write Access"
-    static let writeRequirements = "Allow changes only if every program that changes files in this share does so over SMB. Programs on the server itself, such as its apps, sync tools and scripts, bypass tinymounter’s protection. Other computers can see a new file before its upload finishes. During a save, the file is briefly unavailable, and tinymounter keeps hidden temporary files next to it. Do not delete them. An interrupted save can keep the file unavailable until tinymounter recovers it."
+    static let writeRequirements = "Allow changes only if every program that changes files in this share does so over SMB. Programs on the server itself, such as its apps, sync tools and scripts, bypass tinymounter’s protection. Other computers can see a new file before its upload finishes. During a save, the file is briefly unavailable, and tinymounter keeps temporary files next to it. Other computers may show them. Do not delete them. An interrupted save can keep the file unavailable until tinymounter recovers it."
     static var writeModeHint: String {
         let base = "Read only prevents changes to files on the server. Turn it off to create items, edit files, and rename or move ordinary files within this location."
         guard SourceReaderBridge.deletionEnabled else {

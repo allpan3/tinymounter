@@ -20,7 +20,7 @@ final class SMBEdit: EditRemote, FileRenameRemote, UploadRemote {
     private var handles: [String: Handle] = [:]
     private var directories: [String: Handle] = [:]
     private var originals: Set<String> = []
-    private var hiddenOriginals: Set<String> = []
+    private var movedOriginals: Set<String> = []
     private var deletionTarget: String?
     private var folderMoveMount: MountIdentity?
     private var folderMoveRoots: [String: Handle] = [:]
@@ -514,20 +514,20 @@ final class SMBEdit: EditRemote, FileRenameRemote, UploadRemote {
         handles[destination] = handle
         if originals.remove(source) != nil {
             originals.insert(destination)
-            if destination.hasSuffix(".work") { hiddenOriginals.insert(destination) }
+            if destination.hasSuffix(".work") { movedOriginals.insert(destination) }
         }
-        hiddenOriginals.remove(source)
+        movedOriginals.remove(source)
     }
 
     func update(work: String, stage: String, size: Int64) throws {
-        guard hiddenOriginals.contains(work), let target = handles[work], let source = handles[stage] else {
+        guard movedOriginals.contains(work), let target = handles[work], let source = handles[stage] else {
             throw UploadError.unresolved
         }
         try copy(source: source, target: target, size: size)
     }
 
     func removeArtifact(path: String, version expected: EditFileVersion) throws {
-        guard !originals.contains(path), !hiddenOriginals.contains(path),
+        guard !originals.contains(path), !movedOriginals.contains(path),
               path.hasSuffix(".stage") || path.hasSuffix(".recovery") else { throw UploadError.unresolved }
         guard let actual = try inspect(path: path, original: false) else { throw UploadError.unresolved }
         guard actual == expected else {
@@ -555,7 +555,7 @@ final class SMBEdit: EditRemote, FileRenameRemote, UploadRemote {
 
     func removeLeftoverCreate(path: String) throws -> Bool {
         guard handles[path] == nil, !originals.contains(path),
-              !hiddenOriginals.contains(path), path.hasSuffix(".stage") || path.hasSuffix(".recovery") else {
+              !movedOriginals.contains(path), path.hasSuffix(".stage") || path.hasSuffix(".recovery") else {
             throw UploadError.unresolved
         }
         try cancellation()
@@ -1188,7 +1188,7 @@ extension SMBEdit: DeletionRemote {
 
     func protectParents(of path: String) throws -> [ItemDeletionParent] {
         guard folder.isRoot, handles.isEmpty,
-              originals.isEmpty, hiddenOriginals.isEmpty, deletionTarget == nil, deletionTraversalFiles == nil else {
+              originals.isEmpty, movedOriginals.isEmpty, deletionTarget == nil, deletionTraversalFiles == nil else {
             throw ItemDeletionError.invalidRequest
         }
         let parents: [FileRenameParent]
@@ -1322,7 +1322,7 @@ extension SMBEdit {
             expected[SMBName.key(expectation.path.string), default: []].append(expectation)
         }
         guard folder.isRoot, deletionTraversalFiles == nil, deletionTarget == nil, handles.isEmpty,
-              originals.isEmpty, hiddenOriginals.isEmpty, directories.isEmpty,
+              originals.isEmpty, movedOriginals.isEmpty, directories.isEmpty,
               folderMoveParents.isEmpty, folderMoveRoots.isEmpty, folderMoveFiles.isEmpty, !selected.isRoot,
               expected[SMBName.key(selected.string)] != nil else { throw ItemDeletionError.invalidRequest }
         deletionTraversalFiles = [:]

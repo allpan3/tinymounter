@@ -146,6 +146,19 @@ final class EditTransactionTests: XCTestCase {
         XCTAssertEqual(remote.updates, 1)
     }
 
+    func testOccupiedWorkNamePreservesBothTheOriginalAndTheOccupant() throws {
+        let original = remote.files[edit.path]
+        let occupant = try Remote.version(identity: 90, size: 4, digest: String(repeating: "c", count: 64))
+        remote.files[edit.workPath] = occupant
+        XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))
+        edit = try XCTUnwrap(outbox.records().first)
+        XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))
+        XCTAssertEqual(remote.files[edit.path], original)
+        XCTAssertEqual(remote.files[edit.workPath], occupant)
+        XCTAssertEqual(remote.updates, 0)
+        try outbox.validateContents(edit)
+    }
+
     func testNewDestinationWinsDuringPublication() throws {
         remote.failure = .collision
         XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))

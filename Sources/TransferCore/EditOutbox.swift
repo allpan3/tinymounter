@@ -144,7 +144,11 @@ public struct PendingEdit: Codable, Equatable, Sendable {
     }
     public var isPublicationComplete: Bool { state == .completed || state == .cleaningUp }
     public var publishedIdentity: EditFileIdentity? { conflict ? stageIdentity : previous?.identity }
-    public var workPath: String { String(recoveryPath.dropLast("recovery".count)) + "work" }
+    public var workPath: String {
+        // Samba can persist the hidden attribute when an existing file gets a dot-prefixed name.
+        (recoveryPath.split(separator: "/").dropLast().map(String.init)
+            + ["tinymounter-\(id.uuidString).work"]).joined(separator: "/")
+    }
     public var hasStartedPublication: Bool {
         [.movingOriginal, .copying, .restoring, .publishing, .published].contains(state)
     }

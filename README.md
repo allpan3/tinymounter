@@ -8,7 +8,8 @@ downloaded copies and keep selections survive without new fetches. All 624 VM te
 checks pass. All seven tested crash checkpoints recover in one view, including automatic retry
 after a temporary sharing error and successful Finder replay. Recovery also passes between two
 catalog updates and after the first view finishes. Concurrent changes preserve server data;
-stale-save callbacks and a saved-file attribute change remain under investigation.
+stale-save callbacks remain unverified. A save-work naming fix addresses Samba's persistent
+hidden flag in an isolated protocol check and awaits signed validation.
 Folder capabilities remain off in normal builds.
 See the [folder organization results](docs/results/2026-11-03-folder-organization.md).
 
