@@ -274,6 +274,7 @@ extension M22FinderProbe {
         let local: [Local]
         let moves: [PendingFolderMove]
         let editBases: [Base]
+        let pendingEdits: Int
     }
 
     struct Base: Codable, Sendable {
@@ -461,10 +462,14 @@ extension LocationController {
                     attributes: base.version.attributes)
             }
         }
+        let pendingEdits = try await Self.offMain {
+            try LocationSource.editOutbox(domainID: config.domain).pendingCount
+        }
         let snapshot = M22FinderProbe.Snapshot(config: config, label: label,
             date: ISO8601DateFormatter().string(from: .now), started: started,
             ended: DispatchTime.now().uptimeNanoseconds, settingsPreserved: preserved,
-            pendingKeeps: record.pendingKeeps, rows: rows, local: local, moves: moves, editBases: bases)
+            pendingKeeps: record.pendingKeeps, rows: rows, local: local, moves: moves,
+            editBases: bases, pendingEdits: pendingEdits)
         try M22FinderProbe.save(snapshot, to: M22FinderProbe.directory(config.run).appending(path: label + ".json"))
         try M22FinderProbe.require(preserved, "original-settings-changed")
     }
