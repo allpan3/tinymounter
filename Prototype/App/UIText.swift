@@ -169,7 +169,7 @@ enum UIText {
     }
     static let editPreparing = "Local save not yet confirmed. Keep the document open."
     static let editNeedsRecovery = "Recovery needed. The local save is retained."
-    static let editInterrupted = "Upload interrupted. The file on the server did not change. The local save is retained."
+    static let editInterrupted = "Upload not finished. The file on the server has not changed. The local save is retained."
     static let editConflict = "Conflict. The local save is retained."
     static let publishedRecovery = "Saved on the server. Recovery files still need attention."
     static let conflictRecovery = "Saved as a conflict copy. Recovery files still need attention."
