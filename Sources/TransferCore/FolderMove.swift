@@ -130,7 +130,7 @@ public struct PendingFolderMove: Codable, Equatable, Sendable {
     public let source: String
     public let destination: String
     public let identity: EditFileIdentity
-    public let parents: [FileRenameParent]
+    public var parents: [FileRenameParent]
     public let views: [FolderMoveView]
     public var state: State = .prepared
     public var refusal: PendingFileRename.Refusal?
@@ -235,6 +235,8 @@ public struct PendingFolderMove: Codable, Equatable, Sendable {
 
     func validateUpdate(from previous: Self) throws {
         try validateAdmissionMatches(previous)
+        guard parents == previous.parents || (state == .moved
+            && [.prepared, .attempting].contains(previous.state)) else { throw UploadError.invalidRequest }
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
         let settlementUnchanged = try previous.settlements == nil
@@ -258,7 +260,12 @@ public struct PendingFolderMove: Codable, Equatable, Sendable {
     }
 
     func validateAdmissionMatches(_ previous: Self) throws {
+        guard parents.count == previous.parents.count, zip(parents, previous.parents).allSatisfy({ current, old in
+            current.path.utf8.elementsEqual(old.path.utf8) && current.name.utf8.elementsEqual(old.name.utf8)
+                && current.identity.fileID == old.identity.fileID
+        }) else { throw UploadError.invalidRequest }
         var immutable = previous
+        immutable.parents = parents
         immutable.state = state
         immutable.refusal = refusal
         immutable.settlements = settlements
@@ -811,6 +818,8 @@ public protocol FolderMoveRemote {
     func releaseFolderMoveDescendants() throws
     // Rename the guarded root handle without replacing a destination or copying any contents.
     func moveFolder(source: String, destination: String) throws
+    // Updated creation times are admissible only through the original, continuously held parents.
+    func folderMoveParentsAfterRename(_ parents: [FileRenameParent]) throws -> [FileRenameParent]
     func settleFolderMove(_ record: PendingFolderMove) throws -> [FolderMoveSettlement]
     // Lost protection requires fresh full proof of the immutable settlement before local replay.
     func verifyFolderMoveSettlement(_ record: PendingFolderMove) throws
@@ -902,8 +911,13 @@ public enum FolderMoveTransaction {
             try remote.verifyFolderMoveRecovery(record)
             return
         }
-        record.state = .moved
-        try outbox.save(record)
+        var moved = record
+        if [.prepared, .attempting].contains(record.state) {
+            moved.parents = try remote.folderMoveParentsAfterRename(record.parents)
+        }
+        moved.state = .moved
+        try outbox.save(moved)
+        record = moved
         try checkpoint(.moved)
         var settled = record
         settled.settlements = try remote.settleFolderMove(record)
