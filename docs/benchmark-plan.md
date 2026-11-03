@@ -76,10 +76,12 @@ full verification from a cache hit delayed by a listing before changing lock beh
 The separate single-client VM prototype emits `direct_read` with request ID, payload bytes,
 completion phase and total time. Native SMB session counters do not count those reads. Its
 [November 3 series](results/2026-11-02-samba-names-and-uploads.md#read-measurements-2026-11-03)
-compares five provider full-fetch callbacks with native staging controls. It uses unverified
-cache residency and excludes final File Provider handoff, so it does not replace the coordinated
-full-download or partial/writable acceptance checks. The existing native-counter runner must be
-adapted before using it to judge this transport.
+starts with five provider full-fetch callbacks and native staging controls with unverified cache
+residency. Its follow-up includes five coordinated full downloads and five partial-read pairs
+with verified empty Linux file cache and independent server traffic counters. The full comparison
+passes for that VM setup; partial throughput remains below target. The later writable full and
+fully local comparisons also pass for their stated VM/cache setups. Native session counters alone
+cannot judge this transport. Fully hot server cache and physical-Mac checks remain unverified.
 
 Keep setup, security settings, run order and all four cache states with the samples. A single
 pilot can identify a delay to investigate, but cannot establish a regression. Separate changes

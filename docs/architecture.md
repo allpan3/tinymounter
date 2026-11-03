@@ -150,9 +150,10 @@ deny-write/delete handle, verify all staged bytes locally, then recheck server m
 security before accepting the version. Protected partial reads still verify and stage serially.
 Its catalog uses server IDs directly and therefore requires fresh test state. A separate signed
 VM bundle passes repeated saves, conflict preservation, interrupted-save recovery and fresh
-read-only downloads. Preliminary full-read callback throughput is comparable with native staging
-in the VM, with cache residency unverified. Read-only export warnings, native-mount interactions
-and complete end-to-end/partial/writable performance checks remain open. The physical Mac retains
+read-only downloads. Five coordinated read-only full downloads exceed the native staging median
+with verified empty Linux file cache. Partial reads reach about 49% of native, below the 90%
+target. Read-only copy and Keep Both pass; recovery export refuses network destinations.
+Arbitrary external native-mount writes remain outside that evidence. The physical Mac retains
 the earlier transport; production adoption remains undecided. See the
 [experiment record](results/2026-11-02-samba-names-and-uploads.md#single-client-transport-experiment).
 
@@ -160,7 +161,8 @@ The November 3 continuation adds recovery of acknowledged partial new uploads. I
 recorded file with exclusive SMB sharing, proves the exact identity and every existing byte
 against the retained complete payload, and appends only missing bytes. Changed identities,
 changed prefixes, oversized files and uncertain create replies remain unresolved. Full flush,
-close and reopen verification still precedes acknowledgment. Signed VM validation is pending.
+close and reopen verification still precedes acknowledgment. Signed VM checks pass for resumed
+uploads and refusal of changed prefixes or replacement identities.
 
 ### Selection rule
 

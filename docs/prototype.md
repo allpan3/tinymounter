@@ -524,20 +524,21 @@ uploads, with fresh catalog state. Required VM checks, 20 signed saves, Unicode 
 acknowledgment and a fresh read-only 2 GiB download pass. Conflict and interrupted-save recovery
 preserve complete contents. Retired saves no longer block unrelated listings and mutations.
 Interrupted new uploads retain a complete local copy beside the partial server item. Automatic
-continuation of a proven partial upload is implemented; signed VM validation is pending.
-Preliminary full-read callback rates are comparable with native staging in the
-VM, with cache residency unverified. End-to-end handoff, writable and partial-read benchmarks,
-Finder's read-only copy warning and native-mount export interactions remain open. The physical
+continuation of a proven partial upload passes signed VM checks, including refusal of a changed
+prefix or replaced identity. Five coordinated read-only full downloads exceed the native staging
+median with verified empty Linux file cache. Partial reads reach about 49% of native, below the
+90% target. Finder copying and Keep Both now pass. Recovery export refuses network destinations;
+arbitrary external native-mount writes remain outside that evidence. The physical
 Mac still runs the earlier transport. See the
 [runtime results and accepted staging change](results/2026-11-02-samba-names-and-uploads.md).
 
 Recovery export now defaults to Desktop and requires a local filesystem. The destination is
 checked before exclusive creation, and checked again through the open file before copying.
 Network destinations are refused before creation. Existing files are not replaced.
-Signed VM validation is pending.
+Signed VM checks confirm complete Desktop export and refusal of the disposable network destination.
 
 Read-only regular files advertise the File Provider write capability but retain read-only
 POSIX permissions, read-only parent folders and both provider/app mutation guards. On the
 tested macOS build, omitting that capability makes exported copies immutable and breaks
-Finder Keep Both. The isolated capability trial copies successfully without allowing a
-TextEdit save back to the read-only location. Rename capability remains absent.
+Finder Keep Both. The signed final build copies and completes Keep Both successfully. The
+capability trial refused a TextEdit save back to the read-only location. Rename capability remains absent.

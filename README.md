@@ -2,19 +2,17 @@
 
 A macOS app that brings a network disk, such as a NAS, into Apple's file system: browse it from Finder or another file manager such as QSpace, download on demand, and keep selected files available offline. Finder is the first file manager and SMB the first protocol it will support. A later mode will mount server volumes, the ordinary macOS SMB mounts, automatically.
 
-Samba filename validation, 2026-11-03: the Mac update remains withheld. Isolated probes reproduce
-native metadata writes recreating a deleted stage name after file-ID reuse, and stale native
-directory listings rejecting a published filename. The user approved a separate single-client
-VM prototype and its validation. It passes required VM checks with 619 tests, one optional skip,
-20 signed saves, Unicode content and a fresh read-only 2 GiB fetch with matching contents.
-Conflict and interrupted-save recovery preserve both versions. Retained older saves no longer
-block unrelated listings, uploads or renames. Interrupted new uploads preserve the complete local
-copy but still need manual recovery. Five interleaved full-read trials show comparable VM
-throughput with unverified cache residency; the complete performance gate remains open.
-Finder's read-only copy warning and a native-mount export interaction remain unresolved.
-Production adoption remains undecided; the single-client build is installed only in the VM.
-The accepted direct stage upload passed 20 signed saves
-and required VM checks with 610 tests, one optional skip and no failures. See the
+Single-client validation, 2026-11-03: interrupted uploads now resume after proving the original
+server identity and complete prefix. Signed VM checks also pass for local recovery export,
+refusal of network export destinations, and Finder copy and Keep Both from read-only locations.
+Repeated saves, Unicode content and conflict/interruption recovery pass. All required VM checks
+pass with 621 tests, one optional skip and no Swift warnings. Five read-only 2 GiB downloads,
+including File Provider handoff, reach 222 MB/s median against 167 MB/s for native staging with
+verified empty Linux file cache. Partial reads reach about 49% of native, below the unchanged
+90% target. Removing a duplicate remote transfer gives 195 MB/s for five writable downloads
+against 191 MB/s for native staging in the same VM. Production adoption and physical-Mac
+installation remain undecided. The original NAS is untouched, and arbitrary external writes
+through the native mount remain outside this evidence. See the
 [results and decision](docs/results/2026-11-02-samba-names-and-uploads.md).
 
 Stop Uploading and removal, 2026-11-02: Settings offers Stop Uploading for a new file or folder
