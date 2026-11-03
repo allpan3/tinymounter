@@ -624,6 +624,7 @@ private struct UploadStatus: View {
                     Text(UIText.renameNeedsRecovery).font(.callout).foregroundStyle(.secondary)
                 }
             }
+            DeletionStatusList(record: record, model: model)
             ForEach(edits.filter { $0.isPending || ($0.conflict && !$0.conflictNoticeDismissed) }, id: \.id) { edit in
                 VStack(alignment: .leading) {
                     Text((edit.path as NSString).lastPathComponent)
@@ -663,5 +664,108 @@ private struct UploadStatus: View {
         if edit.conflict { return edit.state == .completed ? UIText.conflictSaved : UIText.editConflict }
         if edit.state == .prepared { return UIText.waitingToUpload }
         return edit.mayHaveChangedOriginal ? UIText.editNeedsRecovery : UIText.editInterrupted
+    }
+}
+
+private struct DeletionStatusList: View {
+    let record: LocationRecord
+    @Bindable var model: AppModel
+    @State private var deletions: [DeletionStatus] = []
+    @State private var unavailable = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if unavailable {
+                Label(UIText.deletionStatusUnavailable, systemImage: "exclamationmark.triangle")
+            }
+            if !deletions.isEmpty {
+                Text(UIText.deletionEffect).font(.callout).foregroundStyle(.secondary)
+            }
+            ForEach(deletions) { deletion in
+                DeletionStatusRow(deletion: deletion, record: record, model: model)
+                    .disabled(unavailable)
+            }
+        }
+        .task(id: record.domainID) {
+            while !Task.isCancelled {
+                do {
+                    deletions = try await model.deletionRecords(record)
+                    unavailable = false
+                } catch { unavailable = true }
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+    }
+}
+
+private struct DeletionStatusRow: View {
+    let deletion: DeletionStatus
+    let record: LocationRecord
+    @Bindable var model: AppModel
+    @State private var busy = false
+    @State private var stopping = false
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            Text(UIText.deletionPending(deletion.path))
+            Text(UIText.deletionSummary(deletion.record))
+            if deletion.record.hasUnconfirmed || deletion.items.contains(where: \.mayHaveBeenRequested) {
+                Text(UIText.deletionUnconfirmed).foregroundStyle(.secondary)
+            }
+            if let attempt = deletion.attempt, let failure = attempt.failure {
+                Text(UIText.deletionFailed(failure, at: attempt.date)).font(.callout).foregroundStyle(.secondary)
+            } else if !deletion.record.isComplete {
+                Text(deletion.record.isSettled ? UIText.deletionSettlement
+                     : deletion.attempt?.active == true ? UIText.deletionActive : UIText.deletionWaiting)
+                    .font(.callout).foregroundStyle(.secondary)
+            } else if deletion.record.selectedOutcome != .deleted, let selected = deletion.items.last {
+                Text(UIText.deletionItemStatus(selected)).font(.callout).foregroundStyle(.secondary)
+            }
+            DisclosureGroup(UIText.deletionDetails) {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 6) {
+                        ForEach(deletion.items) { item in
+                            VStack(alignment: .leading) {
+                                Text(item.path)
+                                Text(UIText.deletionItemStatus(item)).font(.callout).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }.frame(maxHeight: 240)
+            }
+            HStack {
+                if deletion.canRetry {
+                    Button(UIText.deletionRetry) { run { await model.retryDeletion(deletion, record: record) } }
+                        .disabled(busy)
+                }
+                if !deletion.record.isSettled {
+                    Button(UIText.stopDeleting) {
+                        stopping = true
+                        Task { @MainActor in
+                            defer { stopping = false }
+                            await model.confirmStopDeletion(deletion, record: record)
+                        }
+                    }.disabled(stopping)
+                }
+                if deletion.record.canDismiss {
+                    Button(UIText.dismissEditNotice) { run { await model.confirmDismissDeletion(deletion, record: record) } }
+                        .disabled(busy)
+                }
+            }
+            if deletion.canRetry {
+                Text(UIText.deletionRetryHint).font(.callout).foregroundStyle(.secondary)
+            } else if deletion.record.isComplete, deletion.record.selectedOutcome != .deleted,
+                      deletion.record.selectedOutcome != .unconfirmed {
+                Text(UIText.deletionNewRequestHint).font(.callout).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func run(_ action: @escaping @MainActor () async -> Void) {
+        busy = true
+        Task { @MainActor in
+            defer { busy = false }
+            await action()
+        }
     }
 }

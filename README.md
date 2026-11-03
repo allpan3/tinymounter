@@ -82,7 +82,10 @@ Follow-up recovery fixes also pass checks. Signed recursive refusals, two-view d
 restart recovery, competing changes and replacement preservation pass with independent backing
 audits. Native replacement reads can need a second open to observe the settled catalog identity.
 Signed admission and joined cancellation, close, counted Stop and automatic-settlement checks
-also pass. Recovery controls and provider integration remain pending; Finder deletion is unavailable.
+also pass. Gated Finder routing and Settings deletion recovery controls are implemented as of
+2026-11-02. Host package checks pass; app compilation, Finder warnings and the new recovery UI
+still need the coordinator's VM checks. Deletion remains disabled in the normal build. See the
+[integration checklist](docs/m24-integration-checklist.md).
 The fixture is unmounted, its server is stopped and Apple SMB is restored. Uncertain records,
 fixtures and private evidence remain for investigation; see the
 [final validation and restoration record](docs/results/2026-10-29-deletion-protocol.md#final-validation-and-service-restoration-2026-10-30).

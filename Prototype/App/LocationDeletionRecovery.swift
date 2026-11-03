@@ -120,18 +120,13 @@ extension LocationSource {
     private func queueDeletionStop(_ id: UUID, cancellation: UUID? = nil,
                                    reply: @escaping @Sendable (Result<Void, Error>) -> Void) {
         let (accepted, progress) = deletionRecoveryLock.withLock { () -> (Bool, Progress?) in
-            if let cancellation {
-                guard !deletionClosed else { return (false, nil) }
-                guard deletionCancellations.removeValue(forKey: cancellation) == id else { return (false, nil) }
-            }
-            deletionStops[id, default: 0] += 1
-            return (true, deletionProgress[id])
+            let accepted = deletionCancellation.requestStop(id, cancellation: cancellation)
+            return (accepted, accepted ? deletionProgress[id] : nil)
         }
         guard accepted else { return }
         access.enqueue { [self] in
             deletionRecoveryLock.withLock {
-                let remaining = (deletionStops[id] ?? 1) - 1
-                deletionStops[id] = remaining > 0 ? remaining : nil
+                deletionCancellation.finishedStop(id)
             }
             do {
                 // Closing a source must not prevent an already requested durable Stop.
@@ -140,7 +135,8 @@ extension LocationSource {
                 recovery.update(record)
                 recovery.failures = 0
                 deletionRecoveries[id] = recovery
-                if deletionRecoveryLock.withLock({ deletionClosed }) {
+                noteDeletionAttempt(id, active: true)
+                if deletionRecoveryLock.withLock({ deletionCancellation.isClosed }) {
                     completeDeletionRecovery(recovery, result: .failure(LocationError.catalogClosed))
                 } else if !recovery.settingsPending {
                     enqueueDeletionPass(recovery, after: .zero)
@@ -176,6 +172,9 @@ extension LocationSource {
                     try Self.deletionOutbox().dismiss(&record)
                 }
             }
+            if case .success = result {
+                deletionRecoveryLock.withLock { deletionAttempts[id] = nil }
+            }
             deletionStateChanged()
             reply(result)
         }
@@ -183,7 +182,7 @@ extension LocationSource {
 
     func closeDeletionRecovery() {
         let active = deletionRecoveryLock.withLock {
-            deletionClosed = true
+            deletionCancellation.close()
             return Array(deletionProgress.values)
         }
         for progress in active { progress.cancel() }
@@ -195,7 +194,7 @@ extension LocationSource {
     }
 
     private func requireDeletionRecoverySource() throws {
-        guard !deletionRecoveryLock.withLock({ deletionClosed }) else { throw LocationError.catalogClosed }
+        guard !deletionRecoveryLock.withLock({ deletionCancellation.isClosed }) else { throw LocationError.catalogClosed }
         try editNamespace.perform {
             guard try editNamespace.source(domainID) === self else { throw LocationError.catalogClosed }
             try uploadLock.withLock {
@@ -208,7 +207,7 @@ extension LocationSource {
     private func registerDeletionProgress(_ progress: Progress, id: UUID) {
         let cancelled = deletionRecoveryLock.withLock {
             deletionProgress[id] = progress
-            return deletionClosed || deletionStops[id] != nil
+            return deletionCancellation.isClosed || deletionCancellation.isStopping(id)
         }
         if cancelled, !progress.isCancelled { progress.cancel() }
     }
@@ -222,6 +221,7 @@ extension LocationSource {
         }
         let recovery = LocationDeletionRecovery(record, progress: progress)
         deletionRecoveries[record.id] = recovery
+        noteDeletionAttempt(record.id, active: true)
         registerDeletionProgress(progress, id: record.id)
         joinDeletionRecovery(recovery, progress: progress, reply: reply)
         return recovery
@@ -231,7 +231,7 @@ extension LocationSource {
                                       reply: @escaping DeletionReply) {
         let token = UUID(), id = recovery.record.id
         recovery.replies.append(reply)
-        deletionRecoveryLock.withLock { deletionCancellations[token] = id }
+        deletionRecoveryLock.withLock { deletionCancellation.register(token, operation: id) }
         let observation = progress.observe(\.isCancelled, options: [.initial, .new]) { [weak self] observed, _ in
             guard observed.isCancelled else { return }
             self?.queueDeletionStop(id, cancellation: token) { _ in }
@@ -250,8 +250,10 @@ extension LocationSource {
             recovery.failures = 0
             if let reply { recovery.replies.append(reply) }
             deletionRecoveries[id] = recovery
+            noteDeletionAttempt(id, active: true)
             if !recovery.settingsPending { enqueueDeletionPass(recovery, after: .zero, resume: resume) }
         } catch {
+            noteDeletionAttempt(id, active: false, error: error)
             reply?(.failure(error))
             Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
                 .error("deletion_retry id=\(id.uuidString, privacy: .public) failed \(logFields(error), privacy: .public)")
@@ -262,7 +264,7 @@ extension LocationSource {
         guard deletionRecoveries[recovery.record.id] === recovery else { return }
         do {
             try requireDeletionRecoverySource()
-            guard !deletionRecoveryLock.withLock({ deletionStops[recovery.record.id] != nil }) else { return }
+            guard !deletionRecoveryLock.withLock({ deletionCancellation.isStopping(recovery.record.id) }) else { return }
             let current = try editNamespace.perform { try ownedDeletion(recovery.record.id) }
             recovery.update(current)
             if !current.isSettled {
@@ -289,7 +291,7 @@ extension LocationSource {
             Task { [self] in
                 let result: Result<Void, Error>
                 do {
-                    guard !deletionRecoveryLock.withLock({ deletionClosed }) else { throw LocationError.catalogClosed }
+                    guard !deletionRecoveryLock.withLock({ deletionCancellation.isClosed }) else { throw LocationError.catalogClosed }
                     try await update(record, keeps)
                     result = .success(())
                 } catch {
@@ -361,8 +363,8 @@ extension LocationSource {
     }
 
     private func retryDeletionSettlement(_ recovery: LocationDeletionRecovery, error: Error) {
-        if deletionRecoveryLock.withLock({ deletionStops[recovery.record.id] != nil }) { return }
-        if deletionRecoveryLock.withLock({ deletionClosed }) {
+        if deletionRecoveryLock.withLock({ deletionCancellation.isStopping(recovery.record.id) }) { return }
+        if deletionRecoveryLock.withLock({ deletionCancellation.isClosed }) {
             completeDeletionRecovery(recovery, result: .failure(LocationError.catalogClosed))
             return
         }
@@ -402,15 +404,15 @@ extension LocationSource {
         let cancelledTokens = recovery.cancellations.compactMap { token, cancellation in
             cancellation.progress.isCancelled ? token : nil
         }
-        let (stopping, cancelled) = deletionRecoveryLock.withLock { () -> (Bool, [UUID]) in
-            // Cancellation can become visible before its KVO callback acquires this lock.
-            let cancelled = deletionClosed ? [] : cancelledTokens.filter { deletionCancellations[$0] == id }
-            guard deletionStops[id] == nil, cancelled.isEmpty else { return (true, cancelled) }
-            for token in recovery.cancellations.keys { deletionCancellations[token] = nil }
-            return (false, [])
+        let completion = deletionRecoveryLock.withLock {
+            deletionCancellation.complete(id, tokens: Array(recovery.cancellations.keys), cancelled: cancelledTokens)
         }
-        for token in cancelled { queueDeletionStop(id, cancellation: token) { _ in } }
-        guard !stopping else { return }
+        if case .stop(let tokens) = completion {
+            for token in tokens { queueDeletionStop(id, cancellation: token) { _ in } }
+        }
+        guard completion == .ready else { return }
+        if case .failure(let error) = result { noteDeletionAttempt(id, active: false, error: error) }
+        else { noteDeletionAttempt(id, active: false) }
         deletionRecoveries[recovery.record.id] = nil
         recovery.scheduled = nil
         for cancellation in recovery.cancellations.values { cancellation.observation.invalidate() }

@@ -109,6 +109,16 @@ Selecting a location shows one grouped form with all of its settings:
    tinymounter shows in Finder after the removal. Changes that can be on the server prevent the
    removal, and a dialog names them.
 
+The pending-changes list includes permanent deletions. Each row names the selected item and
+shows waiting, a failure reason, or an unconfirmed result. Item results show the outcome for
+every admitted child and folder, including confirmed deletions in a partly completed request.
+Retry continues an unsettled recorded request. Stop Deleting ends further attempts after the
+active node ends. Neither action can restore deleted content. Dismiss Notice is available only
+after every affected location finishes settlement, and keeps the replay record. Remove Location
+names pending deletions that block removal. Transient failure reasons last for the app process;
+durable node outcomes remain available after restart. Finder deletion stays gated off in the
+normal build until its warning and callback checks pass.
+
 A change to Name applies immediately. A change to Source or Connection Mode shows Revert and Apply
 in a bar at the bottom of the pane. Apply replaces the location's File Provider domain. A
 confirmation says that this removes the downloaded copies of the location from this Mac, and that

@@ -54,27 +54,12 @@ extension LocationSource {
     // A replacement may retain the selected catalog ID after reconciliation.
     func requireDeleted(_ record: PendingDeletion) throws {
         guard record.plan.owner == domainID else { throw ItemDeletionError.invalidRequest }
-        guard record.isComplete else { throw UploadError.pendingWrites }
-        switch record.selectedOutcome {
-        case .deleted?:
-            try withCatalog { catalog in
-                guard let row = try catalog.item(id: record.plan.request.item) else {
-                    throw ItemDeletionError.unresolved
-                }
-                guard row.deleted else { throw SourceFailure.versionChanged }
+        try record.requireConfirmedDeletion()
+        try withCatalog { catalog in
+            guard let row = try catalog.item(id: record.plan.request.item) else {
+                throw ItemDeletionError.unresolved
             }
-        case .changed?: throw ItemDeletionError.changed
-        case .replaced?: throw ItemDeletionError.replaced
-        case .moved?: throw ItemDeletionError.moved
-        case .parentChanged?: throw ItemDeletionError.parentChanged
-        case .unsupported?: throw ItemDeletionError.unsupported
-        case .sharingViolation?: throw ItemDeletionError.sharingViolation
-        case .accessDenied?: throw ItemDeletionError.accessDenied
-        case .cannotDelete?: throw ItemDeletionError.cannotDelete
-        case .directoryNotEmpty?: throw ItemDeletionError.directoryNotEmpty
-        case .stopped?: throw TransferError.cancelled
-        // A lost reply may have removed it; neither deletion nor survival is proven.
-        case .unconfirmed?, nil: throw ItemDeletionError.unresolved
+            guard row.deleted else { throw SourceFailure.versionChanged }
         }
     }
 

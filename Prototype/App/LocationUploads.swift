@@ -54,11 +54,11 @@ extension LocationSource {
         }
         blocking += try renameOutbox().intents().filter { $0.isPending && $0.domains.contains(domainID) }
             .map(UIText.renameDescription)
-        let deletions = try deletionOutbox().pendingCount(domain: domainID)
-        if deletions > 0 { blocking.append(UIText.pendingDeletions(deletions)) }
+        blocking += try deletionOutbox().records()
+            .filter { $0.isPending && $0.plan.views.contains { $0.domain == domainID } }
+            .map { try UIText.deletionPending($0.selectedPath(in: domainID)) }
         // Contents whose record is missing count as pending but have no name.
         let unnamed = try pendingWrites(domainID: domainID) - stoppable.count - blocking.count
-            - (deletions > 0 ? deletions - 1 : 0)
         if unnamed > 0 { blocking.append(UIText.unnamedPending(unnamed)) }
         return RemovalItems(stoppable: stoppable.sorted(), blocking: blocking.sorted())
     }

@@ -24,7 +24,13 @@ enum UIText {
     static let readOnly = "Read only"
     static let confirmWriteSetup = "Confirm Write Access"
     static let writeRequirements = "Allow changes only if every program that changes files in this share does so over SMB. Programs on the server itself, such as its apps, sync tools and scripts, bypass tinymounter’s protection. Other computers can see a new file before its upload finishes. During a save, the file is briefly unavailable, and tinymounter keeps hidden temporary files next to it. Do not delete them. An interrupted save can keep the file unavailable until tinymounter recovers it."
-    static let writeModeHint = "Read only prevents changes to files on the server. Turn it off to create items, edit files, and rename or move ordinary files within this location. Folder moves, deleting and replacing items remain unavailable."
+    static var writeModeHint: String {
+        let base = "Read only prevents changes to files on the server. Turn it off to create items, edit files, and rename or move ordinary files within this location."
+        guard SourceReaderBridge.deletionEnabled else {
+            return base + " Folder moves, deleting and replacing items remain unavailable."
+        }
+        return base + " Deletion permanently removes files and folders from the server. tinymounter cannot restore deleted items."
+    }
     static let exportEdit = "Export Local Copy…"
     static let retryPending = "Retry Pending Changes"
     static let waitingToUpload = "Waiting to upload"
@@ -42,7 +48,68 @@ enum UIText {
     }
     static let stopRefused = "tinymounter cannot stop this item, because the server can have it. Use Retry Pending Changes to check the server."
     static func editPending(_ path: String) -> String { "Edited file: \(path)" }
-    static func pendingDeletions(_ count: Int) -> String { "Pending deletions: \(count)" }
+    static func deletionPending(_ path: String) -> String { "Permanent deletion: \(path)" }
+    static let deletionEffect = "Deletion permanently removes items from the server and its locations. tinymounter cannot restore deleted items."
+    static let deletionWaiting = "Waiting to continue deletion"
+    static let deletionActive = "Deletion in progress"
+    static let deletionSettlement = "Waiting to update the locations"
+    static let deletionUnconfirmed = "The deletion result is unconfirmed."
+    static let deletionDetails = "Item results"
+    static let deletionRetry = "Retry"
+    static let deletionRetryHint = "Retry uses the recorded items. It does not add items to this request."
+    static let deletionNewRequestHint = "To delete an item that remains, select it again in Finder."
+    static let deletionStatusUnavailable = "Cannot read deletion status. Keep this location until its status is available."
+    static let stopDeleting = "Stop Deleting"
+    static let stopDeletingMessage = "Items already deleted cannot be restored. A request already sent to the server can still delete its item."
+    static func stopDeletingTitle(_ path: String) -> String {
+        "Stop deleting “\((path as NSString).lastPathComponent)”?"
+    }
+    static let dismissDeletionTitle = "Dismiss this deletion notice?"
+    static let dismissDeletionMessage = "This hides the notice. It does not restore deleted items or confirm an uncertain result."
+    static func deletionSummary(_ record: PendingDeletion) -> String {
+        "Items confirmed deleted: \(record.summary[.deleted] ?? 0) of \(record.plan.nodes.count)."
+    }
+    static func deletionFailed(_ reason: DeletionFailure, at date: Date) -> String {
+        "\(deletionFailure(reason)) Last try: \(date.formatted(date: .abbreviated, time: .shortened))."
+    }
+    static func deletionFailure(_ failure: DeletionFailure) -> String {
+        switch failure {
+        case .changed: "The item changed on the server."
+        case .replaced: "Another item is now at this name."
+        case .moved: "The item moved on the server."
+        case .parentChanged: "A parent folder changed on the server."
+        case .unsupported: "tinymounter cannot delete this type of item or this folder."
+        case .sharingViolation: "Another program has this item open. Close it before a new deletion request."
+        case .accessDenied: "The server does not give permission to delete this item."
+        case .cannotDelete: "The server refused to delete this item."
+        case .directoryNotEmpty: "The folder still contains items."
+        case .unconfirmed: "tinymounter cannot confirm the deletion result."
+        case .connection: "There is no connection to the server."
+        case .authentication: "The server did not accept the sign-in."
+        case .pendingChanges: "Other changes on this share must finish first."
+        case .readOnly: "tinymounter has no write access for this deletion."
+        case .cancelled: "Deletion was stopped."
+        case .storage: "There is not sufficient space on this Mac."
+        case .unknown: "tinymounter could not finish the deletion. Retry to check the recorded request."
+        }
+    }
+    static func deletionItemStatus(_ item: DeletionItemProgress) -> String {
+        switch item.outcome {
+        case .deleted?: "Permanently deleted"
+        case .unconfirmed?: deletionUnconfirmed
+        case .stopped?: "Not attempted. Deletion was stopped."
+        case .changed?: deletionFailure(.changed)
+        case .replaced?: deletionFailure(.replaced)
+        case .moved?: deletionFailure(.moved)
+        case .parentChanged?: deletionFailure(.parentChanged)
+        case .unsupported?: deletionFailure(.unsupported)
+        case .sharingViolation?: deletionFailure(.sharingViolation)
+        case .accessDenied?: deletionFailure(.accessDenied)
+        case .cannotDelete?: deletionFailure(.cannotDelete)
+        case .directoryNotEmpty?: deletionFailure(.directoryNotEmpty)
+        case nil: item.mayHaveBeenRequested ? deletionUnconfirmed : "Not yet attempted"
+        }
+    }
     static func unnamedPending(_ count: Int) -> String { "Other pending changes: \(count)" }
     static func renameDescription(_ rename: RenameIntent) -> String {
         switch rename {
@@ -215,7 +282,7 @@ enum UIText {
     }
     static func removeBlockedTitle(_ name: String) -> String { "tinymounter cannot remove “\(name)” now" }
     static func removeBlockedMessage(_ items: [String]) -> String {
-        "These changes can be on the server. Use Retry Pending Changes in Settings. Then remove the location "
+        "These changes can be on the server. Review their recovery actions in Settings. Then remove the location "
             + "again.\n" + list(items)
     }
     private static func list(_ items: [String]) -> String {

@@ -371,6 +371,53 @@ final class LocationController {
         return try await Self.offMain { try source.pendingCreates() }
     }
 
+    func deletionRecords(_ record: LocationRecord) async throws -> [DeletionStatus] {
+        let owners = sources
+        return try await Self.offMain {
+            try LocationSource.deletionOutbox().records()
+                .filter { $0.needsAttention && $0.plan.views.contains { $0.domain == record.domainID } }
+                .map { deletion in
+                    try DeletionStatus(record: deletion, domain: record.domainID,
+                                       attempt: owners[deletion.plan.owner]?.deletionAttempt(deletion.id))
+                }.sorted { $0.path < $1.path }
+        }
+    }
+
+    func retryDeletion(_ record: LocationRecord, id: UUID) async throws {
+        let (source, deletion) = try await deletionOwner(record, id: id)
+        guard deletion.isSettled || SourceReaderBridge.deletionEnabled else { throw UploadError.readOnly }
+        // A settled refusal must be selected again in Finder, never admitted again by Retry.
+        guard !deletion.isComplete else { return }
+        defer { Task { await resumeCreates(deletion.plan.owner) } }
+        _ = try await withCheckedThrowingContinuation { continuation in
+            source.retryDeletion(id) { continuation.resume(with: $0) }
+        }
+    }
+
+    func stopDeletion(_ record: LocationRecord, id: UUID) async throws {
+        let (source, _) = try await deletionOwner(record, id: id)
+        try await withCheckedThrowingContinuation { continuation in
+            source.stopDeletion(id) { continuation.resume(with: $0) }
+        }
+    }
+
+    func dismissDeletion(_ record: LocationRecord, id: UUID) async throws {
+        let (source, _) = try await deletionOwner(record, id: id)
+        try await withCheckedThrowingContinuation { continuation in
+            source.dismissDeletion(id) { continuation.resume(with: $0) }
+        }
+    }
+
+    private func deletionOwner(_ record: LocationRecord, id: UUID) async throws -> (LocationSource, PendingDeletion) {
+        let deletion = try await Self.offMain {
+            try LocationSource.deletionOutbox().records().first {
+                $0.id == id && $0.plan.views.contains { $0.domain == record.domainID }
+            }
+        }
+        guard let deletion, let source = sources[deletion.plan.owner] else { throw LocationError.catalogClosed }
+        return (source, deletion)
+    }
+
     /// macOS stops sending an item that failed with `cannotSynchronize` until this signal.
     private func resumeCreates(_ domainID: String) async {
         guard let domain = domains[domainID], let manager = NSFileProviderManager(for: domain) else { return }

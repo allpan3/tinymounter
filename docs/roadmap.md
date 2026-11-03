@@ -247,7 +247,11 @@ two-view deletion, lost-reply restart recovery, competing changes and replacemen
 with independent backing audits. Native replacement reads can need a second open to match the
 settled catalog identity. Automatic recovery only settles records whose remote work has ended.
 Signed admission and joined cancellation, close, counted Stop and automatic settlement also pass.
-Recovery controls and Finder integration remain; no deletion capability is enabled.
+Gated Finder routing and Settings recovery controls are implemented as of 2026-11-02. Settings
+names deletion records, reports per-item outcomes, and offers Retry, Stop Deleting and safe
+Dismiss Notice actions. Host package checks pass; app compilation and signed Finder, recovery UI
+and controller lifecycle checks remain. Deletion stays disabled in the normal build. Follow the
+[integration checklist](m24-integration-checklist.md) before enablement.
 
 The supported write boundary remains folders whose writers use SMB and leave tinymounter's
 transaction files alone. All milestones preserve complete pending content, refuse silent
