@@ -306,6 +306,19 @@ comparison fixes both clients, but no captured server log confirms the exact fal
   [November 3 results](results/2026-11-02-samba-names-and-uploads.md#native-cache-investigation-2026-11-03)
   separate runtime observations from source-based interpretation.
 
+### Samba hidden attributes during save, 2026-11-03
+
+Samba 4.19.5 derives hidden status from dot-prefixed names in
+[`dos_mode_from_name`](https://github.com/samba-team/samba/blob/samba-4.19.5/source3/smbd/dosmode.c).
+Its [rename implementation](https://github.com/samba-team/samba/blob/samba-4.19.5/source3/smbd/smb2_reply.c)
+reads attributes after changing the handle's name, then writes them with the archive flag.
+[`fileio.c`](https://github.com/samba-team/samba/blob/samba-4.19.5/source3/smbd/fileio.c)
+also sets archive status on writes. This can persist name-derived hidden status on an existing
+file. A rename-only disposable-fixture control reproduces the effect. Removing the leading
+dot from the work name avoids it without rewriting user metadata. Private-stage conflict
+publication does not retain hidden status in the tested configuration. See the
+[folder/save results](results/2026-11-03-folder-organization.md#save-work-name-and-hidden-attributes).
+
 ## Research limitations
 
 Live web documentation and current SDK headers establish API contracts, not actual throughput. Search was unreliable, and several sites initially failed the VM's DNS resolution; direct HTTPS retrieval with explicitly resolved public addresses succeeded. No VM DNS settings were changed. Subsequent work measured native SMB and short NAS-backed provider reads and ran signed correctness checks; dated results logs record those separately. Competitor installations, the player matrix, large-file throughput acceptance, and controlled failure experiments remain incomplete, as described in the benchmark plan.

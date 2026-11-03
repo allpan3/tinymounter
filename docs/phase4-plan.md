@@ -444,6 +444,14 @@ new disposable copies are outside the proposed boundary; checking their metadata
 make that boundary enforceable. Suppress only names proved by transaction receipts, not every
 name with a prefix. Preserve unrelated files and all unresolved copies.
 
+The work name has no leading dot. Samba can persist a hidden flag when an existing file is
+renamed to a dot-prefixed name, even without a content write. Other SMB clients may therefore
+show `tinymounter-<operation>.work` during a save or interruption. Tinymounter suppresses its
+proved work path through the transaction receipt. Stage and backup names remain dot-prefixed.
+No attribute reset is used, so concurrent metadata and an existing hidden flag are preserved.
+The server may set its normal archive flag during rename or write. Earlier prototype saves
+must finish or be exported before installing this changed work-name convention.
+
 After a crash, first acquire fresh protection and inspect each recorded object. A complete old
 or new original can be restored or acknowledged only with matching identity/content evidence
 and an exclusive destination. An incomplete or changed original is not blindly overwritten:
@@ -460,7 +468,7 @@ no general rename, move, delete, Finder Replace, package, database or VM-image s
 from this proposal. Existing locations, IDs, keep requests and downloads remain unchanged.
 
 **Transport expansion:** use the existing libsmb2 raw API for resume keys and
-FSCTL_SRV_COPYCHUNK, exact-length updates on the hidden original, and private permissions on
+FSCTL_SRV_COPYCHUNK, exact-length updates on the moved original, and private permissions on
 new transaction files. Server-side copy is an ordinary SMB request, not installed server code,
 and is not atomic. Native SMB retains downloads and stage payload uploads. There is no silent
 fallback to direct payload uploads. A server that cannot demonstrate private staging, protected

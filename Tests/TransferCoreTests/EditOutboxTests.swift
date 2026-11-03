@@ -71,6 +71,21 @@ final class EditOutboxTests: XCTestCase {
                             changedMicroseconds: 78, attributes: 32, security: Data([1, 2, 3]))
     }
 
+    func testWorkNameStaysVisibleAndInTheOriginalParentAfterReload() throws {
+        for path in ["document.txt", ".parent/nested/document.txt"] {
+            let record = try outbox.prepare(item: UUID().uuidString, parent: Catalog.rootItemID,
+                path: XCTUnwrap(RelativePath(path)), baseVersion: "legacy", failOnConflict: false,
+                contents: input, progress: Progress())
+            let restored = try XCTUnwrap(outbox.records().first { $0.id == record.id })
+            let work = try XCTUnwrap(RelativePath(restored.workPath))
+            XCTAssertEqual(work.components.dropLast(), RelativePath(path)!.components.dropLast())
+            XCTAssertEqual(work.components.last, "tinymounter-\(record.id.uuidString).work")
+            XCTAssertEqual(restored.workPath, record.workPath)
+            XCTAssertNotEqual(restored.workPath, record.stagePath)
+            XCTAssertNotEqual(restored.workPath, record.recoveryPath)
+        }
+    }
+
     func testReplayKeepsImmutableGenerationAndNewSaveRetainsBoth() throws {
         let first = try prepare()
         XCTAssertEqual(try prepare().id, first.id)

@@ -180,3 +180,26 @@ attributes. The known saved-file attribute change is already present in this bas
 checks do not repair or excuse it. Required VM checks and the candidate build pass without
 Swift warnings. Evidence is `overlap-*` and the two corresponding `fault-hit-*` reports in
 `repair/`, plus the Linux `overlap-*-audit.json` reports.
+
+## Save work name and hidden attributes
+
+The exported edit base confirms attributes `0x22`, hidden plus archive, on the saved original.
+A separate small-file probe uses the built SMB adapter on the same encrypted Samba share,
+with uncontrolled caches. Moving a fresh ordinary file to a dot-prefixed work name adds
+those flags before any content write. A rename-only control also retains hidden status after
+restoring the public name. The Samba source explains the result; see the
+[source review](../research.md#samba-hidden-attributes-during-save-2026-11-03).
+
+The matched work name without a leading dot produces only the normal archive flag, `0x20`.
+An initially hidden file stays hidden. Identity, complete edited contents and the security
+descriptor survive both cases; the Linux audit preserves modes and owners. Private-stage
+creation, write and conflict-name publication were also checked. Both dot-prefixed and ordinary
+stage names publish without a hidden flag in this configuration.
+
+The implementation changes only the original's work name to `tinymounter-<operation>.work`.
+It retains exclusive rename, copy, verification and recovery, and never rewrites attributes.
+Other SMB clients may show the work file; the write-setup text now says so. Stage and backup
+names remain hidden. Finish or export earlier prototype saves before installing this naming
+change. Existing incorrectly hidden files are not silently modified. The implementation still
+needs signed validation. Evidence is `save-work-attributes*` and `save-stage-attributes*` under
+`results/folder-single-20261103/`, with the separate Linux save-attribute inventory.

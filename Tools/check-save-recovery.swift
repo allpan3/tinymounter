@@ -976,7 +976,8 @@ private enum M23FinalProbe {
         trace.observed["occupantRecord"] = owner.uuidString
         try require(owner != latest.id && pins.retired.map { $0 == owner } != false)
         let prefix = caseID + "/.tinymounter-" + owner.uuidString
-        let absent = [latest.stagePath, latest.recoveryPath, latest.workPath, prefix + ".recovery", prefix + ".work"]
+        let absent = [latest.stagePath, latest.recoveryPath, latest.workPath, prefix + ".recovery",
+                      caseID + "/tinymounter-" + owner.uuidString + ".work"]
         let versions: (EditFileVersion, EditFileVersion, EditFileVersion) = try share.withRemote(
             "inspect", path: path) { remote in
             let occupant = try remote.readVersion(path: prefix + ".stage")
