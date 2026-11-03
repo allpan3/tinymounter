@@ -629,6 +629,37 @@ final class AppModel {
         try await controller.pendingCreates(record)
     }
 
+    func deletionRecords(_ record: LocationRecord) async throws -> [DeletionStatus] {
+        try await controller.deletionRecords(record)
+    }
+
+    func retryDeletion(_ deletion: DeletionStatus, record: LocationRecord) async {
+        do { try await controller.retryDeletion(record, id: deletion.id) }
+        catch { show(UIText.deletionFailure(DeletionFailure.classify(error))) }
+    }
+
+    func confirmStopDeletion(_ deletion: DeletionStatus, record: LocationRecord) async {
+        let alert = NSAlert()
+        alert.messageText = UIText.stopDeletingTitle(deletion.path)
+        alert.informativeText = UIText.stopDeletingMessage
+        alert.addButton(withTitle: UIText.stopDeleting)
+        alert.addButton(withTitle: UIText.cancel)
+        guard await present(alert) == .alertFirstButtonReturn else { return }
+        do { try await controller.stopDeletion(record, id: deletion.id) }
+        catch { show(UIText.deletionFailure(DeletionFailure.classify(error))) }
+    }
+
+    func confirmDismissDeletion(_ deletion: DeletionStatus, record: LocationRecord) async {
+        let alert = NSAlert()
+        alert.messageText = UIText.dismissDeletionTitle
+        alert.informativeText = UIText.dismissDeletionMessage
+        alert.addButton(withTitle: UIText.dismissEditNotice)
+        alert.addButton(withTitle: UIText.cancel)
+        guard await present(alert) == .alertFirstButtonReturn else { return }
+        do { try await controller.dismissDeletion(record, id: deletion.id) }
+        catch { show(UIText.deletionFailure(DeletionFailure.classify(error))) }
+    }
+
     func confirmStop(_ item: PendingCreate, record: LocationRecord) {
         let alert = NSAlert()
         alert.messageText = UIText.stopUploadingTitle(item.path)

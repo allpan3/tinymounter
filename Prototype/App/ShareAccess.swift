@@ -783,9 +783,8 @@ final class LocationSource: @unchecked Sendable {
     // Stop and close must cancel remote work without waiting for the owner's lane.
     let deletionRecoveryLock = NSLock()
     var deletionProgress: [UUID: Progress] = [:]
-    var deletionCancellations: [UUID: UUID] = [:]
-    var deletionStops: [UUID: Int] = [:]
-    var deletionClosed = false
+    var deletionCancellation = DeletionCancellationState()
+    var deletionAttempts: [UUID: DeletionAttemptStatus] = [:]
     // The system SQLite can't share a connection between threads, so every use takes this lock.
     private let catalogLock = NSLock()
     private var catalog: Catalog?
