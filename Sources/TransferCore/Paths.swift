@@ -58,8 +58,7 @@ public struct NameKey: Hashable, Sendable {
     }
 }
 
-/// Names as SMB clients send them: composed (NFC), as the macOS and Windows clients do. The macOS
-/// client shows names decomposed, so its mount and the server can spell one name differently.
+/// The macOS mount can expose a decomposed spelling while sending a composed name to the server.
 public enum SMBName {
     /// Equal for two spellings exactly when a client sends the same bytes for both. Like the macOS
     /// client and `tm_smb_compose`, it keeps U+2000–2FFF, U+F900–FAFF and U+2F800–2FAFF as they are.

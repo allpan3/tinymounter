@@ -298,6 +298,13 @@ and first disposable VM test session. Each implementation still has to pass its 
 
 ## 11. Open decisions for the first experiment
 
+- **Protected save-stage uploads, proposed 2026-11-02.** Upload private save-stage contents through
+  the existing protected SMB handle. Repeated native opens failed after the Linux fixture reused
+  a deleted file ID; a direct-handle probe passed 20 repeated 2 MiB writes with full readback and
+  close-metadata verification. This changes the native-upload choice only for private save stages.
+  Native reads and new-file uploads remain selected. No dependency or licence changes are needed;
+  distribution review remains open. Implementation and signed failure/recovery checks require
+  acceptance of this transport change. See the [evidence and scope](results/2026-11-02-samba-names-and-uploads.md#proposed-next-step).
 - **M23 interrupted uploads, accepted 2026-10-29.** The [ordering core](results/2026-10-29-pending-save-order.md)
   and retirement change pass the required VM checks. The user permits a newer save after durably
   preventing an older save from publishing, provided it has not started changing the original.

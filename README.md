@@ -2,6 +2,13 @@
 
 A macOS app that brings a network disk, such as a NAS, into Apple's file system: browse it from Finder or another file manager such as QSpace, download on demand, and keep selected files available offline. Finder is the first file manager and SMB the first protocol it will support. A later mode will mount server volumes, the ordinary macOS SMB mounts, automatically.
 
+Samba filename validation, 2026-11-02: accented uploads and selected TextEdit saves pass on the
+Linux/ext4 fixture after filename and metadata fixes. All required VM checks pass with 610 tests,
+one optional skip and no failures. Repeated saves still fail when native SMB reopens a staging
+file after server file-ID reuse. The Mac update is withheld. A direct-handle staging probe passes
+20 repeated 2 MiB writes; its narrow transport change is proposed. See the
+[results and decision](docs/results/2026-11-02-samba-names-and-uploads.md).
+
 Stop Uploading and removal, 2026-11-02: Settings offers Stop Uploading for a new file or folder
 that never reached the server; macOS then keeps it on this Mac only. Remove Location works when
 the only pending items never reached the server, keeps them in a folder and shows it in Finder.
