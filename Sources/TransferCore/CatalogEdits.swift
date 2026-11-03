@@ -60,6 +60,12 @@ extension Catalog {
         }
     }
 
+    public func validateEditTarget(_ edit: PendingEdit) throws {
+        guard let row = try item(id: edit.item), !row.deleted, row.allowsWriting,
+              row.kind == .file, row.parentID == edit.parent,
+              try relativePath(of: row.id)?.string == edit.path else { throw UploadError.unresolved }
+    }
+
     public func commitEdit(_ edit: PendingEdit, fingerprint: ContentFingerprint, nativeID: UInt64) throws -> String {
         try write { seq in
             guard edit.state == .published || edit.state == .completed, let receipt = edit.published,

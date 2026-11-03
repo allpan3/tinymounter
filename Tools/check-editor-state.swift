@@ -34,7 +34,8 @@ extension LocationController {
               let manager = NSFileProviderManager(for: domain) else { throw LocationError.catalogClosed }
         let rows = try await Self.offMain { try M22FinderProbe.rows(source) }
         var local: [M22FinderProbe.Local] = []
-        for row in rows where row.kind == "file" {
+        // URL resolution can wait for an unsettled publication; queue-only captures must not wait.
+        for row in rows where row.kind == "file" && !label.hasPrefix("check-editor-state-queue-") {
             do {
                 let url = try await manager.getUserVisibleURL(for: NSFileProviderItemIdentifier(row.id))
                 local.append(try await Self.offMain { try M22FinderProbe.editedLocal(row, url: url) })

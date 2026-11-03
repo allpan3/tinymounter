@@ -209,7 +209,9 @@ unbound delete/create requests for unopened and verified destinations. This bloc
 and normal deletion enablement under the accepted guarantee. Ordinary document Save and Save As
 pass for the tested TextEdit, Preview and Xcode files. Signed TextEdit checks also pass for repeated
 offline saves, intentional Quit/relaunch, main-app crash and extension termination. A moved-original
-trial exposed unwanted conflict publication; its repair and remaining offline checks continue.
+trial exposed unwanted conflict publication; the signed repair retains and exports local contents.
+A returned-original retry exposed a retired catalog binding; its additional guard awaits signed
+verification. The remaining offline checks continue.
 The November 3 APFS image check now covers real local outbox exhaustion: the older save and
 metadata remain exportable, reopening selects it, and retry preserves both complete generations.
 Signed low-space admission and Finder behavior remain unverified.

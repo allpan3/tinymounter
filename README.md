@@ -9,8 +9,9 @@ main-app crash and extension termination; a competing server edit preserves both
 Finder Replace sends separate delete/create requests for both unopened and verified destinations,
 which fails the accepted replacement gate and blocks normal deletion enablement. The candidate
 refuses deletion and preserves both files through Finder's collision handling. A moved-original
-trial exposed unwanted conflict publication; the repair retains the edit locally before staging.
-Signed repair verification, OS restart, storage and broader metadata checks remain. See the
+trial exposed unwanted conflict publication; the signed repair retains and exports the local edit.
+Returning the original exposed a catalog-binding retry defect; its guard awaits signed checks.
+OS restart, storage and broader metadata checks remain. See the
 [editor and replacement results](docs/results/2026-11-03-editor-replacement.md).
 
 Deletion, 2026-11-03: signed VM checks pass for refusal restoration, Finder's permanent warning

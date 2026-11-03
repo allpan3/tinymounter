@@ -241,6 +241,9 @@ extension LocationSource {
         guard try !outbox.hasResourceFork(record) else {
             throw CocoaError(.featureUnsupported)
         }
+        if !record.hasStartedPublication, !record.isPublicationComplete {
+            try withCatalog { try $0.validateEditTarget(record) }
+        }
         try editNamespace.requireUncontested(path: path, excluding: record.id)
         try withWriteSession(bookmark, progress: progress) { session, root in
             guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
