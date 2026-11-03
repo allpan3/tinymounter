@@ -1070,6 +1070,8 @@ final class LocationController {
                                     renameSettings: { [weak self] rename in
             guard let self else { throw LocationError.catalogClosed }
             try await self.commitRenameSettings(rename, host: grant.host, share: grant.share)
+        }, renameRecovered: { [weak self] in
+            Task { await self?.resumeCreates(domainID) }
         }, deletionSettings: { [weak self] deletion, paths in
             guard let self else { throw LocationError.catalogClosed }
             try await self.commitDeletionSettings(deletion, paths: paths, owner: domainID, grant: grant.id)

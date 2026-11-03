@@ -62,7 +62,8 @@ def main():
                      '"collision-file", "relisted", "named", "replay", "recovery-baseline", '
                      '"recovery-attempting", "recovery-moved", "recovery-verified", "recovery-catalog", '
                      '"recovery-settings", "recovery-finished-domain", "recovery-before-reply", '
-                     '"recovery-changed"]')
+                     '"recovery-changed", "recovery-settings-retry", "recovery-catalog-retry", '
+                     '"recovery-signal-restored"]')
     start = helper.index("                let root = try session.locationRoot(RelativePath(folder)!)")
     end = helper.index('\n            }\n        }\n        let channel', start)
     helper = helper[:start] + '''                let remote = try SMBEdit(endpoint: endpoint, folder: .root,

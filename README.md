@@ -5,8 +5,8 @@ A macOS app that brings a network disk, such as a NAS, into Apple's file system:
 Folder organization, 2026-11-03: the protected-parent checkpoint repair passes signed Finder
 rename, move, case-only rename and relisting checks on Linux Samba. Item IDs, content versions,
 four downloaded copies and keep selections survive without new fetches. All 624 VM tests and
-required checks pass. Three crash checkpoints recover automatically; a later checkpoint exposed
-a missing retry after a temporary sharing error. That repair is being verified. Folder
+required checks pass. Recovery now retries automatically after a temporary sharing error and
+preserves the downloaded copies. Finder's completed-callback notification is being verified. Folder
 capabilities remain off in normal builds.
 See the [folder organization results](docs/results/2026-11-03-folder-organization.md).
 
