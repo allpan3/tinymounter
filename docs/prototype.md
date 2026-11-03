@@ -497,15 +497,18 @@ and limits. No server component is required.
 
 ## Name spelling over SMB
 
-The macOS mount and the catalog show accented names decomposed (NFD), but SMB clients on macOS
-and Windows send them composed (NFC). The app's SMB client does the same: one C function
+The tested macOS mount and the catalog show accented names decomposed (NFD), while the native
+client sends them composed (NFC). The app's SMB client does the same: one C function
 composes every path before libsmb2 sends it. Like the macOS client, it leaves U+2000–2FFF,
 U+F900–FAFF and U+2F800–2FAFF unchanged, because NFC would turn characters such as U+2126 OHM
 SIGN and the CJK compatibility ideographs into other characters. The app compares server names
 with catalog names in composed form, so saves, renames, moves and deletions find accented items
 on servers that compare names byte for byte. A rename or move that changes only the
-normalization sends no request. A name that another tool stored as NFD can't be opened by any
-SMB client. Its downloads fail as a missing file. Its saves stay unresolved without a conflict
+normalization sends no request. On the tested byte-exact Samba share, a name stored as NFD
+cannot be opened through the macOS mount or this adapter. Other SMB clients were not tested.
+Its downloads fail as a missing file. Its saves stay unresolved without a conflict
 copy, and its renames, moves and deletions refuse. If the catalog doesn't list such a name, a
-new file or folder can still be created next to it, as through Finder's own mount. Host tests
-cover this; checks on a byte-exact server, such as Samba on ext4, remain.
+new file or folder can still be created next to it, as through Finder's own mount. Unit tests
+cover these comparisons. Signed Samba/ext4 checks verify selected accented uploads and saves,
+but repeated saves remain blocked by native staging opens after server file-ID reuse. See the
+[runtime results and proposed staging change](results/2026-11-02-samba-names-and-uploads.md).
