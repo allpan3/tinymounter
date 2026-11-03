@@ -40,8 +40,10 @@ final class PermanentDeletionConfirmation: NSWindowController, NSWindowDelegate 
         guard !progress.isCancelled else { finish(false); return }
         NSApp.activate()
         window?.center()
+        window?.level = .modalPanel
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
+        window?.orderFrontRegardless()
     }
 
     @objc private func respond(_ sender: NSButton) { finish(sender.tag == 1) }
