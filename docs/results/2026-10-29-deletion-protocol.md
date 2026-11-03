@@ -981,7 +981,7 @@ rejected-deletion API. Incomplete records and absent selected rows retain `canno
 The durable node outcome, uncertainty notice and replay binding stay unchanged. This corrects
 the checklist's earlier assumption that a working-set update could restore a survivor while
 retaining `cannotSynchronize`; it does not permit a successful deletion response. Signed
-verification of this response is pending. Normal deletion remains disabled.
+verification of this response passes in build 9, as detailed below. Normal deletion remains disabled.
 
 The first Delete in each trial was safely rejected before
 admission because Finder still held the metadata version preceding Keep Downloaded. A second
@@ -1006,3 +1006,41 @@ selected folder. The independent audit preserved all 19 server objects.
 
 Evidence includes `check-deletion-session-state-retry-*.json`, `check-retry-stop-finished*.json`,
 the archived admission/hold controls, callback events and `retry-stop-finished-audit.json`.
+
+### Restoring unconfirmed survivors, 2026-11-03
+
+Signed build 9 restores both previously hidden selected files on launch recovery. Finder receives
+the completed refusal with the surviving item. Both durable records remain unconfirmed and
+unchanged; IDs, content versions and keeps survive. The independent Linux audit preserves all
+20 server objects, including their identities and file contents. The unrelated kept neighbor
+retains its entire catalog row, local inode and readable bytes.
+
+macOS recreates the selected local files with new inodes and fetches their contents again. An
+initial verifier incorrectly required unchanged local inodes and failed. One restored file still
+had `SF_DATALESS` after its successful fetch callback; an explicit verified full read completed,
+after which both files hashed with materialization disabled. This proves restored readable
+contents, not immediate offline availability or uninterrupted retention of downloaded bytes.
+The first file's metadata version stays unchanged. The second retains the earlier build-8
+notification experiment's increment; build 9 adds none.
+
+Actual Settings dismissal changes only the second record's `dismissed` flag. Scoped app/extension
+restart and constructed replay with refreshed item bases and equivalent XML event archives
+preserve both records. A new Finder Delete of the restored second file creates a separate record
+and completes in both views. Secure decoding and Apple's domain-version comparison establish
+that this explicit action has a newer event version. The server audit finds only that file
+removed and preserves the other 19 objects. Subsequent replay of the old dismissed record
+returns unresolved for its now-absent selected row; the other live survivor still returns the
+completed refusal. Neither old record changes.
+
+Evidence includes `check-survivor-restored-verified-report.json`, `survivor-read.jsonl`,
+`check-unconfirmed-replay-{restored,dismissed,restarted,after-new-delete}*.json`,
+`check-unconfirmed-new-delete.json`, `survivor-event-comparison.txt` and the Linux
+`unconfirmed-{restored,new-delete}-audit.json` reports. The before, notification-only and after
+recordings compare Finder contents and Settings notices; they do not record an entire continuous
+deletion workflow. A fresh same-process Stop/restoration trial remains separate.
+
+`checks-deletion-restoration-2.log` passes all 644 tests, with two optional skips, and the required
+project, CLI, unsigned app and SMB checks. It and `build-eventcheck-9.log` contain no Swift
+warnings. The first compilation caught a missing exhaustive-switch case, fixed before this run.
+A host package attempt could not start compilation because sandboxed compiler caches were
+unavailable; no app was built on the host.
