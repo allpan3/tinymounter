@@ -9,15 +9,20 @@ destination. Enabling deletion would therefore allow the old contents to disappe
 incoming file was durable or verified. This fails the accepted replacement gate and also blocks
 normal deletion enablement. A timing heuristic cannot distinguish this from independent actions.
 
-Ordinary Save and Save As passed for the tested TextEdit, Preview and Xcode documents. One
-disconnected TextEdit conflict also preserved the server edit and the latest local save. These
-checks do not complete the interruption, metadata, storage or offline-editing acceptance matrix.
+Ordinary Save and Save As passed for the tested TextEdit, Preview and Xcode documents. Repeated
+disconnected TextEdit saves survived intentional Quit/relaunch, main-app crash and extension
+termination. A competing server edit preserved both versions. A moved-original trial instead
+published an unwanted conflict copy; the repair below awaits signed verification. These checks
+do not complete the metadata, storage or offline-editing acceptance matrix.
 
 ## Setup and evidence
 
 - macOS VM 1, macOS 27.0.1, Xcode 27; Linux Samba 4.19.5 on ext4. The original NAS was untouched.
 - Signed EventCheck build 16, generated with folder organization and callback tracing enabled,
   deletion disabled and no failure hooks. The installed app is in the VM only.
+- Build 17 adds `--editor-checks` snapshots through the existing evidence-folder grant. It
+  exports complete local hashes with materialization disabled, validated durable pending saves,
+  and the system's pending-upload status, including while disconnected.
 - A new disposable fixture contains TXT, RTF, PDF, PNG and Swift source files, all below 64 KiB,
   plus replacement sources with different contents and untouched neighbors.
 - The macOS evidence directory is `results/replace-20261103/` followed by the run UUID in
@@ -29,6 +34,8 @@ checks do not complete the interruption, metadata, storage or offline-editing ac
   and no Swift warnings, in `results/folder-single-20261103/checks-deletion-final.log`.
   `build-eventcheck-16.log` also has no Swift warnings. Vendor C conversion warnings and Xcode's
   informational App Intents warnings remain.
+- Build 17 and `results/replace-20261103/checks-editor-state.log` passed the same required checks
+  with 644 tests, two optional skips and no Swift warnings.
 
 ## Finder gestures
 
@@ -100,15 +107,51 @@ app-closed ownership, restart persistence, eviction prevention or exact upload c
 
 The old snapshot helper could not inspect the disconnected state because it resolves a live
 share bookmark. A direct CLI read of the app's private outbox was denied by macOS. No sandbox
-permission changed. The new `--editor-checks` candidate option exports scoped local hashes,
-pending-set status and validated outbox records through the existing evidence-folder grant.
-Its runtime validation is the next step.
+permission changed. Build 17's scoped snapshots resolved that evidence gap.
+
+## Offline save ownership
+
+These build 17 trials used the downloaded `TextCopy.txt` created by TextEdit's earlier Save As.
+Each trial forcibly unmounted only the disposable share. Server audits independently verified
+the final contents after reconnection.
+
+| Trial | Observed result | Evidence |
+| --- | --- | --- |
+| Repeated Save | Sequence 13 was durable, then consolidated into sequence 14. Complete local bytes matched validated pending bytes; macOS reported not uploaded. Reconnect published sequence 14 and cleared pending state. | `check-editor-state-offline-{one,two}`, `check-editor-state-online-after-two`, Linux `offline-two-audit.json` |
+| Intentional Quit | The app was absent during two local saves. Relaunch automatically remounted the share and published the latest text before evidence-picker acceptance. | `quit-local-save.json`, `check-editor-state-after-quit` |
+| Main-app crash | SIGKILL and relaunch while Samba was stopped preserved the same prepared sequence 16 and complete local contents. Restoring Samba and reconnecting published it and cleared pending state. | `app-crash-control.json`, `check-editor-state-{before,after}-app-crash`, `check-editor-state-crash-reconnected`, Linux `app-crash-{offline,reconnected}-audit.json` |
+| Extension termination | Killing the provider PID identified by this fixture's event retained sequence 17. Another Save durably replaced it with sequence 18; reconnect published that revision. | `extension-kill-control.json`, `check-editor-state-extension-{terminated,new-save,reconnected}`, Linux `extension-reconnected-audit.json` |
+
+The Quit trial's `quit-before-reconnect-audit.json` was actually captured after relaunch had
+already reconnected and uploaded. It is not pre-reconnect evidence. An initial extension-kill
+attempt found two processes and refused to kill either; `check-editor-state-after-extension-kill`
+belongs to that failed setup. The later `extension-terminated` snapshot follows the actual kill.
+These trials establish the tested small TXT lifecycle, not OS restart or eviction safety.
+
+## Missing original
+
+Build 17 durably retained sequence 19 while disconnected. Linux then renamed `TextCopy.txt`
+to `TextCopyMoved.txt`, preserving its inode and contents. After reconnect the app published
+the local revision as `TextCopy (conflict ...).txt` and completed the pending record. The moved
+original survived unchanged, but automatic conflict publication violates M26's accepted policy.
+Evidence is `check-editor-state-before-original-move`,
+`check-editor-state-original-move-reconnected`, Linux `original-move-control.json`,
+`original-move-reconnected-audit.json` and `original-move-report.json`.
+
+The transaction now requires the original to exist before private staging. An absent original
+retains a prepared local save for recovery/export and sends no mutation. A missing original
+after an earlier staging attempt retains that stage and the local save. Already-started
+transactions still recover their own moved object from recorded evidence. Existing-file
+content conflicts retain their separate-copy behavior. This policy also applies to connected
+saves with missing originals; no offline schema flag is needed. Focused regression tests cover
+absence across reopening/retry, export, moved-original preservation and return, and an existing
+private stage. Signed verification of the repair is pending.
 
 ## Remaining work and decision
 
-Continue editor conflict/interruption and offline ownership checks with the test-only snapshots.
-Include app Quit, app crash and extension termination, changed/moved/deleted originals, low
-space and retained metadata. Do not infer completion from the successful basic save checks.
+Verify the missing-original repair in the signed candidate, then continue interruption/conflict
+coverage beyond TXT, eviction protection while dirty or app-closed, signed low-space admission
+and retained metadata. Do not infer completion from the successful basic save checks.
 
 Normal Finder deletion cannot be enabled under the current replacement guarantee using the
 observed callbacks. A possible alternative is an explicit provider action for permanent deletion,

@@ -301,7 +301,7 @@ a successful save, or survival of a server that violates acknowledged durability
 
 ### Conflicts and interrupted recovery
 
-A changed, deleted, replaced or unprovable base preserves the remote state and publishes the
+A changed, replaced or unprovable base preserves the remote state and publishes the
 local edit under an exclusive conflict name, such as `Report (conflict 2026-10-27 1430).txt`.
 Persist the chosen name before publication. A definite collision can choose another name;
 an uncertain result must first be reconciled. The original remote item keeps its ID and keep
@@ -309,6 +309,11 @@ requests; the conflict copy gets a new ID. Report that the edit was saved separa
 tell File Provider to replace its dirty local contents with the remote version until the
 conflict copy is verified and durably represented in the catalog. Respect failOnConflict by
 returning the conflict and retaining data instead of claiming automatic resolution succeeded.
+
+If the original is absent before publication begins, retain the local edit for recovery/export
+without creating a remote conflict copy. The single-client candidate applies M26's accepted
+missing-original policy to both connected and disconnected saves, without a separate offline
+record format. An already-started transaction still follows its recorded recovery evidence.
 
 If another client occupies the original name after the old file moved, preserve that file,
 the old recovery file and the pending edit. Report the conflict. If the parent disappeared or

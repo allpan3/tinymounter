@@ -112,6 +112,64 @@ final class EditTransactionTests: XCTestCase {
         XCTAssertEqual(edit.published?.item, edit.id.uuidString)
     }
 
+    func testMissingOriginalRetainsLocalSaveAcrossRetryWithoutRemoteWrites() throws {
+        remote.files[edit.path] = nil
+        for _ in 0..<2 {
+            XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote)) {
+                XCTAssertEqual($0 as? UploadError, .unresolved)
+            }
+            outbox = try EditOutbox(directory: directory.appending(path: "Outbox"))
+            edit = try stored(edit)
+            XCTAssertEqual(edit.state, .prepared)
+            XCTAssertFalse(edit.conflict)
+            try outbox.validateContents(edit)
+        }
+        XCTAssertTrue(remote.files.isEmpty)
+        XCTAssertEqual(remote.stages, 0)
+        XCTAssertEqual(remote.backups, 0)
+        XCTAssertEqual(remote.moves, 0)
+        XCTAssertEqual(remote.updates, 0)
+        let exported = directory.appending(path: "exported.txt")
+        try outbox.export(edit, to: exported)
+        XCTAssertEqual(try Data(contentsOf: exported), try Data(contentsOf: input))
+    }
+
+    func testMovedOriginalIsNotFollowedAndSaveCanRetryWhenItReturns() throws {
+        let original = try XCTUnwrap(remote.files.removeValue(forKey: edit.path))
+        remote.files["moved.txt"] = original
+        XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))
+        XCTAssertEqual(remote.files, ["moved.txt": original])
+        XCTAssertEqual(try stored(edit).state, .prepared)
+        try outbox.validateContents(edit)
+        remote.files[edit.path] = remote.files.removeValue(forKey: "moved.txt")
+        try finish(&edit)
+        XCTAssertEqual(remote.files[edit.path]?.identity, original.identity)
+        XCTAssertEqual(remote.files[edit.path]?.digest, edit.digest)
+        XCTAssertFalse(edit.conflict)
+        XCTAssertEqual(try outbox.pendingCount, 0)
+    }
+
+    func testMissingOriginalAfterStagingRetainsStageAndLocalSaveWithoutPublication() throws {
+        let stage = try Remote.version(identity: 200, size: edit.size, digest: edit.digest)
+        edit.stageIdentity = stage.identity
+        edit.stageVersion = stage
+        edit.state = .staged
+        try outbox.save(edit)
+        remote.files = [edit.stagePath: stage]
+        for _ in 0..<2 {
+            XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))
+            edit = try stored(edit)
+            XCTAssertEqual(edit.state, .staged)
+            XCTAssertFalse(edit.conflict)
+            try outbox.validateContents(edit)
+        }
+        XCTAssertEqual(remote.files, [edit.stagePath: stage])
+        XCTAssertEqual(remote.stages, 0)
+        XCTAssertEqual(remote.backups, 0)
+        XCTAssertEqual(remote.moves, 0)
+        XCTAssertEqual(remote.updates, 0)
+    }
+
     func testUncertainPartialCopyIsRetainedAndNeverRepeated() throws {
         remote.failure = .partialCopy
         XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))
@@ -328,7 +386,7 @@ final class EditTransactionTests: XCTestCase {
     }
 
     func testCompletedConflictCleanupNeverRevisitsThePublishedStageName() throws {
-        remote.files[edit.path] = nil
+        remote.files[edit.path] = try Remote.version(identity: 1, size: 3, digest: String(repeating: "b", count: 64))
         try EditTransaction.publish(&edit, outbox: outbox, remote: remote)
         let receipt = try XCTUnwrap(edit.published)
         XCTAssertTrue(edit.conflict)
@@ -348,7 +406,7 @@ final class EditTransactionTests: XCTestCase {
     }
 
     func testConflictNameCollisionChoosesAnotherPersistedNameAndKeepsWinner() throws {
-        remote.files[edit.path] = nil
+        remote.files[edit.path] = try Remote.version(identity: 1, size: 3, digest: String(repeating: "b", count: 64))
         remote.failure = .conflictName
         try EditTransaction.publish(&edit, outbox: outbox, remote: remote)
         XCTAssertEqual(edit.state, .published)
@@ -359,7 +417,7 @@ final class EditTransactionTests: XCTestCase {
     }
 
     func testLostConflictReplyIsProvedWithoutPublishingAnotherCopy() throws {
-        remote.files[edit.path] = nil
+        remote.files[edit.path] = try Remote.version(identity: 1, size: 3, digest: String(repeating: "b", count: 64))
         remote.failure = .conflictReply
         XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))
         let destination = edit.destination
