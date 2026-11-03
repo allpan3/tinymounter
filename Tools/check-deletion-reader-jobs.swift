@@ -22,7 +22,7 @@ private final class M24HeldReaderJobs: @unchecked Sendable {
 
 extension SourceReaderHost {
     func checkIncompleteDeletion(domain: String) async throws -> [String: String] {
-        guard let config = M22FinderProbe.selected(domain), let source = source(domain),
+        guard let config = M22FinderProbe.selected(domain), source(domain) != nil,
               let session = connections[domain]?.exportedObject as? SourceReaderSession else {
             throw M22FinderProbe.Failure.check("connected-deletion-session-required")
         }
