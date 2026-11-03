@@ -139,7 +139,9 @@ final class AppModel {
     private(set) var canStartFresh = false
     private(set) var loginStatus = SMAppService.mainApp.status
     /// The Settings window, for sheets; its view sets it.
-    @ObservationIgnored weak var window: NSWindow?
+    @ObservationIgnored weak var window: NSWindow? {
+        didSet { deletionConfirmation?.show(in: window) }
+    }
     @ObservationIgnored private var deletionConfirmation: PermanentDeletionConfirmation?
     /// Opens the Settings window; the window and the menu bar item set it when they show.
     @ObservationIgnored var openSettings: (() -> Void)?
@@ -1284,14 +1286,16 @@ final class AppModel {
     }
 
     private func confirmPermanentDeletion(_ selection: PermanentDeletionSelection, progress: Progress) async -> Bool {
-        guard deletionConfirmation == nil, !progress.isCancelled else { return false }
+        guard deletionConfirmation == nil, !progress.isCancelled,
+              window != nil || openSettings != nil else { return false }
         defer { deletionConfirmation = nil }
         return await withCheckedContinuation { continuation in
             let confirmation = PermanentDeletionConfirmation(selection, progress: progress) {
                 continuation.resume(returning: $0)
             }
             deletionConfirmation = confirmation
-            confirmation.show()
+            if window == nil { openSettings?() }
+            confirmation.show(in: window)
         }
     }
 
