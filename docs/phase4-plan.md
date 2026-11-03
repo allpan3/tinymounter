@@ -446,8 +446,8 @@ name with a prefix. Preserve unrelated files and all unresolved copies.
 
 The work name has no leading dot. Samba can persist a hidden flag when an existing file is
 renamed to a dot-prefixed name, even without a content write. Other SMB clients may therefore
-show `tinymounter-<operation>.work` during a save or interruption. Tinymounter suppresses its
-proved work path through the transaction receipt. Stage and backup names remain dot-prefixed.
+show `tinymounter-<operation>.work` during a save or interruption. Tinymounter blocks namespace
+reconciliation while publication remains unresolved. Stage and backup names remain dot-prefixed.
 No attribute reset is used, so concurrent metadata and an existing hidden flag are preserved.
 The server may set its normal archive flag during rename or write. Earlier prototype saves
 must finish or be exported before installing this changed work-name convention.
