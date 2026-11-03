@@ -2,7 +2,7 @@ import AppKit
 
 // A nested modal loop would block main-actor cancellation and recovery while Finder waits.
 @MainActor
-final class PermanentDeletionConfirmation: NSObject {
+final class PermanentDeletionConfirmation: NSWindowController {
     private let alert: NSAlert
     private let progress: Progress
     private var completion: ((Bool) -> Void)?
@@ -21,7 +21,7 @@ final class PermanentDeletionConfirmation: NSObject {
         self.alert = alert
         self.progress = progress
         self.completion = completion
-        super.init()
+        super.init(window: alert.window)
         for (index, button) in alert.buttons.enumerated() {
             button.keyEquivalent = index == 0 ? "\r" : ""
         }
@@ -29,6 +29,10 @@ final class PermanentDeletionConfirmation: NSObject {
             if progress.isCancelled { Task { @MainActor in self?.finish(false) } }
         }
     }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func cancelOperation(_ sender: Any?) { finish(false) }
 
     func show(in parent: NSWindow?) {
         guard completion != nil, !isPresented, let parent else { return }
