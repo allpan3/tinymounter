@@ -169,7 +169,7 @@ extension LocationSource {
         for participant in affected { try participant.requireFolderMovePathsSettled([source, destination]) }
         let parents = try remote.protectFolderMoveParents(source: source.string, destination: destination.string)
         guard let root = try remote.inspectFolderMoveRoot(path: source.string),
-              root.name.utf8.elementsEqual((source.components.last ?? "").utf8) else { throw SourceFailure.versionChanged }
+              SMBName.same(root.name, source.components.last ?? "") else { throw SourceFailure.versionChanged }
         let views = try affected.map {
             try $0.folderMoveView(request: $0 === self ? request : nil, source: source, destination: destination,
                                   parents: parents, remote: remote, mount: session.identity,
@@ -386,7 +386,7 @@ extension LocationSource {
                 == record.destinationParents else { throw UploadError.unresolved }
         if record.rootRetired { return }
         guard let root = try remote.inspectFolderMoveRoot(path: record.destination), root.identity == record.identity,
-              root.name.utf8.elementsEqual(record.name.utf8) else { throw UploadError.unresolved }
+              SMBName.same(root.name, record.name) else { throw UploadError.unresolved }
     }
 
     private func signalFolderMove(_ record: PendingFolderMove, participants: [(FolderMoveView, LocationSource)]) {

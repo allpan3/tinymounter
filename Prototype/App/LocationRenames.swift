@@ -302,7 +302,7 @@ extension LocationSource {
         guard let version = record.verified else { throw UploadError.unresolved }
         try remote.allowPublishedReads(path: record.destination, expected: version)
         guard let evidence = try remote.inspectRename(path: record.destination),
-              evidence.name.utf8.elementsEqual(record.name.utf8), evidence.version.hasSameContents(as: version) else {
+              SMBName.same(evidence.name, record.name), evidence.version.hasSameContents(as: version) else {
             throw UploadError.unresolved
         }
         let sourceEntry = try NameKey(record.source) != NameKey(record.destination)

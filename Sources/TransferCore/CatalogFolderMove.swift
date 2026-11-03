@@ -141,7 +141,7 @@ public struct CatalogFolderMoveListing: Codable, Equatable, Sendable {
         }
 
         func matches(identity: EditFileIdentity, exactName: String) -> Bool {
-            self.identity == identity && name.utf8.elementsEqual(exactName.utf8)
+            self.identity == identity && SMBName.same(name, exactName)
         }
     }
 
@@ -779,7 +779,7 @@ extension Catalog {
                     }
                 } else {
                     guard let child, child.identity == proofs[entry.item]!.identity, child.kind == entry.kind,
-                          child.name.utf8.elementsEqual(entry.name.utf8) else { throw UploadError.unresolved }
+                          SMBName.same(child.name, entry.name) else { throw UploadError.unresolved }
                 }
             }
         }

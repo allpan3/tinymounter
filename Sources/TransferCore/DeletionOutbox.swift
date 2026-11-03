@@ -178,7 +178,7 @@ public struct DeletionPlan: Codable, Equatable, Sendable {
         var indices: [Data: Int] = [:], keys = Set<[NameKey]>(), identities = Set<DeletionIdentityKey>()
         for (index, node) in nodes.enumerated() {
             guard let path = RelativePath(node.path), index == nodes.count - 1 || node.path.utf8.starts(with: below),
-                  indices.updateValue(index, forKey: Data(node.path.utf8)) == nil,
+                  indices.updateValue(index, forKey: SMBName.key(node.path)) == nil,
                   keys.insert(path.components.map(NameKey.init)).inserted,
                   identities.insert(DeletionIdentityKey(node.evidence.identity)).inserted else {
                 throw ItemDeletionError.invalidRequest
@@ -186,7 +186,7 @@ public struct DeletionPlan: Codable, Equatable, Sendable {
         }
         for (index, node) in nodes.enumerated().dropLast() {
             let parent = RelativePath(node.path)!.components.dropLast().joined(separator: "/")
-            guard let container = indices[Data(parent.utf8)], container > index,
+            guard let container = indices[SMBName.key(parent)], container > index,
                   case .directory = nodes[container].evidence else { throw ItemDeletionError.invalidRequest }
         }
         let directories = directoryIdentities()
@@ -202,7 +202,7 @@ public struct DeletionPlan: Codable, Equatable, Sendable {
                 guard ReaderMessage.isItemID(item.item), item.item != Catalog.rootItemID,
                       DeletionRequest.isVersion(item.contentVersion),
                       let relative = RelativePath(item.path), !relative.isRoot,
-                      let path = folder.appending(relative), let node = indices[Data(path.string.utf8)],
+                      let path = folder.appending(relative), let node = indices[SMBName.key(path.string)],
                       mapped.insert(node).inserted else { throw ItemDeletionError.invalidRequest }
                 if view.domain == owner, node == nodes.count - 1 {
                     guard item.item == request.item, item.contentVersion == request.contentVersion else {
@@ -439,11 +439,11 @@ public struct PendingDeletion: Equatable, Sendable {
     public func results(domain: String) throws -> [DeletionViewResult] {
         guard isSettled, let view = plan.views.first(where: { $0.domain == domain }),
               let folder = RelativePath(view.folder) else { throw ItemDeletionError.invalidRequest }
-        let indices = Dictionary(uniqueKeysWithValues: plan.nodes.enumerated().map { (Data($1.path.utf8), $0) })
+        let indices = Dictionary(uniqueKeysWithValues: plan.nodes.enumerated().map { (SMBName.key($1.path), $0) })
         let known = outcomes()
         return try view.items.map { item in
             guard let relative = RelativePath(item.path), let path = folder.appending(relative),
-                  let index = indices[Data(path.string.utf8)], let outcome = known[index] else {
+                  let index = indices[SMBName.key(path.string)], let outcome = known[index] else {
                 throw ItemDeletionError.invalidRequest
             }
             return DeletionViewResult(item: item, outcome: outcome)

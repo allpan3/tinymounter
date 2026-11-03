@@ -145,6 +145,15 @@ final class FileRenameTests: XCTestCase {
         XCTAssertEqual(remote.files[NameKey(row.name)]?.name, "ORIGINAL.txt")
     }
 
+    func testDecomposedRequestVerifiesAgainstTheComposedServerName() throws {
+        remote.composes = true
+        var record = try prepare(name: "Re\u{301}sume\u{301}.txt")
+        try FileRenameTransaction.publish(&record, outbox: outbox, remote: remote)
+        XCTAssertEqual(record.state, .verified)
+        XCTAssertEqual(remote.moves, 1)
+        XCTAssertEqual(remote.files[NameKey(record.name)]?.name.utf8.elementsEqual("R\u{e9}sum\u{e9}.txt".utf8), true)
+    }
+
     func testPendingRequestsCannotReplaceIntentAndReplayUsesBothVersions() throws {
         let first = try prepare()
         XCTAssertEqual(try prepare().id, first.id)
@@ -397,6 +406,8 @@ private final class RenameRemote: FileRenameRemote {
     var moves = 0
     var failAfterMove = false
     var beforeMove: (() -> Void)?
+    /// Stores names composed, as an SMB server does after the client composes them.
+    var composes = false
     var parents: [FileRenameParent] = []
     var inspections = 0
 
@@ -413,7 +424,9 @@ private final class RenameRemote: FileRenameRemote {
         guard let file = files[old] else { throw posixError("rename", code: ENOENT) }
         guard old == new || files[new] == nil else { throw posixError("rename", code: EEXIST) }
         files[old] = nil
-        files[new] = FileRenameEvidence(version: file.version, name: RelativePath(destination)!.components.last!)
+        let name = RelativePath(destination)!.components.last!
+        files[new] = FileRenameEvidence(version: file.version,
+                                        name: composes ? name.precomposedStringWithCanonicalMapping : name)
         moves += 1
         if failAfterMove { throw posixError("lost reply", code: EIO) }
     }

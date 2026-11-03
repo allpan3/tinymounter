@@ -201,7 +201,7 @@ public struct PendingFolderMove: Codable, Equatable, Sendable {
         }
         for parent in parents {
             guard let path = RelativePath(parent.path),
-                  parent.name.utf8.elementsEqual((path.components.last ?? "").utf8),
+                  SMBName.same(parent.name, path.components.last ?? ""),
                   parent.identity != identity else { throw UploadError.invalidRequest }
         }
         var remaining = DirectoryListing.defaultLimit
@@ -401,7 +401,7 @@ public struct PendingFolderMove: Codable, Equatable, Sendable {
                         }
                     } else {
                         guard let found, found.identity == proofs[child.item]!.identity, found.kind == child.kind,
-                              found.name.utf8.elementsEqual(child.name.utf8) else { throw UploadError.invalidRequest }
+                              SMBName.same(found.name, child.name) else { throw UploadError.invalidRequest }
                     }
                 }
             }
@@ -424,7 +424,7 @@ public struct PendingFolderMove: Codable, Equatable, Sendable {
                     }
                 } else {
                     guard let found, found.identity == known.identity, found.kind == known.kind,
-                          found.name.utf8.elementsEqual(known.name.utf8) else { throw UploadError.invalidRequest }
+                          SMBName.same(found.name, known.name) else { throw UploadError.invalidRequest }
                 }
             }
         }
@@ -644,7 +644,7 @@ extension PendingFolderMove {
                 }
             } else if !child.entry.retired {
                 guard let found, found.identity == child.entry.proof.identity, found.kind == child.kind,
-                      found.name.utf8.elementsEqual(child.name.utf8) else { throw UploadError.unresolved }
+                      SMBName.same(found.name, child.name) else { throw UploadError.unresolved }
             }
         }
     }
@@ -837,14 +837,14 @@ public enum FolderMoveTransaction {
         }
         let destination = try inspectDestination(record.destination, remote: remote)
         let target = destination.evidence
-        if let target, target.identity == record.identity, target.name.utf8.elementsEqual(record.name.utf8) {
+        if let target, target.identity == record.identity, SMBName.same(target.name, record.name) {
             try settle(&record, outbox: outbox, remote: remote, checkpoint: checkpoint)
             return
         }
         guard record.state == .prepared || record.state == .attempting else { throw UploadError.unresolved }
         try remote.releaseFolderMoveRoot(path: record.destination)
         guard let source = try remote.inspectFolderMoveRoot(path: record.source),
-              source.identity == record.identity, source.name.utf8.elementsEqual(record.oldName.utf8) else {
+              source.identity == record.identity, SMBName.same(source.name, record.oldName) else {
             if record.state == .prepared { try refuse(&record, .changed, outbox: outbox) }
             throw UploadError.unresolved
         }
@@ -865,7 +865,7 @@ public enum FolderMoveTransaction {
             // Even an error reply is not a refusal until fresh evidence excludes remote success.
             let destination = try inspectDestination(record.destination, remote: remote)
             if let after = destination.evidence,
-               after.identity == record.identity, after.name.utf8.elementsEqual(record.name.utf8) {
+               after.identity == record.identity, SMBName.same(after.name, record.name) {
                 try settle(&record, outbox: outbox, remote: remote, checkpoint: checkpoint)
                 return
             }
@@ -879,13 +879,13 @@ public enum FolderMoveTransaction {
             } else { reason = nil }
             try remote.releaseFolderMoveRoot(path: record.destination)
             if let reason, let intact = try remote.inspectFolderMoveRoot(path: record.source),
-               intact.identity == record.identity, intact.name.utf8.elementsEqual(record.oldName.utf8) {
+               intact.identity == record.identity, SMBName.same(intact.name, record.oldName) {
                 try refuse(&record, reason, outbox: outbox)
             }
             throw error
         }
         guard let after = try remote.inspectFolderMoveRoot(path: record.destination),
-              after.identity == record.identity, after.name.utf8.elementsEqual(record.name.utf8) else {
+              after.identity == record.identity, SMBName.same(after.name, record.name) else {
             throw UploadError.unresolved
         }
         try settle(&record, outbox: outbox, remote: remote, checkpoint: checkpoint)

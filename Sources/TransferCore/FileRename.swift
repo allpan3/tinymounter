@@ -410,7 +410,7 @@ public enum FileRenameTransaction {
         let attempted = record.state != .prepared
         let target = try remote.inspectRename(path: record.destination)
         if let target, target.version.hasSameContents(as: record.base.version),
-           target.name.utf8.elementsEqual(record.name.utf8) {
+           SMBName.same(target.name, record.name) {
             record.verified = target.version
             record.state = .verified
             try outbox.save(record)
@@ -420,7 +420,7 @@ public enum FileRenameTransaction {
         try remote.releaseRename(path: record.destination)
         guard let source = try remote.inspectRename(path: record.source),
               source.version.hasSameContents(as: record.base.version),
-              source.name.utf8.elementsEqual(record.oldName.utf8) else {
+              SMBName.same(source.name, record.oldName) else {
             if !attempted { try refuse(&record, .changed, outbox: outbox) }
             throw UploadError.unresolved
         }
@@ -441,7 +441,7 @@ public enum FileRenameTransaction {
         }
         guard let published = try remote.inspectRename(path: record.destination),
               published.version.hasSameContents(as: record.base.version),
-              published.name.utf8.elementsEqual(record.name.utf8) else { throw UploadError.unresolved }
+              SMBName.same(published.name, record.name) else { throw UploadError.unresolved }
         record.verified = published.version
         record.state = .verified
         try outbox.save(record)

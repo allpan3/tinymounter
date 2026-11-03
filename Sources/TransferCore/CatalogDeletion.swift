@@ -46,10 +46,12 @@ extension Catalog {
     public func settleDeletion(_ record: PendingDeletion, endpoint: ShareAddress, locationRoot: RelativePath,
                                previous: CatalogDeletionSettlement? = nil) throws -> CatalogDeletionSettlement {
         let view = try deletionView(record, endpoint: endpoint, locationRoot: locationRoot, previous: previous)
-        let indices = Dictionary(uniqueKeysWithValues: record.plan.nodes.enumerated().map { (Data($1.path.utf8), $0) })
+        let indices = Dictionary(uniqueKeysWithValues: record.plan.nodes.enumerated().map {
+            (SMBName.key($1.path), $0)
+        })
         let admitted = try record.results(domain: domainID).map { result -> (DeletionViewResult, Int) in
             guard let relative = RelativePath(result.item.path), let path = locationRoot.appending(relative),
-                  let index = indices[Data(path.string.utf8)] else { throw ItemDeletionError.invalidRequest }
+                  let index = indices[SMBName.key(path.string)] else { throw ItemDeletionError.invalidRequest }
             return (result, index)
         }.sorted { $0.1 < $1.1 }
         return try write { seq in

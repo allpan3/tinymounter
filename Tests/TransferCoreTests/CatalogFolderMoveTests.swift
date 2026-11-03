@@ -548,7 +548,7 @@ final class CatalogFolderMoveTests: XCTestCase {
         let plain = try child(tree.id, "plain"), cafe = try child(tree.id, "Café")
         try catalog.setKeep(ids: [plain.id, cafe.id], value: true)
         let move = try prepare(), proofs = try proofs(move)
-        let names = [plain.id: "PLAIN", cafe.id: "Cafe\u{301}"]
+        let names = [plain.id: "PLAIN", cafe.id: "CAF\u{c9}"]
         let replacements = try names.mapValues { name -> CatalogFolderMoveListing.Child in
             let entry = try XCTUnwrap(move.entries.first { NameKey($0.name) == NameKey(name) })
             return CatalogFolderMoveListing.Child(name: name,
@@ -586,6 +586,22 @@ final class CatalogFolderMoveTests: XCTestCase {
             XCTAssertFalse(discovered.keep)
             XCTAssertNil(discovered.editVersion)
         }
+    }
+
+    func testComposedServerSpellingKeepsTheDecomposedBinding() throws {
+        // The Mac mount lists names decomposed; the server returns the composed bytes macOS sent.
+        try list(tree.id, [file("plain", 20), file("explicit", 21), folder("Nested", 22), file("Cafe\u{301}", 23)])
+        let cafe = try child(tree.id, "Cafe\u{301}")
+        try catalog.setKeep(ids: [cafe.id], value: true)
+        let move = try prepare(), proofs = try proofs(move)
+        let composed = CatalogFolderMoveListing.Child(name: "Caf\u{e9}",
+            identity: try XCTUnwrap(proofs.first { $0.item == cafe.id }).identity, kind: .file)
+        let listing = try moveListing(move, parent: tree.id, proofs: proofs, replacements: [cafe.id: composed])
+        try refusesSettlement(move, settlement(move, proofs: proofs, removed: [cafe.id], listings: [listing]))
+        try catalog.settleFolderMove(move, settlement: settlement(move, proofs: proofs, listings: [listing]))
+        let kept = try XCTUnwrap(catalog.item(id: cafe.id))
+        XCTAssertFalse(kept.deleted)
+        XCTAssertTrue(kept.keep)
     }
 
     func testRenamedDirectoryRetiresItsDescendantsFromTheParentListing() throws {

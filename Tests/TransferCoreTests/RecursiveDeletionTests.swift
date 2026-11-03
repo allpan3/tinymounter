@@ -45,6 +45,23 @@ final class RecursiveDeletionTests: XCTestCase {
         XCTAssertEqual(try record.results(domain: fixture.neighbor).map(\.item.path), ["Docs/Tree", "Docs/Tree/a"])
     }
 
+    func testDecomposedCatalogPathsSettleAgainstComposedServerNames() throws {
+        server.objects["Docs/Tree/Caf\u{e9}"] = server.objects.removeValue(forKey: "Docs/Tree/b")
+        let decomposed = try XCTUnwrap(RelativePath("Tree/Cafe\u{301}"))
+        let views = try fixture.views().map { view in
+            DeletionView(domain: view.domain, folder: try XCTUnwrap(RelativePath(view.folder)), items: view.items.map {
+                $0.path != "Tree/b" ? $0 : DeletionViewItem(item: $0.item, path: decomposed, contentVersion: "v1")
+            })
+        }
+        var record = try fixture.outbox.prepare(endpoint: fixture.endpoint, owner: fixture.owner,
+                                                request: fixture.request, traversal: fixture.traversal(),
+                                                views: views, protectedRoots: [], recursive: true)
+        try run(&record)
+        XCTAssertEqual(record.summary, [.deleted: 7])
+        let results = try record.results(domain: fixture.owner)
+        XCTAssertEqual(results.first { $0.item.item == fixture.items["Docs/Tree/b"] }?.outcome, .deleted)
+    }
+
     func testArrivingChildIsNeverAddedAndItsFoldersRemain() throws {
         var record = try fixture.prepare()
         let arrival = ItemDeletionEvidence.file(try DeletionFixture.version(40))

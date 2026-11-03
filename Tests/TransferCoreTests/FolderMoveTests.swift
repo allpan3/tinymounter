@@ -1007,7 +1007,7 @@ final class FolderMoveTests: XCTestCase {
         let first = try view(), other = UUID().uuidString
         let second = FolderMoveView(domain: other, folder: .root, move: first.move, proofs: first.proofs)
         var record = try prepare(views: [first, second])
-        remote.settlement = { try self.settlements($0, renamed: ["plain": "PLAIN", "Café": "Cafe\u{301}"]) }
+        remote.settlement = { try self.settlements($0, renamed: ["plain": "PLAIN", "Café": "CAF\u{c9}"]) }
         try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote)
         XCTAssertEqual(record.state, .verified)
         XCTAssertEqual(try saved(), record)
@@ -1019,6 +1019,15 @@ final class FolderMoveTests: XCTestCase {
         try catalog.settleFolderMove(first.move, settlement: XCTUnwrap(record.settlements?.first).settlement)
         XCTAssertTrue(try XCTUnwrap(catalog.item(id: childID("plain", in: first))).deleted)
         XCTAssertTrue(try XCTUnwrap(catalog.item(id: childID("Café", in: first))).deleted)
+    }
+
+    func testSettlementCannotRetireAnotherNormalizationOfTheSameName() throws {
+        var record = try prepare()
+        remote.settlement = { try self.settlements($0, renamed: ["Café": "Cafe\u{301}"]) }
+        XCTAssertThrowsError(try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote)) {
+            XCTAssertEqual($0 as? UploadError, .invalidRequest)
+        }
+        XCTAssertNil(try saved().settlements)
     }
 
     func testRecoveryRetiresRenamedFilesAndDirectoryDescendantsAcrossViews() throws {
@@ -1035,7 +1044,7 @@ final class FolderMoveTests: XCTestCase {
         XCTAssertThrowsError(try FolderMoveTransaction.replan(&record, outbox: outbox, expected: expected, remote: remote))
         XCTAssertEqual(try saved(), original)
         remote.refresh = { try self.refreshes($0, removed: ["deep"],
-            renamed: ["plain": "PLAIN", "Café": "Cafe\u{301}", "Nested": "NESTED"]) }
+            renamed: ["plain": "PLAIN", "Café": "CAF\u{c9}", "Nested": "NESTED"]) }
         try FolderMoveTransaction.replan(&record, outbox: outbox, expected: expected, remote: remote)
         XCTAssertEqual(record.state, .recovering)
         XCTAssertEqual(try saved(), record)
@@ -1047,6 +1056,19 @@ final class FolderMoveTests: XCTestCase {
             let retired = ["plain", "Café", "Nested", "deep"].contains(entry.name)
             XCTAssertEqual(try catalog.item(id: entry.item)?.deleted, retired)
         }
+    }
+
+    func testRecoveryKeepsAChildListedInAnotherNormalization() throws {
+        var record = try prepare()
+        try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote)
+        let expected = try Dictionary(uniqueKeysWithValues: record.views.map {
+            ($0.domain, try record.latestTarget(domain: $0.domain))
+        })
+        remote.refresh = { try self.refreshes($0, removed: ["deep"], spelled: ["Café": "Cafe\u{301}"]) }
+        try FolderMoveTransaction.replan(&record, outbox: outbox, expected: expected, remote: remote)
+        let current = try XCTUnwrap(record.recovery?.first)
+        let cafe = try childID("Café", in: XCTUnwrap(record.views.first))
+        XCTAssertEqual(current.target.entries.first { $0.item == cafe }?.retired, false)
     }
 
     func testNewRetirementNeedsCompleteProofAndParentWitnessCannotCycle() throws {
@@ -1352,7 +1374,7 @@ final class FolderMoveTests: XCTestCase {
     private func refreshes(_ record: PendingFolderMove, contents: [String: Character] = [:],
                            modified: [String: UInt64] = [:], changedTime: UInt64? = nil,
                            removed: Set<String> = [], reappeared: Set<String> = [],
-                           renamed: [String: String] = [:]) throws -> [FolderMoveRefresh] {
+                           renamed: [String: String] = [:], spelled: [String: String] = [:]) throws -> [FolderMoveRefresh] {
         try record.views.map { view in
             let previous = try record.latestTarget(domain: view.domain)
             let prior = Dictionary(uniqueKeysWithValues: previous.entries.map { ($0.item, $0) })
@@ -1391,7 +1413,7 @@ final class FolderMoveTests: XCTestCase {
                         entry.parent == parent.item && (!prior[entry.item]!.retired || reappeared.contains(entry.name))
                             && !removed.contains(entry.name)
                     }.map {
-                        CatalogFolderMoveListing.Child(name: renamed[$0.name] ?? $0.name,
+                        CatalogFolderMoveListing.Child(name: renamed[$0.name] ?? spelled[$0.name] ?? $0.name,
                             identity: prior[$0.item]!.proof.identity, kind: $0.kind)
                     }
                     listings.append(CatalogFolderMoveListing(parent: parent.item,
