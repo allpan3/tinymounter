@@ -217,6 +217,32 @@ final class SMBEdit: EditRemote, FileRenameRemote {
         }
     }
 
+    func finishPublishedWrite(path: String, expected: EditFileVersion,
+                              collectReadProof: Bool = false) throws -> EditFileVersion {
+        try reopenVerified(path: path, expected: expected, published: true, collectReadProof: collectReadProof)
+    }
+
+    private func reopenVerified(path: String, expected: EditFileVersion, published: Bool,
+                                collectReadProof: Bool = false) throws -> EditFileVersion {
+        if let verifier = stageVerifiers.removeValue(forKey: path) {
+            try verifier.use { try check(tm_edit_close(client, $0)) }
+        }
+        guard let previous = handles.removeValue(forKey: path) else { throw UploadError.unresolved }
+        var values = [UInt64](repeating: 0, count: 5)
+        try previous.use { try check(tm_edit_close_info(client, $0, &values)) }
+        guard values[0] == expected.identity.birthMicroseconds, values[3] == UInt64(expected.size),
+              values[4] == UInt64(expected.attributes) else { throw UploadError.unresolved }
+        // A write can finalize its timestamps on close; use the server's reply, then verify again.
+        let closed = try EditFileVersion(identity: expected.identity, size: expected.size, digest: expected.digest,
+            modifiedMicroseconds: values[1], changedMicroseconds: values[2], attributes: expected.attributes,
+            security: expected.security, artifactQuarantine: expected.artifactQuarantine)
+        let handle = try open(path: path, access: Self.read | (published ? 0 : Self.delete), sharing: published ? 1 : 0)
+        handles[path] = handle
+        let current = try version(handle, artifactPath: published ? nil : path, collectReadProof: collectReadProof)
+        guard current == closed else { throw UploadError.unresolved }
+        return current
+    }
+
     func stage(path: String, contents: URL, created: (EditFileIdentity) throws -> Void) throws -> EditFileVersion {
         let handle: Handle
         do { handle = try makePrivate(path: path, uploading: true, created: created) }
@@ -269,7 +295,8 @@ final class SMBEdit: EditRemote, FileRenameRemote {
         let verifier = try open(path: path, access: Self.read, sharing: 5)
         stageVerifiers[path] = verifier
         guard try info(verifier)[0...1] == expected[0...1] else { throw UploadError.unresolved }
-        return try version(handle, artifactPath: path)
+        let version = try version(handle, artifactPath: path)
+        return try reopenVerified(path: path, expected: version, published: false)
     }
 
     func inspect(path: String, original: Bool) throws -> EditFileVersion? {
@@ -300,7 +327,8 @@ final class SMBEdit: EditRemote, FileRenameRemote {
         guard let source = handles[original], originals.contains(original) else { throw UploadError.unresolved }
         let backup = try makePrivate(path: path, uploading: false, created: created)
         try copy(source: source, target: backup, size: Int64(try info(source)[2]))
-        return try version(backup, artifactPath: path)
+        let version = try version(backup, artifactPath: path)
+        return try reopenVerified(path: path, expected: version, published: false)
     }
 
     func move(source: String, destination: String) throws {

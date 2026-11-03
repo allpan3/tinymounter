@@ -12,6 +12,8 @@ int tm_edit_open(void *opaque, const char *path, uint32_t access, uint32_t shari
                uint8_t *file);
 int tm_edit_open_quarantine(void *opaque, const char *path, uint8_t *file);
 int tm_edit_close(void *opaque, uint8_t *file);
+// Close attributes: creation, modification and change times in microseconds, size, attributes.
+int tm_edit_close_info(void *opaque, uint8_t *file, uint64_t *values);
 int tm_edit_open_directory(void *opaque, const char *path, uint32_t access, uint32_t sharing,
                          uint8_t *file);
 int tm_edit_open_private(void *opaque, const char *path, uint32_t access, uint32_t sharing,

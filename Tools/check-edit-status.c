@@ -295,6 +295,7 @@ static void disconnected(void)
     DISCONNECTED("disconnected open", tm_edit_open(&client, "file", 0, 0, file));
     DISCONNECTED("disconnected quarantine", tm_edit_open_quarantine(&client, "file", file));
     DISCONNECTED("disconnected close", tm_edit_close(&client, file));
+    DISCONNECTED("disconnected close info", tm_edit_close_info(&client, file, values));
     DISCONNECTED("disconnected directory", tm_edit_open_directory(&client, "", 0, 0, file));
     DISCONNECTED("disconnected list", tm_edit_list(&client, file, 1, buffer, 80, &count, &finished));
     DISCONNECTED("disconnected private",
@@ -322,6 +323,7 @@ static void decoded_success(void)
     expect(finished && count == 0, "listing finished", "end of listing changed");
     prepare();
     result("malformed open", tm_edit_open(&client, "file", 0, 0, file), EIO, 0);
+    result("malformed close info", tm_edit_close_info(&client, file, values), EIO, 0);
     result("malformed info", tm_edit_info(&client, file, values), EIO, 0);
     result("malformed read", tm_edit_read(&client, file, 0, buffer, 1, &count), EIO, 0);
     result("malformed list", tm_edit_list(&client, file, 1, buffer, 80, &count, &finished),
@@ -353,6 +355,32 @@ static void transport_failures(void)
     }
 }
 
+static void close_attributes(void)
+{
+    prepare();
+    const uint64_t epoch = 116444736000000000ULL;
+    struct smb2_close_reply reply = {
+        .flags = SMB2_CLOSE_FLAG_POSTQUERY_ATTRIB,
+        .creation_time = epoch + 123456789,
+        .last_write_time = epoch + 234567891,
+        .change_time = epoch + 345678912,
+        .end_of_file = 4294967297ULL,
+        .file_attributes = SMB2_FILE_ATTRIBUTE_ARCHIVE,
+    };
+    response_data = &reply;
+    result("close attributes", tm_edit_close_info(&client, file, values), 0, 0);
+    expect(values[0] == 12345678 && values[1] == 23456789 && values[2] == 34567891
+           && values[3] == 4294967297ULL && values[4] == SMB2_FILE_ATTRIBUTE_ARCHIVE,
+           "close attributes", "metadata or timestamp conversion changed");
+    reply.flags = 0;
+    values[0] = 99;
+    result("missing close attributes", tm_edit_close_info(&client, file, values), EIO, 0);
+    expect(values[0] == 99, "missing close attributes", "failure published metadata");
+    reply.flags = SMB2_CLOSE_FLAG_POSTQUERY_ATTRIB;
+    reply.last_write_time = epoch - 1;
+    result("invalid close timestamp", tm_edit_close_info(&client, file, values), EIO, 0);
+}
+
 int main(void)
 {
     server_failures();
@@ -360,6 +388,7 @@ int main(void)
     disconnected();
     decoded_success();
     transport_failures();
+    close_attributes();
     composed_names();
     if (client.smb) smb2_destroy_context(client.smb);
     if (failures) {
