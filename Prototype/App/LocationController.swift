@@ -365,6 +365,11 @@ final class LocationController {
         return try await Self.offMain { try source.editRecords() }
     }
 
+    func blockedEditTargets(_ record: LocationRecord) async throws -> Set<UUID> {
+        guard let source = sources[record.domainID] else { throw LocationError.catalogClosed }
+        return try await Self.offMain { try source.blockedEditTargets() }
+    }
+
     func savedChangeBytes(_ record: LocationRecord) async throws -> Int64 {
         guard let source = sources[record.domainID] else { throw LocationError.catalogClosed }
         return try await Self.offMain { try source.savedChangeBytes() }

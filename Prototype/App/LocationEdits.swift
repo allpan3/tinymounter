@@ -48,6 +48,18 @@ extension LocationSource {
         try uploadLock.readForStatus { try Self.editOutbox(domainID: domainID).records() }
     }
 
+    func blockedEditTargets() throws -> Set<UUID> {
+        try uploadLock.readForStatus {
+            let records = try Self.editOutbox(domainID: domainID).records().filter { $0.state == .prepared }
+            return try withCatalog { catalog in
+                try Set(records.compactMap { record in
+                    do { try catalog.validateEditTarget(record); return nil }
+                    catch UploadError.unresolved { return record.id }
+                })
+            }
+        }
+    }
+
     func savedChangeBytes() throws -> Int64 {
         try uploadLock.readForStatus {
             let uploads = try Self.outbox(domainID: domainID).contentBytes

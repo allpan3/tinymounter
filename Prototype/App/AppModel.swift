@@ -627,6 +627,10 @@ final class AppModel {
 
     func editRecords(_ record: LocationRecord) async throws -> [PendingEdit] { try await controller.editRecords(record) }
 
+    func blockedEditTargets(_ record: LocationRecord) async throws -> Set<UUID> {
+        try await controller.blockedEditTargets(record)
+    }
+
     func savedChangeBytes(_ record: LocationRecord) async throws -> Int64 { try await controller.savedChangeBytes(record) }
 
     func retryPending(_ record: LocationRecord) { controller.retryPending(record) }

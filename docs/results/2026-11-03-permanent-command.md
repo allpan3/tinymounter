@@ -71,7 +71,15 @@ can supply their former path for local staging even when the file or its parents
 Publication still rejects deleted bindings, including when another object appears at that path.
 The existing export workflow can recover those bytes without recreating the deleted server file.
 Three focused package tests pass, covering retention, export, replacement protection and binding
-checks. Signed validation of this repair is pending.
+checks. Signed build 11 retains the original 67-byte revision after restart, and the actual
+Settings export produces an exact copy. All server entries stay unchanged.
+
+Stop Uploading also exports the exact bytes, but its provider response then tries to return a
+live item for the deleted catalog row. macOS leaves that upload pending. The follow-up returns
+a successful nil item only after the app confirms that those exact stopped bytes were exported
+and the catalog target is deleted. Apple's create/modify contract uses this response to remove
+the local item; further local edits still cause a deletion conflict. Settings also identifies
+saves with unavailable targets and directs the user to export. Signed follow-up checks remain.
 
 ## Evidence and remaining checks
 

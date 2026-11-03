@@ -587,6 +587,7 @@ private struct UploadStatus: View {
     @Bindable var model: AppModel
     @State private var count: Int?
     @State private var edits: [PendingEdit] = []
+    @State private var blockedEditTargets: Set<UUID> = []
     @State private var renames: [RenameIntent] = []
     @State private var creates: [PendingCreate] = []
     @State private var savedBytes: Int64 = 0
@@ -648,6 +649,7 @@ private struct UploadStatus: View {
                 do {
                     count = try await model.pendingUploads(record)
                     edits = try await model.editRecords(record)
+                    blockedEditTargets = try await model.blockedEditTargets(record)
                     renames = try await model.renameRecords(record)
                     creates = try await model.pendingCreates(record)
                     savedBytes = try await model.savedChangeBytes(record)
@@ -667,6 +669,7 @@ private struct UploadStatus: View {
             return edit.conflict ? UIText.conflictRecovery : UIText.publishedRecovery
         }
         if edit.conflict { return edit.state == .completed ? UIText.conflictSaved : UIText.editConflict }
+        if blockedEditTargets.contains(edit.id) { return UIText.editTargetUnavailable }
         if edit.state == .prepared { return UIText.waitingToUpload }
         return edit.mayHaveChangedOriginal ? UIText.editNeedsRecovery : UIText.editInterrupted
     }
