@@ -38,7 +38,8 @@ namespace wait and phase timings. Reports attach those records by request ID, no
 timestamp overlap. A negative phase time means that phase was not reached. Setup
 includes upload-lock/session access, connection, protected opens and receipt lookup;
 total also includes catalog lookup, receipt persistence and handle release. Earlier
-builds have no such records. --access-mode remains declared by the parent; missing
+builds have no such records. With parallel=1, verification and native staging overlap;
+their phase durations must not be added. --access-mode remains declared by the parent; missing
 records do not establish read-only access. Never compare the modes unlabeled.
 
 HISTORY, context only and never a substitute for a baseline run: on this VM, full
@@ -136,7 +137,8 @@ REQUEST_ID = re.compile(r"\brequest=([0-9A-Fa-f-]{36})\b")
 PROTECTED_READ = re.compile(
     r"protected_read request=([0-9A-Fa-f-]{36}) phase=(\w+) mode=(\w+) cache=(\w+) "
     r"edit_base=([01]) remote_bytes=(\d+) namespace_ms=([\d.]+) setup_ms=([-\d.]+) "
-    r"verify_ms=([-\d.]+) native_ms=([-\d.]+) checksum_ms=([-\d.]+) total_ms=([\d.]+)")
+    r"verify_ms=([-\d.]+) native_ms=([-\d.]+) checksum_ms=([-\d.]+) total_ms=([\d.]+)"
+    r"(?: parallel=([01]))?")
 
 
 class Stop(Exception):
@@ -570,12 +572,13 @@ def parse_fetch_log(path, app):
             match = PROTECTED_READ.search(message)
             if match:
                 try:
-                    times = [float(value) for value in match.groups()[6:]]
+                    times = [float(value) for value in match.groups()[6:12]]
                 except ValueError:
                     continue
                 record = dict(zip(("namespaceMs", "setupMs", "verifyMs", "nativeMs", "checksumMs", "totalMs"), times))
                 record.update(request=match[1], phase=match[2], mode=match[3], cache=match[4],
-                              editBase=match[5] == "1", remoteBytes=int(match[6]))
+                              editBase=match[5] == "1", remoteBytes=int(match[6]),
+                              parallel=match[13] == "1" if match[13] is not None else None)
                 protected.setdefault(match[1], []).append(record)
             continue
         if not process.startswith(str(app) + "/Contents/PlugIns/"):

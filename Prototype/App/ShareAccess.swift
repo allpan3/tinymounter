@@ -796,7 +796,7 @@ final class LocationSource: @unchecked Sendable {
     let failedCreatesLock = NSLock()
     var editNamespace: EditNamespace { access.editNamespace }
     var mutationsSuspended = false
-    // Namespace and upload locks protect a bounded proof; no SMB handle survives a request.
+    // Namespace and upload locks protect the memory copy; disk evidence needs fresh server checks.
     var verifiedRead: (receipt: EditBaseReceipt, path: RelativePath, proof: VerifiedRead)?
     weak var verifiedReadSession: ShareSession?
     private let lock = NSLock()
@@ -834,6 +834,7 @@ final class LocationSource: @unchecked Sendable {
         editNamespace.perform {
             verifiedRead = nil
             verifiedReadSession = nil
+            try? readProofCache().remove()
             catalogLock.withLock { catalog = nil }
             editNamespace.detach(domainID)
         }

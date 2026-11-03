@@ -236,23 +236,27 @@ such evidence take the conflict-copy path. Do not force eviction or redownload o
 copies to seed receipts. The implementation must distinguish legacy revisions from new proven
 revisions without changing the meaning of a version already handed to the system.
 
-For partial reads of an `e1` revision, a bounded in-memory block-digest table may reuse the
+For partial reads of an `e1` revision, a bounded cached block-digest table may reuse the
 evidence from a complete protected verification. Each fetched block must match that revision,
 and the native staged range must match the protected range digest before handoff. A new request
 still opens fresh protected ancestor/file handles and validates identity and metadata; no
-handle or connection stays open between requests. A missing proof, remount, metadata difference
+handle or connection stays open between requests. A missing proof, metadata difference
 or block mismatch takes the full-verification path. Full downloads and mutations retain their
-whole-file checks. No receipt or catalog format changes.
+whole-file checks. Full verification can overlap native staging, but both must succeed before
+the staged checksum and handoff. No receipt or catalog format changes.
 
 This preserves the bytes of the requested immutable version, not immediate detection of every
 out-of-range change. A metadata-preserving edit outside the requested blocks is discovered when
 those bytes are read, or during full-download/save verification. Unchanged requested bytes can
 still satisfy the prior revision. The implementation keeps one table per location, with 1 MiB
 blocks and at most 2 MiB of digests (64 GiB indexed); larger files use full verification.
-These November 1 implementation choices follow the user's standing autonomous-development
-instruction. [Signed VM checks](results/2026-11-01-verified-range-reads.md) measure the small-read
-improvement, full-download cost and restart/remount fallback. Forced cached-read mutation races
-and physical-Mac performance remain unverified.
+The table is stored in a disposable local cache bound to the exact receipt and path. Fresh
+protected identity, metadata and block checks allow reuse after restart or remount. Successful
+saves and uploads capture it during their existing server verification. See the
+[read design](architecture.md#edited-file-read-verification) for handle lifetimes and lock order.
+[Signed VM checks](results/2026-11-01-verified-range-reads.md) measure the earlier memory-only
+implementation. Persistence and parallel verification await VM integration and measurements;
+forced cached-read mutation races and physical-Mac performance remain unverified.
 
 Before moving the old file, compare its identity, complete digest and relevant metadata with
 the base receipt while server-enforced protection is held. A native inode can be a name hash,

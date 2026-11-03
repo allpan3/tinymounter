@@ -3,6 +3,11 @@ import Foundation
 import OSLog
 
 extension LocationSource {
+    func readProofCache() -> VerifiedReadCache {
+        VerifiedReadCache(directory: URL.cachesDirectory
+            .appending(path: "tinymounter/ReadProofs/\(domainID)", directoryHint: .isDirectory))
+    }
+
     static func editOutbox(domainID: String) throws -> EditOutbox {
         guard UUID(uuidString: domainID)?.uuidString == domainID else { throw UploadError.invalidRequest }
         return try EditOutbox(directory: URL.applicationSupportDirectory
@@ -21,7 +26,7 @@ extension LocationSource {
                   let path = RelativePath(upload.path) else { throw UploadError.unresolved }
             let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: root, progress: progress)
             try remote.protectAncestors(of: upload.path)
-            let version = try remote.readVersion(path: upload.path)
+            let version = try remote.readVersion(path: upload.path, collectReadProof: true)
             let file = try ReadOnlyFile(directoryFD: root, relativePath: path, expected: session.identity)
             guard version.size == upload.size, version.digest == upload.digest,
                   file.snapshot.inode == upload.remoteID,
@@ -30,6 +35,7 @@ extension LocationSource {
             let receipt = try EditBaseReceipt(item: row.id, version: version)
             try Self.editOutbox(domainID: domainID).storeBase(receipt)
             try withCatalog { try $0.rememberEditBase(receipt, expectedVersion: row.contentVersion) }
+            if let proof = remote.readProof { try? readProofCache().store(proof, receipt: receipt, path: path) }
         }
     }
 
@@ -230,7 +236,7 @@ extension LocationSource {
             try EditTransaction.publish(&record, outbox: outbox, remote: remote)
             if !record.isPublicationComplete {
                 guard let published = record.published else { throw UploadError.unresolved }
-                try remote.allowPublishedReads(path: record.destination, expected: published.version)
+                try remote.allowPublishedReads(path: record.destination, expected: published.version, collectReadProof: true)
                 guard let destination = RelativePath(record.destination),
                       let parent = RelativePath(destination.components.dropLast().joined(separator: "/")) else {
                     throw UploadError.unresolved
@@ -242,6 +248,9 @@ extension LocationSource {
                     try $0.commitEdit(record, fingerprint: native.fingerprint, nativeID: native.inode)
                 }
                 try outbox.complete(&record, item: item)
+                if let proof = remote.readProof {
+                    try? readProofCache().store(proof, receipt: published, path: destination)
+                }
             }
             // A failed cleanup remains visible and keeps the local recovery data.
             do { try EditTransaction.cleanup(&record, outbox: outbox, remote: remote) }
@@ -277,6 +286,7 @@ extension LocationSource {
         var copying: ContinuousClock.Instant?, checking: ContinuousClock.Instant?, checked: ContinuousClock.Instant?
         var phase = "namespace", mode = "none", cache = "unchecked"
         var remoteBytes: Int64 = 0
+        var parallel = false, nativeMilliseconds: Double?
         defer {
             let ended = ContinuousClock.now
             func milliseconds(_ from: ContinuousClock.Instant?, _ to: ContinuousClock.Instant?) -> Double {
@@ -289,9 +299,9 @@ extension LocationSource {
                 remote_bytes=\(remoteBytes) namespace_ms=\(namespaceWait / .milliseconds(1), format: .fixed(precision: 3)) \
                 setup_ms=\(milliseconds(acquired, verifying), format: .fixed(precision: 3)) \
                 verify_ms=\(milliseconds(verifying, copying), format: .fixed(precision: 3)) \
-                native_ms=\(milliseconds(copying, checking), format: .fixed(precision: 3)) \
+                native_ms=\(parallel ? (nativeMilliseconds ?? -1) : milliseconds(copying, checking), format: .fixed(precision: 3)) \
                 checksum_ms=\(milliseconds(checking, checked), format: .fixed(precision: 3)) \
-                total_ms=\(milliseconds(started, ended), format: .fixed(precision: 3))
+                total_ms=\(milliseconds(started, ended), format: .fixed(precision: 3)) parallel=\(parallel ? 1 : 0)
                 """)
         }
         return try editNamespace.perform {
@@ -308,7 +318,13 @@ extension LocationSource {
                     defer { observation.invalidate() }
                     guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
                     let root = try session.locationRoot(folder)
-                    let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: root, progress: progress)
+                    let fullRead = request.range.offset == 0 && request.range.length == row.size
+                    let verificationProgress = fullRead ? Progress() : progress
+                    let cancellation = progress.observe(\.isCancelled, options: [.initial]) { value, _ in
+                        if value.isCancelled, verificationProgress !== value { verificationProgress.cancel() }
+                    }
+                    defer { cancellation.invalidate() }
+                    let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: root, progress: verificationProgress)
                     defer { remoteBytes = remote.readBytes; withExtendedLifetime(remote) {} }
                     try remote.protectAncestors(of: path.string)
                     try remote.protectRead(path: path.string)
@@ -318,27 +334,37 @@ extension LocationSource {
                     _ = try ByteRange(offset: request.range.offset, length: request.range.length, fileSize: row.size)
                     let fingerprintChanged = file.snapshot.fingerprint
                         != ContentFingerprint(size: row.size, mtimeNs: row.mtimeNs, ctimeNs: row.ctimeNs)
-                    let fullRead = request.range.offset == 0 && request.range.length == row.size
+                    var cachedProof: VerifiedRead?
+                    var persisted = false
+                    if !fingerprintChanged, let base {
+                        if verifiedReadSession === session, let cached = verifiedRead,
+                           cached.receipt == base, cached.path == path {
+                            cachedProof = cached.proof
+                        } else {
+                            cachedProof = readProofCache().load(receipt: base, path: path)
+                            persisted = cachedProof != nil
+                        }
+                    }
                     cache = fullRead ? "full" : request.establishEditBase ? "establish"
                         : fingerprintChanged ? "fingerprint" : base == nil ? "receipt"
                         : verifiedReadSession !== session ? "session" : "miss"
                     verifying = .now
                     phase = "verify"
                     var rangeDigest: String?
-                    if !fullRead, !request.establishEditBase, !fingerprintChanged, let base,
-                       verifiedReadSession === session, let cached = verifiedRead,
-                       cached.receipt == base, cached.path == path {
+                    if !fullRead, !request.establishEditBase, let base, let cachedProof {
                         mode = "blocks"
                         rangeDigest = try remote.verifyRead(path: path.string, range: request.range,
-                                                            base: base.version, proof: cached.proof)
-                        cache = rangeDigest == nil ? "mismatch" : "hit"
+                                                            base: base.version, proof: cachedProof)
+                        cache = rangeDigest == nil ? "mismatch" : persisted ? "disk" : "hit"
                     }
+                    if !fullRead, rangeDigest == nil { cachedProof = nil }
                     mode = rangeDigest == nil ? "full" : "blocks"
                     var version: EditFileVersion?
-                    if rangeDigest == nil {
+                    func verify() throws -> String {
+                        if let rangeDigest { return rangeDigest }
                         verifiedRead = nil
                         verifiedReadSession = nil
-                        let current = try remote.readVersion(path: path.string, collectReadProof: true)
+                        let current = try remote.readVersion(path: path.string, collectReadProof: cachedProof == nil)
                         version = current
                         let receiptChanged = request.version.hasPrefix("e1:")
                             && base.map({ current.hasSameContents(as: $0.version) }) != true
@@ -353,32 +379,53 @@ extension LocationSource {
                             scheduleSignal()
                             throw SourceFailure.versionChanged
                         }
-                        rangeDigest = fullRead ? current.digest
+                        return fullRead ? current.digest
                             : try remote.readRangeDigest(path: path.string, range: request.range)
                     }
-                    let nativeProgress = Progress()
-                    let verified = progress.completedUnitCount
-                    let nativeObservation = nativeProgress.observe(\.completedUnitCount) { value, _ in
-                        progress.completedUnitCount = verified + value.completedUnitCount
-                        if progress.isCancelled { value.cancel() }
-                    }
-                    defer { nativeObservation.invalidate() }
-                    if progress.isCancelled { nativeProgress.cancel() }
-                    copying = .now
-                    phase = "native"
-                    var output = try Transfer.run(source: file, range: request.range, stagingDirectory: stagingDirectory,
-                                                  progress: nativeProgress, checkSpace: checkSpace)
-                    checking = .now
-                    phase = "checksum"
-                    do {
-                        guard let url = output.stagingURL else { throw UploadError.unresolved }
-                        let staged = try ReadOnlyFile(url: url)
-                        guard !progress.isCancelled else { throw TransferError.cancelled }
-                        guard let rangeDigest,
-                              try staged.checksum(range: request.range, progress: progress) == rangeDigest else {
-                            throw UploadError.unresolved
-                        }
+                    var output: TransferOutput
+                    if fullRead {
+                        parallel = true
+                        let transfer = VerifiedReadTransfer(source: file, range: request.range,
+                            stagingDirectory: stagingDirectory, progress: progress,
+                            verificationProgress: verificationProgress, checkSpace: checkSpace)
+                        output = try transfer.run(verify: {
+                            let digest = try verify()
+                            copying = .now
+                            return digest
+                        }, willChecksum: { metrics in
+                            checking = .now
+                            phase = "checksum"
+                            nativeMilliseconds = metrics.transferSeconds * 1_000
+                        })
                         checked = .now
+                    } else {
+                        rangeDigest = try verify()
+                        let nativeProgress = Progress()
+                        let verified = progress.completedUnitCount
+                        let nativeObservation = nativeProgress.observe(\.completedUnitCount) { value, _ in
+                            progress.completedUnitCount = verified + value.completedUnitCount
+                            if progress.isCancelled { value.cancel() }
+                        }
+                        defer { nativeObservation.invalidate() }
+                        if progress.isCancelled { nativeProgress.cancel() }
+                        copying = .now
+                        phase = "native"
+                        output = try Transfer.run(source: file, range: request.range, stagingDirectory: stagingDirectory,
+                                                  progress: nativeProgress, checkSpace: checkSpace)
+                    }
+                    do {
+                        if !fullRead {
+                            checking = .now
+                            phase = "checksum"
+                            guard let url = output.stagingURL else { throw UploadError.unresolved }
+                            let staged = try ReadOnlyFile(url: url)
+                            guard !progress.isCancelled else { throw TransferError.cancelled }
+                            guard let rangeDigest,
+                                  try staged.checksum(range: request.range, progress: progress) == rangeDigest else {
+                                throw UploadError.unresolved
+                            }
+                            checked = .now
+                        }
                         phase = "receipt"
                         var receipt = base
                         if request.establishEditBase, row.allowsWriting {
@@ -389,10 +436,11 @@ extension LocationSource {
                             try withCatalog { try $0.rememberEditBase(established, expectedVersion: row.contentVersion) }
                             output.contentVersion = established.contentVersion
                         }
-                        if let receipt, let version, let proof = remote.readProof,
-                           version.hasSameContents(as: receipt.version) {
+                        if let receipt, let proof = remote.readProof ?? cachedProof,
+                           version.map({ $0.hasSameContents(as: receipt.version) }) ?? (mode == "blocks") {
                             verifiedRead = (receipt, path, proof)
                             verifiedReadSession = session
+                            if remote.readProof != nil { try? readProofCache().store(proof, receipt: receipt, path: path) }
                         }
                         phase = "complete"
                         return output

@@ -62,6 +62,15 @@ class PerformanceLogTests(unittest.TestCase):
         self.assertEqual(summary["count"], 1)
         self.assertEqual(summary["protectedReads"], [])
 
+    def testParallelPhasesAndPersistedProofAreRetained(self):
+        proof = self.proof(self.first)
+        proof["eventMessage"] = proof["eventMessage"].replace("cache=hit", "cache=disk") + " parallel=1"
+        callbacks = self.parse([proof, self.fetch(self.first), self.proof(self.second), self.fetch(self.second)])
+        self.assertTrue(callbacks[0]["protectedReads"][0]["parallel"])
+        self.assertEqual(callbacks[0]["protectedReads"][0]["cache"], "disk")
+        self.assertEqual(callbacks[0]["protectedReads"][0]["totalMs"], 3039)
+        self.assertIsNone(callbacks[1]["protectedReads"][0]["parallel"])
+
     def testFailureRetainsUnreachedPhaseAndEveryAttempt(self):
         failed = self.proof(self.first)
         failed["eventMessage"] = failed["eventMessage"].replace("phase=complete", "phase=verify")
