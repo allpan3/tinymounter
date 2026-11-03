@@ -139,8 +139,9 @@ protected SMB handle. Native stage opens failed after the Linux fixture reused d
 the direct-handle probe passed 20 repeated 2 MiB uploads. The implementation uses bounded writes,
 retains exclusive sharing protection, and verifies the flushed and reopened stage before publication.
 Signed VM checks pass for repeated stages, Unicode saves, sharing protection and interrupted uploads.
-Native final confirmation and a quarantine-bearing file at an old stage name remain unresolved;
-the Mac update is withheld. See the [staging results](results/2026-11-02-samba-names-and-uploads.md).
+November 3 probes reproduce stale native names after direct rename and a native metadata write
+recreating a deleted stage after file-ID reuse. No fix is verified; the Mac update is withheld.
+See the [staging results](results/2026-11-02-samba-names-and-uploads.md).
 
 ### Selection rule
 
@@ -306,13 +307,21 @@ and first disposable VM test session. Each implementation still has to pass its 
 
 ## 11. Open decisions for the first experiment
 
+- **Single-client transport experiment, proposed 2026-11-03.** Evaluate the existing SMB client
+  for remote listing, metadata, reads and writes in a separate VM-only prototype. Controlled
+  probes reproduce both remaining symptoms when direct mutations leave stale native caches.
+  Keep verification, recovery, sandbox and scoped access; use fresh test state. First prove
+  correctness, then compare against the VM's native throughput baseline before selecting a
+  production transport. No additional dependency or licence change is proposed. This exceeds
+  the private-stage exception and is not yet authorized. See the
+  [scope and evidence](results/2026-11-02-samba-names-and-uploads.md#proposed-transport-experiment).
 - **Protected save-stage uploads, accepted 2026-11-02.** Upload private save-stage contents through
   the existing protected SMB handle. Repeated native opens failed after the Linux fixture reused
   a deleted file ID; a direct-handle probe passed 20 repeated 2 MiB writes with full readback and
   close-metadata verification. This changes the native-upload choice only for private save stages.
   Native reads and new-file uploads remain selected. No dependency or licence changes are needed;
   distribution review remains open. Required VM checks and signed repeated-stage, sharing and
-  interruption checks pass. Native final-confirmation failures and an unexplained file at an old
+  interruption checks pass. Native final-confirmation failures and a recreated file at an old
   stage name block the Mac update. Further transport changes remain undecided. See the
   [evidence and next steps](results/2026-11-02-samba-names-and-uploads.md#signed-app-verification-2026-11-02).
 - **M23 interrupted uploads, accepted 2026-10-29.** The [ordering core](results/2026-10-29-pending-save-order.md)
