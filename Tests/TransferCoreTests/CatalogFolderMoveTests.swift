@@ -303,6 +303,26 @@ final class CatalogFolderMoveTests: XCTestCase {
         XCTAssertEqual(Set(try rows("SELECT parent FROM departures")), [inbox.id, kept.id])
     }
 
+    // A replicated extension's folder signals are ignored, so the working set alone carries the move.
+    func testWorkingSetPagesDeliverTheMovedSubtreeOnceWithoutDeletions() throws {
+        let anchor = try catalog.currentAnchor()
+        let move = try prepare()
+        try catalog.commitFolderMove(move, observations: observations(move))
+        var token = anchor, delivered: [CatalogRow] = []
+        while true {
+            let batch = try catalog.changes(after: token, limit: 2)
+            XCTAssertTrue(batch.deletedIDs.isEmpty)
+            delivered += batch.updated
+            token = batch.anchor
+            if !batch.moreComing { break }
+        }
+        XCTAssertEqual(delivered.map(\.id).sorted(), move.entries.map(\.item).sorted())
+        for row in delivered { XCTAssertEqual(row, try catalog.item(id: row.id)) }
+        XCTAssertEqual(delivered.first { $0.id == tree.id }?.parentID, archive.id)
+        XCTAssertEqual(delivered.first { $0.id == nested.id }?.parentID, tree.id)
+        XCTAssertTrue(try catalog.changes(after: token, limit: 100).updated.isEmpty)
+    }
+
     func testExactRepeatIsIdempotentAndChangedRepeatIsRefused() throws {
         let move = try prepare(), evidence = try observations(move)
         let encoded = try JSONEncoder().encode(move)
