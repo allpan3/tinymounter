@@ -638,11 +638,11 @@ or server behavior must fail clearly.
 Verify the destination's exact name, original file identity and complete contents before
 committing local success. Update parent, name and native lookup metadata under the original
 item ID, preserve its content version and enumeration key, and recompute inherited retention.
-Each catalog updates the move atomically. Deliver departure to the old parent's enumerator and
-arrival to the new one, then signal the working set without deleting/recreating the global item.
-The current change query filters on the row's current parent, so signaling both folders alone
-is insufficient. A durable receipt covers partial completion across catalogs and repeated
-provider callbacks.
+Each catalog updates the move atomically. Deliver the move through the working set under the
+original item ID, without deleting or recreating it: macOS ignores signals for other containers
+from a replicated extension (`NSFileProviderManager.h`). If the system asks a folder enumerator
+for changes, the old parent reports the departure and the new parent the arrival. A durable
+receipt covers partial completion across catalogs and repeated provider callbacks.
 
 After interruption, revalidate the recorded directories as well as both file paths. Complete
 only when the destination proves the original object and contents. Retry only when the original

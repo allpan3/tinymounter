@@ -64,8 +64,8 @@ and completed replay returns a changed-version error. Restoring the folder produ
 The run found and fixed a surviving-root handle conflict; all required VM checks pass.
 Root removal/replacement and downloaded-copy invalidation still need signed verification.
 [Signed Finder rename, move and case-only checks preserve the downloaded copies](docs/results/2026-10-30-folder-move-catalog.md#signed-finder-checks-2026-10-30).
-New-folder creation now passes with the repaired fixture; parent-scoped enumeration and interruption checks
-remain open. Folder organization stays disabled in the normal build.
+New-folder creation now passes with the repaired fixture; working-set delivery of a move and
+interruption checks remain open. Folder organization stays disabled in the normal build.
 The integrated candidate passes all required VM checks with 569 tests, one optional skip and no
 failures or Swift warnings, including save recovery, recursive deletion, catalog settlement,
 keep-path cleanup and the gated app caller.
