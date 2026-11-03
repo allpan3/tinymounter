@@ -86,6 +86,11 @@ final class PathTests: XCTestCase {
         XCTAssertFalse(SMBName.same("Movie.MKV", "movie.mkv"))
         // Compatibility forms are other names on the wire, unlike under NameKey.
         XCTAssertFalse(SMBName.same("\u{fb01}le", "file"))
+        // The macOS client sends these singletons unchanged; NFC would name other files.
+        XCTAssertEqual(SMBName.key("e\u{301}\u{2126}\u{f900}\u{2f800}e\u{301}"),
+                       Data("\u{e9}\u{2126}\u{f900}\u{2f800}\u{e9}".utf8))
+        XCTAssertFalse(SMBName.same("\u{f900}", "\u{8c48}"))
+        XCTAssertFalse(SMBName.same("ohm-\u{2126}", "ohm-\u{3a9}"))
     }
 
     func testDirectoryRelativeOpenReadsNestedFileAndRejectsOtherKinds() throws {

@@ -275,6 +275,9 @@ static void composed_names(void)
     sent("composed private", tm_edit_open_private(&client, decomposed, 0, 0, security, 20, file), composed);
     sent("composed probe", tm_edit_probe_private(&client, decomposed, security, 20), composed);
     sent("composed rename", tm_edit_rename(&client, file, decomposed), "Caf\xc3\xa9\\R\xc3\xa9sum\xc3\xa9.txt");
+    // U+2126, U+F900 and U+2F800 stay as they are, as from macOS; the accents around them compose.
+    sent("kept singletons", tm_edit_open(&client, "e\xcc\x81\xe2\x84\xa6\xef\xa4\x80\xf0\xaf\xa0\x80" "e\xcc\x81", 0, 0, file),
+         "\xc3\xa9\xe2\x84\xa6\xef\xa4\x80\xf0\xaf\xa0\x80\xc3\xa9");
     result("invalid UTF-8 open", tm_edit_open(&client, "Caf\xff", 0, 0, file), EINVAL, 0);
     expect(!sent_name[0], "invalid UTF-8 open", "request sent");
 }
