@@ -340,6 +340,27 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         }
         // The header asks for userCancelled at once, from the cancellation handler.
         progress.cancellationHandler = { finish(0, CocoaError(.userCancelled)) }
+        if action == "dev.tinymounter.action.delete-permanently" {
+            DispatchQueue.global(qos: .userInitiated).async { [self] in
+                do {
+                    guard SourceReaderBridge.permanentDeletionEnabled, itemIdentifiers.count == 1,
+                          !progress.isCancelled else { throw CocoaError(.userCancelled) }
+                    let message = try catalog.read { catalog in
+                        guard let row = try catalog.item(id: itemIdentifiers[0].rawValue), !row.deleted,
+                              CatalogItem(row).allowsPermanentDeletion,
+                              let event = try catalog.providerDomainVersion() else {
+                            throw NSFileProviderError(.deletionRejected)
+                        }
+                        return try DeleteItemRequest(item: row.id, contentVersion: row.contentVersion,
+                            metadataVersion: row.metadataVersion, eventVersion: event, recursive: row.kind == .folder)
+                    }
+                    try sourceReader.deletePermanently(message, progress: progress)
+                    progress.completedUnitCount = progress.totalUnitCount
+                    finish(1, nil)
+                } catch { finish(0, providerError(error)) }
+            }
+            return progress
+        }
         let keep: Bool
         switch action {
         case "dev.tinymounter.action.keep-downloaded": keep = true

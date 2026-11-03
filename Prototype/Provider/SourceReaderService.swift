@@ -249,6 +249,15 @@ final class SourceReaderService: NSObject, NSFileProviderServiceSource, NSXPCLis
 
     func deleteItem(_ request: DeleteItemRequest, progress: Progress) throws {
         guard SourceReaderBridge.deletionEnabled else { throw NSFileProviderError(.deletionRejected) }
+        try delete(request, confirmedAction: false, progress: progress)
+    }
+
+    func deletePermanently(_ request: DeleteItemRequest, progress: Progress) throws {
+        guard SourceReaderBridge.permanentDeletionEnabled else { throw NSFileProviderError(.deletionRejected) }
+        try delete(request, confirmedAction: true, progress: progress)
+    }
+
+    private func delete(_ request: DeleteItemRequest, confirmedAction: Bool, progress: Progress) throws {
         let response = Response(progress: progress)
         let id = request.id.uuidString
         let proxy = try proxy(startupProgress: progress) { response.finish(.failure($0)) }
@@ -258,9 +267,11 @@ final class SourceReaderService: NSObject, NSFileProviderServiceSource, NSXPCLis
             if progress.isCancelled { proxy.cancelDeletion(id) }
             proxy.release(id)
         }
-        proxy.deleteItem(try ReaderMessage.encode(request)) { data, error in
+        let reply = { (data: Data?, error: NSError?) in
             response.finish(Result { try Self.payload(data, error) })
         }
+        if confirmedAction { proxy.deletePermanently(try ReaderMessage.encode(request), reply: reply) }
+        else { proxy.deleteItem(try ReaderMessage.encode(request), reply: reply) }
         while response.ready.wait(timeout: .now() + 0.1) == .timedOut {
             guard !progress.isCancelled else { throw TransferError.cancelled }
             guard !response.hasStalled else { throw NSFileProviderError(.serverUnreachable) }

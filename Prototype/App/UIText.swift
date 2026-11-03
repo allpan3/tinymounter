@@ -26,6 +26,9 @@ enum UIText {
     static let writeRequirements = "Allow changes only if every program that changes files in this share does so over SMB. Programs on the server itself, such as its apps, sync tools and scripts, bypass tinymounter’s protection. Other computers can see a new file before its upload finishes. During a save, the file is briefly unavailable, and tinymounter keeps temporary files next to it. Other computers may show them. Do not delete them. An interrupted save can keep the file unavailable until tinymounter recovers it."
     static var writeModeHint: String {
         let base = "Read only prevents changes to files on the server. Turn it off to create items, edit files, and rename or move ordinary files within this location."
+        if SourceReaderBridge.permanentDeletionEnabled {
+            return base + " To delete one file or folder, right-click it in Finder and choose Delete Permanently…. This removes it from the server and cannot be undone. Finder Replace remains unavailable."
+        }
         guard SourceReaderBridge.deletionEnabled else {
             return base + " Folder moves, deleting and replacing items remain unavailable."
         }
@@ -72,7 +75,11 @@ enum UIText {
     static let deletionDetails = "Item results"
     static let deletionRetry = "Retry"
     static let deletionRetryHint = "Retry uses the recorded items. It does not add items to this request."
-    static let deletionNewRequestHint = "To delete an item that remains, select it again in Finder."
+    static var deletionNewRequestHint: String {
+        SourceReaderBridge.permanentDeletionEnabled
+            ? "To delete an item that remains, right-click it in Finder and choose Delete Permanently…."
+            : "To delete an item that remains, select it again in Finder."
+    }
     static let deletionStatusUnavailable = "Cannot read deletion status. Keep this location until its status is available."
     static let stopDeleting = "Stop Deleting"
     static let stopDeletingMessage = "Items already deleted cannot be restored. A request already sent to the server can still delete its item."

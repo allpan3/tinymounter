@@ -22,7 +22,12 @@ checks pass, with two optional skips and no Swift warnings. Unattended restart r
 disk-pressure eviction and broader metadata checks remain. See the
 [editor and replacement results](docs/results/2026-11-03-editor-replacement.md).
 
-Deletion, 2026-11-03: signed VM checks pass for refusal restoration, Finder's permanent warning
+Deletion command, 2026-11-03: the approved **Delete Permanently…** workflow is implemented
+behind its VM validation gate. It confirms one selected file or folder, rechecks its version and
+refuses admission when macOS reports pending synchronization in either affected view. Ordinary
+delete callbacks remain refused. Compilation and signed command checks are pending.
+
+Deletion recovery, 2026-11-03: signed VM checks pass for refusal restoration, Finder's permanent warning
 and Cancel, verified and unopened files, and nested folders. Protected parent checkpoints fix
 Samba creation-time changes and survive a process restart. A lost checkpoint retains uncertainty;
 a replacement survives replay. All 644 VM tests and required checks pass. The event-version

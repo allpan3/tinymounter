@@ -42,6 +42,7 @@ final class LocationController {
     var onMaterializedChange: (() -> Void)?
     /// A domain was removed, and macOS kept its items that had not uploaded in this folder.
     var onPreserved: ((URL) -> Void)?
+    var onConfirmDeletion: ((PermanentDeletionSelection, Progress) async -> Bool)?
     /// Saved Keep Downloaded paths that a complete listing showed are not on the server, by record.
     private(set) var notOnServer: [UUID: Set<KeepPath>] = [:]
     private var restoring: Set<UUID> = []
@@ -83,6 +84,10 @@ final class LocationController {
         self.store = store
         store.onUpdate = { [weak self] in self?.updateRemountWanted() }
         reader.source = { [weak self] in self?.sources[$0] }
+        reader.confirmDeletion = { [weak self] domain, request, progress in
+            guard let self else { throw UploadError.readOnly }
+            try await self.confirmPermanentDeletion(domain, request: request, progress: progress)
+        }
         reader.onConnected = { [weak self] domainID in
             Task { await self?.signalResolved(domainID, [.serverUnreachable]) }
         }
@@ -113,6 +118,30 @@ final class LocationController {
         discoveryTask?.cancel()
         spaceTask?.cancel()
         if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
+    }
+
+    private func confirmPermanentDeletion(_ domain: String, request: DeleteItemRequest,
+                                          progress: Progress) async throws {
+        guard let source = sources[domain], let confirm = onConfirmDeletion,
+              !progress.isCancelled else { throw TransferError.cancelled }
+        let selected = try await Self.offMain { try source.permanentDeletionSelection(request) }
+        try await requireNoPendingDeletionChanges(selected)
+        guard !progress.isCancelled, await confirm(selected, progress), !progress.isCancelled else {
+            throw TransferError.cancelled
+        }
+        guard sources[domain] === source else { throw LocationError.catalogClosed }
+        try await requireNoPendingDeletionChanges(selected)
+        let current = try await Self.offMain { try source.permanentDeletionSelection(request) }
+        guard current == selected else { throw SourceFailure.versionChanged }
+    }
+
+    private func requireNoPendingDeletionChanges(_ selection: PermanentDeletionSelection) async throws {
+        for id in selection.domains {
+            guard let domain = domains[id], let manager = NSFileProviderManager(for: domain) else {
+                throw LocationError.catalogClosed
+            }
+            try await DeletionPendingObserver.requireEmpty(manager)
+        }
     }
 
     /// The share's state; not connected until its first session starts.
@@ -1661,5 +1690,46 @@ private final class MaterializedObserver: NSObject, NSFileProviderEnumerationObs
             defer { waiting = nil }
             return waiting
         }
+    }
+}
+
+private final class DeletionPendingObserver: NSObject, NSFileProviderEnumerationObserver, @unchecked Sendable {
+    private let lock = NSLock()
+    private var waiting: CheckedContinuation<NSFileProviderPage?, Error>?
+    private var hasItems = false
+
+    static func requireEmpty(_ manager: NSFileProviderManager) async throws {
+        let enumerator = manager.enumeratorForPendingItems()
+        defer { enumerator.invalidate() }
+        let observer = DeletionPendingObserver()
+        var page: NSFileProviderPage? = NSFileProviderPage(Data())
+        var pages = 0
+        while let current = page {
+            guard pages < 1024 else { throw UploadError.pendingWrites }
+            pages += 1
+            page = try await observer.next(enumerator, page: current)
+            guard !observer.lock.withLock({ observer.hasItems }), !enumerator.isMaximumSizeReached else {
+                throw UploadError.pendingWrites
+            }
+        }
+        guard enumerator.domainVersion != nil else { throw UploadError.pendingWrites }
+    }
+
+    private func next(_ enumerator: NSFileProviderEnumerator, page: NSFileProviderPage) async throws
+        -> NSFileProviderPage? {
+        try await withCheckedThrowingContinuation { continuation in
+            lock.withLock { waiting = continuation }
+            enumerator.enumerateItems(for: self, startingAt: page)
+        }
+    }
+
+    func didEnumerate(_ items: [NSFileProviderItem]) {
+        if !items.isEmpty { lock.withLock { hasItems = true } }
+    }
+
+    func finishEnumerating(upTo page: NSFileProviderPage?) { take()?.resume(returning: page) }
+    func finishEnumeratingWithError(_ error: Error) { take()?.resume(throwing: error) }
+    private func take() -> CheckedContinuation<NSFileProviderPage?, Error>? {
+        lock.withLock { defer { waiting = nil }; return waiting }
     }
 }

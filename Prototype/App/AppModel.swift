@@ -140,6 +140,7 @@ final class AppModel {
     private(set) var loginStatus = SMAppService.mainApp.status
     /// The Settings window, for sheets; its view sets it.
     @ObservationIgnored weak var window: NSWindow?
+    @ObservationIgnored private var deletionConfirmationVisible = false
     /// Opens the Settings window; the window and the menu bar item set it when they show.
     @ObservationIgnored var openSettings: (() -> Void)?
     @ObservationIgnored private static let log = Logger(subsystem: "dev.tinymounter.prototype", category: "catalog")
@@ -154,6 +155,9 @@ final class AppModel {
         controller.onLocationChange = { [weak self] domainID in self?.locationChanged(domainID) }
         controller.onMaterializedChange = { [weak self] in self?.materializedRevision += 1 }
         controller.onPreserved = { [weak self] url in self?.showPreserved(url) }
+        controller.onConfirmDeletion = { [weak self] selection, progress in
+            await self?.confirmPermanentDeletion(selection, progress: progress) ?? false
+        }
         refresh()
         if records.isEmpty {
             newLocation()
@@ -1277,6 +1281,30 @@ final class AppModel {
     private func show(_ error: Error, grantID: UUID?) {
         Self.log.error("action failed \(logFields(error), privacy: .public)")
         show(Self.message(for: error, host: grant(grantID)?.host))
+    }
+
+    private func confirmPermanentDeletion(_ selection: PermanentDeletionSelection, progress: Progress) async -> Bool {
+        guard !deletionConfirmationVisible, !progress.isCancelled else { return false }
+        deletionConfirmationVisible = true
+        defer { deletionConfirmationVisible = false }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Delete “\(selection.name)” permanently?"
+        alert.informativeText = selection.isFolder
+            ? "This removes the folder and its contents from the server for everyone. It does not move them to the Trash and cannot be undone."
+            : "This removes the file from the server for everyone. It does not move it to the Trash and cannot be undone."
+        alert.addButton(withTitle: UIText.cancel)
+        alert.addButton(withTitle: "Delete Permanently").hasDestructiveAction = true
+        let cancellation = progress.observe(\.isCancelled, options: [.initial, .new]) { _, _ in
+            guard progress.isCancelled else { return }
+            DispatchQueue.main.async {
+                if let parent = alert.window.sheetParent { parent.endSheet(alert.window, returnCode: .cancel) }
+                else if NSApp.modalWindow === alert.window { NSApp.abortModal() }
+            }
+        }
+        defer { cancellation.invalidate() }
+        NSApp.activate()
+        return await present(alert) == .alertSecondButtonReturn && !progress.isCancelled
     }
 
     /// A sheet on the Settings window if it shows, otherwise a window of its own.

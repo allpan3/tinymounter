@@ -23,6 +23,11 @@
         <key>NSExtensionFileProviderMetadataOnlyUploadPipelineDepth</key><integer>1</integer>
         <key>NSExtensionFileProviderActions</key><array>
             <dict>
+                <key>NSExtensionFileProviderActionIdentifier</key><string>dev.tinymounter.action.delete-permanently</string>
+                <key>NSExtensionFileProviderActionName</key><string>Delete Permanently…</string>
+                <key>NSExtensionFileProviderActionActivationRule</key><string>fileproviderItems.@count == 1 AND SUBQUERY(fileproviderItems, $i, $i.userInfo.permanentDeletion == 1).@count == 1</string>
+            </dict>
+            <dict>
                 <key>NSExtensionFileProviderActionIdentifier</key><string>dev.tinymounter.action.keep-downloaded</string>
                 <key>NSExtensionFileProviderActionName</key><string>Keep Downloaded</string>
                 <key>NSExtensionFileProviderActionActivationRule</key><string>SUBQUERY(fileproviderItems, $i, $i.userInfo.keep == 0).@count &gt; 0 AND SUBQUERY(fileproviderItems, $i, $i.userInfo.keep == nil).@count == 0</string>

@@ -1,12 +1,42 @@
 import Darwin
 import Foundation
 import OSLog
+import UniformTypeIdentifiers
+
+struct PermanentDeletionSelection: Equatable, Sendable {
+    let name: String
+    let isFolder: Bool
+    let path: RelativePath
+    let domains: [String]
+}
 
 // Provider routing remains gated on signed recursive-deletion checks.
 extension LocationSource {
     private static let deletionLog = Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
     private static let deletionPage = 512
     private typealias DeletionRow = (path: RelativePath, row: CatalogRow, nativeID: UInt64)
+
+    func permanentDeletionSelection(_ request: DeleteItemRequest) throws -> PermanentDeletionSelection {
+        try editNamespace.perform {
+            _ = try renameAccess()
+            let deletion = DeletionRequest(item: request.item, contentVersion: request.contentVersion,
+                metadataVersion: request.metadataVersion, eventVersion: request.eventVersion)
+            let path = try deletionPath(deletion)
+            let row = try withCatalog { catalog in
+                guard let row = try catalog.item(id: request.item),
+                      let current = try catalog.providerDomainVersion(),
+                      try ProviderDomainVersion.matches(current, request.eventVersion),
+                      FileRenameRequest.supportsName(row.name), EditRequest.supportsName(row.name),
+                      UTType(filenameExtension: (row.name as NSString).pathExtension)?.conforms(to: .package) != true,
+                      request.recursive == (row.kind == .folder) else { throw UploadError.readOnly }
+                return row
+            }
+            let affected = try deletionSources(path)
+            for source in affected { try source.requireFolderMovePathsSettled([path]) }
+            return PermanentDeletionSelection(name: row.name, isFolder: row.kind == .folder, path: path,
+                                              domains: affected.map(\.domainID).sorted())
+        }
+    }
 
     // The callback only binds recovery and cancellation under capture and namespace protection.
     func prepareDeletionOnLane(_ request: DeletionRequest, recursive: Bool,
