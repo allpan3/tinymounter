@@ -309,13 +309,18 @@ final class CatalogFolderMoveTests: XCTestCase {
         let move = try prepare()
         try catalog.commitFolderMove(move, observations: observations(move))
         var token = anchor, delivered: [CatalogRow] = []
+        var covered = try XCTUnwrap(CatalogCursor.anchorSeq(anchor, epoch: catalog.epoch, lastSeq: .max))
         while true {
             let batch = try catalog.changes(after: token, limit: 2)
             XCTAssertTrue(batch.deletedIDs.isEmpty)
+            XCTAssertEqual(batch.afterSeq, covered)
+            XCTAssertTrue(batch.updated.allSatisfy { $0.changeSeq > batch.afterSeq && $0.changeSeq <= batch.throughSeq })
             delivered += batch.updated
+            covered = batch.throughSeq
             token = batch.anchor
             if !batch.moreComing { break }
         }
+        XCTAssertEqual(covered, try catalog.counts().lastSeq)
         XCTAssertEqual(delivered.map(\.id).sorted(), move.entries.map(\.item).sorted())
         for row in delivered { XCTAssertEqual(row, try catalog.item(id: row.id)) }
         XCTAssertEqual(delivered.first { $0.id == tree.id }?.parentID, archive.id)

@@ -80,6 +80,11 @@ final class CatalogEnumerator: NSObject, NSFileProviderEnumerator {
             if !batch.deletedIDs.isEmpty {
                 observer.didDeleteItems(withIdentifiers: batch.deletedIDs.map { NSFileProviderItemIdentifier($0) })
             }
+            // The sequence range ties each batch to catalog rows without logging names.
+            Self.logger.info("""
+                changes \(self.label, privacy: .public) after=\(batch.afterSeq) through=\(batch.throughSeq) \
+                updated=\(batch.updated.count) deleted=\(batch.deletedIDs.count) more=\(batch.moreComing ? 1 : 0)
+                """)
             observer.finishEnumeratingChanges(upTo: NSFileProviderSyncAnchor(batch.anchor), moreComing: batch.moreComing)
         } catch {
             fail(error) { observer.finishEnumeratingWithError($0) }
@@ -178,16 +183,18 @@ final class CatalogEnumerator: NSObject, NSFileProviderEnumerator {
         }
     }
 
+    private var label: String {
+        switch target {
+        case .folder(let id): "folder=" + id
+        case .item(let id): "item=" + id
+        case .workingSet: "working_set=1"
+        }
+    }
+
     private func fail(_ error: Error, _ finish: (Error) -> Void) {
         let mapped = providerError(error) as NSError
-        let label: String
-        switch target {
-        case .folder(let id): label = "folder=" + id
-        case .item(let id): label = "item=" + id
-        case .workingSet: label = "working_set=1"
-        }
         Self.logger.error("""
-            enumerate \(label, privacy: .public) failed error_domain=\(mapped.domain, privacy: .public) \
+            enumerate \(self.label, privacy: .public) failed error_domain=\(mapped.domain, privacy: .public) \
             code=\(mapped.code)
             """)
         finish(mapped)
