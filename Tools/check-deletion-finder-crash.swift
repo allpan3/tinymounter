@@ -30,7 +30,7 @@ enum M24FinderCrash {
     static func checkpoint(_ plan: DeletionPlan, outbox: DeletionOutbox, node: Int,
                            stage: String) throws {
         guard let (control, _) = try capture(plan, outbox: outbox, node: node, stage: stage) else { return }
-        if control.action == "fail" { throw Injection.failed }
+        if control.action == "fail" || control.action == "fail-repeated" { throw Injection.failed }
         try M22FinderProbe.require(control.action == nil || control.action == "stop", "deletion-fault-action")
         raise(SIGSTOP)
     }
@@ -52,7 +52,9 @@ enum M24FinderCrash {
         guard let config = M22FinderProbe.selected(plan.owner),
               let directory = M22FinderCrash.export.lock.withLock({ M22FinderCrash.export.url }),
               checkpoints.contains(stage) else { return nil }
-        let controlURL = directory.appending(path: "deletion-fault.json")
+        let scopedURL = directory.appending(path: "deletion-fault-" + stage + ".json")
+        let controlURL = FileManager.default.fileExists(atPath: scopedURL.path) ? scopedURL
+            : directory.appending(path: "deletion-fault.json")
         guard FileManager.default.fileExists(atPath: controlURL.path) else { return nil }
         let control = try M22FinderProbe.load(Control.self, from: controlURL)
         try M22FinderProbe.require(control.run == config.run && checkpoints.contains(control.checkpoint),
@@ -62,7 +64,9 @@ enum M24FinderCrash {
         try M22FinderProbe.require(RelativePath(control.source) != nil
             && control.source.hasPrefix("Deletion/"), "deletion-fault-subtree")
         let hitURL = directory.appending(path: "deletion-fault-hit-" + control.id.uuidString + ".json")
-        guard !FileManager.default.fileExists(atPath: hitURL.path) else { return nil }
+        if FileManager.default.fileExists(atPath: hitURL.path) {
+            return control.action == "fail-repeated" ? (control, directory) : nil
+        }
         let progress = try outbox.durableProgress(of: plan)
         try M22FinderProbe.save(Hit(control: control, checkpoint: stage, process: getpid(),
             date: ISO8601DateFormatter().string(from: .now), plan: plan, progress: progress), to: hitURL)
