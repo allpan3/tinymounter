@@ -877,3 +877,28 @@ events and the earlier `reader-capacity-first-report.json`. Linux evidence inclu
 The queue is resumed. Builds 4 and 5 have no Swift warnings. Required VM checks in
 `checks-reader-capacity.log` and `checks-deletion-lifecycle.log` pass all 644 tests with two
 optional skips, plus the project, CLI, app-build and SMB encoder/status checks.
+
+### Timeout and connection lifecycle, 2026-11-03
+
+Six real Finder recursive deletions pass in signed eventcheck build 5: the provider's response
+timeout, reader XPC invalidation and extension termination, each before marking the first
+protected child and after its successful mark but before close. Only the transaction worker
+was held. The main app and provider remained responsive; no provider Progress was explicitly
+cancelled. The timeout runs returned `NSFileProviderErrorDomain/-1004` after the normal deadline.
+XPC invalidation returned the same connection error. The extension termination runs recorded
+replay from a new provider process while the app kept the original transaction.
+
+At each held checkpoint, the durable plan and in-flight progress remained identical, with no
+cancelled transaction Progress or queued Stop. After release, the original three-node plan
+completed in both views and Finder received success. None admitted a second deletion, recorded
+Stop or changed the unrelated kept file's ID, versions, keep flags, inode or complete digest.
+Independent server audits confirmed only the selected trees disappeared and preserved all
+remaining objects. These checks cover reply timeout and loss of the provider connection; they
+do not simulate SMB connection loss or app-source closure.
+
+Evidence includes `deletion-lifecycle-report.json`, `check-*-finished*.json`,
+`check-deletion-session-state-*.json`, archived hold controls, both provider termination
+reports and callback events. Linux `*-finished-audit.json` files compare against
+`lifecycle-seed.json`; the final audit preserves 19 remaining objects. All holds are released
+and their controls archived. Explicit cancellation, joined waiters and delayed-Settings source
+closure remain to be checked against the current integrated app.
