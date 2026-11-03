@@ -338,7 +338,11 @@ Pending saves of a file keep their arrival order, and only the newest complete s
 The [ordering implementation](results/2026-10-29-pending-save-order.md) passes core checks and a
 signed interrupted-save update check. Retired-save cleanup and status reporting pass required
 VM checks; their signed checks remain. Retry Pending Changes attempts cleanup only with complete artifact evidence;
-uncertain data stays retained. The pane reports local saved-copy bytes under the existing
+uncertain data stays retained. A private stage or backup create that got no answer is sent
+again. It is exclusive, so it succeeds only while the name is free. An older save settles such
+a create with an exclusive create that the server deletes on close. A name that is taken keeps
+the save uncertain. A lost create that the server carries out later can leave an empty private
+file. The pane reports local saved-copy bytes under the existing
 2 GiB free-space reserve and can dismiss resolved conflict notices without removing receipts.
 The 2026-10-30 completed-cleanup follow-up passes required VM checks; signed checks remain.
 Its cleaningUp state retains uncertain removals and keeps publication receipts.

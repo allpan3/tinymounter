@@ -7,6 +7,9 @@ public protocol EditRemote {
     func move(source: String, destination: String) throws
     func update(work: String, stage: String, size: Int64) throws
     func removeArtifact(path: String, version: EditFileVersion) throws
+    /// Creates a private file exclusively at `path`, which the server deletes when it closes.
+    /// Success proves that nothing was at the name; an occupied name throws `UploadError.collision`.
+    func proveAbsent(path: String) throws
 }
 
 /// The server answered the stage create with an error, and a lookup on the same connection found
@@ -37,7 +40,8 @@ public enum EditTransaction {
         guard order.head?.id == record.id else { throw UploadError.unresolved }
         // Earlier generations resolve first: some may have reached the server; order(item:) needs it.
         guard order.predecessors.isEmpty, order.superseded.isEmpty else { throw UploadError.pendingWrites }
-        if record.state == .prepared {
+        // An unanswered stage create is sent again; it is exclusive, so a landed one makes it fail.
+        if record.state == .prepared || record.state == .creatingStage && record.stageIdentity == nil {
             record.state = .creatingStage
             try outbox.save(record)
             let version: EditFileVersion
@@ -50,6 +54,9 @@ public enum EditTransaction {
                 record.state = .prepared
                 try outbox.save(record)
                 throw refusal.error
+            } catch UploadError.collision where record.stageIdentity == nil {
+                // The name can hold a partial stage of the lost attempt.
+                throw UploadError.unresolved
             }
             guard matchesEdit(version, record), version.identity == record.stageIdentity else {
                 throw UploadError.unresolved
@@ -78,12 +85,17 @@ public enum EditTransaction {
             return
         }
         record.previous = original
-        if record.state == .staged {
+        if record.state == .staged || record.state == .creatingBackup && record.backupIdentity == nil {
             record.state = .creatingBackup
             try outbox.save(record)
-            let backup = try remote.backup(original: record.path, path: record.recoveryPath) { identity in
-                record.backupIdentity = identity
-                try outbox.save(record)
+            let backup: EditFileVersion
+            do {
+                backup = try remote.backup(original: record.path, path: record.recoveryPath) { identity in
+                    record.backupIdentity = identity
+                    try outbox.save(record)
+                }
+            } catch UploadError.collision where record.backupIdentity == nil {
+                throw UploadError.unresolved
             }
             guard backup.identity == record.backupIdentity, backup.size == original.size,
                   backup.digest == original.digest else { throw UploadError.unresolved }
@@ -212,12 +224,14 @@ public enum EditTransaction {
         }
         record = stored
         if !record.isLocalOnly {
-            // Without a recorded identity, the create request may still have reached the server.
-            guard let stageVersion = record.stageVersion, stageVersion.identity == record.stageIdentity,
-                  matchesEdit(stageVersion, record) else { throw UploadError.unresolved }
-            guard let stage = try remote.inspect(path: record.stagePath, original: false),
-                  stage == stageVersion else { throw UploadError.unresolved }
-            if [.creatingBackup, .backedUp].contains(record.state) {
+            // A create without a recorded answer is settled after retirement, by cleanupRetired.
+            if record.stageIdentity != nil {
+                guard let stageVersion = record.stageVersion, stageVersion.identity == record.stageIdentity,
+                      matchesEdit(stageVersion, record) else { throw UploadError.unresolved }
+                guard let stage = try remote.inspect(path: record.stagePath, original: false),
+                      stage == stageVersion else { throw UploadError.unresolved }
+            }
+            if [.creatingBackup, .backedUp].contains(record.state), record.backupIdentity != nil {
                 guard let backupVersion = record.backupVersion, backupVersion.identity == record.backupIdentity,
                       let previous = record.previous, backupVersion.size == previous.size,
                       backupVersion.digest == previous.digest else { throw UploadError.unresolved }
@@ -241,6 +255,21 @@ public enum EditTransaction {
             return
         }
         try outbox.validateContents(record)
+        // Without an identity, only an exclusive create shows that the lost attempt left nothing.
+        if record.stageIdentity == nil, record.retiredStageRemoved != true {
+            try proveAbsent(record.stagePath, remote: remote)
+            var acknowledged = record
+            acknowledged.retiredStageRemoved = true
+            try outbox.saveRetiredProgress(acknowledged)
+            record = acknowledged
+        }
+        if record.retiredNeedsBackup, record.backupIdentity == nil, record.retiredBackupRemoved != true {
+            try proveAbsent(record.recoveryPath, remote: remote)
+            var acknowledged = record
+            acknowledged.retiredBackupRemoved = true
+            try outbox.saveRetiredProgress(acknowledged)
+            record = acknowledged
+        }
         var proved = record
         if record.retiredStageRemoved != true {
             guard let identity = record.stageIdentity,
@@ -281,6 +310,11 @@ public enum EditTransaction {
         try outbox.saveRetiredProgress(resolved)
         record = resolved
         try outbox.discardRetired(record)
+    }
+
+    private static func proveAbsent(_ path: String, remote: EditRemote) throws {
+        do { try remote.proveAbsent(path: path) }
+        catch UploadError.collision { throw UploadError.unresolved }
     }
 
     private static func publishConflict(_ record: inout PendingEdit, outbox: EditOutbox, remote: EditRemote) throws {

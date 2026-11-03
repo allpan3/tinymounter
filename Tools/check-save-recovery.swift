@@ -226,6 +226,7 @@ private enum M23FinalProbe {
             try remote.removeArtifact(path: path, version: version)
             if path == afterRemoval { throw Failure.injected }
         }
+        func proveAbsent(path: String) throws { try remote.proveAbsent(path: path) }
     }
 
     struct Share {

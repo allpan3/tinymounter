@@ -15,6 +15,8 @@ int tm_edit_open_directory(void *opaque, const char *path, uint32_t access, uint
                          uint8_t *file);
 int tm_edit_open_private(void *opaque, const char *path, uint32_t access, uint32_t sharing,
                        const uint8_t *security, uint32_t length, uint8_t *file);
+// Exclusive private create with delete-on-close, then close: success means the name was free.
+int tm_edit_probe_private(void *opaque, const char *path, const uint8_t *security, uint32_t length);
 int tm_edit_resume_key(void *opaque, uint8_t *file, uint8_t *key);
 int tm_edit_copy_chunk(void *opaque, uint8_t *target, const uint8_t *key, uint64_t source_offset,
                      uint64_t target_offset, uint32_t length, uint8_t *result);

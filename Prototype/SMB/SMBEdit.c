@@ -232,10 +232,9 @@ static void little64(uint8_t *out, uint64_t value)
     for (int i = 0; i < 8; ++i) out[i] = (uint8_t)(value >> (8 * i));
 }
 
-int tm_edit_open_private(void *opaque, const char *path, uint32_t access, uint32_t sharing,
-                       const uint8_t *security, uint32_t length, uint8_t *file)
+static int open_private(struct edit_client *client, const char *path, uint32_t access, uint32_t sharing,
+                        uint32_t options, const uint8_t *security, uint32_t length, uint8_t *file)
 {
-    struct edit_client *client = opaque;
     client->ntstatus = 0;
     struct smb2_context *smb = client->smb;
     if (!smb) return EIO;
@@ -254,7 +253,7 @@ int tm_edit_open_private(void *opaque, const char *path, uint32_t access, uint32
     request.desired_access = access;
     request.share_access = sharing;
     request.create_disposition = SMB2_FILE_CREATE;
-    request.create_options = SMB2_FILE_NON_DIRECTORY_FILE | SMB2_FILE_OPEN_REPARSE_POINT;
+    request.create_options = SMB2_FILE_NON_DIRECTORY_FILE | SMB2_FILE_OPEN_REPARSE_POINT | options;
     request.name = path;
     request.create_context_length = context_length;
     request.create_context = context;
@@ -263,6 +262,21 @@ int tm_edit_open_private(void *opaque, const char *path, uint32_t access, uint32
     free(context);
     if (!error) memcpy(file, reply.file, SMB2_FD_SIZE);
     return error;
+}
+
+int tm_edit_open_private(void *opaque, const char *path, uint32_t access, uint32_t sharing,
+                       const uint8_t *security, uint32_t length, uint8_t *file)
+{
+    return open_private(opaque, path, access, sharing, 0, security, length, file);
+}
+
+int tm_edit_probe_private(void *opaque, const char *path, const uint8_t *security, uint32_t length)
+{
+    uint8_t file[SMB2_FD_SIZE];
+    // Delete-on-close also removes the probe when the session ends before the close is answered.
+    int error = open_private(opaque, path, SMB2_DELETE | SMB2_FILE_READ_ATTRIBUTES, 0,
+                             SMB2_FILE_DELETE_ON_CLOSE, security, length, file);
+    return error ? error : tm_edit_close(opaque, file);
 }
 
 static void ioctl_done(struct smb2_context *smb, int status, void *data, void *context)
