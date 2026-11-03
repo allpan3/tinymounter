@@ -138,7 +138,9 @@ On 2026-11-02 the user approved uploading private save-stage contents through th
 protected SMB handle. Native stage opens failed after the Linux fixture reused deleted file IDs;
 the direct-handle probe passed 20 repeated 2 MiB uploads. The implementation uses bounded writes,
 retains exclusive sharing protection, and verifies the flushed and reopened stage before publication.
-Signed app verification remains required. See the [staging results](results/2026-11-02-samba-names-and-uploads.md).
+Signed VM checks pass for repeated stages, Unicode saves, sharing protection and interrupted uploads.
+Native final confirmation and a quarantine-bearing file at an old stage name remain unresolved;
+the Mac update is withheld. See the [staging results](results/2026-11-02-samba-names-and-uploads.md).
 
 ### Selection rule
 
@@ -309,8 +311,10 @@ and first disposable VM test session. Each implementation still has to pass its 
   a deleted file ID; a direct-handle probe passed 20 repeated 2 MiB writes with full readback and
   close-metadata verification. This changes the native-upload choice only for private save stages.
   Native reads and new-file uploads remain selected. No dependency or licence changes are needed;
-  distribution review remains open. Bounded writes are implemented; required VM checks and signed
-  failure/recovery checks remain. See the [evidence and scope](results/2026-11-02-samba-names-and-uploads.md#proposed-next-step).
+  distribution review remains open. Required VM checks and signed repeated-stage, sharing and
+  interruption checks pass. Native final-confirmation failures and an unexplained file at an old
+  stage name block the Mac update. Further transport changes remain undecided. See the
+  [evidence and next steps](results/2026-11-02-samba-names-and-uploads.md#signed-app-verification-2026-11-02).
 - **M23 interrupted uploads, accepted 2026-10-29.** The [ordering core](results/2026-10-29-pending-save-order.md)
   and retirement change pass the required VM checks. The user permits a newer save after durably
   preventing an older save from publishing, provided it has not started changing the original.
