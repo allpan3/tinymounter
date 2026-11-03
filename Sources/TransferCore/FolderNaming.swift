@@ -60,7 +60,7 @@ extension UploadOutbox {
             guard try !records().contains(where: { $0.id != record.id && $0.path.hasPrefix(prefix) }) else {
                 throw UploadError.readOnly
             }
-            if record.name.utf8.elementsEqual(name.utf8) {
+            if SMBName.same(record.name, name) {
                 if record.initialName != nil {
                     record.initialName = nil
                     try save(record)

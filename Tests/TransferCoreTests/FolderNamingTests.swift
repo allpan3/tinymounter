@@ -23,9 +23,9 @@ final class FolderNamingTests: XCTestCase {
         try FileManager.default.removeItem(at: directory)
     }
 
-    private func created() throws -> PendingUpload {
+    private func created(name: String = "untitled folder") throws -> PendingUpload {
         let request = try CreateRequest(template: UUID().uuidString, parent: Catalog.rootItemID,
-                                        name: "untitled folder", kind: .folder, staging: nil)
+                                        name: name, kind: .folder, staging: nil)
         var record = try outbox.prepare(request, path: XCTUnwrap(RelativePath(request.name)),
                                        contents: nil, progress: Progress())
         try outbox.createFolder(&record, progress: Progress()) { path, expected, persist in
@@ -145,6 +145,16 @@ final class FolderNamingTests: XCTestCase {
         XCTAssertNil(try outbox.records().first?.initialName)
         XCTAssertEqual(try outbox.pendingCount, 0)
         XCTAssertTrue(FileManager.default.fileExists(atPath: remote.appending(path: original).path))
+    }
+
+    func testNormalizationOnlyNameNeedsNoRename() throws {
+        var record = try created(name: "Cafe\u{301}")
+        try outbox.nameFolder(&record, name: "Caf\u{e9}") { _, _, _, _ in
+            XCTFail("SMB clients send both spellings as one name")
+            return 0
+        }
+        XCTAssertNil(try outbox.records().first?.initialName)
+        XCTAssertEqual(try outbox.pendingCount, 0)
     }
 
     func testUnknownAttemptDoesNotRenameOnReplay() throws {

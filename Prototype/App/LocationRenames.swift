@@ -67,7 +67,7 @@ extension LocationSource {
                other.id != row.id { throw UploadError.collision }
             return (path, destination)
         }
-        if path.string.utf8.elementsEqual(destination.string.utf8) { return nil }
+        if SMBName.same(path.string, destination.string) { return nil }
         let sources = try editNamespace.affectedSources(source: path, destination: destination)
         for source in sources { try source.requireRenamePathsSettled(source: path, destination: destination) }
         for source in sources { try source.prepareRenameFolders(source: path, destination: destination) }

@@ -39,7 +39,7 @@ extension LocationSource {
             try editNamespace.requireSettled()
             _ = try renameAccess()
             let (source, destination) = try folderMovePaths(request)
-            if source.string.utf8.elementsEqual(destination.string.utf8) { return nil }
+            if SMBName.same(source.string, destination.string) { return nil }
             let affected = try folderMoveSources(source: source, destination: destination)
             for participant in affected { try participant.prepareRenameFolders(source: source, destination: destination) }
             for participant in affected { try participant.requireFolderMovePathsSettled([source, destination]) }
