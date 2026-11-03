@@ -20,6 +20,8 @@ snapshot. Catalog and finished-domain stops include both catalogs' current rows.
 With --crash-checks it also enables scoped stops/failures and an asynchronous
 Settings hold from deletion-fault.json; see the M24 integration checklist.
 --enable-deletion additionally enables deletion only in the generated candidate.
+--deletion-domain-checks observes domain versions and refuses every fixture deletion
+before app/server work. It requires --overlap-checks and --deletion-checks.
 """
 import argparse
 from pathlib import Path
@@ -50,9 +52,12 @@ def main():
     parser.add_argument("--overlap-checks", action="store_true")
     parser.add_argument("--deletion-checks", action="store_true")
     parser.add_argument("--enable-deletion", action="store_true")
+    parser.add_argument("--deletion-domain-checks", action="store_true")
     args = parser.parse_args()
     if args.enable_deletion and not args.deletion_checks:
         parser.error("--enable-deletion requires --deletion-checks")
+    if args.deletion_domain_checks and not (args.deletion_checks and args.overlap_checks):
+        parser.error("--deletion-domain-checks requires --deletion-checks and --overlap-checks")
     source = Path(__file__).resolve().parent.parent
     if Path.home() != Path("/Users/user") or not Path("/Volumes/tinymounter-single").is_mount():
         raise RuntimeError("run only in the mounted macOS VM fixture")
@@ -294,6 +299,25 @@ extension M22FinderProbe {
     }
 }
 '''
+    if args.deletion_domain_checks:
+        content = replace(content,
+            '        guard SourceReaderBridge.deletionEnabled else {',
+            '        if M22FinderProbe.selected(domain.identifier.rawValue) != nil {\n'
+            '            return probeDeletionDomain(identifier, base: version, request: request,\n'
+            '                                       reply: completionHandler)\n'
+            '        }\n'
+            '        guard SourceReaderBridge.deletionEnabled else {')
+        content += "\n" + (root / "Tools/check-deletion-domain.swift").read_text()
+        app.write_text(replace(app.read_text(),
+            '                        for (index, view) in try M22FinderProbe.configs(config).enumerated() {',
+            '                        if request.label == "check-domain-reject" {\n'
+            '                            try M22FinderProbe.save(true,\n'
+            '                                to: channel.appending(path: "domain-reject"))\n'
+            '                        }\n'
+            '                        if ["check-domain-reject", "check-domain-retry"].contains(request.label) {\n'
+            '                            await resumeCreates(config.domain)\n'
+            '                        }\n'
+            '                        for (index, view) in try M22FinderProbe.configs(config).enumerated() {'))
     provider.write_text(content + "\n" + helper.split("#if !M22_FINDER_PROVIDER")[0]
                         + "\n" + overlap.split("#if !M22_FINDER_PROVIDER")[0])
     if args.enable:

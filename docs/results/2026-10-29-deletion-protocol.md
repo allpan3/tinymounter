@@ -723,3 +723,32 @@ Evidence is in the same private `repair/` directory: `deletion-concurrency-held-
 `check-deletion-lost-reply*.json`, `check-deletion-settings-retried*.json` and
 `check-deletion-settings-stopped*.json`. Linux inventories include `deletion-gates-complete-audit.json`,
 `deletion-retry-after-audit.json` and `deletion-stop-after-audit.json`.
+
+### Refreshed deletion callback, 2026-11-03
+
+Build 32 failed the stopped-file preservation check. On restart, the new retry signal made
+Finder resend the selected item with metadata version 309 instead of its original 287.
+The content version and item ID were unchanged. The candidate admitted this as a new request
+and deleted the synthetic file. Independent Linux inspection confirmed that removal and
+preserved the other 37 objects. A metadata-version change therefore does not prove a new user
+Delete action. Normal deletion remains disabled. Do not install this candidate for user data.
+
+Required VM checks had passed with 635 tests, two optional skips, no failures or Swift warnings,
+plus the project, CLI, unsigned app and SMB checks. These do not cover Finder's rebasing of a
+pending deletion. The signed failure supersedes any assumption that the notification repair
+alone makes Stop safe. Evidence includes `check-deletion-notification-launch*.json`, the
+`delete-begin`/`delete-end` callback events, and `deletion-stop-unexpected-removal-audit.json`.
+The before recording is `repair/deletion-stop-before.mov`.
+
+The SDK offers `NSFileProviderRequest.domainVersion`: the domain version when the triggering
+local event was observed. `NSFileProviderDomainState` defines how the system learns that version
+from completions and working-set enumeration. The next isolated probe implements this protocol
+and captures request/current versions while refusing every fixture deletion before app/server
+work. A bounded mapping from catalog sequence to successive domain versions is probe-only.
+It is not a production persistence design. Requests `check-domain-retry` and
+`check-domain-reject` signal the existing callback; the latter enables terminal refusal so
+Finder can restore the item. Verify replay and a fresh user action before changing admission.
+
+Sources are the macOS SDK headers `NSFileProviderRequest.h` and
+`NSFileProviderReplicatedExtension.h`, protocol `NSFileProviderDomainState`. Actor flags in the
+request are explicitly unavailable for create/modify/delete and cannot distinguish replay.
