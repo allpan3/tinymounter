@@ -479,7 +479,8 @@ timestamps on close without accepting unexplained timestamp changes during clean
 Private save stages upload through their existing SMB handle with exclusive sharing protection.
 Writes use at most 64 KiB per request; short acknowledgements advance only by the confirmed count.
 A lost reply leaves the save pending. This avoids native pathname opens after server file-ID reuse.
-The transport change is accepted; its signed app checks remain outstanding.
+Signed VM checks pass for repeated stage uploads, sharing exclusion and interruption. Native
+confirmation after publication can still fail until Retry; the Mac update remains withheld.
 Pending edits retain bounded original attributes separately, because macOS can change metadata
 when a sandboxed app copies the file. Export restores user attributes while macOS controls the
 new local file's access and quarantine attributes.
@@ -514,5 +515,6 @@ Its downloads fail as a missing file. Its saves stay unresolved without a confli
 copy, and its renames, moves and deletions refuse. If the catalog doesn't list such a name, a
 new file or folder can still be created next to it, as through Finder's own mount. Unit tests
 cover these comparisons. Signed Samba/ext4 checks verify selected accented uploads and saves,
-but the direct stage-upload fix for repeated saves still needs signed verification. See the
+and 20 repeated saves with stage file-ID reuse. Native final confirmation and an unexplained
+quarantine-bearing file at an old stage name still need resolution. See the
 [runtime results and accepted staging change](results/2026-11-02-samba-names-and-uploads.md).

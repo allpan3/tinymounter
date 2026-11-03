@@ -2,14 +2,14 @@
 
 ## Outcome
 
-The candidate is not ready for the physical Mac. Filename handling, upload confirmation and
-save timestamp fixes pass the required VM checks and selected signed runtime cases. Repeated
-saves exposed a separate failure when the native SMB client opens a new staging file whose
-server file ID belonged to a deleted file. The save stays pending with its local content intact.
+The candidate is not ready for the physical Mac. The approved direct save-stage upload passes
+required VM checks and 20 signed repeated saves while ext4 reuses the same stage file ID.
+Unicode saves, sharing protection, read-only refusal and interrupted-save retention also pass.
+Reads and ordinary new-file uploads remain native.
 
-An isolated probe that writes through the existing protected SMB handle passed 20 repeated
-2 MiB uploads, including full readback, identity and close-timestamp checks. Adopting that route
-for private save stages is proposed below. It is not implemented in the app.
+Two published saves still needed Retry to finish native confirmation. During a later native
+upload, an empty file with quarantine metadata appeared at a completed transaction's old stage name.
+Its origin is unresolved. These findings keep the Mac update withheld.
 
 ## Setup and method
 
@@ -95,10 +95,11 @@ malformed/missing close-response handling; they do not replace signed interrupti
 
 ## Limits and retained state
 
-Repeated saves, read-only mode, fresh nested saves, accented rename/move workflows and competing
-changes around close/reopen still require signed verification. Earlier pending records and
-private recovery files remain intact. The dedicated save share remains available so those
-records can be investigated and recovered. No physical-Mac installation or publication occurred.
+The follow-up below verifies repeated saves, read-only refusal, fresh nested saves and a
+competing edit. Accented rename/move workflows and competing changes specifically during
+close/reopen still require signed verification. Earlier pending records and private recovery
+files remain intact. Test shares remain available for recovery. No physical-Mac installation
+or publication occurred.
 
 NFD-stored names are unsupported by the tested native mount and this adapter on the byte-exact
 fixture. This is not a claim about every SMB client. Canonically colliding server names also
@@ -124,7 +125,7 @@ the evidence archive. Reproduce only against a dedicated fixture, with cached te
 
 ## Proposed next step
 
-Decision status: proposed.
+Decision status: accepted on 2026-11-02; implemented and tested below.
 
 Upload private save-stage contents through the existing direct SMB handle, then retain the
 current flush, close-response, full-content verification and recovery transaction. The stage
@@ -148,4 +149,75 @@ handle for bounded 64 KiB writes, with no native reopen and no second verifier h
 and backups both retain exclusive sharing protection. Short replies advance by their confirmed
 count; zero, oversized, missing and lost replies fail without acknowledging completion.
 The existing transaction, full verification, close-response checks and cleanup rules remain.
-Required VM checks and signed app verification are next; the physical-Mac candidate is still withheld.
+Required VM checks and signed app results follow; the physical-Mac candidate is still withheld.
+
+## Signed app verification, 2026-11-02
+
+Build 07 used the accepted implementation on the same macOS/Samba/ext4 setup. Its fresh
+`tinymounter-stage` share points to a separate disposable fixture. Native metadata caches stayed
+warm, and disk caches were uncontrolled. These are correctness checks, not speed measurements.
+The required VM checks passed with 610 Swift tests, one optional skip, no failures or Swift
+warnings, six SET_INFO cases, 88 edit-status cases, 18 folder-create cases and 7,205 encryption cases.
+
+| Signed case | Result |
+| --- | --- |
+| 20 successive plain-file saves | All 20 versions reached the server, retaining the original identity. All 20 stages reused one ext4 file ID. No stage or backup remained at the end of the series. |
+| Accented, unique U+2126, unique U+F900 and accented-parent saves | Correct bytes and original identities, with cleanup complete. |
+| Save an existing file as empty | Zero bytes on the original identity, with cleanup complete. |
+| First save of a 2 MiB file after appending a line | Correct published bytes, but native confirmation returned `ENOENT`. Retry completed confirmation and cleanup. |
+| Four further saves of that larger file | Completed without intervention; original identity retained. |
+| Ordinary native upload, then three saves | Accented new filename and correct bytes on the server; subsequent saves preserved its identity. A separate empty file at an old stage name appeared during the native upload. |
+| Read-only mode | TextEdit read the saved content. Unlock followed by Save was refused for lack of permission; server bytes and identity stayed unchanged. Write access was restored afterward. |
+| Another SMB client changes the original before publication | The original kept the other client's bytes. The local edit became a separate conflict copy; native confirmation initially returned `ENOENT`, then completed on Retry. |
+
+The conflict check suspended the app after TextEdit had opened the original. TextEdit saved a
+local edit, a separate native SMB writer changed the server file, and the app resumed. This
+checks preservation of both complete versions; it does not test every close/reopen race.
+
+### Interrupted stage and sharing protection
+
+Isolated test build 08 added a pause after the first acknowledged 64 KiB write, restricted to
+the disposable share and an explicit test environment variable. The production source has no
+pause hook. While the signed app held the stage, a separate SMB connection attempted read,
+write and delete opens. All three received `STATUS_SHARING_VIOLATION`, rather than the native
+`ENOENT` seen in the earlier probe.
+
+The app was terminated at that pause. The server still had the unchanged original and a
+64 KiB partial stage. After relaunch, macOS resent the complete local edit. A newer transaction
+published all 2,240,000 bytes on the original identity. The older partial stage and its complete
+local copy remained retained, with the UI reporting that the older save would not upload.
+Export through the app produced the full expected size and digest. Build 07 was restored and
+its signature verified. No protection or recovery comparison was relaxed.
+
+The two pending build-06 saves were also exported through the app and checked against their
+expected text. Their records and remote artifacts remain available. All exports stayed in the
+VM's local `Desktop/TinyMounter-retained-build06` folder.
+
+### Remaining failures and next work
+
+Native confirmation happens after direct verification and publication. Both the first larger
+save and the conflict publication returned `ENOENT` at this stage and completed on Retry.
+Their correct server contents did not by themselves make the initial save successful.
+A probe retaining a native metadata-only handle before acquiring exclusive SMB protection
+received a sharing violation, so that approach was not adopted.
+
+At 23:32:12 local time, during the ordinary native upload, a new zero-byte file appeared at the
+stage name of the larger save completed at 23:29:21. Its ext4 birth time is 23:32:12, and it
+carries a quarantine stream but no private-stage ACL xattr. The completed transaction is not
+pending, and no SMB open remained on that file when inspected. The evidence does not identify
+which client operation created it or prove that file-ID reuse caused it. Preserve this file
+and trace the actual create and metadata requests before changing cleanup behaviour.
+
+Next, isolate native confirmation after publication and the operation that recreates the old
+stage pathname. Keep exact identity, timestamp and content checks. No wider transport change
+has been approved. After resolving these findings, repeat the affected signed cases and finish
+the outstanding filename organization checks before preparing a normal Mac build.
+
+Additional private evidence in `results/org-checks-20261102/` includes
+`run-checks-direct-stage.log`, `build-07.log`, `build-08.log`, `build-08-fixture.patch`,
+`direct-stage-runtime.log`, `native-event-guard.json`, `signed-stage-sharing.json`,
+`interruption-expected.json`, `interruption-export-verification.json`, `direct-stage-summary.json`,
+`quarantine-stage-stat.txt` and the
+`tinymounter-stage-*.json` Linux audits. The runtime audit records all 20 distinct saved
+versions and the reused stage identity. Unified-log queries also sampled transaction outcomes
+during the run; the final log extraction does not retain every earlier Info event.
