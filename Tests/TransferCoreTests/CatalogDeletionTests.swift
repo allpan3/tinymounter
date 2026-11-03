@@ -66,7 +66,7 @@ final class CatalogDeletionTests: XCTestCase {
                                      metadataVersion: after.metadataVersion, eventVersion: Data([2]))))
     }
 
-    func testUnconfirmedSurvivorPreservesMetadataAfterFreshListingAndKeepsOldEventReplay() throws {
+    func testUnconfirmedSurvivorSignalsAfterFreshListingAndKeepsOldEventReplay() throws {
         let tree = try XCTUnwrap(ids["Tree"])
         try owner.setKeep(ids: [tree], value: true)
         let before = try XCTUnwrap(owner.item(id: tree))
@@ -83,14 +83,14 @@ final class CatalogDeletionTests: XCTestCase {
         let anchor = try owner.currentAnchor()
         let final = try complete(record, first)
         let after = try XCTUnwrap(owner.item(id: tree))
-        XCTAssertEqual(after.metadataVersion, before.metadataVersion)
+        XCTAssertGreaterThan(after.changeSeq, before.changeSeq)
         XCTAssertEqual(after.id, before.id)
         XCTAssertEqual(after.contentVersion, before.contentVersion)
         XCTAssertEqual(after.keep, before.keep)
         XCTAssertEqual(after.keepRequested, before.keepRequested)
         XCTAssertFalse(after.deleted)
         XCTAssertTrue(final.refresh.contains(root))
-        XCTAssertFalse(try owner.changes(after: anchor, limit: 100).updated.contains { $0.id == tree })
+        XCTAssertEqual(try owner.changes(after: anchor, limit: 100).updated.map(\.id), [tree])
         XCTAssertTrue(try settle(record, previous: final).isSettled)
         XCTAssertEqual(try owner.item(id: tree)?.metadataVersion, after.metadataVersion)
         XCTAssertEqual(try owner.item(id: XCTUnwrap(ids["neighbor"])), neighborBefore)
@@ -104,6 +104,13 @@ final class CatalogDeletionTests: XCTestCase {
             XCTAssertEqual($0 as? ItemDeletionError, .unresolved)
         }
         XCTAssertEqual(replay, record)
+        let refreshed = DeletionRequest(item: tree, contentVersion: after.contentVersion,
+            metadataVersion: after.metadataVersion, eventVersion: record.plan.request.eventVersion)
+        XCTAssertEqual(try fixture.outbox.replay(endpoint: fixture.endpoint,
+            owner: fixture.owner, request: refreshed), record)
+        let completed = try settle(record)
+        XCTAssertTrue(try complete(record, completed).isSettled)
+        XCTAssertEqual(try owner.item(id: tree)?.metadataVersion, after.metadataVersion)
         XCTAssertNil(try fixture.outbox.replay(endpoint: fixture.endpoint, owner: fixture.owner,
             request: DeletionRequest(item: tree, contentVersion: after.contentVersion,
                                      metadataVersion: after.metadataVersion, eventVersion: Data([2]))))

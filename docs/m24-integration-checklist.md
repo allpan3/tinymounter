@@ -82,6 +82,8 @@ Snapshot labels starting `check-stopped-replay-` also exercise the production ap
 for a completed stopped item with refreshed catalog bases and an equivalent XML event archive.
 The helper requires the original stopped outcome and unchanged durable records. This supplements
 real Finder callbacks; it does not claim that Finder sent the constructed request.
+`check-unconfirmed-replay-` applies the same check to completed unconfirmed selected items,
+requiring the original unresolved result, current item bases and unchanged durable records.
 The `check-reader-jobs-hold` request suspends the idle reader queue and submits four
 constructed reads through the selected domain's connected reader session. Delete another
 fixture file in Finder while those jobs occupy the session. `check-reader-jobs-release-one`

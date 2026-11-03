@@ -12,7 +12,9 @@ Concurrent deletions from two overlapping views also complete after busy retries
 queue refuses deletion, then Finder completes it after one slot is released. All held reads drain.
 Six timeout, connection-loss and extension-restart checks complete the original deletion without
 turning it into Stop. Explicit cancellation stops later nodes and retains the active node's
-uncertainty; dismissing its notice preserves the result. Remaining controller checks are in progress.
+uncertainty; dismissing its notice preserves the result. Joined requests and source closure during
+Settings completion also pass. A surviving selected file remains hidden after an unconfirmed
+deletion settles. A catalog notification repair is awaiting signed verification.
 Deletion remains disabled in normal builds. See the
 [deletion results](docs/results/2026-10-29-deletion-protocol.md#finder-deletion-and-parent-checkpoints-2026-11-03).
 
