@@ -17,6 +17,7 @@ app. Kill that exact process to test recovery; each control ID fires only once.
 the same fixture. Later requests export both views, with -peer on the second
 snapshot. Catalog and finished-domain stops include both catalogs' current rows.
 --deletion-checks records deletion callbacks and durable operations in these views.
+With --crash-checks it also enables node-bound stops from deletion-fault.json.
 --enable-deletion additionally enables deletion only in the generated candidate.
 """
 import argparse
@@ -217,6 +218,17 @@ def main():
             '        try M22FinderCrash.checkpoint(record, stage: "before-reply")\n'
             '        return CreateReceipt(item: request.item)')
         moves.write_text(content)
+        if args.deletion_checks:
+            app.write_text(app.read_text() + "\n" + (root / "Tools/check-deletion-finder-crash.swift").read_text())
+            deletion = root / "Sources/TransferCore/RecursiveDeletion.swift"
+            content = replace(deletion.read_text(),
+                '                            try outbox.advance(plan, from: stored, to: updated)\n',
+                '                            try M24FinderCrash.checkpoint(plan, outbox: outbox, node: index,\n'
+                '                                stage: next.state.rawValue + "-before")\n'
+                '                            try outbox.advance(plan, from: stored, to: updated)\n'
+                '                            try M24FinderCrash.checkpoint(plan, outbox: outbox, node: index,\n'
+                '                                stage: next.state.rawValue + "-after")\n')
+            deletion.write_text(content)
     provider = root / "Prototype/Provider/FileProviderExtension.swift"
     content = provider.read_text()
     content = replace(content, 'try CatalogEnumerator.make(for: containerItemIdentifier, catalog: catalog, reader: sourceReader, domain: domain)',
