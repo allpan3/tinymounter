@@ -314,9 +314,13 @@ The first command accepts one ordinary file or folder at a time, with recursive 
 Cancel is the default, the selected version is rechecked after confirmation, and pending system
 synchronization in either overlapping view blocks admission. This conservative check can also
 block deletion while an unrelated item in that view is syncing. The command remains gated until
-signed tests establish local-edit preservation and cancellation. No replacement binding was
-found in the reviewed public APIs. See the [replacement gate](results/2026-11-03-editor-replacement.md)
-and the [deletion results](results/2026-10-29-deletion-protocol.md).
+signed tests establish local-edit preservation and cancellation. A save arriving after deletion
+can retain its old catalog path solely for local recovery and export, including deleted parents.
+Publication still requires a live catalog binding; a new occupant never authorizes that old save.
+No replacement binding was found in the reviewed public APIs. See the
+[replacement gate](results/2026-11-03-editor-replacement.md),
+[command results](results/2026-11-03-permanent-command.md) and
+[deletion results](results/2026-10-29-deletion-protocol.md).
 
 ## 9. Future server volume mode
 

@@ -355,6 +355,10 @@ public final class Catalog {
 
     /// nil for a tombstone or an unknown ID; `pathRejected` over 256 components or for a bad name.
     public func relativePath(of id: String) throws -> RelativePath? {
+        try path(of: id, includingDeleted: false)
+    }
+
+    func path(of id: String, includingDeleted: Bool) throws -> RelativePath? {
         let chain = try database.prepare("""
             WITH RECURSIVE chain(depth, parent_id, name, deleted) AS (
               SELECT 0, parent_id, name, deleted FROM items WHERE id = ?1
@@ -369,7 +373,7 @@ public final class Catalog {
             while try statement.step() { chain.append((statement.bool(0), statement.text(1), statement.bool(2))) }
             return chain
         }
-        guard let top = chain.first, !chain.contains(where: \.deleted) else { return nil }
+        guard let top = chain.first, includingDeleted || !chain.contains(where: \.deleted) else { return nil }
         guard top.isRoot else { throw SourceFailure.pathRejected }
         var path = RelativePath.root
         for link in chain.dropFirst() {
