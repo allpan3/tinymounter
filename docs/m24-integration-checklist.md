@@ -98,6 +98,10 @@ object; `marked` holds after the mark succeeds and before close. The app and ext
 `check-deletion-session-state-TRIAL` exports the connected session's jobs, active/cancelled
 transaction progress and queued Stops. `check-deletion-session-invalidate-TRIAL` exports the
 same observations and invalidates that actual connection. Inspect again after reconnection.
+`check-provider-cancel-TRIAL` sends a fixture/item/event-bound command to cancel the Progress
+returned by the active real provider callback. Its timer consumes the command once and emits
+`delete-progress-cancel`. This tests the production cancellation path with a constructed trigger;
+it does not establish the behavior of Finder's cancellation UI.
 
 1. Integrate the commits and run `Tools/run-checks.sh` in the VM. App-target changes have not
    been compiled on the host. The generator includes the shared domain-version archive helper

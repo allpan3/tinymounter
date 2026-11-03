@@ -167,6 +167,7 @@ def main():
         reader = root / "Prototype/App/SourceReaderHost.swift"
         reader.write_text(reader.read_text() + "\n" + (root / "Tools/check-deletion-reader-jobs.swift").read_text())
         helper += "\n" + (root / "Tools/check-deletion-replay.swift").read_text()
+        helper += "\n" + (root / "Tools/check-deletion-provider-cancel.swift").read_text()
         replay_hook = ('                        if request.label == "overlap-setup" { try await m22FinderAddPeer(config) }'
                        if args.overlap_checks else '                        try await m22FinderSnapshot(config, label: request.label)')
         helper = replace(helper, replay_hook,
@@ -178,6 +179,9 @@ def main():
             '                        }\n'
             '                        if request.label.hasPrefix("check-deletion-session-") {\n'
             '                            try checkDeletionSession(config, label: request.label)\n'
+            '                        }\n'
+            '                        if request.label.hasPrefix("check-provider-cancel-") {\n'
+            '                            try await checkProviderDeletionCancellation(config, label: request.label)\n'
             '                        }\n'
             + replay_hook)
         helper = replace(helper, '    struct Snapshot: Codable {', '''    struct Deletion: Codable {
@@ -293,7 +297,17 @@ def main():
 '''
         content = content[:position] + hook + content[position:]
     if args.deletion_checks:
+        content += "\n" + (root / "Tools/check-deletion-provider-cancel.swift").read_text()
         start = content.index("    func deleteItem(")
+        end = content.index("    private func deletionError(", start)
+        method = content[start:end]
+        method = replace(method, '        let once = Once()\n',
+            '        let cancellation = M24ProviderCancellation(domain: domain.identifier.rawValue,\n'
+            '            item: identifier.rawValue, event: request.domainVersion, progress: progress)\n'
+            '        let once = Once()\n')
+        method = replace(method, '            if once.claim() { completionHandler(error) }',
+            '            if once.claim() { cancellation?.stop(); completionHandler(error) }')
+        content = content[:start] + method + content[end:]
         position = content.index(" -> Progress {\n", start) + len(" -> Progress {\n")
         content = content[:position] + '''        let completionHandler = M22FinderProbe.deletion(
             domain: domain.identifier.rawValue, item: identifier, base: version,

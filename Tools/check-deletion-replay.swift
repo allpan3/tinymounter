@@ -3,6 +3,21 @@ import Foundation
 
 #if !M22_FINDER_PROVIDER
 extension LocationController {
+    func checkProviderDeletionCancellation(_ config: M22FinderProbe.Config, label: String) async throws {
+        let records = try await Self.offMain { try LocationSource.deletionOutbox().records() }
+        let active = records.filter { $0.plan.owner == config.domain && !$0.isSettled }
+        try M22FinderProbe.require(active.count == 1, "one-active-deletion-required")
+        let record = active[0]
+        try M22FinderProbe.require(record.plan.selected.path.hasPrefix(config.folder + "/Deletion/"),
+                                  "provider-cancel-fixture-scope")
+        let command = M24ProviderCancellation.Command(run: config.run, item: record.plan.request.item,
+            event: record.plan.request.eventVersion, id: UUID())
+        let directory = try M22FinderProbe.directory(config.run)
+        try M22FinderProbe.save(command,
+            to: directory.appending(path: "deletion-cancel-" + command.item + ".json"))
+        try M22FinderProbe.save(command, to: directory.appending(path: label + "-command.json"))
+    }
+
     func checkDeletionSession(_ config: M22FinderProbe.Config, label: String) throws {
         let invalidate = label.hasPrefix("check-deletion-session-invalidate-")
         try M22FinderProbe.require(invalidate || label.hasPrefix("check-deletion-session-state-"),
