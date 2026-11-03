@@ -31,15 +31,17 @@ extension LocationSource {
             let version = try remote.readVersion(path: upload.path, collectReadProof: true)
             let file = try ReadOnlyFile(directoryFD: root, relativePath: path, expected: session.identity)
             let listed = ContentFingerprint(size: row.size, mtimeNs: row.mtimeNs, ctimeNs: row.ctimeNs)
-            guard version.size == upload.size, version.digest == upload.digest,
-                  file.snapshot.inode == upload.remoteID, file.snapshot.fingerprint == listed else {
+            let uploaded = version.size == upload.size && version.digest == upload.digest
+                && file.snapshot.inode == upload.remoteID
+            guard uploaded, file.snapshot.fingerprint == listed else {
                 Logger(subsystem: "dev.tinymounter.prototype", category: "upload").error("""
                     edit_base_unresolved size=\(version.size == upload.size) digest=\(version.digest == upload.digest) \
                     inode=\(file.snapshot.inode == upload.remoteID) \
                     mtime_ns=\(file.snapshot.fingerprint.mtimeNs &- listed.mtimeNs) \
                     ctime_ns=\(file.snapshot.fingerprint.ctimeNs &- listed.ctimeNs)
                     """)
-                throw UploadError.unresolved
+                // Only the listed times differ: the caller lists again.
+                throw uploaded ? SourceFailure.versionChanged : UploadError.unresolved
             }
             let receipt = try EditBaseReceipt(item: row.id, version: version)
             try Self.editOutbox(domainID: domainID).storeBase(receipt)
