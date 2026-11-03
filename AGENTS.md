@@ -18,8 +18,11 @@ current status.
   exclusive folder creation and initial naming after the safety checks and licence review.
   Reads and new-file uploads stay native. On 2026-11-02 the user approved uploading private
   save-stage files through the existing protected SMB handle after the file-ID reuse probe.
-  Further dependencies or transport changes need a user
-  decision after measurement and a licence review ([architecture.md §5](docs/architecture.md#5-native-smb-versus-direct-smb)).
+  On 2026-11-03 the user authorized all work needed in the VM, including a separate
+  single-client prototype for remote listing, metadata, reads and writes and its correctness
+  and performance checks. Do not ask again for VM implementation or experiment approval.
+  Production adoption, physical-Mac installation and publication remain separate decisions.
+  Further dependencies need a user decision after measurement and a licence review ([architecture.md §5](docs/architecture.md#5-native-smb-versus-direct-smb)).
   M19's accepted design adds protected regular-file staging, verification and transactional
   rename/cleanup, gated by the [protocol checks](docs/phase4-plan.md#m19-online-editing).
 

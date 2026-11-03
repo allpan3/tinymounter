@@ -31,6 +31,7 @@ static struct smb2_pdu *fake_create(struct smb2_context *smb, struct smb2_create
 static struct smb2_pdu *fake_set_info(struct smb2_context *smb, struct smb2_set_info_request *request,
                                       smb2_command_cb callback, void *context);
 static char sent_name[1100];
+static uint32_t sent_disposition, sent_access, sent_sharing, sent_options;
 static int inspect_write;
 static uint8_t sent_write[48], sent_payload[4096];
 
@@ -131,6 +132,10 @@ static struct smb2_pdu *fake_create(struct smb2_context *smb, struct smb2_create
                                     smb2_command_cb callback, void *context)
 {
     snprintf(sent_name, sizeof(sent_name), "%s", request->name);
+    sent_disposition = request->create_disposition;
+    sent_access = request->desired_access;
+    sent_sharing = request->share_access;
+    sent_options = request->create_options;
     return fail_create ? NULL : smb2_cmd_create_async(smb, request, callback, context);
 }
 
@@ -448,6 +453,37 @@ static void stage_writes(void)
     }
 }
 
+static void exclusive_uploads(void)
+{
+    prepare();
+    struct smb2_create_reply reply = {0};
+    memset(reply.file_id, 0x5a, sizeof(reply.file_id));
+    response_data = &reply;
+    uint32_t access = SMB2_FILE_READ_DATA | SMB2_FILE_WRITE_DATA | SMB2_FILE_READ_ATTRIBUTES;
+    result("exclusive upload", tm_edit_create(&client, "folder/new.txt", access, file), 0, 0);
+    expect(sent_disposition == SMB2_FILE_CREATE && sent_access == access && sent_sharing == 0,
+           "exclusive upload", "create could replace or share an existing file");
+    expect(sent_options == (SMB2_FILE_NON_DIRECTORY_FILE | SMB2_FILE_OPEN_REPARSE_POINT)
+           && !memcmp(file, reply.file_id, sizeof(file)), "exclusive upload", "unsafe type or lost handle");
+    result("invalid upload path", tm_edit_create(&client, "../new.txt", access, file), EINVAL, 0);
+    struct smb2_error_reply error_reply = {0};
+    response_status = SMB2_STATUS_OBJECT_NAME_COLLISION;
+    response_data = &error_reply;
+    result("upload collision", tm_edit_create(&client, "folder/new.txt", access, file),
+           nterror_to_errno(response_status), response_status);
+    const enum delivery modes[] = {service_failure, timeout, reply_then_service_failure};
+    const int errors[] = {EIO, ETIMEDOUT, EIO};
+    for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
+        prepare();
+        delivery = modes[i];
+        response_data = &reply;
+        memset(file, 0x33, sizeof(file));
+        result("lost upload create", tm_edit_create(&client, "folder/new.txt", access, file), errors[i], 0);
+        expect(file[0] == 0x33 && destroyed == 1 && !client.smb,
+               "lost upload create", "uncertain handle published or connection retained");
+    }
+}
+
 int main(void)
 {
     server_failures();
@@ -458,6 +494,7 @@ int main(void)
     close_attributes();
     stage_writes();
     composed_names();
+    exclusive_uploads();
     if (client.smb) smb2_destroy_context(client.smb);
     if (failures) {
         fprintf(stderr, "SMB edit status: %d failures\n", failures);

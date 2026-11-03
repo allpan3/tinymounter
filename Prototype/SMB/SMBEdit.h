@@ -10,6 +10,7 @@ uint32_t tm_edit_last_ntstatus(void *opaque);
 // Path arguments are share-relative and reach the server composed (NFC), as from the macOS client.
 int tm_edit_open(void *opaque, const char *path, uint32_t access, uint32_t sharing,
                uint8_t *file);
+int tm_edit_create(void *opaque, const char *path, uint32_t access, uint8_t *file);
 int tm_edit_open_quarantine(void *opaque, const char *path, uint8_t *file);
 int tm_edit_close(void *opaque, uint8_t *file);
 // Close attributes: creation, modification and change times in microseconds, size, attributes.

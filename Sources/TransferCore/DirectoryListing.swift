@@ -84,6 +84,18 @@ public struct DirectoryListing: Sendable {
         case entry(Entry), unreadable(Unreadable), otherKind, invalidName
     }
 
+    public init(smbEntries: [RenameDirectoryEntry], openDuration: Duration, bulkDuration: Duration, bulkCalls: Int) throws {
+        let parsed = try smbEntries.map { entry -> Parsed in
+            guard RelativePath.isValidComponent(entry.name) else { return .invalidName }
+            guard let kind = entry.kind else { return .otherKind }
+            let fingerprint = try entry.fingerprint
+            return .entry(Entry(name: entry.name, kind: kind == .file ? .file : .folder,
+                size: fingerprint.size, mtimeNs: fingerprint.mtimeNs, ctimeNs: fingerprint.ctimeNs,
+                fileID: entry.identity.fileID))
+        }
+        self.init(parsed, openDuration: openDuration, bulkDuration: bulkDuration, bulkCalls: bulkCalls)
+    }
+
     init(_ parsed: [Parsed], openDuration: Duration = .zero, bulkDuration: Duration = .zero, bulkCalls: Int = 0) {
         self.openDuration = openDuration
         self.bulkDuration = bulkDuration

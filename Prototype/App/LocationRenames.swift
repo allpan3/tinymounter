@@ -215,18 +215,14 @@ extension LocationSource {
                    other.id != row.id { throw UploadError.collision }
                 return (row, actual, identity, parent)
             }
-            let native: FileSnapshot
             if let session {
                 try validateRenameParents([row.parentID!, destinationParent], parents: parents, session: session)
-                native = try renameSnapshot(path: actual, version: version, refresh: true,
-                                            session: session, progressed: {})
             } else {
-                native = try access.withSession { session, progressed in
+                try access.withSession { session, _ in
                     try validateRenameParents([row.parentID!, destinationParent], parents: parents, session: session)
-                    return try renameSnapshot(path: actual, version: version, refresh: true,
-                                               session: session, progressed: progressed)
                 }
             }
+            let native = (inode: version.identity.fileID, fingerprint: try version.fingerprint)
             guard native.inode == identity else { throw SourceFailure.versionChanged }
             if row.contentVersion.hasPrefix("e1:") {
                 guard let receipt = try Self.editOutbox(domainID: domainID)
@@ -244,7 +240,7 @@ extension LocationSource {
     }
 
     func validateRenameParents(_ ids: [String], parents: [FileRenameParent], session: ShareSession) throws {
-        let root = try session.locationRoot(folder)
+        try session.identity.requireMounted(session.root)
         for id in Set(ids) {
             let (relative, nativeID) = try withCatalog { catalog in
                 guard let row = try catalog.item(id: id), row.kind == .folder, !row.deleted,
@@ -254,16 +250,7 @@ extension LocationSource {
             guard let full = folder.appending(relative), let parent = parents.first(where: { $0.path == full.string }) else {
                 throw UploadError.unresolved
             }
-            let fd = openat(root, relative.isRoot ? "." : relative.string,
-                            O_EVTONLY | O_NOFOLLOW_ANY | O_RESOLVE_BENEATH | O_CLOEXEC)
-            guard fd >= 0 else { throw posixError("inspect move parent") }
-            defer { Darwin.close(fd) }
-            var info = stat()
-            guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
-                  relative.isRoot || UInt64(info.st_ino) == nativeID,
-                  full.isRoot || (info.st_birthtimespec.tv_sec > 0
-                    && UInt64(info.st_birthtimespec.tv_sec) * 1_000_000 + UInt64(info.st_birthtimespec.tv_nsec / 1_000)
-                        == parent.identity.birthMicroseconds) else { throw UploadError.unresolved }
+            guard relative.isRoot || parent.identity.fileID == nativeID else { throw UploadError.unresolved }
         }
     }
 
@@ -305,51 +292,17 @@ extension LocationSource {
               SMBName.same(evidence.name, record.name), evidence.version.hasSameContents(as: version) else {
             throw UploadError.unresolved
         }
-        let sourceEntry = try NameKey(record.source) != NameKey(record.destination)
-            ? remote.renameSourceEntry(path: record.source) : nil
+        if NameKey(record.source) != NameKey(record.destination) {
+            _ = try remote.renameSourceEntry(path: record.source)
+        }
         for (view, source) in participants {
-            let relative = RelativePath(destination.components.dropFirst(source.folder.components.count).joined(separator: "/"))!
-            if NameKey(record.source) != NameKey(record.destination) {
-                guard let oldPath = RelativePath(view.path) else { throw UploadError.unresolved }
-                if source.access === access {
-                    try source.refreshRenameSource(oldPath, entry: sourceEntry, session: session)
-                } else {
-                    try source.access.withSession { session, _ in
-                        try source.refreshRenameSource(oldPath, entry: sourceEntry, session: session)
-                    }
-                }
-            }
-            let native = try source.access === access
-                ? source.renameSnapshot(path: relative, version: version, refresh: true, session: session,
-                                         progressed: { progress.completedUnitCount += 1 })
-                : source.renameSnapshot(path: relative, version: version, refresh: true)
+            let native = (inode: evidence.version.identity.fileID, fingerprint: try evidence.version.fingerprint)
             guard let oldName = RelativePath(view.path)?.components.last else { throw UploadError.unresolved }
             let move = try CatalogFileMove(item: view.item, sourceParent: view.parent, sourceName: oldName,
                                             contentVersion: view.contentVersion, sourceNativeID: view.nativeID,
                                             destinationParent: view.targetParent, destinationName: record.name)
             try source.withCatalog { try $0.commitFileMove(move, fingerprint: native.fingerprint, nativeID: native.inode) }
         }
-    }
-
-    private func refreshRenameSource(_ path: RelativePath, entry: RenameDirectoryEntry?, session: ShareSession) throws {
-        let root = try session.locationRoot(folder)
-        let parent = RelativePath(path.components.dropLast().joined(separator: "/"))!
-        let listing = try DirectoryListing.list(locationRoot: root, relativePath: parent, expected: session.identity)
-        let key = NameKey(path.components.last!)
-        guard !listing.unreadable.contains(where: { $0.key == key }),
-              !listing.collisionLosers.contains(where: { $0.key == key }) else { throw UploadError.unresolved }
-        guard let entry else {
-            guard !listing.entries.contains(where: { $0.key == key }) else { throw UploadError.unresolved }
-            return
-        }
-        guard listing.entries.contains(where: { $0.name == entry.name }) else { throw UploadError.unresolved }
-        let fd = openat(root, path.string, O_EVTONLY | O_NOFOLLOW_ANY | O_RESOLVE_BENEATH | O_CLOEXEC)
-        guard fd >= 0 else { throw posixError("refresh moved file source") }
-        defer { Darwin.close(fd) }
-        var info = stat()
-        guard fstat(fd, &info) == 0, info.st_birthtimespec.tv_sec > 0,
-              UInt64(info.st_birthtimespec.tv_sec) * 1_000_000 + UInt64(info.st_birthtimespec.tv_nsec / 1_000)
-                == entry.identity.birthMicroseconds else { throw UploadError.unresolved }
     }
 
     private func completeRename(_ record: PendingFileRename,
@@ -392,40 +345,4 @@ extension LocationSource {
         }
     }
 
-    private func renameSnapshot(path: RelativePath, version: EditFileVersion, refresh: Bool) throws -> FileSnapshot {
-        try access.withSession { session, progressed in
-            try renameSnapshot(path: path, version: version, refresh: refresh, session: session, progressed: progressed)
-        }
-    }
-
-    private func renameSnapshot(path: RelativePath, version: EditFileVersion, refresh: Bool,
-                                session: ShareSession, progressed: @escaping Progressed) throws -> FileSnapshot {
-        let root = try session.locationRoot(folder)
-        return try session.identity.guarding(root: root) {
-            if refresh {
-                let parent = RelativePath(path.components.dropLast().joined(separator: "/"))!
-                let listing = try DirectoryListing.list(locationRoot: root, relativePath: parent,
-                                                        expected: session.identity, progress: progressed)
-                guard listing.entries.contains(where: { $0.name == path.components.last! })
-                else { throw UploadError.unresolved }
-            }
-            let fd = openat(root, path.string, O_EVTONLY | O_NOFOLLOW_ANY | O_RESOLVE_BENEATH | O_CLOEXEC)
-            guard fd >= 0 else { throw posixError("inspect renamed file") }
-            defer { Darwin.close(fd) }
-            var info = stat()
-            guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size == version.size,
-                  info.st_birthtimespec.tv_sec > 0,
-                  UInt64(info.st_birthtimespec.tv_sec) * 1_000_000 + UInt64(info.st_birthtimespec.tv_nsec / 1_000)
-                    == version.identity.birthMicroseconds,
-                  info.st_mtimespec.tv_sec >= 0,
-                  UInt64(info.st_mtimespec.tv_sec) * 1_000_000 + UInt64(info.st_mtimespec.tv_nsec / 1_000)
-                    == version.modifiedMicroseconds else { throw UploadError.unresolved }
-            let snapshot = try FileSnapshot(fd: fd)
-            guard snapshot.fingerprint.ctimeNs >= 0,
-                  UInt64(snapshot.fingerprint.ctimeNs / 1_000) == version.changedMicroseconds else {
-                throw UploadError.unresolved
-            }
-            return snapshot
-        }
-    }
 }

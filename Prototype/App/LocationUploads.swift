@@ -160,7 +160,9 @@ extension LocationSource {
                 if record.kind == .folder {
                     try createFolder(&record, outbox: outbox, session: session, root: root, progress: progress)
                 } else {
-                    try outbox.upload(&record, locationRoot: root, progress: progress)
+                    guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
+                    let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: root, progress: progress)
+                    try outbox.upload(&record, remote: remote, progress: progress)
                 }
             }
             _ = try listOnLane(request.parent, requestID: request.id)

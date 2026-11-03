@@ -89,6 +89,7 @@ extension LocationSource {
         try withDeletionSettlementRoot(record) { session, endpoint, root, inode, progressed in
             try requireDeletionSettlementRoot(attempt, mount: session.identity, inode: inode)
             attempt.roots[domainID] = (session.identity, inode)
+            let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: root, progress: Progress())
             return try withCatalog { catalog in
                 let pending = try catalog.settleDeletion(record, endpoint: endpoint, locationRoot: folder,
                                                          previous: attempt.settlements[domainID])
@@ -103,11 +104,9 @@ extension LocationSource {
                     previous: pending, listing: { path in
                         // Ancestor fallback replaces this timestamp with the read that actually succeeds.
                         observed = (Data(path.string.utf8), .now)
-                        return try DirectoryListing.list(locationRoot: root, relativePath: path,
-                                                         expected: session.identity, progress: progressed)
+                        return try remote.list(path, progressed: progressed)
                     }, confirmMissing: { path, missing in
-                        try DirectoryListing.confirmMissing(missing, locationRoot: root, relativePath: path,
-                                                            expected: session.identity, progress: progressed)
+                        try remote.confirmMissing(missing, in: path, progressed: progressed)
                     }, accept: { plan in
                         guard let observed else { return false }
                         if !Catalog.needsConfirmation(plan)

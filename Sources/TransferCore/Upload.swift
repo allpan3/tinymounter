@@ -2,6 +2,17 @@ import CryptoKit
 import Darwin
 import Foundation
 
+public protocol UploadRemote {
+    func createUpload(path: String) throws -> EditFileIdentity
+    func writeUpload(path: String, contents: URL) throws -> EditFileVersion
+    func inspectUpload(path: String) throws -> EditFileVersion
+}
+
+public struct UploadCreateRefusal: Error {
+    public let error: Error
+    public init(_ error: Error) { self.error = error }
+}
+
 public struct PendingUpload: Codable, Sendable {
     public enum State: String, Codable, Sendable {
         case staging, prepared, attempting, created, verified, completed, collision
@@ -21,6 +32,7 @@ public struct PendingUpload: Codable, Sendable {
     public var item: String?
     public var initialName: InitialFolderName?
     public var serverFolder: RemoteFolderIdentity?
+    public var serverFile: EditFileIdentity?
 
     public var isPending: Bool { ![.completed, .stopped].contains(state) || initialName?.isPending == true }
     /// Nothing reached the server: no create was sent, or the server refused it, or the name was taken.
@@ -53,6 +65,7 @@ public final class UploadOutbox {
                 guard record.id == id, RelativePath(record.path) != nil, !record.path.isEmpty,
                       RelativePath.isValidComponent(record.name), record.size >= 0,
                       record.serverFolder.map({ record.kind == .folder && $0.fileID != 0 && $0.birthMicroseconds != 0 }) != false,
+                      record.serverFile.map({ record.kind == .file && $0.fileID == record.remoteID }) != false,
                       record.initialName?.isValid(for: record) != false else {
                     throw UploadError.invalidRequest
                 }
@@ -278,6 +291,54 @@ public final class UploadOutbox {
     }
 
     /// An interrupted existing file is read and proved complete, never reopened for writing.
+    public func upload(_ record: inout PendingUpload, remote: UploadRemote, progress: Progress,
+                       checkpoint: (PendingUpload.State) throws -> Void = { _ in }) throws {
+        guard record.kind == .file else { throw UploadError.invalidRequest }
+        guard !progress.isCancelled else { throw TransferError.cancelled }
+        if record.state == .completed { return }
+        if record.state == .collision { throw UploadError.collision }
+        let uncertain = record.state == .attempting && record.serverFile == nil
+        let version: EditFileVersion
+        if record.state == .prepared || uncertain {
+            let local = try ReadOnlyFile(url: contentURL(record.id))
+            guard local.snapshot.size == record.size,
+                  try local.checksum(range: ByteRange(offset: 0, length: record.size, fileSize: record.size))
+                    == record.digest else { throw UploadError.unresolved }
+            record.state = .attempting
+            try save(record)
+            try checkpoint(.attempting)
+            do {
+                let identity = try remote.createUpload(path: record.path)
+                record.serverFile = identity
+                record.remoteID = identity.fileID
+            } catch UploadError.collision {
+                guard !uncertain else { throw UploadError.unresolved }
+                record.state = .collision
+                try save(record)
+                throw UploadError.collision
+            } catch let refusal as UploadCreateRefusal {
+                record.state = .prepared
+                try save(record)
+                throw refusal.error
+            }
+            record.state = .created
+            try save(record)
+            try checkpoint(.created)
+            version = try remote.writeUpload(path: record.path, contents: contentURL(record.id))
+        } else {
+            guard [.created, .verified].contains(record.state), record.serverFile != nil else {
+                throw UploadError.unresolved
+            }
+            version = try remote.inspectUpload(path: record.path)
+        }
+        guard version.identity == record.serverFile, version.identity.fileID == record.remoteID,
+              version.size == record.size, version.digest == record.digest else { throw UploadError.unresolved }
+        record.state = .verified
+        try save(record)
+        try checkpoint(.verified)
+    }
+
+    /// Native transport baseline for the isolated transport comparison.
     public func upload(_ record: inout PendingUpload, locationRoot: Int32, progress: Progress,
                        checkpoint: (PendingUpload.State) throws -> Void = { _ in }) throws {
         guard record.kind == .file else { throw UploadError.readOnly }
