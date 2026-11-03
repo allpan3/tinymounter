@@ -19,7 +19,9 @@ and update the README after the run. Leave the original NAS and physical-Mac ins
 - Changed, replaced, moved, unsupported and refused selected items return `deletionRejected`.
   The extension constructs that error with `fileProviderErrorForRejectedDeletion(of:)` and
   the surviving catalog item; a bare error code makes macOS retry without restoring the item.
-  Remaining children return `directoryNotEmpty`. Unknown results return `cannotSynchronize`.
+  Remaining children return `directoryNotEmpty`. Unknown results return `cannotSynchronize`,
+  except a fully settled unconfirmed deletion with a live selected row. That row is restored
+  through `deletionRejected` while its durable outcome remains unconfirmed.
   A recorded request must finish every view's settlement before returning a terminal refusal.
   Until then, failures such as a changed location root or lost write permission return
   `cannotSynchronize`; Settings and logs retain the original failure.

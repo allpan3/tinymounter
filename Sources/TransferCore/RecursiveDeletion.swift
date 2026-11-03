@@ -253,7 +253,7 @@ public enum RecursiveDeletionTransaction {
         case .accessDenied: return requested && !proved ? .unconfirmed : .accessDenied
         case .cannotDelete: return requested && !proved ? .unconfirmed : .cannotDelete
         case .directoryNotEmpty: return requested && !proved ? .unconfirmed : .directoryNotEmpty
-        case .deletePending, .pathNotFound, .unresolved, .invalidRequest, .busy, .stopped: return nil
+        case .deletePending, .pathNotFound, .unresolved, .unconfirmedSurvivor, .invalidRequest, .busy, .stopped: return nil
         }
     }
 }
