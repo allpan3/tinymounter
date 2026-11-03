@@ -88,3 +88,28 @@ ID. The app exports its durable intent through the granted evidence directory, t
 for the operator to kill that exact process. These hooks change only generated candidate
 sources. Crash recovery, overlapping views, changed descendants and stale editor saves remain
 unverified in this candidate; the loss-before-parent-checkpoint boundary remains open.
+
+## Crash recovery and temporary sharing failures, 2026-11-03
+
+Build 15 stops at the requested durable checkpoint and is killed with SIGKILL. Fresh-process
+recovery passes before the server rename, after the moved checkpoint, and after verification.
+All 20 catalog IDs and versions, six downloaded local copies and keep selections survive.
+Independent Linux inventories match the original objects and contents after each recovery.
+Finder retries the interrupted callbacks and receives successful replies.
+
+A crash after catalog settlement leaves the intent verified. The first three recovery attempts
+fail with SMB sharing error 26, and no later automatic attempt follows. The server has no
+remaining fixture handles when inspected later. Retry Pending Changes then completes without
+changing contents or downloads. This establishes a temporary sharing failure and missing retry;
+it does not isolate which handle caused the initial refusal.
+
+Pending file and folder renames now schedule another protected recovery attempt after a sharing
+error, backing off from two seconds to a maximum of one minute. One timer is active per location;
+successful recovery resets the delay, and closing the location cancels it. Other failures retain
+their existing handling and every retry still revalidates the durable intent. This repair awaits
+the next signed test, including a deliberately held competing file handle.
+
+Build 15 and the required VM checks pass without Swift warnings. Evidence includes the
+`fault-control-*`, `fault-hit-*`, `fault-killed-*`, `recovery-*` reports and
+`catalog-crash-recovery.log` in the repair directory. The failed first catalog audit remains;
+`replay.json` records the successful manual retry, not a claim of automatic recovery.
