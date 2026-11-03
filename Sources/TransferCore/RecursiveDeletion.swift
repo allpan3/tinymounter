@@ -1,5 +1,44 @@
 import Foundation
 
+// The caller serializes these decisions; Progress reads and KVO callbacks run outside its lock.
+public struct DeletionCancellationState: Sendable {
+    public enum Completion: Equatable, Sendable {
+        case ready, waiting, stop([UUID])
+    }
+
+    public private(set) var isClosed = false
+    private var requests: [UUID: UUID] = [:]
+    private var stops: [UUID: Int] = [:]
+
+    public init() {}
+
+    public mutating func register(_ token: UUID, operation: UUID) { requests[token] = operation }
+    public mutating func close() { isClosed = true }
+    public func isStopping(_ operation: UUID) -> Bool { stops[operation] != nil }
+
+    public mutating func requestStop(_ operation: UUID, cancellation token: UUID? = nil) -> Bool {
+        if let token {
+            guard !isClosed, requests[token] == operation else { return false }
+            requests[token] = nil
+        }
+        stops[operation, default: 0] += 1
+        return true
+    }
+
+    public mutating func finishedStop(_ operation: UUID) {
+        let remaining = (stops[operation] ?? 1) - 1
+        stops[operation] = remaining > 0 ? remaining : nil
+    }
+
+    public mutating func complete(_ operation: UUID, tokens: [UUID], cancelled: [UUID]) -> Completion {
+        let pending = isClosed ? [] : cancelled.filter { requests[$0] == operation }
+        if !pending.isEmpty { return .stop(pending) }
+        if isStopping(operation) { return .waiting }
+        for token in tokens { requests[token] = nil }
+        return .ready
+    }
+}
+
 /// Fresh, protected evidence for one request. The catalog cannot show that a remote tree is complete,
 /// so every directory needs a complete listing and every listed entry needs its own evidence.
 public struct DeletionTraversal: Sendable {
