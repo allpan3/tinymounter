@@ -223,8 +223,10 @@ move or replacement after a crash retires both views' old IDs and keeps; new dis
 inherits their downloaded bytes. Controller Settings cleanup and changed-version replay pass.
 Parent creation-time changes are checkpointed while protected, after a directory read. Losing
 protection before that checkpoint can still leave an intent unresolved. Destination-ancestor
-changes remain pending until the expected identity returns. The earlier Unicode-respelling
-and ambiguous-name fixture cases remain unverified. Provider enablement stays gated; the
+changes remain pending until the expected identity returns. Signed Unicode-respelling recovery
+retires only the affected child in both views. Case-colliding and Unicode-equivalent names
+block recovery without mutation; removing the test collisions permits preserved-ID completion.
+The required VM checks pass with 628 tests. Provider enablement stays gated; the
 single-client branch is a VM-only transport experiment, not a production-adoption decision.
 
 M24's signed production-adapter checks pass for ordinary files, empty directories, paginated

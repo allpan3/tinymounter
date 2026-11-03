@@ -4,7 +4,7 @@ A macOS app that brings a network disk, such as a NAS, into Apple's file system:
 
 Folder organization, 2026-11-03: the protected-parent checkpoint repair passes signed Finder
 rename, move, case-only rename and relisting checks on Linux Samba. Item IDs, content versions,
-downloaded copies and keep selections survive without new fetches. All 626 VM tests and required
+downloaded copies and keep selections survive without new fetches. All 628 VM tests and required
 checks pass. All seven tested crash checkpoints recover in one view, including automatic retry
 after a temporary sharing error and successful Finder replay. Recovery also passes between two
 catalog updates and after the first view finishes. A real stale-base TextEdit save preserves
@@ -13,8 +13,9 @@ a signed save without adding Samba's hidden flag. The combined name/modification
 now succeeds. Reading protected parents before checkpointing their identity fixes a later
 cross-folder failure. Signed crash checks also retire moved-away or replaced roots in both
 views, reset their keeps and discover fresh IDs without reusing downloaded copies.
-An independent SMB Unicode respelling exposes a comparison error that leaves recovery pending;
-the literal-server-name repair passes focused tests and awaits signed validation.
+The literal-server-name repair also passes signed Unicode-respelling recovery in both views.
+Case-colliding and Unicode-equivalent server names safely block recovery; removing only the
+synthetic collisions lets the original move finish with IDs, downloads and keeps preserved.
 Folder capabilities remain off in normal builds.
 See the [folder organization results](docs/results/2026-11-03-folder-organization.md).
 
