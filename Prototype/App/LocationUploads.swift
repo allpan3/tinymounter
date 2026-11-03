@@ -174,17 +174,7 @@ extension LocationSource {
                 throw UploadError.unresolved
             }
             if row.kind == .file, row.allowsWriting {
-                do { try establishUploadedEditBase(record, row: row, bookmark: bookmark, progress: progress) }
-                catch SourceFailure.versionChanged {
-                    // The mount can list a new file that it still holds open, with its own times. The
-                    // edit base read makes it close the file, so a new listing shows the server's times.
-                    _ = try listOnLane(request.parent, requestID: request.id)
-                    guard let fresh = try liveChild(of: request.parent, named: request.name), fresh.id == row.id else {
-                        throw UploadError.unresolved
-                    }
-                    do { try establishUploadedEditBase(record, row: fresh, bookmark: bookmark, progress: progress) }
-                    catch SourceFailure.versionChanged { throw UploadError.unresolved }
-                }
+                try establishUploadedEditBase(record, row: row, bookmark: bookmark, progress: progress)
             }
             try outbox.complete(&record, item: row.id)
             scheduleSignal()
