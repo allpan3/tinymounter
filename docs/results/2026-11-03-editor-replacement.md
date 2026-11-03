@@ -163,6 +163,9 @@ that step explicitly. The app now validates the original catalog binding before 
 pending publication, including Retry. A deleted binding stays local even if its pathname returns.
 Already-started recovery still uses its recorded evidence. A catalog regression test covers the
 read-only, deleted and returned-name cases. Signed verification of this guard remains pending.
+The fixture's `check-editor-end-trace` action archives only its own tracing pointer after checking
+the run identity. It permits a fresh fixture while preserving the failed location and recovery
+records for investigation. It is absent from ordinary builds.
 
 ## Remaining work and decision
 
