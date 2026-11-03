@@ -338,8 +338,25 @@ observed reported creation time changing on the first enumeration of Linux-creat
 with the other metadata unchanged. The candidate now reads one byte through its protected file
 handle before capturing a read version. It permits only creation time to change across that
 initial read; file ID, size, link count, attributes, modification time and change time must match.
-Later version, receipt and transfer checks remain unchanged. Signed validation must use a fresh
-Linux-created file because the failed read may already have changed the original fixture's metadata.
+Later version, receipt and transfer checks remain unchanged. Five fresh file probes confirmed
+that only creation time changed on the first read, then stayed stable. The signed update fetched
+a fresh Linux-created 2 GiB file successfully, and the Finder-exported payload matched its
+independent generation hash. Finder reported a permission error while copying it to the Desktop;
+the exported file had all expected bytes and inherited read-only permissions and the immutable
+flag. That copy warning remains unresolved.
+
+An offline conflict test preserved the competing server revision and published the complete local
+edits as a separate conflict copy. A second test stopped Samba after detecting a stage upload.
+The server retained a 196,608-byte partial stage and the untouched original. Retry Pending Changes
+published the complete 4,456,513-byte save with the original file ID. The older attempt remained
+retired, visible and exportable; its exported bytes matched the completed server file.
+
+That retired record exposed an unrelated-operation bug: the share-wide settlement check blocked
+listings, folder creation and file renaming even though the old save could never publish again.
+The follow-up permits durably retired saves through that check. It still checks the complete
+pending inventory, blocks unsettled publications and preserves path-specific mutation checks.
+Retained artifacts and local recovery copies remain protected. Regression assertions cover
+durable retirement, blocked active publication and failed retirement with a damaged successor.
 
 Private evidence is in `results/single-client-20261103/` on the VM. The initial background log
 stream stopped early, so the twenty-save transaction count was recovered with `log show --info`.

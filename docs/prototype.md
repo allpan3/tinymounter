@@ -518,6 +518,9 @@ cover these comparisons. Signed Samba/ext4 checks verify selected accented uploa
 and 20 repeated saves with stage file-ID reuse. November 3 probes reproduce stale native names
 after direct rename and quarantine writes recreating a deleted stage after file-ID reuse.
 The separate single-client branch now uses direct SMB for remote listings, metadata, reads and
-uploads, with fresh catalog state. Focused package tests pass; VM build and runtime checks are
-pending. No runtime fix is verified. See the
+uploads, with fresh catalog state. Required VM checks, 20 signed saves, Unicode content, upload
+acknowledgment and a fresh read-only 2 GiB download pass. Conflict and interrupted-save recovery
+preserve complete contents. A retained older save blocks unrelated listings and mutations in the
+installed VM build; its follow-up is under test. Finder's read-only copy warning and throughput
+validation remain open. The physical Mac still runs the earlier transport. See the
 [runtime results and accepted staging change](results/2026-11-02-samba-names-and-uploads.md).

@@ -280,6 +280,7 @@ final class EditOutboxTests: XCTestCase {
         for state: PendingEdit.State in [.creatingStage, .staged, .creatingBackup, .movingOriginal, .published] {
             record.state = state
             try outbox.save(record)
+            XCTAssertTrue(try stored(record).requiresNamespaceSettlement)
             XCTAssertFalse(EditOutbox.canStop(record, among: try outbox.records()))
             let copy = directory.appending(path: state.rawValue + ".txt")
             XCTAssertThrowsError(try outbox.stop(record.id, exportingTo: copy))
@@ -707,6 +708,7 @@ final class EditOutboxTests: XCTestCase {
         try Data("damaged".utf8).write(to: payload)
         XCTAssertThrowsError(try outbox.retainSuperseded(&old))
         XCTAssertEqual(try stored(old).state, .creatingStage)
+        XCTAssertTrue(try stored(old).requiresNamespaceSettlement)
         try outbox.validateContents(old)
     }
 

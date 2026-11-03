@@ -472,6 +472,7 @@ final class EditTransactionTests: XCTestCase {
     func testUnansweredStageWithAnOccupiedNameIsRetiredWithItsData() throws {
         edit.state = .creatingStage
         try outbox.save(edit)
+        XCTAssertTrue(try stored(edit).requiresNamespaceSettlement)
         let occupant = try Remote.version(identity: 77, size: 2, digest: String(repeating: "e", count: 64))
         remote.files[edit.stagePath] = occupant
         var latest = try save("latest version")
@@ -479,6 +480,8 @@ final class EditTransactionTests: XCTestCase {
         XCTAssertThrowsError(try EditTransaction.retire(&edit, outbox: outbox, remote: remote))
         outbox = try EditOutbox(directory: directory.appending(path: "Outbox"))
         XCTAssertEqual(try stored(edit).state, .retired)
+        XCTAssertTrue(try stored(edit).isPending)
+        XCTAssertFalse(try stored(edit).requiresNamespaceSettlement)
         XCTAssertNotEqual(try stored(edit).retiredStageRemoved, true)
         XCTAssertEqual(try outbox.order(item: edit.item).superseded, [])
         var replay = stale
