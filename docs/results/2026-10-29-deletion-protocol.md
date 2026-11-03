@@ -1105,3 +1105,27 @@ older pending keep; reconnect completed it before the valid trial. No sandbox pe
 Build 13 compiles with no Swift warnings. Evidence includes `check-keep-restore-start-second`,
 `check-keep-restoration-{blocked,finished,reconnected}*.json`, `keep-restoration-report.json`, the hold/release
 and node controls, and Linux `keep-restoration-audit.json`.
+
+### Successful location removal, 2026-11-03
+
+Signed build 15 passes actual Settings removal of both fixture locations. Dismissing the remaining
+completed notices changes only their persistent dismissal flags. All 26 owner records retain
+their plans and outcomes. Removing the secondary location, without saving its disposable keep
+list, removes its registration, Settings entry and catalog while preserving every owner record.
+Constructed replay still returns the original outcomes for seven live stopped selections and
+three unconfirmed records. Their replay reports pass; the enclosing dual-view snapshots fail
+because the secondary location has deliberately been removed.
+
+Removing the owner through the same Settings confirmation then removes its registration, catalog
+and settled deletion records. The dedicated post-removal report verifies durable Settings and
+preservation of all unrelated settings. The independent server inventory still contains the same
+23 objects with unchanged identities, file contents, permissions and attached data. No new
+deletion occurred during removal. Both fixture domains are now removed; evidence remains local.
+
+Evidence is `check-removal-state-*-state.json`, `check-*-replay-peer-removed-replay.json`,
+`removal-report.json` and Linux `location-removal-audit.json`. Build 15 has no Swift warnings.
+Build 14 caught a non-Codable probe report field before runtime; the report now uses the existing
+deletion snapshot type. Physical root replacement and permission loss during incomplete signed
+settlement remain unverified as complete scenarios; the injected error-class checks above verify
+their completion-response ordering. Normal-build deletion stays disabled while Finder Replace
+is observed, because unbound delete/create callbacks cannot authorize a safe replacement.
