@@ -131,6 +131,15 @@ Records in uncertain states still block removal, and the dialog names them.
 7. **Refused saves.** When the server refuses the private stage file of a save, and a lookup on
    the same connection finds nothing at its name, the save returns to waiting. Before this, the
    save stayed uncertain, and `requireSettled` blocked new items on the whole share.
+8. **Leftover creates.** A stage or backup create that got no answer can still reach the server
+   later. It then leaves an empty file at a name that only that save uses. When a retry, or the
+   check of an older save, finds the name taken, the app opens the occupant on the same
+   connection with delete access and no sharing. This open fails while another client has the
+   file open. The app deletes the occupant only if it is a regular file of 0 bytes, with one
+   link, no named streams and the empty DACL that the private create sets. The app replaces that
+   DACL only after it records the identity, so a file that still has it never received
+   contents. The save then sends its create again. Anything else stays at the name, and the
+   save stays uncertain. The user approved this on 2026-11-02.
 
 ## Checks and unknowns
 
@@ -142,6 +151,9 @@ Records in uncertain states still block removal, and the dialog names them.
   [results](results/2026-11-02-stop-uploading.md).
 - An edit whose NAS copy changed can be stopped, with its local copy saved. Deferred with
   Stop Uploading for edits.
+- The next attempt removes the empty file of a stage or backup create without an answer
+  (fixture case c05). Not run yet. It also shows whether the server lets the owner open a file
+  with an empty DACL for delete. If it does not, such a save stays uncertain.
 
 **Answered by the check.** Items that macOS holds as `parentCreation` need no signal of their
 own: macOS sends them as soon as the parent folder uploads.
