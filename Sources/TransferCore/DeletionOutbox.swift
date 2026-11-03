@@ -276,7 +276,7 @@ public struct DeletionProgress: Codable, Equatable, Sendable {
               exceptions.allSatisfy({ $0.node >= 0 && $0.node < end && ![.deleted, .stopped].contains($0.outcome) }),
               finished.count == finishedDomains.count, finished.isSubset(of: domains),
               finishedDomains.isEmpty || next == count,
-              !dismissed || (finished == domains && exceptions.contains(where: { $0.outcome == .unconfirmed })) else {
+              !dismissed || (finished == domains && (!exceptions.isEmpty || stopped != nil)) else {
             throw ItemDeletionError.invalidRequest
         }
     }
@@ -353,6 +353,13 @@ public struct DeletionViewResult: Equatable, Sendable {
     public let outcome: DeletionNodeOutcome
 }
 
+public struct DeletionItemProgress: Equatable, Identifiable, Sendable {
+    public let id: Int
+    public let path: String
+    public let outcome: DeletionNodeOutcome?
+    public let mayHaveBeenRequested: Bool
+}
+
 public struct PendingDeletion: Equatable, Sendable {
     public let plan: DeletionPlan
     public internal(set) var progress: DeletionProgress
@@ -366,6 +373,45 @@ public struct PendingDeletion: Equatable, Sendable {
     public var blocksWrites: Bool { !isComplete }
     /// Keeps the record until any uncertainty has been dismissed.
     public var isPending: Bool { !isComplete || (hasUnconfirmed && !progress.dismissed) }
+    public var needsAttention: Bool { !isComplete || (hasNotice && !progress.dismissed) }
+    public var canDismiss: Bool { isComplete && hasNotice && !progress.dismissed }
+    private var hasNotice: Bool { !progress.exceptions.isEmpty || progress.stopped != nil }
+
+    public func selectedPath(in domain: String) throws -> String {
+        guard let view = plan.views.first(where: { $0.domain == domain }),
+              let folder = RelativePath(view.folder) else { throw ItemDeletionError.invalidRequest }
+        return RelativePath(plan.selected.path)!.components.dropFirst(folder.components.count).joined(separator: "/")
+    }
+
+    public func itemProgress(in domain: String) throws -> [DeletionItemProgress] {
+        guard let view = plan.views.first(where: { $0.domain == domain }),
+              let folder = RelativePath(view.folder) else { throw ItemDeletionError.invalidRequest }
+        let known = outcomes()
+        return plan.nodes.enumerated().map { index, node in
+            DeletionItemProgress(id: index,
+                path: RelativePath(node.path)!.components.dropFirst(folder.components.count).joined(separator: "/"),
+                outcome: known[index], mayHaveBeenRequested: index == progress.next && progress.current != .prepared)
+        }
+    }
+
+    // Catalog confirmation is also required before a provider can report success.
+    public func requireConfirmedDeletion() throws {
+        guard isComplete else { throw UploadError.pendingWrites }
+        switch selectedOutcome {
+        case .deleted?: return
+        case .changed?: throw ItemDeletionError.changed
+        case .replaced?: throw ItemDeletionError.replaced
+        case .moved?: throw ItemDeletionError.moved
+        case .parentChanged?: throw ItemDeletionError.parentChanged
+        case .unsupported?: throw ItemDeletionError.unsupported
+        case .sharingViolation?: throw ItemDeletionError.sharingViolation
+        case .accessDenied?: throw ItemDeletionError.accessDenied
+        case .cannotDelete?: throw ItemDeletionError.cannotDelete
+        case .directoryNotEmpty?: throw ItemDeletionError.directoryNotEmpty
+        case .stopped?: throw TransferError.cancelled
+        case .unconfirmed?, nil: throw ItemDeletionError.unresolved
+        }
+    }
 
     /// Nil for nodes that have not finished.
     public func outcome(at index: Int) -> DeletionNodeOutcome? {
@@ -507,12 +553,15 @@ public final class DeletionOutbox {
         record = current
     }
 
-    /// The user has seen the unconfirmed outcomes; the record no longer needs to stay visible.
+    /// Hide a settled notice without removing its outcomes or its replay ownership.
     public func dismiss(_ record: inout PendingDeletion) throws {
         Self.storageLock.lock()
         defer { Self.storageLock.unlock() }
         var current = try reload(record)
-        guard current.isComplete, current.hasUnconfirmed else { throw ItemDeletionError.invalidRequest }
+        guard current.isComplete,
+              !current.progress.exceptions.isEmpty || current.progress.stopped != nil else {
+            throw ItemDeletionError.invalidRequest
+        }
         if !current.progress.dismissed {
             var next = current.progress
             next.dismissed = true

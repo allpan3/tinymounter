@@ -114,6 +114,19 @@ extension Catalog {
                 }
             }
             let folders = try deletionListingOrder(listings)
+            if blocked.isEmpty, folders.isEmpty, domainID == record.plan.owner,
+               let outcome = record.selectedOutcome, outcome != .deleted, outcome != .unconfirmed,
+               let selected = try item(id: record.plan.request.item), !selected.deleted,
+               selected.metadataVersion == record.plan.request.metadataVersion {
+                // A new Finder action needs a new base; old callbacks still replay their recorded result.
+                seq += 1
+                try database.prepare("UPDATE items SET change_seq = ? WHERE id = ?") {
+                    try $0.bind(1, seq)
+                    try $0.bind(2, selected.id)
+                    try $0.run()
+                }
+                if let parent = selected.parentID { refresh.append(parent) }
+            }
             let live = try deletionUnique(refresh + folders + observations.keys.sorted())
                 .filter { try item(id: $0)?.deleted == false }
             return CatalogDeletionSettlement(record: record.id, domain: domainID, tombstoned: tombstoned,

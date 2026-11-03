@@ -41,6 +41,31 @@ final class CatalogDeletionTests: XCTestCase {
         fixture = nil
     }
 
+    func testSettledRefusalRefreshesSelectedMetadataOnceAndKeepsOldReplay() throws {
+        let tree = try XCTUnwrap(ids["Tree"]), before = try XCTUnwrap(owner.item(id: tree))
+        var record = try prepare()
+        server.markFailures["Docs/Tree/a"] = ItemDeletionError.sharingViolation
+        try fixture.run(&record)
+        XCTAssertEqual(record.selectedOutcome, .directoryNotEmpty)
+        let first = try settle(record)
+        let final = try complete(record, first)
+        XCTAssertTrue(final.isSettled)
+        let after = try XCTUnwrap(owner.item(id: tree))
+        XCTAssertNotEqual(after.metadataVersion, record.plan.request.metadataVersion)
+        XCTAssertEqual(after.id, before.id)
+        XCTAssertEqual(after.contentVersion, before.contentVersion)
+        XCTAssertEqual(after.keep, before.keep)
+        XCTAssertTrue(final.refresh.contains(root))
+        XCTAssertTrue(try settle(record, previous: final).isSettled)
+        XCTAssertEqual(try owner.item(id: tree)?.metadataVersion, after.metadataVersion)
+        let replay = try XCTUnwrap(fixture.outbox.replay(endpoint: fixture.endpoint,
+            owner: fixture.owner, request: record.plan.request))
+        XCTAssertEqual(replay.selectedOutcome, .directoryNotEmpty)
+        XCTAssertNil(try fixture.outbox.replay(endpoint: fixture.endpoint, owner: fixture.owner,
+            request: DeletionRequest(item: tree, contentVersion: after.contentVersion,
+                                     metadataVersion: after.metadataVersion)))
+    }
+
     func testConfirmedDeletionTombstonesEachAdmittedRowOnceInEachView() throws {
         var record = try prepare()
         try fixture.run(&record)

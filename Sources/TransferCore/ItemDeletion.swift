@@ -6,6 +6,49 @@ public enum ItemDeletionError: Error, Equatable, Sendable {
     case unsupported, unresolved
 }
 
+public enum DeletionFailure: Equatable, Sendable {
+    case changed, replaced, moved, parentChanged, unsupported, sharingViolation, accessDenied, cannotDelete
+    case directoryNotEmpty, unconfirmed, connection, authentication, pendingChanges, readOnly, cancelled, storage, unknown
+
+    public static func classify(_ error: Error) -> Self {
+        if let error = error as? ItemDeletionError {
+            switch error {
+            case .changed: return .changed
+            case .replaced: return .replaced
+            case .moved: return .moved
+            case .parentChanged: return .parentChanged
+            case .unsupported, .invalidRequest: return .unsupported
+            case .sharingViolation: return .sharingViolation
+            case .accessDenied: return .accessDenied
+            case .cannotDelete: return .cannotDelete
+            case .directoryNotEmpty: return .directoryNotEmpty
+            case .absentUnconfirmed, .deletePending, .pathNotFound, .unresolved: return .unconfirmed
+            }
+        }
+        if let error = error as? UploadError {
+            switch error {
+            case .readOnly: return .readOnly
+            case .pendingWrites: return .pendingChanges
+            case .invalidRequest: return .unsupported
+            default: return .unconfirmed
+            }
+        }
+        if DownloadSpace.isFull(error) { return .storage }
+        if (error as NSError).domain == NSCocoaErrorDomain,
+           (error as NSError).code == CocoaError.userCancelled.rawValue { return .cancelled }
+        switch SourceFailure.classify(error, context: .listing) {
+        case .versionChanged: return .changed
+        case .serverUnreachable, .notConnected: return .connection
+        case .notAuthenticated: return .authentication
+        case .noPermission: return .accessDenied
+        case .pathRejected, .tooManyEntries: return .unsupported
+        case .cancelled: return .cancelled
+        case .missing, .listingIncomplete: return .unconfirmed
+        case .unknown: return .unknown
+        }
+    }
+}
+
 public enum ItemDeletionEvidence: Codable, Equatable, Sendable {
     case file(EditFileVersion)
     case directory(EditFileIdentity)
