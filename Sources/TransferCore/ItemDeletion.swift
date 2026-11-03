@@ -3,7 +3,7 @@ import Foundation
 public enum ItemDeletionError: Error, Equatable, Sendable {
     case invalidRequest, changed, replaced, parentChanged, moved, absentUnconfirmed
     case deletePending, pathNotFound, sharingViolation, directoryNotEmpty, accessDenied, cannotDelete
-    case unsupported, unresolved, busy, stopped
+    case unsupported, unresolved, unconfirmedSurvivor, busy, stopped
 }
 
 public enum DeletionFailure: Equatable, Sendable {
@@ -25,7 +25,7 @@ public enum DeletionFailure: Equatable, Sendable {
             case .directoryNotEmpty: return .directoryNotEmpty
             case .busy: return .busy
             case .stopped: return .stopped
-            case .absentUnconfirmed, .deletePending, .pathNotFound, .unresolved: return .unconfirmed
+            case .absentUnconfirmed, .deletePending, .pathNotFound, .unresolved, .unconfirmedSurvivor: return .unconfirmed
             }
         }
         if let error = error as? UploadError {

@@ -54,6 +54,10 @@ extension LocationSource {
     // A replacement may retain the selected catalog ID after reconciliation.
     func requireDeleted(_ record: PendingDeletion) throws {
         guard record.plan.owner == domainID else { throw ItemDeletionError.invalidRequest }
+        if record.isComplete, record.selectedOutcome == .unconfirmed,
+           try withCatalog({ try $0.item(id: record.plan.request.item)?.deleted == false }) {
+            throw ItemDeletionError.unconfirmedSurvivor
+        }
         try record.requireConfirmedDeletion()
         try withCatalog { catalog in
             guard let row = try catalog.item(id: record.plan.request.item) else {
