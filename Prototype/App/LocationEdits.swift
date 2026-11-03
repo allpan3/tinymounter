@@ -27,12 +27,13 @@ extension LocationSource {
             guard let endpoint = ShareAddress(session.identity.mountFrom),
                   let path = RelativePath(upload.path) else { throw UploadError.unresolved }
             let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: root, progress: progress)
+            defer { withExtendedLifetime(remote) {} }
             try remote.protectAncestors(of: upload.path)
             let version = try remote.readVersion(path: upload.path, collectReadProof: true)
             let file = try ReadOnlyFile(directoryFD: root, relativePath: path, expected: session.identity)
             let listed = ContentFingerprint(size: row.size, mtimeNs: row.mtimeNs, ctimeNs: row.ctimeNs)
             guard version.size == upload.size, version.digest == upload.digest,
-                  file.snapshot.inode == upload.remoteID, file.snapshot.fingerprint == listed else {
+                  file.snapshot.inode == upload.remoteID, file.snapshot.size == upload.size else {
                 Logger(subsystem: "dev.tinymounter.prototype", category: "upload").error("""
                     edit_base_unresolved size=\(version.size == upload.size) digest=\(version.digest == upload.digest) \
                     inode=\(file.snapshot.inode == upload.remoteID) \
@@ -41,9 +42,14 @@ extension LocationSource {
                     """)
                 throw UploadError.unresolved
             }
+            try file.validateUnchanged()
             let receipt = try EditBaseReceipt(item: row.id, version: version)
             try Self.editOutbox(domainID: domainID).storeBase(receipt)
-            try withCatalog { try $0.rememberEditBase(receipt, expectedVersion: row.contentVersion) }
+            // The SMB directory cache can still contain timestamps from before the upload closed.
+            try withCatalog {
+                try $0.refreshEditBase(receipt, expectedVersion: row.contentVersion,
+                                       fingerprint: file.snapshot.fingerprint, nativeID: file.snapshot.inode)
+            }
             if let proof = remote.readProof { try? readProofCache().store(proof, receipt: receipt, path: path) }
         }
     }

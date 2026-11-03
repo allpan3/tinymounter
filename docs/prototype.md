@@ -451,7 +451,9 @@ The app records the request before local staging, then saves immutable pending b
 exclusive remote creation. A replay can restage matching system input after a staging interruption.
 The system admits one content upload and one metadata upload per domain at a time. Other devices can
 see the new file during upload. It is not acknowledged until its remote identity and complete
-content are verified. An interrupted upload is tried again only with another exclusive create,
+content are verified. The verified editing base records metadata from the protected open file;
+the mount's cached directory timestamps can still predate the completed upload. An interrupted
+upload is tried again only with another exclusive create,
 so it continues only while the name is absent, and an item at the name keeps it pending. The
 source cannot change while a write is pending. The location can be removed when its only pending
 items never reached the server; macOS keeps them on this Mac. Settings lists each new item that
