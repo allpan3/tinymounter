@@ -377,3 +377,35 @@ Private evidence in the same session: `m23-fresh-build.log`, `m23-fresh-process.
 `m23-fresh-settings-comparison.json` and the UUID fixture's `seed.json` and `final.json`.
 The native-seed failure is retained separately in `m23-fresh-native-seed-failure.json`.
 This closes the bounded c03 preservation check, not M23's remaining workflow and capacity gates.
+
+## Real disk exhaustion, 2026-11-03
+
+The local save core passes actual APFS capacity loss in macOS VM 1, macOS 27.0.1. The optional
+`EditDiskSpaceTests` check uses a separate 4 GiB image, prepared by `Tools/check-save-space.py`.
+Caches are uncontrolled; this is correctness evidence. The VM boot volume is not filled.
+
+With available space below the unchanged 2 GiB reserve, admission refuses a new 32 MiB save
+and preserves the previous complete 256 KiB save. In a separate attempt, another fixture
+writer exhausts the image after the first 1 MiB has been copied. The next production payload
+write returns POSIX `ENOSPC` (28). The older save remains readable and exportable to another
+local volume, with identical bytes and its TextEncoding attribute. After removing the filler,
+reopening the outbox selects the older complete save. Retrying stages the new complete save,
+and both complete generations validate. No saved version is discarded to obtain space.
+
+The first run passed but emitted deprecation warnings for `hdiutil`. The runner now uses
+`diskutil image` and ASIF. An intermediate run failed before testing because the new image's
+root was owned by root. Mounting this disposable image with `noowners` permits the unprivileged
+test; no app sandbox or system-volume permissions change. The final run passes and detaches
+the image. Evidence is `results/save-space-20261103/run-03/`; the earlier logs remain intact.
+
+VMPal paused the first run at its separate 150 GB host allocation limit. Raising that VM limit
+temporarily to 160 GB allowed it to resume. Obsolete compiler caches and intermediates were
+removed, preserving products, logs and recovery evidence. This interruption is not a timed
+result or a simulated disk-full error; the reported `ENOSPC` came from the disposable image.
+After both successful runs, fixture state was archived with extended attributes, the three
+test images were removed, and the original 150 GB VM limit was restored.
+
+All required VM checks pass with 629 tests, two optional skips and no Swift warnings, plus
+the project, release CLI, app and SMB checks (`checks.log`). The explicit image run has no
+skip. This closes actual local outbox exhaustion, not low-space admission over signed XPC,
+Finder's handling of a refused save, or the remaining M23 recovery controls.

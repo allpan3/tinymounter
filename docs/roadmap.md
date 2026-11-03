@@ -203,7 +203,10 @@ enable no Finder capability. The [M23 ordering core](results/2026-10-29-pending-
 and retirement change pass required VM checks. Recovery cleanup and status reporting also pass
 those checks. Signed retained-save cleanup, export, a subsequent TextEdit save and app restart
 also pass. Bounded reserve, partial-stage continuation, lost-cleanup-reply and fresh
-replacement-artifact preservation probes pass; real disk exhaustion and broader callbacks remain.
+replacement-artifact preservation probes pass; broader callbacks remain.
+The November 3 APFS image check now covers real local outbox exhaustion: the older save and
+metadata remain exportable, reopening selects it, and retry preserves both complete generations.
+Signed low-space admission and Finder behavior remain unverified.
 
 M18 creation, M19 same-object editing and M20 verified-file renaming have signed VM evidence.
 Since 2026-11-02 the physical Mac runs main with the [pending-changes fixes](pending-changes-plan.md)
