@@ -140,3 +140,12 @@ After acceptance, implement bounded writes with validated reply counts, progress
 then run required checks and signed repeated-save, conflict, interruption and cleanup tests.
 Recover or export pending fixture saves before removing their test state. Install on the Mac
 only after the candidate passes and the user's pending changes are safe.
+
+## Accepted implementation, 2026-11-02
+
+The user approved the scoped transport change. Private save stages now use their existing SMB
+handle for bounded 64 KiB writes, with no native reopen and no second verifier handle. Stages
+and backups both retain exclusive sharing protection. Short replies advance by their confirmed
+count; zero, oversized, missing and lost replies fail without acknowledging completion.
+The existing transaction, full verification, close-response checks and cleanup rules remain.
+Required VM checks and signed app verification are next; the physical-Mac candidate is still withheld.

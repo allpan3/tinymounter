@@ -16,7 +16,9 @@ current status.
   compatibility layers or speculative fallbacks.
 - **Dependencies need a decision.** The user accepted a limited `libsmb2` prototype for M18
   exclusive folder creation and initial naming after the safety checks and licence review.
-  Reads and file uploads stay native. Further dependencies or transport changes need a user
+  Reads and new-file uploads stay native. On 2026-11-02 the user approved uploading private
+  save-stage files through the existing protected SMB handle after the file-ID reuse probe.
+  Further dependencies or transport changes need a user
   decision after measurement and a licence review ([architecture.md §5](docs/architecture.md#5-native-smb-versus-direct-smb)).
   M19's accepted design adds protected regular-file staging, verification and transactional
   rename/cleanup, gated by the [protocol checks](docs/phase4-plan.md#m19-online-editing).

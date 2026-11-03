@@ -438,7 +438,7 @@ Finder's New Folder creates an untitled folder on the server, then sends a separ
 the user types a name. The app's restricted SMB client now creates and names that folder using
 its retained server identity and creation time. A folder's initial name must precede child
 creation; child requests first finish any already pending parent naming. Copying a folder that
-already has its final name works, including its children. File uploads and reads stay native.
+already has its final name works, including its children. New-file uploads and reads stay native.
 Finder's Keep Both needs rename capability to select an alternative name before creation.
 Enabled locations advertise it. M20 also handles Rename for verified ordinary files in the
 same folder; unverified files and existing folders still refuse it. Definite server
@@ -476,6 +476,10 @@ Stage, backup and published-file verification uses the server's close-response t
 then reopens and checks identity, content and metadata before accepting that version. A missing
 close response or a mismatch retains recovery data. This handles servers that finalize write
 timestamps on close without accepting unexplained timestamp changes during cleanup.
+Private save stages upload through their existing SMB handle with exclusive sharing protection.
+Writes use at most 64 KiB per request; short acknowledgements advance only by the confirmed count.
+A lost reply leaves the save pending. This avoids native pathname opens after server file-ID reuse.
+The transport change is accepted; its signed app checks remain outstanding.
 Pending edits retain bounded original attributes separately, because macOS can change metadata
 when a sandboxed app copies the file. Export restores user attributes while macOS controls the
 new local file's access and quarantine attributes.
@@ -510,5 +514,5 @@ Its downloads fail as a missing file. Its saves stay unresolved without a confli
 copy, and its renames, moves and deletions refuse. If the catalog doesn't list such a name, a
 new file or folder can still be created next to it, as through Finder's own mount. Unit tests
 cover these comparisons. Signed Samba/ext4 checks verify selected accented uploads and saves,
-but repeated saves remain blocked by native staging opens after server file-ID reuse. See the
-[runtime results and proposed staging change](results/2026-11-02-samba-names-and-uploads.md).
+but the direct stage-upload fix for repeated saves still needs signed verification. See the
+[runtime results and accepted staging change](results/2026-11-02-samba-names-and-uploads.md).

@@ -129,10 +129,16 @@ Separate latency-sensitive metadata from bulk reads; pool authenticated sessions
 `libsmb2` is LGPL-2.1-or-later. Dependency selection must include notices/source obligations, linkage and user-relinking requirements, and signing/distribution compatibility. The wrapper's MIT license does not erase its bundled library's obligations [L1–L2]. Complete that review before committing to a distribution build.
 
 A limited `libsmb2-6.3` prototype is accepted for M18 exclusive folder creation and initial naming
-on 2026-10-23. Native reads and file uploads remain selected. The app embeds a separate dynamic
+on 2026-10-23. Native reads and new-file uploads remain selected. The app embeds a separate dynamic
 library and uses public GSS APIs for macOS-cached NTLM credentials. Authenticated mutations require SMB encryption.
 Its source, local changes and licence are in Vendor/libsmb2. This does not select a replacement
 read transport or a distribution package. See the [authentication checks](results/2026-10-23-folder-naming-authentication.md).
+
+On 2026-11-02 the user approved uploading private save-stage contents through the existing
+protected SMB handle. Native stage opens failed after the Linux fixture reused deleted file IDs;
+the direct-handle probe passed 20 repeated 2 MiB uploads. The implementation uses bounded writes,
+retains exclusive sharing protection, and verifies the flushed and reopened stage before publication.
+Signed app verification remains required. See the [staging results](results/2026-11-02-samba-names-and-uploads.md).
 
 ### Selection rule
 
@@ -298,13 +304,13 @@ and first disposable VM test session. Each implementation still has to pass its 
 
 ## 11. Open decisions for the first experiment
 
-- **Protected save-stage uploads, proposed 2026-11-02.** Upload private save-stage contents through
+- **Protected save-stage uploads, accepted 2026-11-02.** Upload private save-stage contents through
   the existing protected SMB handle. Repeated native opens failed after the Linux fixture reused
   a deleted file ID; a direct-handle probe passed 20 repeated 2 MiB writes with full readback and
   close-metadata verification. This changes the native-upload choice only for private save stages.
   Native reads and new-file uploads remain selected. No dependency or licence changes are needed;
-  distribution review remains open. Implementation and signed failure/recovery checks require
-  acceptance of this transport change. See the [evidence and scope](results/2026-11-02-samba-names-and-uploads.md#proposed-next-step).
+  distribution review remains open. Bounded writes are implemented; required VM checks and signed
+  failure/recovery checks remain. See the [evidence and scope](results/2026-11-02-samba-names-and-uploads.md#proposed-next-step).
 - **M23 interrupted uploads, accepted 2026-10-29.** The [ordering core](results/2026-10-29-pending-save-order.md)
   and retirement change pass the required VM checks. The user permits a newer save after durably
   preventing an older save from publishing, provided it has not started changing the original.

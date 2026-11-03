@@ -272,12 +272,11 @@ generations; a changed payload must not overwrite an uncertain pending operation
 
 1. Persist unique staging and recovery names and the transaction intent locally. Exclusively
    create the remote staging file through direct SMB and retain a handle that prevents its
-   deletion or replacement. Stream the edit into that owned file through native SMB. This is
+   deletion, replacement or competing writes. Stream the edit through that protected SMB handle. This is
    permission to write the transaction's new staging file, never the existing user file.
-2. Close the native writer, obtain write exclusion without losing the staging identity guard,
-   flush and verify the complete staged content through direct SMB. Prepare and verify the
+2. Flush and verify the complete staged content through direct SMB. Prepare and verify the
    supported metadata. Hold the stage and relevant ancestor identities through publication.
-   Native/direct handle compatibility and cache coherence must pass before adopting this route.
+   Verify close-response metadata and complete content again after reopening the stage.
 3. Open the existing destination with the access needed for handle-based rename and readback,
    denying other write/delete opens. Validate the base under that protection. Persist intent
    before renaming this exact file to its unused recovery name, with replacement disabled.
@@ -421,7 +420,7 @@ the user's original file, even while that file has its temporary name.
 The approved experiment uses this sequence:
 
 1. Retain the complete immutable edit locally. Create a separate remote stage with private
-   access rules, verified before putting content in it, and upload through native SMB.
+   access rules, verified before putting content in it, and upload through its protected SMB handle.
    Flush and verify the whole stage under retained identity and write protection.
 2. Open the original with read, write and rename access, denying other main-stream reads,
    writes and deletion. Hold the relevant ancestor identities. An existing incompatible open

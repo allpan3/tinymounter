@@ -6,7 +6,7 @@ Samba filename validation, 2026-11-02: accented uploads and selected TextEdit sa
 Linux/ext4 fixture after filename and metadata fixes. All required VM checks pass with 610 tests,
 one optional skip and no failures. Repeated saves still fail when native SMB reopens a staging
 file after server file-ID reuse. The Mac update is withheld. A direct-handle staging probe passes
-20 repeated 2 MiB writes; its narrow transport change is proposed. See the
+20 repeated 2 MiB writes; the approved app change is implemented and awaits VM verification. See the
 [results and decision](docs/results/2026-11-02-samba-names-and-uploads.md).
 
 Stop Uploading and removal, 2026-11-02: Settings offers Stop Uploading for a new file or folder
