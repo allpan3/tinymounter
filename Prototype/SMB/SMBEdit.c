@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <sys/socket.h>
 #include <smb2/smb2.h>
 #include <smb2/smb2-errors.h>
 #include <smb2/libsmb2.h>
@@ -78,6 +79,10 @@ static int wait_reply(struct edit_client *client, struct smb2_pdu *pdu, struct t
         if (!reply->done && now.tv_sec - start.tv_sec >= 12) { error = ETIMEDOUT; break; }
     }
     if (error) {
+        // An abortive close drops unsent requests; a graceful one can deliver a lost create later.
+        struct linger reset = {.l_onoff = 1, .l_linger = 0};
+        t_socket connection = smb2_get_fd(client->smb);
+        if (connection >= 0) (void)setsockopt(connection, SOL_SOCKET, SO_LINGER, &reset, sizeof(reset));
         // Destroy queued callbacks while their reply storage is still alive.
         smb2_destroy_context(client->smb);
         client->smb = NULL;
