@@ -307,6 +307,56 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
         } catch { reply(nil, Self.mutationError(error)) }
     }
 
+    func deleteItem(_ data: Data, reply: @escaping (Data?, NSError?) -> Void) {
+        guard SourceReaderBridge.deletionEnabled else {
+            reply(nil, NSFileProviderError(.deletionRejected) as NSError)
+            return
+        }
+        do {
+            let request = try ReaderMessage.decode(DeleteItemRequest.self, from: data)
+            guard let source else { throw LocationError.catalogClosed }
+            let job = Job()
+            job.progress.totalUnitCount = Int64.max
+            let accepted = lock.withLock {
+                guard !closed, jobs.count < Self.maxJobs, jobs[request.id] == nil else { return false }
+                jobs[request.id] = job
+                return true
+            }
+            guard accepted else { throw UploadError.pendingWrites }
+            let timer = progressTimer(request.id, job)
+            let deletion = DeletionRequest(item: request.item, contentVersion: request.contentVersion,
+                                           metadataVersion: request.metadataVersion)
+            source.deleteItem(deletion, recursive: request.recursive, progress: job.progress, started: { [weak self] in
+                try? self?.registration()?.started(ReaderMessage.encode(SourceReadStarted(id: request.id)))
+            }) { [self] result in
+                timer.cancel()
+                lock.withLock { jobs[request.id] = nil }
+                do {
+                    let record = try result.get()
+                    guard record.plan.request == deletion else { throw ItemDeletionError.unresolved }
+                    reply(try ReaderMessage.encode(DeleteItemReceipt(id: request.id, item: request.item)), nil)
+                } catch { reply(nil, Self.deletionError(error)) }
+            }
+        } catch { reply(nil, Self.deletionError(error)) }
+    }
+
+    private static func deletionError(_ error: Error) -> NSError {
+        if error is LocationError || error is CatalogError || error is SQLiteError {
+            return NSFileProviderError(.serverUnreachable) as NSError
+        }
+        switch DeletionFailure.classify(error) {
+        case .changed, .replaced, .moved, .parentChanged, .unsupported, .sharingViolation,
+             .accessDenied, .cannotDelete, .readOnly:
+            return NSFileProviderError(.deletionRejected) as NSError
+        case .directoryNotEmpty: return NSFileProviderError(.directoryNotEmpty) as NSError
+        case .connection: return NSFileProviderError(.serverUnreachable) as NSError
+        case .authentication: return NSFileProviderError(.notAuthenticated) as NSError
+        case .cancelled: return CocoaError(.userCancelled) as NSError
+        case .storage: return CocoaError(.fileWriteOutOfSpace) as NSError
+        case .unconfirmed, .pendingChanges, .unknown: return NSFileProviderError(.cannotSynchronize) as NSError
+        }
+    }
+
     private static func mutationError(_ error: Error) -> NSError {
         if let failure = error as? FolderMutationFailure {
             switch failure.code {

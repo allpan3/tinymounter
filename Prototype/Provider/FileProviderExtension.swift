@@ -577,8 +577,39 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
     func deleteItem(identifier: NSFileProviderItemIdentifier, baseVersion version: NSFileProviderItemVersion,
                     options: NSFileProviderDeleteItemOptions, request: NSFileProviderRequest,
                     completionHandler: @escaping (Error?) -> Void) -> Progress {
-        countMutation("delete", "result=rejected")
-        completionHandler(CocoaError(.fileWriteNoPermission)); return Progress()
+        guard SourceReaderBridge.deletionEnabled else {
+            countMutation("delete", "result=rejected")
+            completionHandler(NSFileProviderError(.deletionRejected))
+            return Progress()
+        }
+        countMutation("delete", "result=requested recursive=\(options.contains(.recursive))")
+        let progress = Progress(totalUnitCount: Int64.max)
+        let once = Once()
+        let finish = { (error: Error?) in
+            if once.claim() { completionHandler(error) }
+        }
+        progress.cancellationHandler = { finish(CocoaError(.userCancelled)) }
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            do {
+                guard !progress.isCancelled else { throw TransferError.cancelled }
+                guard identifier != .rootContainer,
+                      let content = String(data: version.contentVersion, encoding: .utf8),
+                      let metadata = String(data: version.metadataVersion, encoding: .utf8) else {
+                    throw NSFileProviderError(.deletionRejected)
+                }
+                // Replay precedes current-path and permission checks in the app.
+                guard let message = try? DeleteItemRequest(item: identifier.rawValue, contentVersion: content,
+                    metadataVersion: metadata, recursive: options.contains(.recursive)) else {
+                    throw NSFileProviderError(.deletionRejected)
+                }
+                try sourceReader.deleteItem(message, progress: progress)
+                progress.completedUnitCount = progress.totalUnitCount
+                finish(nil)
+            } catch {
+                finish(providerError(error))
+            }
+        }
+        return progress
     }
 
     /// Mutations are counted without recording names.

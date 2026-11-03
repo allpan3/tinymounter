@@ -5,6 +5,36 @@ import XCTest
 final class ReaderMessageTests: XCTestCase {
     private let item = UUID().uuidString
 
+    func testDeletionMessagesBindVersionAndRecursiveIntentWithoutPaths() throws {
+        for recursive in [true, false] {
+            let request = try DeleteItemRequest(item: item, contentVersion: "v1", metadataVersion: "7", recursive: recursive)
+            let data = try ReaderMessage.encode(request)
+            XCTAssertEqual(try ReaderMessage.decode(DeleteItemRequest.self, from: data), request)
+            XCTAssertLessThan(data.count, ReaderMessage.maxBytes)
+            let receipt = DeleteItemReceipt(id: request.id, item: request.item)
+            XCTAssertEqual(try ReaderMessage.decode(DeleteItemReceipt.self, from: ReaderMessage.encode(receipt)), receipt)
+        }
+    }
+
+    func testDeletionMessagesRejectRootsPathsAndInvalidVersionsAtDecode() throws {
+        let request = try DeleteItemRequest(item: item, contentVersion: "v1", metadataVersion: "7", recursive: true)
+        let original = try XCTUnwrap(JSONSerialization.jsonObject(with: ReaderMessage.encode(request)) as? [String: Any])
+        let invalid: [(String, Any)] = [("item", Catalog.rootItemID), ("item", "folder/file"),
+            ("item", item.lowercased()), ("contentVersion", ""), ("contentVersion", String(repeating: "x", count: 129)),
+            ("metadataVersion", "-1"), ("metadataVersion", "unknown"), ("metadataVersion", String(repeating: "1", count: 21)),
+            ("recursive", "yes")]
+        for (key, value) in invalid {
+            var changed = original
+            changed[key] = value
+            XCTAssertThrowsError(try ReaderMessage.decode(DeleteItemRequest.self,
+                from: JSONSerialization.data(withJSONObject: changed)), key)
+        }
+        var missing = original
+        missing["recursive"] = nil
+        XCTAssertThrowsError(try ReaderMessage.decode(DeleteItemRequest.self,
+            from: JSONSerialization.data(withJSONObject: missing)))
+    }
+
     func testEditMessagesKeepBaseAndConflictPolicyAndRejectUnsafePaths() throws {
         let request = try EditRequest(item: UUID().uuidString, parent: Catalog.rootItemID, name: "note.txt",
                                       baseVersion: "e1:" + UUID().uuidString, staging: UUID(), failOnConflict: true)

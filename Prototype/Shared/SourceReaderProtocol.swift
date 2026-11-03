@@ -13,6 +13,7 @@ import FileProvider
     func nameFolder(_ request: Data, reply: @escaping (Data?, NSError?) -> Void)
     func renameFile(_ request: Data, reply: @escaping (Data?, NSError?) -> Void)
     func moveFolder(_ request: Data, reply: @escaping (Data?, NSError?) -> Void)
+    func deleteItem(_ request: Data, reply: @escaping (Data?, NSError?) -> Void)
     func release(_ requestID: String)
 }
 
@@ -30,6 +31,7 @@ import FileProvider
 enum SourceReaderBridge {
     // Enable only in the disposable Finder candidate until its signed integration checks pass.
     static let folderOrganizationEnabled = false
+    static let deletionEnabled = false
     static let serviceName = NSFileProviderServiceName("dev.tinymounter.source-reader")
     static let progressInterval = Duration.milliseconds(500)
 

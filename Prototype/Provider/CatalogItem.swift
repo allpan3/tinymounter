@@ -28,6 +28,16 @@ final class CatalogItem: NSObject, NSFileProviderItem {
     var documentSize: NSNumber? { isFolder ? nil : NSNumber(value: row.size) }
     var contentModificationDate: Date? { row.parentID == nil ? nil : row.modificationDate }
     var capabilities: NSFileProviderItemCapabilities {
+        var result = organizationCapabilities
+        if SourceReaderBridge.deletionEnabled, row.parentID != nil, allowsEditing,
+           FileRenameRequest.supportsName(row.name),
+           UTType(filenameExtension: (row.name as NSString).pathExtension)?.conforms(to: .package) != true {
+            result.insert(.allowsDeleting)
+        }
+        return result
+    }
+
+    private var organizationCapabilities: NSFileProviderItemCapabilities {
         // Finder needs rename permission to choose a new name for an incoming copy in Keep Both.
         if isFolder {
             if SourceReaderBridge.folderOrganizationEnabled, row.parentID != nil, allowsEditing,
