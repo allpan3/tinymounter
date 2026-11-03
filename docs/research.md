@@ -282,6 +282,18 @@ comparison fixes both clients, but no captured server log confirms the exact fal
   adapter operations to under 0.2 s. This establishes a fixture problem; NAS connection
   latency remains unmeasured.
 
+### SMB close attributes, 2026-11-02
+
+- **W17:** The SMB2 [CLOSE request](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/f84053b0-bcb2-4f85-9717-536dae2b02bd)
+  can request attributes with `SMB2_CLOSE_FLAG_POSTQUERY_ATTRIB`. The
+  [response](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/c0c15c57-3f3e-452b-b51c-9cc650a13f7b)
+  includes creation, modification and change times, size and attributes when that flag is set.
+  [Server processing](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/f2b4183a-29c2-4fc0-a5de-fe290408f68c)
+  permits a response without attributes when they cannot be fetched. The client must check the
+  response flag. These fields do not prove identity or content after a reopen; those still need
+  independent verification. A disposable Samba 4.19.5/ext4 probe returned close timestamps that
+  matched a reopened handle, while pre-close queries returned earlier values after a flush.
+
 ## Research limitations
 
 Live web documentation and current SDK headers establish API contracts, not actual throughput. Search was unreliable, and several sites initially failed the VM's DNS resolution; direct HTTPS retrieval with explicitly resolved public addresses succeeded. No VM DNS settings were changed. Subsequent work measured native SMB and short NAS-backed provider reads and ran signed correctness checks; dated results logs record those separately. Competitor installations, the player matrix, large-file throughput acceptance, and controlled failure experiments remain incomplete, as described in the benchmark plan.

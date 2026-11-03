@@ -258,8 +258,14 @@ extension LocationSource {
             try remote.protectAncestors(of: record.path)
             try EditTransaction.publish(&record, outbox: outbox, remote: remote)
             if !record.isPublicationComplete {
-                guard let published = record.published else { throw UploadError.unresolved }
-                try remote.allowPublishedReads(path: record.destination, expected: published.version, collectReadProof: true)
+                guard var published = record.published else { throw UploadError.unresolved }
+                let version = try remote.finishPublishedWrite(path: record.destination, expected: published.version,
+                                                             collectReadProof: true)
+                if version != published.version {
+                    published = try EditBaseReceipt(item: published.item, version: version)
+                    record.published = published
+                    try outbox.save(record)
+                }
                 guard let destination = RelativePath(record.destination),
                       let parent = RelativePath(destination.components.dropLast().joined(separator: "/")) else {
                     throw UploadError.unresolved

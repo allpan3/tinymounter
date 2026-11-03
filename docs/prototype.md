@@ -472,6 +472,10 @@ changes and reconciliation until publication is resolved. Directory enumeration 
 actual stored spelling, including case-only changes.
 Interrupted local staging remains visible. New uploads establish a verified editing base, and
 changed strong revisions advance even when native timestamps are unchanged.
+Stage, backup and published-file verification uses the server's close-response timestamps,
+then reopens and checks identity, content and metadata before accepting that version. A missing
+close response or a mismatch retains recovery data. This handles servers that finalize write
+timestamps on close without accepting unexplained timestamp changes during cleanup.
 Pending edits retain bounded original attributes separately, because macOS can change metadata
 when a sandboxed app copies the file. Export restores user attributes while macOS controls the
 new local file's access and quarantine attributes.

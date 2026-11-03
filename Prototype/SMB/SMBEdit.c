@@ -175,6 +175,38 @@ int tm_edit_close(void *opaque, uint8_t *file)
     return wait_reply(client, smb2_cmd_close_async(smb, &request, done, &reply), &reply);
 }
 
+static void closed_info(struct smb2_context *smb, int status, void *data, void *context)
+{
+    struct tm_edit_reply *reply = context;
+    done(smb, status, data, context);
+    const struct smb2_close_reply *info = data;
+    if (status) return;
+    const uint64_t epoch = 116444736000000000ULL;
+    if (!info || !(info->flags & SMB2_CLOSE_FLAG_POSTQUERY_ATTRIB)
+        || info->creation_time <= epoch || info->last_write_time < epoch || info->change_time < epoch) {
+        reply->error = EIO;
+        return;
+    }
+    reply->values[0] = (info->creation_time - epoch) / 10;
+    reply->values[1] = (info->last_write_time - epoch) / 10;
+    reply->values[2] = (info->change_time - epoch) / 10;
+    reply->values[3] = info->end_of_file;
+    reply->values[4] = info->file_attributes;
+}
+
+int tm_edit_close_info(void *opaque, uint8_t *file, uint64_t *values)
+{
+    struct edit_client *client = opaque;
+    client->ntstatus = 0;
+    if (!client->smb) return EIO;
+    struct smb2_close_request request = {.flags = SMB2_CLOSE_FLAG_POSTQUERY_ATTRIB};
+    memcpy(request.file_id, file, SMB2_FD_SIZE);
+    struct tm_edit_reply reply = {0};
+    int error = wait_reply(client, smb2_cmd_close_async(client->smb, &request, closed_info, &reply), &reply);
+    if (!error) memcpy(values, reply.values, 5 * sizeof(uint64_t));
+    return error;
+}
+
 int tm_edit_open_directory(void *opaque, const char *path, uint32_t access, uint32_t sharing,
                          uint8_t *file)
 {
