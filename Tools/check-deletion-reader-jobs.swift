@@ -21,6 +21,33 @@ private final class M24HeldReaderJobs: @unchecked Sendable {
 }
 
 extension SourceReaderHost {
+    func checkIncompleteDeletion(domain: String) async throws -> [String: String] {
+        guard let config = M22FinderProbe.selected(domain), let source = source(domain),
+              let session = connections[domain]?.exportedObject as? SourceReaderSession else {
+            throw M22FinderProbe.Failure.check("connected-deletion-session-required")
+        }
+        let records = try LocationSource.deletionOutbox().records()
+        let pending = records.filter {
+            $0.plan.owner == domain && !$0.isComplete && $0.isSettled
+                && $0.plan.selected.path == config.folder + "/Deletion/CatalogDelay"
+        }
+        try M22FinderProbe.require(pending.count == 1, "one-incomplete-catalog-record")
+        let record = pending[0], original = record.plan.request, id = UUID()
+        let request = try ReaderMessage.encode(DeleteItemRequest(id: id, item: original.item,
+            contentVersion: original.contentVersion, metadataVersion: original.metadataVersion,
+            eventVersion: original.eventVersion, recursive: true))
+        let result: (Data?, NSError?) = await withCheckedContinuation { continuation in
+            session.deleteItem(request) { data, error in continuation.resume(returning: (data, error)) }
+        }
+        session.release(id.uuidString)
+        try M22FinderProbe.require(result.0 == nil && result.1?.domain == NSFileProviderErrorDomain
+            && result.1?.code == NSFileProviderError.cannotSynchronize.rawValue,
+            "unfinished-catalog-cannot-synchronize")
+        try M22FinderProbe.require(try LocationSource.deletionOutbox().records() == records,
+                                  "unfinished-replay-records-unchanged")
+        return ["record": record.id.uuidString, "error": "cannotSynchronize", "recordUnchanged": "true"]
+    }
+
     func checkDeletionSession(domain: String, invalidate: Bool) throws -> [String: Int] {
         guard let connection = connections[domain],
               let session = connection.exportedObject as? SourceReaderSession,

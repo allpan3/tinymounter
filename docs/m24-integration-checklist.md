@@ -120,6 +120,8 @@ the app normally to exercise launch reopening and settlement. This is a source A
 user-facing Remove Location action, which pending deletion correctly blocks.
 `catalog-second` injects a failure before the second catalog's settlement. The repeated actions
 `fail-version`, `fail-readonly` and `fail-invalid` exercise the production completion-error mapping.
+`check-incomplete-deletion-TRIAL` replays that settled but incomplete `Deletion/CatalogDelay`
+record through the connected reader session and requires `cannotSynchronize` with unchanged records.
 `check-keep-restore-start` seeds pending keeps only for the two fixture locations: the files in
 `Deletion/Restore/` and the untouched neighbor. A run-bound `keep-restore.json` control holds the
 actual older restore after it enters the controller's restoring set. Its release file is
