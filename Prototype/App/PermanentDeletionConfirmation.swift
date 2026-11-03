@@ -38,14 +38,15 @@ final class PermanentDeletionConfirmation: NSObject {
         isPresented = true
         // Return owns Cancel's key equivalent, so handle Escape only in this sheet.
         escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, event.keyCode == 53, let window = event.window,
-                  window === self.alert.window || window.attachedSheet === self.alert.window else { return event }
+            guard let self, event.keyCode == 53, event.window === self.alert.window else { return event }
             self.finish(false)
             return nil
         }
         NSApp.activate()
         parent.deminiaturize(nil)
         parent.makeKeyAndOrderFront(nil)
+        // An active Settings field editor can consume the sheet's first Escape.
+        guard parent.makeFirstResponder(nil) else { finish(false); return }
         alert.beginSheetModal(for: parent) { [weak self] response in
             self?.finish(response == .alertSecondButtonReturn)
         }
