@@ -109,6 +109,35 @@ final class CatalogTests: XCTestCase {
         XCTAssertEqual(try child(catalog, "data").contentVersion, fresh.contentVersion)
     }
 
+    func testUploadedEditBaseReplacesListedTimesAndSurvivesFreshListing() throws {
+        let catalog = try makeCatalog()
+        try reconcile(catalog, [file("upload", fileID: 17)])
+        let listed = try child(catalog, "upload")
+        try catalog.setAllowsWriting(true)
+        try catalog.setKeep(ids: [listed.id], value: true)
+        let version = try EditFileVersion(identity: EditFileIdentity(fileID: 17, birthMicroseconds: 18),
+                                         size: listed.size, digest: String(repeating: "a", count: 64),
+                                         modifiedMicroseconds: 19, changedMicroseconds: 20,
+                                         attributes: 32, security: Data([1]))
+        let receipt = try EditBaseReceipt(item: listed.id, version: version)
+        let fingerprint = ContentFingerprint(size: listed.size, mtimeNs: 19_000, ctimeNs: 20_000)
+        let anchor = try catalog.currentAnchor()
+        try catalog.refreshEditBase(receipt, expectedVersion: listed.contentVersion,
+                                    fingerprint: fingerprint, nativeID: 17)
+        try reconcile(catalog, [file("upload", mtime: 19_000, ctime: 20_000, fileID: 17)])
+        let current = try child(catalog, "upload")
+        XCTAssertEqual(current.id, listed.id)
+        XCTAssertEqual(current.contentVersion, receipt.contentVersion)
+        XCTAssertEqual(current.mtimeNs, fingerprint.mtimeNs)
+        XCTAssertEqual(current.ctimeNs, fingerprint.ctimeNs)
+        XCTAssertEqual(try catalog.remoteIdentity(current.id), 17)
+        XCTAssertTrue(current.keepRequested)
+        XCTAssertTrue(try catalog.changes(after: anchor, limit: 100).updated.contains { $0.id == listed.id })
+        XCTAssertThrowsError(try catalog.refreshEditBase(receipt, expectedVersion: listed.contentVersion,
+                                                        fingerprint: fingerprint, nativeID: 17))
+        XCTAssertEqual(try child(catalog, "upload"), current)
+    }
+
     func testInitialFolderNameKeepsIdentityChildrenAndPageOrder() throws {
         let catalog = try makeCatalog()
         try catalog.reconcile(folder: root, listing: DirectoryListing([
