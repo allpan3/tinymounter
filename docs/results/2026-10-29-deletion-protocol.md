@@ -639,7 +639,10 @@ failures or Swift warnings, plus project, CLI, unsigned app and SMB encoder/stat
 The parent-checkpoint repair then passed 72 focused host package tests with incremental build
 caches and simulated remotes. Coverage includes restart, same-file-ID replacement, a lost
 checkpoint, arriving children, malformed saved parents and equivalent client/server Unicode
-spellings. It has not yet been built or run in the VM.
+spellings. Required checks subsequently passed in macOS VM 1 with 635 tests, two optional skips,
+zero failures or Swift warnings, and all project, CLI, unsigned app and SMB checks. The signed
+candidate adds fixture-bound stops before and after deletion checkpoints for recovery testing;
+its runtime result remains pending.
 
 Private evidence is under `results/folder-single-20261103/` in macOS VM 1 and the matching Linux
 fixture evidence directory. It includes `checks-deletion-refusal.log`, `repair/deletion-refusal-report.json`,

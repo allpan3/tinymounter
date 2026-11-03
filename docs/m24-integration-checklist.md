@@ -59,6 +59,10 @@ reuses the existing signed folder fixture and exports deletion callbacks and bot
 durable deletion records. Add `--enable-deletion` for the enabled comparison. It leaves the
 normal-build gate unchanged; use unique `check-` snapshot labels and the existing local
 evidence picker. The current candidate is still a VM-only transport experiment.
+Adding `--crash-checks` enables `deletion-fault.json`, bound to the fixture run, selected item,
+`Deletion/` path, node index and checkpoint. It exports the durable plan/progress and stops
+the app before or after an attempting, close-acknowledged or deleted checkpoint. Each control
+fires once. Kill only the recorded test process, preserve the hit and resume the fixture app.
 
 1. Integrate the commits and run `Tools/run-checks.sh` in the VM. App-target changes have not
    been compiled on the host. No generator changes are needed because all production changes
