@@ -252,8 +252,10 @@ Finder's permanent warning and Cancel, verified and unopened files, and nested f
 Protected-parent checkpoints account for Samba's synthetic creation-time changes and pass signed
 restart, lost-checkpoint and replacement-refusal checks. Required VM checks pass with 635 tests.
 Delayed Settings completion and explicit Retry pass. Stop Deleting exposed unsafe rebasing of
-the callback's item metadata. The domain-version protocol probe passes; the integrated repair
-and remaining lifecycle checks are pending. Deletion stays disabled in the normal build. Follow the
+the callback's item metadata. The domain-version repair now passes signed Stop restoration,
+interruption before notification, a later deliberate Delete and refreshed replay after dismissal
+and restart. The restored item's ID, keep and downloaded copy survive. Required VM checks pass
+with 644 tests; remaining concurrency and lifecycle gates keep deletion disabled. Follow the
 [integration checklist](m24-integration-checklist.md) before enablement.
 
 The supported write boundary remains folders whose writers use SMB and leave tinymounter's
