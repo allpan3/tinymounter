@@ -218,8 +218,9 @@ correction found in source review. Selected signed adapter checks pass for moves
 and recovery. Signed app checks cover draining, overlapping views, keeps and settings recovery.
 Signed Finder rename, move and case-only checks preserve downloaded copies. New-folder creation
 failed on the fixture. The October 31 supported Samba setting fixes adapter/native and signed
-Finder creation. Parent-scoped enumeration, real crashes and stale-base publication
-remain unverified. Signed Settings-gap checks cover case-only descendant retirement, source-only
+Finder creation. Working-set delivery of a move, real crashes and stale-base publication
+remain unverified. macOS never asks a replicated extension for parent-scoped changes, so the
+move gate now checks the working set ([phase 4 plan](phase4-plan.md)). Signed Settings-gap checks cover case-only descendant retirement, source-only
 ancestor changes and retry after root or destination restoration, including injected partial
 catalog completion. The native listing rewrites the Unicode case's initial name, so that case
 remains unavailable. Two earlier ambiguous-name cases also lack a usable fixture. On 2026-10-30
