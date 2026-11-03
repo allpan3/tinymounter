@@ -240,6 +240,13 @@ def main():
                 '            try await self.commitDeletionSettings(deletion, paths: paths, owner: domainID, grant: grant.id)',
                 '            try await M24FinderCrash.settings(deletion)\n'
                 '            try await self.commitDeletionSettings(deletion, paths: paths, owner: domainID, grant: grant.id)'))
+            recovery = root / "Prototype/App/LocationDeletionRecovery.swift"
+            recovery.write_text(replace(recovery.read_text(),
+                '            recovery.rememberRefresh()\n            deletionRecovered()',
+                '            recovery.rememberRefresh()\n'
+                '            try M24FinderCrash.checkpoint(recovery.record.plan, outbox: Self.deletionOutbox(),\n'
+                '                node: 0, stage: "settled")\n'
+                '            deletionRecovered()'))
     provider = root / "Prototype/Provider/FileProviderExtension.swift"
     content = provider.read_text()
     content = replace(content, 'try CatalogEnumerator.make(for: containerItemIdentifier, catalog: catalog, reader: sourceReader, domain: domain)',

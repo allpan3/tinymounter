@@ -779,6 +779,7 @@ final class LocationSource: @unchecked Sendable {
     let renameSettings: @Sendable (RenameIntent) async throws -> Void
     let renameRecovered: @Sendable () -> Void
     let deletionSettings: DeletionSettings?
+    let deletionRecovered: @Sendable () -> Void
     // The share lane owns these replies while settings completion awaits the main actor.
     var renameCompletions: [UUID: [RenameReply]] = [:]
     let renameRetryLock = NSLock()
@@ -824,6 +825,7 @@ final class LocationSource: @unchecked Sendable {
          renameSettings: @escaping @Sendable (RenameIntent) async throws -> Void,
          renameRecovered: @escaping @Sendable () -> Void = {},
          deletionSettings: DeletionSettings? = nil,
+         deletionRecovered: @escaping @Sendable () -> Void = {},
          signal: @escaping @Sendable ([String]) -> Void) {
         self.domainID = domainID
         self.folder = folder
@@ -833,6 +835,7 @@ final class LocationSource: @unchecked Sendable {
         self.renameSettings = renameSettings
         self.renameRecovered = renameRecovered
         self.deletionSettings = deletionSettings
+        self.deletionRecovered = deletionRecovered
         editNamespace.register(self)
     }
 

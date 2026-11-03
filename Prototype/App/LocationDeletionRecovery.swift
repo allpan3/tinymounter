@@ -98,8 +98,12 @@ extension LocationSource {
             do {
                 try requireDeletionRecoverySource()
                 let records = try editNamespace.perform { try Self.deletionOutbox().records() }
-                for record in records where record.plan.owner == domainID && record.isPending && record.isSettled {
+                for record in records where record.plan.owner == domainID && !record.isComplete && record.isSettled {
                     retryDeletionOnLane(record.id, resume: false, reply: nil)
+                }
+                // A process can exit after settlement is durable but before Finder receives its signal.
+                if records.contains(where: { $0.plan.owner == domainID && $0.isComplete }) {
+                    deletionRecovered()
                 }
             } catch {
                 Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
@@ -325,6 +329,7 @@ extension LocationSource {
             }
             recovery.attempt = attempt
             recovery.rememberRefresh()
+            deletionRecovered()
             finishDeletionReply(recovery)
         } catch {
             failDeletionRecovery(recovery, error: error)
