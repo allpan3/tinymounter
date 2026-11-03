@@ -192,6 +192,40 @@ final class DeletionRecoveryTests: XCTestCase {
         XCTAssertEqual(DeletionFailure.classify(CocoaError(.userCancelled)), .cancelled)
         XCTAssertEqual(DeletionFailure.classify(CocoaError(.fileWriteOutOfSpace)), .storage)
     }
+
+    func testIncompleteDeletionCannotReportATerminalRefusal() throws {
+        let fixture = try DeletionFixture()
+        defer { fixture.remove() }
+        var record = try fixture.prepare()
+        fixture.server.inspectFailures["Docs/Tree/Sub/c"] = SourceFailure.serverUnreachable
+        XCTAssertThrowsError(try fixture.run(&record))
+        XCTAssertEqual(record.summary, [.deleted: 1])
+        let refusals: [Error] = [SourceFailure.versionChanged, UploadError.readOnly,
+            UploadError.invalidRequest, ItemDeletionError.invalidRequest, ItemDeletionError.directoryNotEmpty,
+            ItemDeletionError.sharingViolation, ItemDeletionError.stopped]
+        let recoverable: [Error] = [SourceFailure.serverUnreachable, SourceFailure.notAuthenticated,
+            TransferError.cancelled, CocoaError(.fileWriteOutOfSpace), UploadError.pendingWrites,
+            ItemDeletionError.busy, ItemDeletionError.unresolved]
+        func checkIncomplete(_ record: PendingDeletion) {
+            XCTAssertFalse(record.isComplete)
+            for error in refusals {
+                XCTAssertEqual(DeletionFailure.classify(record.completionError(error)), .unconfirmed)
+            }
+            for error in recoverable {
+                XCTAssertEqual(DeletionFailure.classify(record.completionError(error)), DeletionFailure.classify(error))
+            }
+        }
+        checkIncomplete(record)
+        try fixture.outbox.stop(&record)
+        XCTAssertTrue(record.isSettled)
+        checkIncomplete(record)
+        try fixture.outbox.finishDomain(fixture.owner, record: &record)
+        checkIncomplete(record)
+        try fixture.outbox.finishDomain(fixture.neighbor, record: &record)
+        for error in refusals + recoverable {
+            XCTAssertEqual(DeletionFailure.classify(record.completionError(error)), DeletionFailure.classify(error))
+        }
+    }
 }
 
 private final class CancelAfterMark: DeletionRemote {

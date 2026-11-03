@@ -115,7 +115,7 @@ extension Catalog {
             }
             let folders = try deletionListingOrder(listings)
             if blocked.isEmpty, folders.isEmpty, domainID == record.plan.owner,
-               let outcome = record.selectedOutcome, outcome != .deleted, outcome != .unconfirmed,
+               let outcome = record.selectedOutcome, outcome != .deleted,
                let selected = try item(id: record.plan.request.item), !selected.deleted,
                selected.metadataVersion == record.plan.request.metadataVersion {
                 // A new Finder action needs a new base; old callbacks still replay their recorded result.

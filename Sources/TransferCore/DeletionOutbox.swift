@@ -413,6 +413,17 @@ public struct PendingDeletion: Equatable, Sendable {
         }
     }
 
+    // A terminal refusal must not restore Finder's item from an unfinished catalog settlement.
+    public func completionError(_ error: Error) -> Error {
+        guard !isComplete else { return error }
+        switch DeletionFailure.classify(error) {
+        case .changed, .replaced, .moved, .parentChanged, .unsupported, .sharingViolation,
+             .accessDenied, .cannotDelete, .readOnly, .directoryNotEmpty, .stopped:
+            return ItemDeletionError.unresolved
+        default: return error
+        }
+    }
+
     /// Nil for nodes that have not finished.
     public func outcome(at index: Int) -> DeletionNodeOutcome? {
         plan.nodes.indices.contains(index) ? outcomes()[index] : nil

@@ -552,3 +552,38 @@ synthetic catalogs, private credentials, helper builds and reports remain for in
 No uncertain record was dismissed or removed to clear a guard. Reopening writable runtime work
 requires fresh session approval. M22, M23 and M24 remain incomplete; the remaining signed
 provider, lifecycle and recovery gates still apply.
+
+## Review fixes, host validation, 2026-11-02
+
+The two provider review defects and both smaller settlement findings are fixed in the gated
+candidate. Busy deletion admission and full reader queues return a transient Cocoa error;
+other pending-write refusals retain `cannotSynchronize`. Reader release and disconnection no
+longer cancel deletion progress. Explicit provider cancellation and Settings Stop Deleting
+retain durable Stop, while a completed stopped replay returns `deletionRejected`.
+Incomplete records defer terminal refusals until every view finishes settlement. A surviving
+unconfirmed selected item gets one metadata refresh after fresh reconciliation, preserving
+its ID, content version and keeps. Its old callback still replays the unconfirmed outcome.
+
+Validation used the arm64 host on macOS 27.0.1, build 26A434, with
+`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`. These were debug Swift package
+checks with incremental build caches, local temporary storage and simulated deletion remotes.
+No VM, app build, SMB fixture or physical-Mac installation was used. The first sandboxed test
+attempt failed before compilation because the compiler cache was not writable; the permitted
+package commands then ran with cache access.
+
+`swift build` passed. `swift test` ran 589 tests with zero failures and one skip for the optional
+writable SMB fixture. Neither completed command emitted warnings. Focused runs also passed:
+45 busy/outbox/recovery tests, 28 cancellation/recursive tests, and 38 catalog/recovery tests.
+Regression coverage includes blocked admission through partial domain settlement and restart,
+stopped replay after dismissal, incomplete-record refusal mapping, and an unconfirmed survivor's
+metadata refresh and unchanged replay. The app XPC and KVO paths received source review only.
+No persisted format or generated-project change was needed.
+
+Raw local logs are in `results/m24-review-findings-2026-11-02/`, ignored by Git.
+Reproduce with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build` and
+`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test`.
+The [integration checklist](../m24-integration-checklist.md) cites the SDK header and specifies
+the remaining signed concurrency, timeout/disconnection, explicit Stop, survivor refresh and
+partial-refusal checks. The coordinator must run those and `Tools/run-checks.sh` in the VM.
+App compilation, Finder retry timing, item restoration and XPC lifecycle behavior remain
+unverified. `SourceReaderBridge.deletionEnabled` remains false.
