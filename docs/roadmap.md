@@ -212,27 +212,20 @@ read-only. Folder organization, deletion, Finder Replace and deliberate offline 
 unavailable. M21 now handles ordinary files in signed VM checks, including unverified files,
 preserved downloads, overlapping views and interrupted moves. Its remaining acceptance checks
 are recorded in the organization results; this does not complete the milestone.
-M22's [catalog, transaction and app preparation](results/2026-10-30-folder-move-catalog.md) passes
-required VM checks, including recovery after partial catalog completion and the watch-close
-correction found in source review. Selected signed adapter checks pass for moves, collisions
-and recovery. Signed app checks cover draining, overlapping views, keeps and settings recovery.
-Signed Finder rename, move and case-only checks preserve downloaded copies. New-folder creation
-failed on the fixture. The October 31 supported Samba setting fixes adapter/native and signed
-Finder creation. Working-set delivery of a move, real crashes and stale-base publication
-remain unverified. macOS never asks a replicated extension for parent-scoped changes, so the
-move gate now checks the working set ([phase 4 plan](phase4-plan.md)). Signed Settings-gap checks cover case-only descendant retirement, source-only
-ancestor changes and retry after root or destination restoration, including injected partial
-catalog completion. The native listing rewrites the Unicode case's initial name, so that case
-remains unavailable. Two earlier ambiguous-name cases also lack a usable fixture. On 2026-10-30
-the user approved retiring a durably moved root and its old subtree IDs when a fresh complete
-listing of the unchanged destination parent proves departure. Completion and replay return
-`versionChanged`; discovery uses new IDs, with downloads and per-item keeps reset. Destination
-ancestor changes remain pending. The implementation passes required VM checks. Signed checks now
-verify root retirement after partial catalog completion, keep cleanup, fresh discovery and
-changed-version replay. The run exposed a surviving-root handle conflict; its repair passes
-required checks and the signed gap rerun. Root removal/replacement, downloaded-copy invalidation
-and the controller's Settings callback remain unverified.
-Provider enablement remains gated.
+M22's [earlier adapter and app checks](results/2026-10-30-folder-move-catalog.md) cover draining,
+pending-write exclusion, overlapping views, collisions and Settings recovery. The November 3
+[Linux Samba checks](results/2026-11-03-folder-organization.md) add signed Finder rename, move,
+case-only naming, working-set delivery and new-folder creation. Downloaded copies, IDs and keeps
+survive unchanged contents. All seven instrumented crash checkpoints recover; checks also pass
+between catalog updates and after one view finishes. Same-identity changes and a real stale
+TextEdit save preserve server contents and publish a separate conflict copy. An independent SMB
+move or replacement after a crash retires both views' old IDs and keeps; new discovery never
+inherits their downloaded bytes. Controller Settings cleanup and changed-version replay pass.
+Parent creation-time changes are checkpointed while protected, after a directory read. Losing
+protection before that checkpoint can still leave an intent unresolved. Destination-ancestor
+changes remain pending until the expected identity returns. The earlier Unicode-respelling
+and ambiguous-name fixture cases remain unverified. Provider enablement stays gated; the
+single-client branch is a VM-only transport experiment, not a production-adoption decision.
 
 M24's signed production-adapter checks pass for ordinary files, empty directories, paginated
 confirmation, changed/replaced-file refusal and recovery after injected interruptions. Lost

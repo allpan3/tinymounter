@@ -923,6 +923,15 @@ extension SMBEdit: FolderMoveRemote {
         guard folderMoveParentBindings == parents, Set(parents.map(\.path)) == folderMoveParents else {
             throw UploadError.unresolved
         }
+        // A directory read can change Samba's synthetic creation time; checkpoint after it.
+        for parent in parents {
+            guard let handle = directories[parent.path] else { throw UploadError.unresolved }
+            var buffer = [UInt8](repeating: 0, count: 65_536), count: UInt32 = 0, finished: Int32 = 0
+            try cancellation()
+            try handle.use {
+                try check(tm_edit_list(client, $0, 1, &buffer, UInt32(buffer.count), &count, &finished))
+            }
+        }
         return try parents.map { parent in
             guard let handle = directories[parent.path] else { throw UploadError.unresolved }
             let values = try info(handle)

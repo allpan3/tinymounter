@@ -6,7 +6,9 @@ Signed Finder organization and recovery at all seven tested crash checkpoints no
 registered view. Item IDs, downloads and keeps survive unchanged contents. A concurrent edit
 retires a child whose reported creation time changes. A same-identity change preserves its ID,
 and a genuine stale save publishes a separate conflict copy. Recovery between two catalogs also
-passes. A combined rename/modification-date callback repair awaits validation.
+passes. Combined rename/modification-date replay and the parent-enumeration checkpoint repair
+pass signed checks. Crashes followed by an independent SMB move or replacement retire both
+views' old bindings and keeps; fresh items never inherit their downloaded bytes.
 Folder capabilities stay disabled.
 
 ## Setup and evidence
@@ -240,3 +242,69 @@ validation; the saved contents and completed server move remain safe.
 Build 21 still rejects replay. Its first repair misidentified field 128 as last-used date;
 the installed SDK reports content-modification date as 128 and last-used date as 8. The corrected
 route follows those values and requires another signed check. The failed traces remain preserved.
+
+Build 22 passes the combined rename/modification-date replay: the name completes and only the
+unsupported date remains pending. Both outboxes are empty. The required VM checks pass with
+626 tests, one optional skip and no Swift warnings. Evidence is `recovery-replay-fixed*` and
+`checks-modification-date.log`.
+
+## Parent enumeration before the checkpoint
+
+The next cross-folder move reaches verified catalog settlement but never reaches its requested
+finished-domain stop. A later test action moves the exact synthetic root aside before that
+failure is understood. The intended crash test is invalid: no stop or kill occurred. Its
+snapshots and failed commands remain preserved. One accidentally started second app instance
+was stopped; the original process and pending intent remain.
+
+The stored parent identity differs from a fresh query only in creation time. Linux timestamps
+show that the earlier SMB value matched access time; a later directory read advances it beyond
+modification time. A bounded two-directory probe with the installed SMB library reproduces the
+change: querying metadata after rename alone is insufficient. Reading both protected directories
+first produces values that survive handle closure and reopening. Caches were uncontrolled;
+this is correctness evidence, not a performance comparison. The probe's first open failed
+because its synthetic directories had the wrong owner; using their existing fixture parent's
+owner corrected that setup error.
+
+The adapter now reads one directory page through each still-protected parent handle before
+capturing its identity. It retains the same file-ID checks and permits creation-time updates
+only while the original rename protection is held. The read is not treated as a complete
+listing. Previously unresolved intents do not gain new historical evidence from this fix.
+Evidence is `parent-check-first.json`, `parent-check-listing.json` and
+`repair/retirement-parent-inspection.json`. Signed verification is next.
+
+Builds 23–24 pass signed cross-folder moves and the following interruption checks. Build 24
+adds bounded unique `check-` snapshot labels to avoid rebuilding instrumentation for each
+report. The production adapter is unchanged between these builds. The required checks at the
+adapter repair pass with 626 tests, one optional skip and no Swift warnings. The single-page
+probe also passes; evidence is `parent-check-one-page.json` and `checks-parent-listing.log`.
+
+The earlier pending intent needed explicit restoration of its synthetic parent's modification
+time to recover; this was a fixture intervention, not an automatic-recovery success. It then
+retired both views' old IDs and keeps, and fresh discovery produced dataless items. That evidence
+is `overlap-rediscovered*` and the Linux `retirement-parent-restoration.json`. No production
+metadata rewrite or relaxed identity check was added.
+
+## Signed moved-away and replaced-root recovery
+
+A fresh cross-folder move stops after one view finishes. After confirming SIGSTOP and the
+durable record, SIGKILL terminates that exact process. A separate SMB client moves the original
+folder again. Its first 15 opens receive sharing error 26; after the server releases the old
+handles, the same protected no-replace rename succeeds. Ordinary restart completes recovery
+in both views. The old folder and three child IDs retire; keeps reset, and fresh discovery
+produces new IDs with three dataless children in each view. The four downloaded neighbors
+retain their inodes and digests. Both outboxes remain empty and unrelated Settings are intact.
+
+A second run stops between catalog updates. After SIGKILL, the independent SMB client moves
+the original aside, then exclusively creates a different folder at the expected destination
+with a same-name child containing different bytes. Recovery completes in both views, retires
+their four old IDs and keeps, and discovers both folders with new IDs. All four newly discovered
+files are dataless in each view. The replacement remains unchanged and the original contents
+remain intact at the other pathname. Working-set callbacks deliver all retired IDs. The replay
+returns the existing changed-version error instead of reporting a successful original move.
+
+Independent Linux inventories verify every preexisting object identity, file digest, mode,
+owner and attribute in both runs. Only the deliberate moves, parent timestamps and new
+replacement objects differ. Neither clean run restores a timestamp. Evidence is
+`repair/check-parent-*`, `check-retirement-*`, `check-replacement-*` and the associated
+`fault-hit-*`/`fault-killed-*` records. Linux audits are `parent-listing-move-audit.json`,
+`retirement-smb-recovery-audit.json` and `replacement-smb-recovery-audit.json`.

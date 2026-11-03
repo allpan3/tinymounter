@@ -9,8 +9,10 @@ checks pass. All seven tested crash checkpoints recover in one view, including a
 after a temporary sharing error and successful Finder replay. Recovery also passes between two
 catalog updates and after the first view finishes. A real stale-base TextEdit save preserves
 the server edit and publishes a separate conflict copy. The save-work naming fix also passes
-a signed save without adding Samba's hidden flag. The concurrent-save test exposes a combined
-name/modification-date callback refusal; its routing repair awaits signed validation.
+a signed save without adding Samba's hidden flag. The combined name/modification-date replay
+now succeeds. Reading protected parents before checkpointing their identity fixes a later
+cross-folder failure. Signed crash checks also retire moved-away or replaced roots in both
+views, reset their keeps and discover fresh IDs without reusing downloaded copies.
 Folder capabilities remain off in normal builds.
 See the [folder organization results](docs/results/2026-11-03-folder-organization.md).
 
