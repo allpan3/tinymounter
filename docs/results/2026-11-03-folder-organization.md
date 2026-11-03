@@ -2,10 +2,10 @@
 
 Date: 2026-11-03. Status: integration in progress; normal-build folder capabilities remain off.
 
-The first enabled Finder rename moved the server folder and preserved its catalog IDs,
-content versions, downloaded bytes and keep selections, but did not complete. Samba changed
-the parent directory's reported creation time when the child moved. The completion check
-then treated that parent as a different object and retained the verified pending intent.
+Signed Finder organization and recovery at all seven tested crash checkpoints now pass in one
+registered view. Item IDs, downloads and keeps survive unchanged contents. A concurrent edit
+retires a child whose reported creation time changes; genuine stale-save callbacks and
+overlapping-view recovery remain open. Folder capabilities stay disabled.
 
 ## Setup and evidence
 
@@ -127,3 +127,40 @@ checkpoint therefore never fires; its failed Linux audit is preserved. Successfu
 recovery now also signals File Provider that the synchronization error is resolved, so macOS
 can replay the original callback and receive its completed receipt. This notification repair
 awaits a signed test.
+
+Build 18 passes the repeated held-handle test, including an automatic successful Finder
+callback after server recovery. The next rename reaches its catalog checkpoint and recovers
+after SIGKILL. Stops after domain completion and immediately before the callback reply also
+recover. Together with the earlier runs, all seven instrumented points pass in one view.
+The required checks pass with 624 tests, one optional skip and no Swift warnings. Evidence is
+`sharing-signal-*`, `recovery-settings-retry*`, `recovery-catalog-retry*`,
+`recovery-finished-domain*` and `recovery-before-reply*` in `repair/`.
+
+## Concurrent changes and open documents
+
+With both recovery documents open in TextEdit, the app stops after the Settings checkpoint.
+An independent Linux process changes one child in place, then the app is killed and restarted.
+Recovery preserves 19 catalog IDs and five unchanged local copies without another fetch.
+The changed child's Linux inode survives, but its SMB creation time changes from
+1793709716943157 to 1793709716944184 microseconds. The identity check therefore retires its
+old binding and discovers a new, dataless item. It does not associate the stale local bytes
+with that new item. A same-identity content-change case remains unverified.
+
+TextEdit refuses both saves before a contents callback. Its log records a sandbox extension
+failure at the new path during the folder rename. A matched local APFS control, without a
+provider or crash, gives the same refusal. Opening the unchanged document again through Finder
+restores access in both cases. Its real contents callback then uses the original verified edit
+base and publishes to the same server inode. The changed document's unsaved text is exported
+through TextEdit to a local file and verified; no stale-base contents callback was observed.
+The external server contents remain intact. No sandbox entitlement or permission was changed.
+
+The post-save Linux audit preserves every object identity, mode and owner. Besides the intended
+content and timestamp changes, it finds a new `user.DOSATTRIB` on the saved file. It remains failed pending
+inspection of the SMB attributes. Evidence includes `concurrent-*`, `textedit-save-refusal.log`,
+`stale-document-export*` and `recovery-signal-restored.json` in `repair/`, plus the separate
+`sandbox-control/` reports. The helper now exports edit-base attributes for that inspection.
+
+`--overlap-checks` prepares the next candidate. A scoped `overlap-setup` request adds one second
+registered view through the normal controller. Snapshots and provider events cover both views,
+and catalog/domain crash checkpoints record both catalogs before the kill. These checks have
+not run yet. The earlier single-client pending move remains preserved separately.

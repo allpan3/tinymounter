@@ -16,6 +16,7 @@ enum M22FinderCrash {
         let process: Int32
         let date: String
         let record: PendingFolderMove
+        let catalogs: [String: [M22FinderProbe.Row]]
     }
 
     final class Export: @unchecked Sendable {
@@ -31,7 +32,8 @@ enum M22FinderCrash {
         export.lock.withLock { export.url = url }
     }
 
-    static func checkpoint(_ admitted: PendingFolderMove, stage: String) throws {
+    static func checkpoint(_ admitted: PendingFolderMove, stage: String,
+                           sources: [LocationSource] = []) throws {
         guard let config = M22FinderProbe.selected(admitted.owner),
               let directory = export.lock.withLock({ export.url }),
               checkpoints.contains(stage) else { return }
@@ -49,8 +51,11 @@ enum M22FinderCrash {
         let hitURL = directory.appending(path: "fault-hit-" + control.id.uuidString + ".json")
         guard !FileManager.default.fileExists(atPath: hitURL.path) else { return }
         let record = try LocationSource.renameOutbox().reloadFolder(admitted)
+        let catalogs = try Dictionary(uniqueKeysWithValues: sources.map {
+            ($0.domainID, try M22FinderProbe.rows($0))
+        })
         try M22FinderProbe.save(Hit(control: control, checkpoint: stage, process: getpid(),
-            date: ISO8601DateFormatter().string(from: .now), record: record), to: hitURL)
+            date: ISO8601DateFormatter().string(from: .now), record: record, catalogs: catalogs), to: hitURL)
         M22FinderProbe.logger.notice("m22_crash_checkpoint run=\(config.run.uuidString, privacy: .public) stage=\(stage, privacy: .public)")
         // The operator kills this stopped process after inspecting the durable checkpoint.
         raise(SIGSTOP)
