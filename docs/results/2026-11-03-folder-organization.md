@@ -56,3 +56,35 @@ A lost connection between the remote rename and this checkpoint can still leave 
 unresolved on a server with changing creation times. The earlier pending move remains intact;
 the repair does not manufacture missing historical evidence. This boundary and the remaining
 Finder, crash and overlapping-view checks still gate enablement.
+
+## Signed repair verification, 2026-11-03
+
+Build 14, a separate signed `dev.tinymounter.foldercheck` candidate, completes Finder rename,
+cross-folder drag, case-only rename and fresh parent/descendant listings. All 19 original
+catalog IDs and content versions survive. The four downloaded files retain their local
+inodes and full digests; independent and inherited keeps remain intact. The four initial
+downloads have successful fetch traces, with no further fetch during the preservation checks.
+Completed working-set batches deliver the moved folder and all five known descendants.
+The transaction records are completed, with their domain completion recorded.
+
+Independent Linux inventories after each step preserve all 19 original object identities,
+modes, owners, attributes and file contents and modification times. Finder refuses both
+occupied folder and file names before a mutation callback, so these gestures do not verify
+provider-side collision handling. New Folder followed by naming retains one item ID and
+uses the general folder-move route when that capability is enabled. The new empty folder has
+server-created mode 0777 and a DOS attribute, unlike the hand-created mode-0700 fixture.
+The initial audit's assumptions about this new object's mode and attributes failed; every
+preexisting object still matched. No permissions were changed to make that audit pass.
+
+The required VM checks pass at the repair commit: 624 tests, one optional skip, no failures
+or Swift warnings, plus project, CLI, app-build and SMB checks. Evidence is in
+`results/folder-single-20261103/repair/`, including snapshots, callback events, preservation
+reports, route logs and `after-repair-rename.mov`. Independent inventories remain in the
+Linux run directory. The earlier failed rename remains preserved in its separate app.
+
+`--crash-checks` in the candidate preparer adds optional stop points for the reserved
+`Recovery/` subtree. A control names the run, item, source path, checkpoint and unique control
+ID. The app exports its durable intent through the granted evidence directory, then stops
+for the operator to kill that exact process. These hooks change only generated candidate
+sources. Crash recovery, overlapping views, changed descendants and stale editor saves remain
+unverified in this candidate; the loss-before-parent-checkpoint boundary remains open.

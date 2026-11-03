@@ -2,10 +2,11 @@
 
 A macOS app that brings a network disk, such as a NAS, into Apple's file system: browse it from Finder or another file manager such as QSpace, download on demand, and keep selected files available offline. Finder is the first file manager and SMB the first protocol it will support. A later mode will mount server volumes, the ordinary macOS SMB mounts, automatically.
 
-Folder organization, 2026-11-03: signed Linux-Samba checks found that a parent directory's
-reported creation time changes after a child rename, leaving the move pending despite preserved
-files and downloads. A protected-parent checkpoint repair passes focused package tests;
-signed verification is in progress and folder capabilities remain off in normal builds.
+Folder organization, 2026-11-03: the protected-parent checkpoint repair passes signed Finder
+rename, move, case-only rename and relisting checks on Linux Samba. Item IDs, content versions,
+four downloaded copies and keep selections survive without new fetches. All 624 VM tests and
+required checks pass. Crash and concurrent-change checks continue; folder capabilities remain
+off in normal builds.
 See the [folder organization results](docs/results/2026-11-03-folder-organization.md).
 
 Single-client validation, 2026-11-03: interrupted uploads now resume after proving the original
