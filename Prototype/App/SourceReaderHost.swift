@@ -317,12 +317,11 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
             guard let source else { throw LocationError.catalogClosed }
             let job = Job()
             job.progress.totalUnitCount = Int64.max
-            let accepted = lock.withLock {
-                guard !closed, jobs.count < Self.maxJobs, jobs[request.id] == nil else { return false }
+            try lock.withLock {
+                guard !closed, jobs[request.id] == nil else { throw UploadError.pendingWrites }
+                guard jobs.count < Self.maxJobs else { throw ItemDeletionError.busy }
                 jobs[request.id] = job
-                return true
             }
-            guard accepted else { throw UploadError.pendingWrites }
             let timer = progressTimer(request.id, job)
             let deletion = DeletionRequest(item: request.item, contentVersion: request.contentVersion,
                                            metadataVersion: request.metadataVersion)
@@ -349,6 +348,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
              .accessDenied, .cannotDelete, .readOnly:
             return NSFileProviderError(.deletionRejected) as NSError
         case .directoryNotEmpty: return NSFileProviderError(.directoryNotEmpty) as NSError
+        case .busy: return CocoaError(.xpcConnectionReplyInvalid) as NSError
         case .connection: return NSFileProviderError(.serverUnreachable) as NSError
         case .authentication: return NSFileProviderError(.notAuthenticated) as NSError
         case .cancelled: return CocoaError(.userCancelled) as NSError

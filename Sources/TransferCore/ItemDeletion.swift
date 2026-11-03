@@ -3,12 +3,12 @@ import Foundation
 public enum ItemDeletionError: Error, Equatable, Sendable {
     case invalidRequest, changed, replaced, parentChanged, moved, absentUnconfirmed
     case deletePending, pathNotFound, sharingViolation, directoryNotEmpty, accessDenied, cannotDelete
-    case unsupported, unresolved
+    case unsupported, unresolved, busy
 }
 
 public enum DeletionFailure: Equatable, Sendable {
     case changed, replaced, moved, parentChanged, unsupported, sharingViolation, accessDenied, cannotDelete
-    case directoryNotEmpty, unconfirmed, connection, authentication, pendingChanges, readOnly, cancelled, storage, unknown
+    case directoryNotEmpty, unconfirmed, connection, authentication, pendingChanges, busy, readOnly, cancelled, storage, unknown
 
     public static func classify(_ error: Error) -> Self {
         if let error = error as? ItemDeletionError {
@@ -22,6 +22,7 @@ public enum DeletionFailure: Equatable, Sendable {
             case .accessDenied: return .accessDenied
             case .cannotDelete: return .cannotDelete
             case .directoryNotEmpty: return .directoryNotEmpty
+            case .busy: return .busy
             case .absentUnconfirmed, .deletePending, .pathNotFound, .unresolved: return .unconfirmed
             }
         }

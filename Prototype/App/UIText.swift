@@ -86,7 +86,7 @@ enum UIText {
         case .unconfirmed: "tinymounter cannot confirm the deletion result."
         case .connection: "There is no connection to the server."
         case .authentication: "The server did not accept the sign-in."
-        case .pendingChanges: "Other changes on this share must finish first."
+        case .pendingChanges, .busy: "Other changes on this share must finish first."
         case .readOnly: "tinymounter has no write access for this deletion."
         case .cancelled: "Deletion was stopped."
         case .storage: "There is not sufficient space on this Mac."

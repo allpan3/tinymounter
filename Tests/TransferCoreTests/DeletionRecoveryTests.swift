@@ -176,6 +176,7 @@ final class DeletionRecoveryTests: XCTestCase {
         XCTAssertEqual(DeletionFailure.classify(SourceFailure.serverUnreachable), .connection)
         XCTAssertEqual(DeletionFailure.classify(SourceFailure.notAuthenticated), .authentication)
         XCTAssertEqual(DeletionFailure.classify(UploadError.pendingWrites), .pendingChanges)
+        XCTAssertEqual(DeletionFailure.classify(ItemDeletionError.busy), .busy)
         XCTAssertEqual(DeletionFailure.classify(UploadError.readOnly), .readOnly)
         XCTAssertEqual(DeletionFailure.classify(TransferError.cancelled), .cancelled)
         XCTAssertEqual(DeletionFailure.classify(CocoaError(.userCancelled)), .cancelled)

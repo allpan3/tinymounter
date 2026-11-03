@@ -424,7 +424,7 @@ final class CatalogDeletionTests: XCTestCase {
             request: record.plan.request, traversal: fixture.traversal(), views: changed,
             protectedRoots: [], recursive: true)
         XCTAssertEqual(replay.plan.views, record.plan.views)
-        XCTAssertThrowsError(try prepare()) { XCTAssertEqual($0 as? UploadError, .pendingWrites) }
+        XCTAssertThrowsError(try prepare()) { XCTAssertEqual($0 as? ItemDeletionError, .busy) }
     }
 
     func testSurvivorsKeepRowsAndFlagsWhileConfirmedSiblingsAreTombstoned() throws {

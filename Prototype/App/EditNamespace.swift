@@ -84,13 +84,11 @@ final class EditNamespace: @unchecked Sendable {
     }
 
     /// An unsettled rename or deletion here blocks listing and writes, except the one named by `id`.
-    func requireSettled(excluding id: UUID? = nil) throws {
+    func requireSettled(excluding id: UUID? = nil, deletionBusyError: Error = UploadError.pendingWrites) throws {
         let pendingRenames = try LocationSource.renameOutbox().intents().filter {
             $0.isPending && $0.id != id && $0.domains.contains { domains[$0] != nil }
         }
-        guard pendingRenames.isEmpty, try blockingDeletions(excluding: id).isEmpty else {
-            throw UploadError.pendingWrites
-        }
+        guard pendingRenames.isEmpty else { throw UploadError.pendingWrites }
         for domain in domains.keys {
             let outbox = try LocationSource.editOutbox(domainID: domain)
             let pending = try outbox.records().filter(\.isPending)
@@ -99,6 +97,7 @@ final class EditNamespace: @unchecked Sendable {
                 throw UploadError.pendingWrites
             }
         }
+        guard try blockingDeletions(excluding: id).isEmpty else { throw deletionBusyError }
     }
 
     func requireUncontested(path: RelativePath, excluding id: UUID,
