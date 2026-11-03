@@ -83,7 +83,8 @@ declined if the feature isn't worth its weight. Docs-only changes and obvious fi
 - Tag releases `vMAJOR.MINOR.PATCH`. A release should add no commits of its own, such as a version
   bump or generated notes.
 - Until the first release, the project history is the dated status line in the README plus the logs
-  in [`docs/results/`](docs/results/).
+  in [`docs/results/`](docs/results/). A log records an experiment or investigation and what it
+  found. A routine installation with no new finding updates only the README status line.
 
 ## Bugs
 

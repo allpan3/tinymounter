@@ -6,14 +6,14 @@ Stop Uploading and removal, 2026-11-02: Settings offers Stop Uploading for a new
 that never reached the server; macOS then keeps it on this Mac only. Remove Location works when
 the only pending items never reached the server, keeps them in a folder and shows it in Finder.
 A save that the server refused no longer blocks new uploads on the share. A signed VM check and
-all 549 VM tests pass; not installed on the physical Mac. Stop Uploading for edits is deferred.
-See the [VM results](docs/results/2026-11-02-stop-uploading.md).
+all 549 VM tests pass. The build is installed on the physical Mac with its location kept. Stop
+Uploading for edits is deferred. See the [VM results](docs/results/2026-11-02-stop-uploading.md).
 
 Pending changes, 2026-11-02: Settings lists each new item that did not upload, with the reason
 and the time of the last try. Retry Pending Changes, and share recovery, make macOS send items
-it had stopped retrying. A signed VM check passes; the build is not installed on the physical
-Mac. Follow-up fixes stop a retry loop on slow-connecting shares, keep the status updating while
-a write waits for the server, and let a refused file or folder upload again. See the
+it had stopped retrying. A signed VM check passes; the build is installed on the physical Mac
+with parts 4–5. Follow-up fixes stop a retry loop on slow-connecting shares, keep the status
+updating while a write waits for the server, and let a refused file or folder upload again. See the
 [VM results](docs/results/2026-11-02-pending-changes-list.md).
 
 Migration removal, 2026-11-01: builds no longer migrate or guard settings, catalogs and pending
