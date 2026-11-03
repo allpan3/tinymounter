@@ -88,8 +88,16 @@ fixture file in Finder while those jobs occupy the session. `check-reader-jobs-r
 releases one slot without running the queued reads; Finder must retry the deletion itself.
 `check-reader-jobs-drain` releases the rest and resumes the queue. After the operations drain,
 `check-reader-jobs-verify` requires four single cancellation replies and no remaining jobs.
+A trial suffix may follow each phase, such as `check-reader-jobs-hold-second`. Wait for a successful
+deletion callback with the other three reads still held before draining them.
 A 180-second safety timeout drains the queue and makes verification fail. Each request exports
 a `-jobs.json` report. The deletion uses Finder/XPC; the occupied reads use constructed requests.
+For lifecycle trials, synchronous checkpoints also accept `action: "hold"`; only the transaction's
+worker waits for its release file. `attempting-after` holds immediately before marking the protected
+object; `marked` holds after the mark succeeds and before close. The app and extension remain live.
+`check-deletion-session-state-TRIAL` exports the connected session's jobs, active/cancelled
+transaction progress and queued Stops. `check-deletion-session-invalidate-TRIAL` exports the
+same observations and invalidates that actual connection. Inspect again after reconnection.
 
 1. Integrate the commits and run `Tools/run-checks.sh` in the VM. App-target changes have not
    been compiled on the host. The generator includes the shared domain-version archive helper

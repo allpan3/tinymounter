@@ -3,10 +3,21 @@ import Foundation
 
 #if !M22_FINDER_PROVIDER
 extension LocationController {
+    func checkDeletionSession(_ config: M22FinderProbe.Config, label: String) throws {
+        let invalidate = label.hasPrefix("check-deletion-session-invalidate-")
+        try M22FinderProbe.require(invalidate || label.hasPrefix("check-deletion-session-state-"),
+                                  "deletion-session-phase")
+        let report = try reader.checkDeletionSession(domain: config.domain, invalidate: invalidate)
+        try M22FinderProbe.save(report,
+            to: M22FinderProbe.directory(config.run).appending(path: label + "-session.json"))
+    }
+
     func checkDeletionReaderCapacity(_ config: M22FinderProbe.Config, label: String) async throws {
         let phases = ["hold", "release-one", "drain", "verify"]
-        let phase = String(label.dropFirst("check-reader-jobs-".count))
-        try M22FinderProbe.require(phases.contains(phase), "reader-job-phase")
+        let suffix = String(label.dropFirst("check-reader-jobs-".count))
+        guard let phase = phases.first(where: { suffix == $0 || suffix.hasPrefix($0 + "-") }) else {
+            throw M22FinderProbe.Failure.check("reader-job-phase")
+        }
         guard let source = sources[config.domain],
               let row = try M22FinderProbe.rows(source).first(where: { $0.path == "Deletion/Neighbor.txt" }) else {
             throw M22FinderProbe.Failure.check("reader-job-fixture-item")

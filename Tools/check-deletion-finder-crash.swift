@@ -23,14 +23,23 @@ enum M24FinderCrash {
 
     static let checkpoints: Set<String> = ["attempting-before", "attempting-after",
         "closeAcknowledged-before", "closeAcknowledged-after", "deleted-before", "deleted-after",
-        "admitted", "settings", "settled"]
+        "admitted", "settings", "settled", "marked"]
 
     enum Injection: Error { case failed, timeout }
 
     static func checkpoint(_ plan: DeletionPlan, outbox: DeletionOutbox, node: Int,
                            stage: String) throws {
-        guard let (control, _) = try capture(plan, outbox: outbox, node: node, stage: stage) else { return }
+        guard let (control, directory) = try capture(plan, outbox: outbox, node: node, stage: stage) else { return }
         if control.action == "fail" || control.action == "fail-repeated" { throw Injection.failed }
+        if control.action == "hold" {
+            let release = directory.appending(path: "deletion-release-" + control.id.uuidString)
+            let deadline = ContinuousClock.now.advanced(by: .seconds(180))
+            while !FileManager.default.fileExists(atPath: release.path) {
+                guard ContinuousClock.now < deadline else { throw Injection.timeout }
+                Thread.sleep(forTimeInterval: 0.1)
+            }
+            return
+        }
         try M22FinderProbe.require(control.action == nil || control.action == "stop", "deletion-fault-action")
         raise(SIGSTOP)
     }
@@ -72,5 +81,33 @@ enum M24FinderCrash {
             date: ISO8601DateFormatter().string(from: .now), plan: plan, progress: progress), to: hitURL)
         M22FinderProbe.logger.notice("m24_crash_checkpoint run=\(config.run.uuidString, privacy: .public) stage=\(stage, privacy: .public)")
         return (control, directory)
+    }
+}
+
+final class M24FinderRemote: DeletionRemote {
+    let remote: DeletionRemote
+    let plan: DeletionPlan
+    let outbox: DeletionOutbox
+    let node: Int
+
+    init(_ remote: DeletionRemote, plan: DeletionPlan, outbox: DeletionOutbox, node: Int) {
+        self.remote = remote
+        self.plan = plan
+        self.outbox = outbox
+        self.node = node
+    }
+
+    func protectParents(of path: String) throws -> [ItemDeletionParent] { try remote.protectParents(of: path) }
+    func inspect(path: String, kind: CatalogRow.Kind) throws -> ItemDeletionLookup {
+        try remote.inspect(path: path, kind: kind)
+    }
+    func list(path: String) throws -> ItemDeletionListing { try remote.list(path: path) }
+    func markDeletion(path: String) throws {
+        try remote.markDeletion(path: path)
+        try M24FinderCrash.checkpoint(plan, outbox: outbox, node: node, stage: "marked")
+    }
+    func closeTarget(path: String) throws { try remote.closeTarget(path: path) }
+    func parentsAfterDeletion(_ parents: [ItemDeletionParent]) throws -> [ItemDeletionParent] {
+        try remote.parentsAfterDeletion(parents)
     }
 }

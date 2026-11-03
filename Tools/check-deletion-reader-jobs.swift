@@ -21,6 +21,22 @@ private final class M24HeldReaderJobs: @unchecked Sendable {
 }
 
 extension SourceReaderHost {
+    func checkDeletionSession(domain: String, invalidate: Bool) throws -> [String: Int] {
+        guard let connection = connections[domain],
+              let session = connection.exportedObject as? SourceReaderSession,
+              let source = source(domain) else {
+            throw M22FinderProbe.Failure.check("connected-deletion-session-required")
+        }
+        let (progress, stops) = source.deletionRecoveryLock.withLock {
+            (Array(source.deletionProgress.values), source.deletionProgress.keys.filter {
+                source.deletionCancellation.isStopping($0)
+            }.count)
+        }
+        if invalidate { connection.invalidate() }
+        return ["jobs": session.checkJobCount(), "activeProgress": progress.count,
+                "cancelledProgress": progress.filter(\.isCancelled).count, "stops": stops]
+    }
+
     func checkDeletionReaderJobs(domain: String, item: String, phase: String) throws -> [String: Int] {
         if phase == "hold" {
             try M22FinderProbe.require(M24HeldReaderJobs.active == nil && queue.operationCount == 0,
