@@ -111,10 +111,10 @@ them:
   M18 does not authorize partial overwrites.
 - If the NAS fingerprint differs from the base, the edit becomes a conflict copy, for example
   `Report (conflict, Mac, 2026-10-12 14.03).docx`. Both versions survive.
-- Delete-versus-edit: if the NAS deleted a file this Mac edited, the edit is uploaded as a new file.
-  The [M26 offline scope](roadmap.md#m26-offline-editing), accepted on 2026-10-29, instead retains
-  it for explicit recovery/export without recreating the old pathname. That policy governs M26;
-  deliberate offline editing is not yet an implemented guarantee.
+- Delete-versus-edit: the [M26 offline scope](roadmap.md#m26-offline-editing), accepted on
+  2026-10-29, retains the edit for explicit recovery/export without recreating the old pathname.
+  The single-client candidate also applies this policy to connected saves whose original is
+  absent before publication starts. Deliberate offline editing is not yet an implemented guarantee.
 - Writes through a server volume need nothing: they're already on the NAS. To a File Provider
   location they're one more remote change, handled as in section 5.
 

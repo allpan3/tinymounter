@@ -139,8 +139,8 @@ Scope: edit ordinary files whose complete current local copy and editing base we
 before disconnection. Repeated saves keep the latest durable contents. On reconnect, an unchanged
 base receives those contents; a competing edit preserves both versions. For a deleted or moved
 remote original, retain the local edit for recovery/export rather than guess where it belongs or
-silently recreate the old pathname. This accepted offline policy differs from the older general
-delete-versus-edit proposal in synchronization.md.
+silently recreate the old pathname. The single-client candidate applies the same missing-original
+policy to connected saves before publication, without a separate offline record format.
 
 Offline creation, renaming, moving and deletion are deferred. Test the app-running, intentional
 Quit, app-crash and extension-termination cases separately. If the app is unavailable, prove
@@ -207,7 +207,9 @@ replacement-artifact preservation probes pass; broader callbacks remain.
 The November 3 [Finder Replace observation](results/2026-11-03-editor-replacement.md) sends
 unbound delete/create requests for unopened and verified destinations. This blocks both Replace
 and normal deletion enablement under the accepted guarantee. Ordinary document Save and Save As
-pass for the tested TextEdit, Preview and Xcode files; interruption and offline checks continue.
+pass for the tested TextEdit, Preview and Xcode files. Signed TextEdit checks also pass for repeated
+offline saves, intentional Quit/relaunch, main-app crash and extension termination. A moved-original
+trial exposed unwanted conflict publication; its repair and remaining offline checks continue.
 The November 3 APFS image check now covers real local outbox exhaustion: the older save and
 metadata remain exportable, reopening selects it, and retry preserves both complete generations.
 Signed low-space admission and Finder behavior remain unverified.

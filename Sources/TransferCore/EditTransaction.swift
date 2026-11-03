@@ -43,6 +43,10 @@ public enum EditTransaction {
         guard order.head?.id == record.id else { throw UploadError.unresolved }
         // Earlier generations resolve first: some may have reached the server; order(item:) needs it.
         guard order.predecessors.isEmpty, order.superseded.isEmpty else { throw UploadError.pendingWrites }
+        // A missing original leaves the edit local; only recovery may restore our own moved object.
+        guard let original = try remote.inspect(path: record.path, original: true) else {
+            throw UploadError.unresolved
+        }
         // An unanswered stage create is sent again; it is exclusive, so a landed one makes it fail.
         if record.state == .prepared || record.state == .creatingStage && record.stageIdentity == nil {
             record.state = .creatingStage
@@ -76,11 +80,10 @@ public enum EditTransaction {
             if record.state == .creatingStage { record.state = .staged }
             try outbox.save(record)
         }
-        let original = try remote.inspect(path: record.path, original: true)
         let base = try outbox.base(item: record.item, contentVersion: record.baseVersion)
         // The app's own earlier save on this base is the newer save's predecessor, not a conflict.
         let accepted = try [base?.version].compactMap { $0 } + outbox.ownPublications(before: record)
-        guard let original, accepted.contains(where: {
+        guard accepted.contains(where: {
             original.hasSameContents(as: $0) && original.modifiedMicroseconds == $0.modifiedMicroseconds
         }) else {
             guard record.state == .staged else { throw UploadError.unresolved }
