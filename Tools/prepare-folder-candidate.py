@@ -171,6 +171,11 @@ def main():
         replay_hook = ('                        if request.label == "overlap-setup" { try await m22FinderAddPeer(config) }'
                        if args.overlap_checks else '                        try await m22FinderSnapshot(config, label: request.label)')
         helper = replace(helper, replay_hook,
+            '                        if request.label.hasPrefix("check-removal-state-") {\n'
+            '                            try await checkDeletionRemovalState(config, label: request.label)\n'
+            '                            try M22FinderProbe.save(["label": request.label, "result": "captured"], to: result)\n'
+            '                            continue\n'
+            '                        }\n'
             '                        if ["check-source-close", "check-source-closed-state"].contains(request.label) {\n'
             '                            try await checkDeletionSourceClose(config, label: request.label)\n'
             '                            try M22FinderProbe.save(["label": request.label, "result": "captured"], to: result)\n'

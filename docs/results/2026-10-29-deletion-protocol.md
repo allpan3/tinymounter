@@ -1047,3 +1047,61 @@ project, CLI, unsigned app and SMB checks. It and `build-eventcheck-9.log` conta
 warnings. The first compilation caught a missing exhaustive-switch case, fixed before this run.
 A host package attempt could not start compilation because sandboxed compiler caches were
 unavailable; no app was built on the host.
+
+### Delayed catalogs and actual reconnect, 2026-11-03
+
+Signed build 12 passes the incomplete-catalog response check. A real Finder folder deletion
+confirmed its first child before an injected failure left the second child unconfirmed. Actual
+Settings Stop left the parent stopped. The first catalog reconciled, while a repeated failure
+before the second catalog prevented completion. Constructed replay through the connected reader
+session returned `cannotSynchronize` for injected `versionChanged`, read-only and invalid-request
+errors. All three preserved the immutable plan and durable progress. This verifies error
+ordering through the signed app; it does not reproduce a physical root replacement or permission
+change. The independent server audit finds only the first child removed and preserves the other
+24 objects.
+
+After removing the injection, force-unmounting only the disposable VM share and reconnecting
+through Finder produced actual controller recovery callbacks for both locations. The original
+record then completed in both catalogs without another remote deletion, preserving the uncertain
+child and stopped parent. Both views removed only the confirmed-deleted child. There was no
+Settings Retry or app restart. Automatic remount was not established: Finder supplied the new
+connection. A snapshot while disconnected failed; the post-reconnect snapshot passed.
+
+An earlier version of this trial completed during test-app launch, before the evidence picker
+enabled injection. Its replay probes correctly failed because no incomplete record remained.
+A new explicit deletion in the same process provided the valid trial above. A snapshot during
+concurrent catalog changes also failed and was repeated after settling. The first probe build
+had one unused-binding Swift warning, corrected before build 12; build 12 has no Swift warnings.
+
+Evidence includes `check-incomplete-deletion-*-second*.json`, the archived catalog controls,
+`check-controller-reconnected-complete*.json`, `controller-reconnect-report.json`,
+`controller-unmount.txt`, `controller-recovered` callback events and the Linux
+`catalog-second-partial-audit.json` and `controller-reconnect-audit.json` inventories.
+`checks-deletion-controller.log` passes all 644 tests, with two optional skips, and required checks.
+
+### Older Keep Downloaded restoration, 2026-11-03
+
+Signed build 13 passes the controller ordering check. A constructed fixture request seeds three
+typed pending keeps in both locations and holds the actual older restore after it enters the
+controller's restoring set. A real Finder folder Delete then confirms the first child. An
+injected failure before marking the second child, followed by actual Settings Stop, leaves that
+child unconfirmed and its parent stopped. Both catalogs reconcile, but Settings settlement
+remains incomplete while the older restore is held. Both locations retain all three pending
+keep requests during that interval.
+
+Releasing the older restore automatically finishes the original record in both views. Settings
+removes only the confirmed-deleted first child's keep. The two surviving requests remain pending
+because the older restore encountered the still-pending deletion. Reconnect completes those
+requests. Catalog keeps, IDs and content versions survive, and the final local copies hash with
+materialization disabled. An immediate snapshot caught the selected folder's surviving child
+before Finder restored it; macOS recreates that owner's local child. The unrelated kept file
+retains its inode and bytes. The independent server audit preserves all 23 remaining objects and records only the
+two deliberate first-child deletions across this and the preceding catalog trial.
+
+The first control used the App Group path, where the VM driver was correctly denied write
+access. That run did not hold restoration and was not used as ordering evidence. The corrected
+control uses the existing security-scoped evidence folder. A readiness check also caught one
+older pending keep; reconnect completed it before the valid trial. No sandbox permission changed.
+Build 13 compiles with no Swift warnings. Evidence includes `check-keep-restore-start-second`,
+`check-keep-restoration-{blocked,finished,reconnected}*.json`, `keep-restoration-report.json`, the hold/release
+and node controls, and Linux `keep-restoration-audit.json`.

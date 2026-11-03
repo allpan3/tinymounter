@@ -127,6 +127,8 @@ record through the connected reader session and requires `cannotSynchronize` wit
 actual older restore after it enters the controller's restoring set. Its release file is
 `keep-restore-release-CONTROL_UUID`; the hold times out after 180 seconds. The candidate also
 records actual `controller-recovered` callbacks so reconnect evidence need not infer their use.
+`check-removal-state-TRIAL` exports the two fixture domains' Settings, registration, catalog
+presence and owner records even after removal. It verifies that unrelated Settings stay intact.
 
 1. Integrate the commits and run `Tools/run-checks.sh` in the VM. App-target changes have not
    been compiled on the host. The generator includes the shared domain-version archive helper
