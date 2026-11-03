@@ -22,6 +22,7 @@ struct tm_smb_folder_trace {
 
 const char *tm_smb_folder_stage_name(int stage);
 
+// Paths reach the server composed (NFC), as from the macOS client.
 int tm_smb_create_folder(const char *server, const char *share, const char *account,
                          const char *path, uint64_t expected_id, uint64_t expected_birth,
                          tm_smb_folder_callback receipt, void *context, int *create_sent,

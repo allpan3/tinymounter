@@ -24,6 +24,8 @@ static int fake_poll(struct pollfd *fds, nfds_t count, int milliseconds);
 static int fake_service(struct smb2_context *smb, int revents);
 static struct smb2_pdu *fake_create(struct smb2_context *smb, struct smb2_create_request *request,
                                    smb2_command_cb callback, void *context);
+static struct smb2_pdu *fake_set_info(struct smb2_context *smb, struct smb2_set_info_request *request,
+                                     smb2_command_cb callback, void *context);
 static int fake_connect(struct smb2_context *smb, const char *server, const char *share, const char *user);
 static OM_uint32 fake_credentials(OM_uint32 *minor, OM_uint32 flags, gss_const_OID mechanism, void *context,
                                   void (*next)(void *, gss_iter_OID, gss_cred_id_t));
@@ -33,6 +35,7 @@ static OM_uint32 fake_credentials(OM_uint32 *minor, OM_uint32 flags, gss_const_O
 #define poll fake_poll
 #define smb2_service fake_service
 #define smb2_cmd_create_async fake_create
+#define smb2_cmd_set_info_async fake_set_info
 #define smb2_connect_share fake_connect
 #define gss_iter_creds_f fake_credentials
 #include "../Prototype/SMB/SMBRename.c"
@@ -40,6 +43,7 @@ static OM_uint32 fake_credentials(OM_uint32 *minor, OM_uint32 flags, gss_const_O
 #undef poll
 #undef smb2_service
 #undef smb2_cmd_create_async
+#undef smb2_cmd_set_info_async
 #undef smb2_connect_share
 #undef gss_iter_creds_f
 
@@ -90,10 +94,22 @@ static int fake_service(struct smb2_context *smb, int revents)
     return 0;
 }
 
+static char opened_names[8][1100], renamed[1100];
+static size_t opened_count;
+
 static struct smb2_pdu *fake_create(struct smb2_context *smb, struct smb2_create_request *request,
                                    smb2_command_cb callback, void *context)
 {
+    if (opened_count < 8) snprintf(opened_names[opened_count++], sizeof(opened_names[0]), "%s", request->name);
     return fail_encoding ? NULL : smb2_cmd_create_async(smb, request, callback, context);
+}
+
+static struct smb2_pdu *fake_set_info(struct smb2_context *smb, struct smb2_set_info_request *request,
+                                     smb2_command_cb callback, void *context)
+{
+    const struct smb2_file_rename_info *info = request->input_data;
+    snprintf(renamed, sizeof(renamed), "%s", (const char *)info->file_name);
+    return smb2_cmd_set_info_async(smb, request, callback, context);
 }
 
 static int connect_result;
@@ -198,6 +214,41 @@ static int check_entry_cases(void)
     return 0;
 }
 
+// Catalog paths are decomposed; the share must receive the composed names macOS would send.
+static int check_composed_names(void)
+{
+    const uint64_t birth = birth_seconds * 1000000 + birth_micros;
+    const struct step create[] = {PARENTS, {SMB2_CREATE, 0}, {SMB2_QUERY_INFO, 0}};
+    run(create, 6);
+    opened_count = 0;
+    receipt_result = 0;
+    int sent = -1;
+    if (tm_smb_create_folder("fixture", "share", "guest", "Cafe\xcc\x81/Ne\xcc\x81", 0, 0, receive, NULL,
+                             &sent, NULL) || opened_count != 3 || strcmp(opened_names[0], "") ||
+        strcmp(opened_names[1], "Caf\xc3\xa9") || strcmp(opened_names[2], "Caf\xc3\xa9/N\xc3\xa9")) {
+        fprintf(stderr, "composed folder create case failed\n");
+        return 1;
+    }
+    const struct step name[] = {PARENTS, {SMB2_CREATE, SMB2_STATUS_OBJECT_NAME_NOT_FOUND}, {SMB2_CREATE, 0},
+                                {SMB2_QUERY_INFO, 0}, {SMB2_SET_INFO, 0}};
+    run(name, 8);
+    opened_count = 0;
+    if (tm_smb_name_folder("fixture", "share", "guest", "Cafe\xcc\x81/untitled folder", "Cafe\xcc\x81/Ne\xcc\x81",
+                           identity, birth, 0, receive, NULL, &sent) || opened_count != 4 ||
+        strcmp(opened_names[1], "Caf\xc3\xa9") || strcmp(opened_names[2], "Caf\xc3\xa9/N\xc3\xa9") ||
+        strcmp(opened_names[3], "Caf\xc3\xa9/untitled folder") || strcmp(renamed, "Caf\xc3\xa9\\N\xc3\xa9")) {
+        fprintf(stderr, "composed folder name case failed\n");
+        return 1;
+    }
+    run(NULL, 0);
+    if (tm_smb_name_folder("fixture", "share", "guest", "Cafe\xcc\x81/Ne\xcc\x81", "Caf\xc3\xa9/N\xc3\xa9",
+                           identity, birth, 0, receive, NULL, &sent) != EINVAL || sent || queued) {
+        fprintf(stderr, "normalization-only folder name case failed\n");
+        return 1;
+    }
+    return 0;
+}
+
 int main(void)
 {
     const struct { uint32_t status; int error, changed; } cases[] = {
@@ -240,6 +291,7 @@ int main(void)
     }
     smb2_destroy_context(smb);
     if (check_entry_cases()) return 1;
-    puts("15 folder-create status cases passed");
+    if (check_composed_names()) return 1;
+    puts("18 folder-create status cases passed");
     return 0;
 }

@@ -28,6 +28,7 @@ struct edit_client {
 };
 extern void *tm_smb_begin_edit(const char *, const char *, const char *, int *);
 extern void tm_smb_end_edit(void *);
+extern int tm_smb_compose(const char *, char *, size_t);
 
 void *tm_edit_connect(const char *server, const char *share, const char *account, int *error)
 {
@@ -104,6 +105,12 @@ static int valid_path(const char *path)
     }
 }
 
+// Every path reaches libsmb2 through this, spelled as SMB clients send it.
+static int composed_path(const char *path, char composed[1024])
+{
+    return tm_smb_compose(path, composed, 1024) && valid_path(composed);
+}
+
 static void opened(struct smb2_context *smb, int status, void *data, void *context)
 {
     struct tm_edit_reply *reply = context;
@@ -119,14 +126,15 @@ int tm_edit_open(void *opaque, const char *path, uint32_t access, uint32_t shari
     client->ntstatus = 0;
     struct smb2_context *smb = client->smb;
     if (!smb) return EIO;
-    if (!valid_path(path)) return EINVAL;
+    char name[1024];
+    if (!composed_path(path, name)) return EINVAL;
     struct smb2_create_request request = {0};
     request.impersonation_level = SMB2_IMPERSONATION_IMPERSONATION;
     request.desired_access = access;
     request.share_access = sharing;
     request.create_disposition = SMB2_FILE_OPEN;
     request.create_options = SMB2_FILE_NON_DIRECTORY_FILE | SMB2_FILE_OPEN_REPARSE_POINT;
-    request.name = path;
+    request.name = name;
     struct tm_edit_reply reply = {0};
     int error = wait_reply(client, smb2_cmd_create_async(smb, &request, opened, &reply), &reply);
     if (!error) memcpy(file, reply.file, SMB2_FD_SIZE);
@@ -139,9 +147,9 @@ int tm_edit_open_quarantine(void *opaque, const char *path, uint8_t *file)
     client->ntstatus = 0;
     struct smb2_context *smb = client->smb;
     if (!smb) return EIO;
-    if (!valid_path(path)) return EINVAL;
-    char name[1088];
-    snprintf(name, sizeof(name), "%s:com.apple.quarantine:$DATA", path);
+    char composed[1024], name[1088];
+    if (!composed_path(path, composed)) return EINVAL;
+    snprintf(name, sizeof(name), "%s:com.apple.quarantine:$DATA", composed);
     struct smb2_create_request request = {0};
     request.impersonation_level = SMB2_IMPERSONATION_IMPERSONATION;
     request.desired_access = SMB2_FILE_READ_DATA | SMB2_FILE_READ_ATTRIBUTES;
@@ -174,14 +182,15 @@ int tm_edit_open_directory(void *opaque, const char *path, uint32_t access, uint
     client->ntstatus = 0;
     struct smb2_context *smb = client->smb;
     if (!smb) return EIO;
-    if (!path || (*path && !valid_path(path))) return EINVAL;
+    char name[1024] = "";
+    if (!path || (*path && !composed_path(path, name))) return EINVAL;
     struct smb2_create_request request = {0};
     request.impersonation_level = SMB2_IMPERSONATION_IMPERSONATION;
     request.desired_access = access;
     request.share_access = sharing;
     request.create_disposition = SMB2_FILE_OPEN;
     request.create_options = SMB2_FILE_DIRECTORY_FILE | SMB2_FILE_OPEN_REPARSE_POINT;
-    request.name = path;
+    request.name = name;
     struct tm_edit_reply reply = {0};
     int error = wait_reply(client, smb2_cmd_create_async(smb, &request, opened, &reply), &reply);
     if (!error) memcpy(file, reply.file, SMB2_FD_SIZE);
@@ -243,7 +252,8 @@ static int open_private(struct edit_client *client, const char *path, uint32_t a
     client->ntstatus = 0;
     struct smb2_context *smb = client->smb;
     if (!smb) return EIO;
-    if (!valid_path(path) || !security || length < 20 || length > 4096) return EINVAL;
+    char name[1024];
+    if (!composed_path(path, name) || !security || length < 20 || length > 4096) return EINVAL;
     uint32_t context_length = (24 + length + 7) & ~7;
     uint8_t *context = calloc(1, context_length);
     if (!context) return ENOMEM;
@@ -259,7 +269,7 @@ static int open_private(struct edit_client *client, const char *path, uint32_t a
     request.share_access = sharing;
     request.create_disposition = SMB2_FILE_CREATE;
     request.create_options = SMB2_FILE_NON_DIRECTORY_FILE | SMB2_FILE_OPEN_REPARSE_POINT | options;
-    request.name = path;
+    request.name = name;
     request.create_context_length = context_length;
     request.create_context = context;
     struct tm_edit_reply reply = {0};
@@ -427,9 +437,8 @@ int tm_edit_rename(void *opaque, uint8_t *file, const char *destination)
     client->ntstatus = 0;
     struct smb2_context *smb = client->smb;
     if (!smb) return EIO;
-    if (!valid_path(destination)) return EINVAL;
     char target[1024];
-    strcpy(target, destination);
+    if (!composed_path(destination, target)) return EINVAL;
     for (char *p = target; *p; ++p) if (*p == '/') *p = '\\';
     struct smb2_file_rename_info name = {.replace_if_exist = 0, .file_name = (const uint8_t *)target};
     struct smb2_set_info_request request = {0};

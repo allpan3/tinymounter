@@ -28,6 +28,9 @@ static void fake_free_data(struct smb2_context *smb, void *data);
 static void *fake_calloc(size_t count, size_t size);
 static struct smb2_pdu *fake_create(struct smb2_context *smb, struct smb2_create_request *request,
                                     smb2_command_cb callback, void *context);
+static struct smb2_pdu *fake_set_info(struct smb2_context *smb, struct smb2_set_info_request *request,
+                                      smb2_command_cb callback, void *context);
+static char sent_name[1100];
 
 // Real request encoders feed deterministic callbacks; no request reaches a socket.
 #define smb2_queue_pdu fake_queue
@@ -38,6 +41,7 @@ static struct smb2_pdu *fake_create(struct smb2_context *smb, struct smb2_create
 #define smb2_free_data fake_free_data
 #define calloc fake_calloc
 #define smb2_cmd_create_async fake_create
+#define smb2_cmd_set_info_async fake_set_info
 #include "../Prototype/SMB/SMBEdit.c"
 #undef smb2_queue_pdu
 #undef poll
@@ -47,6 +51,7 @@ static struct smb2_pdu *fake_create(struct smb2_context *smb, struct smb2_create
 #undef smb2_free_data
 #undef calloc
 #undef smb2_cmd_create_async
+#undef smb2_cmd_set_info_async
 
 static void expect(int condition, const char *name, const char *detail)
 {
@@ -117,7 +122,18 @@ static void *fake_calloc(size_t count, size_t size)
 static struct smb2_pdu *fake_create(struct smb2_context *smb, struct smb2_create_request *request,
                                     smb2_command_cb callback, void *context)
 {
+    snprintf(sent_name, sizeof(sent_name), "%s", request->name);
     return fail_create ? NULL : smb2_cmd_create_async(smb, request, callback, context);
+}
+
+static struct smb2_pdu *fake_set_info(struct smb2_context *smb, struct smb2_set_info_request *request,
+                                      smb2_command_cb callback, void *context)
+{
+    if (request->file_info_class == SMB2_FILE_RENAME_INFORMATION) {
+        const struct smb2_file_rename_info *info = request->input_data;
+        snprintf(sent_name, sizeof(sent_name), "%s", (const char *)info->file_name);
+    }
+    return smb2_cmd_set_info_async(smb, request, callback, context);
 }
 
 void *tm_smb_begin_edit(const char *server, const char *share, const char *account, int *error)
@@ -236,6 +252,33 @@ static void local_failures(void)
     result("errno with data", tm_edit_delete(&client, file), nterror_to_errno(response_status), 0);
 }
 
+static void sent(const char *name, int actual, const char *expected)
+{
+    cases++;
+    expect(actual == 0 || actual == EIO, name, "request not sent");
+    expect(!strcmp(sent_name, expected), name, "sent another spelling");
+    expect(queued == NULL, name, "request still queued");
+    sent_name[0] = '\0';
+}
+
+// Catalog paths are decomposed; the server must receive the composed spelling, as from macOS.
+static void composed_names(void)
+{
+    static const char decomposed[] = "Cafe\xcc\x81/Re\xcc\x81sume\xcc\x81.txt";
+    static const char composed[] = "Caf\xc3\xa9/R\xc3\xa9sum\xc3\xa9.txt";
+    prepare();
+    sent("composed open", tm_edit_open(&client, decomposed, 0, 0, file), composed);
+    sent("composed directory", tm_edit_open_directory(&client, "Cafe\xcc\x81", 0, 0, file), "Caf\xc3\xa9");
+    sent("share root directory", tm_edit_open_directory(&client, "", 0, 0, file), "");
+    sent("composed quarantine", tm_edit_open_quarantine(&client, decomposed, file),
+         "Caf\xc3\xa9/R\xc3\xa9sum\xc3\xa9.txt:com.apple.quarantine:$DATA");
+    sent("composed private", tm_edit_open_private(&client, decomposed, 0, 0, security, 20, file), composed);
+    sent("composed probe", tm_edit_probe_private(&client, decomposed, security, 20), composed);
+    sent("composed rename", tm_edit_rename(&client, file, decomposed), "Caf\xc3\xa9\\R\xc3\xa9sum\xc3\xa9.txt");
+    result("invalid UTF-8 open", tm_edit_open(&client, "Caf\xff", 0, 0, file), EINVAL, 0);
+    expect(!sent_name[0], "invalid UTF-8 open", "request sent");
+}
+
 #define DISCONNECTED(name, call) do { \
     client.ntstatus = SMB2_STATUS_DELETE_PENDING; \
     result(name, (call), EIO, 0); \
@@ -314,6 +357,7 @@ int main(void)
     disconnected();
     decoded_success();
     transport_failures();
+    composed_names();
     if (client.smb) smb2_destroy_context(client.smb);
     if (failures) {
         fprintf(stderr, "SMB edit status: %d failures\n", failures);

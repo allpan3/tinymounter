@@ -222,6 +222,19 @@ static int valid_path(const char *path)
     }
 }
 
+// SMB clients send names composed (NFC), as the macOS and Windows clients do; the macOS client
+// shows them decomposed. Returns 1 when `composed` holds the whole result.
+int tm_smb_compose(const char *path, char *composed, size_t capacity)
+{
+    CFStringRef text = path ? CFStringCreateWithCString(NULL, path, kCFStringEncodingUTF8) : NULL;
+    CFMutableStringRef normalized = text ? CFStringCreateMutableCopy(NULL, 0, text) : NULL;
+    if (normalized) CFStringNormalize(normalized, kCFStringNormalizationFormC);
+    int fits = normalized && CFStringGetCString(normalized, composed, (CFIndex)capacity, kCFStringEncodingUTF8);
+    if (normalized) CFRelease(normalized);
+    if (text) CFRelease(text);
+    return fits;
+}
+
 static int same_name(const char *left, const char *right, CFStringCompareFlags flags)
 {
     CFStringRef a = CFStringCreateWithCString(NULL, left, kCFStringEncodingUTF8);
@@ -305,8 +318,11 @@ int tm_smb_create_folder(const char *server, const char *share, const char *acco
     if (!create_sent) create_sent = &unsent;
     *trace = (struct tm_smb_folder_trace){ .stage = TM_FOLDER_ARGUMENTS, .error = EINVAL };
     *create_sent = 0;
+    char composed[1024];
     if (!server || !*server || !share || !*share || !account || !*account || !receipt ||
-        !valid_path(path) || (!!expected_id != !!expected_birth)) return EINVAL;
+        !tm_smb_compose(path, composed, sizeof(composed)) || !valid_path(composed) ||
+        (!!expected_id != !!expected_birth)) return EINVAL;
+    path = composed;
     pthread_mutex_lock(&client_lock);
     struct reply reply = {0};
     int error;
@@ -352,9 +368,13 @@ int tm_smb_name_folder(const char *server, const char *share, const char *accoun
                        tm_smb_folder_callback receipt, void *context, int *rename_sent)
 {
     if (rename_sent) *rename_sent = 0;
+    char composed_source[1024], composed_destination[1024];
     if (!server || !*server || !share || !*share || !account || !*account || !expected_id ||
-        !expected_birth || !receipt || !valid_path(source) || !valid_path(destination) ||
-        !strcmp(source, destination)) return EINVAL;
+        !expected_birth || !receipt || !tm_smb_compose(source, composed_source, sizeof(composed_source)) ||
+        !tm_smb_compose(destination, composed_destination, sizeof(composed_destination))) return EINVAL;
+    source = composed_source;
+    destination = composed_destination;
+    if (!valid_path(source) || !valid_path(destination) || !strcmp(source, destination)) return EINVAL;
     const char *source_leaf = strrchr(source, '/'), *destination_leaf = strrchr(destination, '/');
     size_t parent_length = source_leaf ? (size_t)(source_leaf - source + 1) : 0;
     if (parent_length != (destination_leaf ? (size_t)(destination_leaf - destination + 1) : 0) ||
