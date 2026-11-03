@@ -15,8 +15,8 @@ termination. A competing server edit preserved both versions. A moved-original t
 published an unwanted conflict copy. Build 18 retains and exports the edit, but returning the
 original exposed a catalog-binding retry defect. Its guard passes the fresh signed checks below.
 An app-absent save survives refused eviction and uploads after relaunch; an RTF save survives an
-app crash and a competing edit. Metadata export exposed omitted callback attributes. The repair
-awaits signed verification. These checks do not complete the storage or offline-editing matrix.
+app crash and a competing edit. The signed metadata repair retains callback attributes omitted
+from earlier exports. These checks do not complete the storage or offline-editing matrix.
 
 ## Setup and evidence
 
@@ -220,12 +220,24 @@ logged that macOS supplied it in `item.extendedAttributes`. The provider copied 
 snapshot and ignored that separate dictionary. It now adds those delivered attributes to its
 private local stage before durable preparation. Pending export can then retain them without
 changing the server metadata policy. Regressions cover export after reopening and refusal of
-symlinks, hard links and invalid attribute names. Signed verification remains pending.
+symlinks, hard links and invalid attribute names.
+
+Signed OfflineCheck-2 exports the complete revised contents, `com.apple.TextEncoding`, a custom
+attribute marked syncable through Apple's `xattr_name_with_flags`, and the resource fork.
+`callback-metadata-input.json`, `check-editor-state-queue-callback-metadata` and
+`callback-metadata-export-report.json` verify exact bytes. This uses a local POSIX fixture write;
+TextEdit's removal of resource forks remains a separate observed behavior.
+
+All required VM checks pass with 650 tests, two optional skips and no Swift warnings in
+`checks-callback-metadata-complete.log`; the signed candidate's build log also has no Swift
+warnings. The first check run hit the tool's time limit and is retained as incomplete evidence.
 
 ## Remaining work and decision
 
-Verify the callback-attribute repair in the signed candidate, then continue signed low-space
-admission, interruption coverage for other document formats and broader eviction checks.
+Continue signed low-space admission, interruption coverage for other document formats and
+broader eviction checks. The candidate generator's optional `--save-space-checks` lowers reported
+capacity below the reserve separately in the app and extension, using run-bound controls. It
+does not fill the disk or change ordinary builds. Restore actual capacity with the release request.
 Do not infer completion from the successful small-document checks.
 
 Normal Finder deletion cannot be enabled under the current replacement guarantee using the

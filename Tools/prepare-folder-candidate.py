@@ -26,6 +26,9 @@ before app/server work. It requires --overlap-checks and --deletion-checks.
 for check-editor-state-* requests, including while the fixture is disconnected.
 check-editor-state-queue-* omits local URL resolution when an unsettled publication blocks it.
 check-editor-end-trace archives only this run's tracing pointer, preserving its locations and saves.
+--save-space-checks adds check-editor-space-block-app, check-editor-space-block-provider
+and check-editor-space-release. These lower the reported local capacity below the reserve
+only in the candidate. Release removes both run-bound controls; no disk is filled.
 """
 import argparse
 from pathlib import Path
@@ -58,11 +61,14 @@ def main():
     parser.add_argument("--enable-deletion", action="store_true")
     parser.add_argument("--deletion-domain-checks", action="store_true")
     parser.add_argument("--editor-checks", action="store_true")
+    parser.add_argument("--save-space-checks", action="store_true")
     args = parser.parse_args()
     if args.enable_deletion and not args.deletion_checks:
         parser.error("--enable-deletion requires --deletion-checks")
     if args.deletion_domain_checks and not (args.deletion_checks and args.overlap_checks):
         parser.error("--deletion-domain-checks requires --deletion-checks and --overlap-checks")
+    if args.save_space_checks and not args.editor_checks:
+        parser.error("--save-space-checks requires --editor-checks")
     source = Path(__file__).resolve().parent.parent
     if Path.home() != Path("/Users/user") or not Path("/Volumes/tinymounter-single").is_mount():
         raise RuntimeError("run only in the mounted macOS VM fixture")
@@ -249,6 +255,29 @@ def main():
             '                            try M22FinderProbe.save(["label": request.label, "result": "captured"], to: result)\n'
             '                            continue\n'
             '                        }\n')
+    if args.save_space_checks:
+        shared = root / "Prototype/Shared/SharedContainer.swift"
+        shared.write_text(shared.read_text() + "\n" + (root / "Tools/check-editor-space.swift").read_text())
+        reader = root / "Prototype/App/SourceReaderHost.swift"
+        reader.write_text(replace(reader.read_text(),
+            'try DownloadSpace.available(at: SharedContainer.stagingDirectory())',
+            'try EditorSpaceProbe.available(at: SharedContainer.stagingDirectory(), role: "app")'))
+        provider = root / "Prototype/Provider/FileProviderExtension.swift"
+        provider.write_text(replace(provider.read_text(),
+            'try DownloadSpace.available(at: target.deletingLastPathComponent())',
+            'try EditorSpaceProbe.available(at: target.deletingLastPathComponent(), role: "provider")', count=2))
+        helper = replace(helper, '                        if request.label == "check-editor-end-trace" {\n',
+            '                        if ["check-editor-space-block-app", "check-editor-space-block-provider",\n'
+            '                            "check-editor-space-release"].contains(request.label) {\n'
+            '                            let role: String? = request.label.hasSuffix("-app") ? "app"\n'
+            '                                : request.label.hasSuffix("-provider") ? "provider" : nil\n'
+            '                            try EditorSpaceProbe.set(role, run: config.run)\n'
+            '                            try M22FinderProbe.save(["label": request.label, "result": "captured",\n'
+            '                                "capacity": role == nil ? "actual" : "below-reserve"], to: result)\n'
+            '                            continue\n'
+            '                        }\n'
+            '                        if request.label == "check-editor-end-trace" {\n'
+            '                            try EditorSpaceProbe.set(nil, run: config.run)\n')
     app = root / "Prototype/App/LocationController.swift"
     content = replace(app.read_text(), '        isReady = true\n',
                       '        isReady = true\n        Task {\n'
