@@ -146,9 +146,13 @@ See the [staging results](results/2026-11-02-samba-names-and-uploads.md).
 The separate `single-smb-client-prototype` branch, authorized on 2026-11-03, uses that client for
 remote listing, metadata, payload reads and new uploads as well. It retains native mount grants,
 credentials, lifecycle and change hints. Protected reads initially verify and stage serially.
-Its catalog uses server IDs directly and therefore requires fresh test state. The installed
-builds retain the earlier transport. Correctness and matched throughput checks must precede a
-production choice; see the [experiment record](results/2026-11-02-samba-names-and-uploads.md#single-client-transport-experiment).
+Its catalog uses server IDs directly and therefore requires fresh test state. A separate signed
+VM bundle passes repeated saves, conflict preservation, interrupted-save recovery and fresh
+read-only downloads. Preliminary full-read callback throughput is comparable with native staging
+in the VM, with cache residency unverified. Read-only export warnings, native-mount interactions
+and complete end-to-end/partial/writable performance checks remain open. The physical Mac retains
+the earlier transport; production adoption remains undecided. See the
+[experiment record](results/2026-11-02-samba-names-and-uploads.md#single-client-transport-experiment).
 
 ### Selection rule
 

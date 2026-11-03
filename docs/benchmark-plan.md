@@ -67,11 +67,19 @@ In writable locations, measure cache misses both before an edit base exists and 
 download establishes one. Evict the test copy, then read fresh 1 MiB ranges far enough apart
 to avoid read-ahead hits. Record protected verification separately from native payload time:
 native SMB session counters do not include the direct verification connection.
-Current builds emit request-correlated `protected_read` diagnostics for the verification mode,
+Native-payload builds emit request-correlated `protected_read` diagnostics for the verification mode,
 protected bytes, namespace wait and phase durations. The existing runner retains these records
 alongside callbacks and listings. Missing diagnostics do not prove a read avoided verification;
 negative durations mean execution did not reach that phase. Use these observations to separate
 full verification from a cache hit delayed by a listing before changing lock behavior.
+
+The separate single-client VM prototype emits `direct_read` with request ID, payload bytes,
+completion phase and total time. Native SMB session counters do not count those reads. Its
+[November 3 series](results/2026-11-02-samba-names-and-uploads.md#read-measurements-2026-11-03)
+compares five provider full-fetch callbacks with native staging controls. It uses unverified
+cache residency and excludes final File Provider handoff, so it does not replace the coordinated
+full-download or partial/writable acceptance checks. The existing native-counter runner must be
+adapted before using it to judge this transport.
 
 Keep setup, security settings, run order and all four cache states with the samples. A single
 pilot can identify a delay to investigate, but cannot establish a regression. Separate changes

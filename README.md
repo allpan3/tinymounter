@@ -6,11 +6,13 @@ Samba filename validation, 2026-11-03: the Mac update remains withheld. Isolated
 native metadata writes recreating a deleted stage name after file-ID reuse, and stale native
 directory listings rejecting a published filename. The user approved a separate single-client
 VM prototype and its validation. It passes required VM checks with 619 tests, one optional skip,
-20 signed saves, a Unicode save and new-file upload recovery. The read-only metadata fix passes
-a fresh 2 GiB fetch with matching contents. Conflict and interrupted-save recovery preserve both
-versions; a retained older save still blocks unrelated work in the installed VM build, with a fix
-under test. Finder's read-only copy warning and matched throughput checks remain open.
-Production adoption remains undecided.
+20 signed saves, Unicode content and a fresh read-only 2 GiB fetch with matching contents.
+Conflict and interrupted-save recovery preserve both versions. Retained older saves no longer
+block unrelated listings, uploads or renames. Interrupted new uploads preserve the complete local
+copy but still need manual recovery. Five interleaved full-read trials show comparable VM
+throughput with unverified cache residency; the complete performance gate remains open.
+Finder's read-only copy warning and a native-mount export interaction remain unresolved.
+Production adoption remains undecided; the single-client build is installed only in the VM.
 The accepted direct stage upload passed 20 signed saves
 and required VM checks with 610 tests, one optional skip and no failures. See the
 [results and decision](docs/results/2026-11-02-samba-names-and-uploads.md).

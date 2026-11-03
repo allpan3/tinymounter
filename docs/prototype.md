@@ -520,7 +520,10 @@ after direct rename and quarantine writes recreating a deleted stage after file-
 The separate single-client branch now uses direct SMB for remote listings, metadata, reads and
 uploads, with fresh catalog state. Required VM checks, 20 signed saves, Unicode content, upload
 acknowledgment and a fresh read-only 2 GiB download pass. Conflict and interrupted-save recovery
-preserve complete contents. A retained older save blocks unrelated listings and mutations in the
-installed VM build; its follow-up is under test. Finder's read-only copy warning and throughput
-validation remain open. The physical Mac still runs the earlier transport. See the
+preserve complete contents. Retired saves no longer block unrelated listings and mutations.
+Interrupted new uploads retain a complete local copy beside the partial server item and require
+manual recovery. Preliminary full-read callback rates are comparable with native staging in the
+VM, with cache residency unverified. End-to-end handoff, writable and partial-read benchmarks,
+Finder's read-only copy warning and native-mount export interactions remain open. The physical
+Mac still runs the earlier transport. See the
 [runtime results and accepted staging change](results/2026-11-02-samba-names-and-uploads.md).
