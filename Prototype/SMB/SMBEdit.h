@@ -29,6 +29,8 @@ int tm_edit_list(void *opaque, uint8_t *directory, int restart, uint8_t *buffer,
                  uint32_t capacity, uint32_t *count, int *finished);
 int tm_edit_read(void *opaque, uint8_t *file, uint64_t offset, uint8_t *buffer, uint32_t length,
                uint32_t *count);
+int tm_edit_write(void *opaque, uint8_t *file, uint64_t offset, const uint8_t *buffer, uint32_t length,
+                  uint32_t *count);
 int tm_edit_rename(void *opaque, uint8_t *file, const char *destination);
 int tm_edit_delete(void *opaque, uint8_t *file);
 int tm_edit_flush(void *opaque, uint8_t *file);

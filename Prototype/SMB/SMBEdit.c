@@ -463,6 +463,34 @@ int tm_edit_read(void *opaque, uint8_t *file, uint64_t offset, uint8_t *buffer, 
     return error;
 }
 
+static void write_done(struct smb2_context *smb, int status, void *data, void *context)
+{
+    struct tm_edit_reply *reply = context;
+    done(smb, status, data, context);
+    if (status) return;
+    const struct smb2_write_reply *written = data;
+    if (!written || !written->count || written->count > reply->capacity) reply->error = EIO;
+    else reply->count = written->count;
+}
+
+int tm_edit_write(void *opaque, uint8_t *file, uint64_t offset, const uint8_t *buffer, uint32_t length,
+                  uint32_t *count)
+{
+    struct edit_client *client = opaque;
+    client->ntstatus = 0;
+    if (!client->smb) return EIO;
+    // One credit also works when the server has not negotiated multi-credit writes.
+    if (!file || !buffer || !count || !length || length > 65536 || offset > INT64_MAX
+        || length > INT64_MAX - offset) return EINVAL;
+    struct smb2_write_request request = {.offset = offset, .length = length, .buf = buffer};
+    memcpy(request.file_id, file, SMB2_FD_SIZE);
+    struct tm_edit_reply reply = {.capacity = length};
+    int error = wait_reply(client,
+        smb2_cmd_write_async(client->smb, &request, 0, write_done, &reply), &reply);
+    if (!error) *count = reply.count;
+    return error;
+}
+
 int tm_edit_rename(void *opaque, uint8_t *file, const char *destination)
 {
     struct edit_client *client = opaque;

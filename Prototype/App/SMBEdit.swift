@@ -3,7 +3,7 @@ import Foundation
 import OSLog
 import UniformTypeIdentifiers
 
-/// One protected transaction, with the existing cached credential and native payload upload.
+/// One protected transaction with the existing cached credential.
 final class SMBEdit: EditRemote, FileRenameRemote {
     private final class Handle {
         var bytes = [UInt8](repeating: 0, count: 16)
@@ -18,7 +18,6 @@ final class SMBEdit: EditRemote, FileRenameRemote {
     private let root: Int32
     private let progress: Progress
     private var handles: [String: Handle] = [:]
-    private var stageVerifiers: [String: Handle] = [:]
     private var directories: [String: Handle] = [:]
     private var originals: Set<String> = []
     private var hiddenOriginals: Set<String> = []
@@ -224,9 +223,6 @@ final class SMBEdit: EditRemote, FileRenameRemote {
 
     private func reopenVerified(path: String, expected: EditFileVersion, published: Bool,
                                 collectReadProof: Bool = false) throws -> EditFileVersion {
-        if let verifier = stageVerifiers.removeValue(forKey: path) {
-            try verifier.use { try check(tm_edit_close(client, $0)) }
-        }
         guard let previous = handles.removeValue(forKey: path) else { throw UploadError.unresolved }
         var values = [UInt64](repeating: 0, count: 5)
         try previous.use { try check(tm_edit_close_info(client, $0, &values)) }
@@ -245,7 +241,7 @@ final class SMBEdit: EditRemote, FileRenameRemote {
 
     func stage(path: String, contents: URL, created: (EditFileIdentity) throws -> Void) throws -> EditFileVersion {
         let handle: Handle
-        do { handle = try makePrivate(path: path, uploading: true, created: created) }
+        do { handle = try makePrivate(path: path, created: created) }
         catch where handles[path] == nil && Self.serverStatus(error) != nil {
             // Samba can refuse a create and still leave the file, so the refusal counts only when a
             // lookup on this connection finds nothing at the name.
@@ -257,18 +253,10 @@ final class SMBEdit: EditRemote, FileRenameRemote {
         }
         let expected = try info(handle)
         let input = try ReadOnlyFile(url: contents)
-        let fd = openat(root, path, O_WRONLY | O_NOFOLLOW_ANY | O_RESOLVE_BENEATH | O_CLOEXEC)
-        guard fd >= 0 else { throw posixError("open owned edit stage") }
-        var closed = false
-        defer { if !closed { Darwin.close(fd) } }
-        var metadata = stat()
-        guard fstat(fd, &metadata) == 0, metadata.st_mode & S_IFMT == S_IFREG, metadata.st_size == 0,
-              metadata.st_birthtimespec.tv_sec > 0,
-              UInt64(metadata.st_birthtimespec.tv_sec) * 1_000_000
-                + UInt64(metadata.st_birthtimespec.tv_nsec / 1_000) == expected[1] else {
+        guard expected[2] == 0, expected[3] == 1, expected[4] & 0x410 == 0 else {
             throw UploadError.unresolved
         }
-        var buffer = [UInt8](repeating: 0, count: 1_048_576)
+        var buffer = [UInt8](repeating: 0, count: 65_536)
         var offset: Int64 = 0
         while offset < input.snapshot.size {
             try cancellation()
@@ -278,23 +266,22 @@ final class SMBEdit: EditRemote, FileRenameRemote {
             try buffer.withUnsafeBytes { bytes in
                 var written = 0
                 while written < count {
-                    let length = pwrite(fd, bytes.baseAddress!.advanced(by: written), count - written, offset + Int64(written))
-                    if length < 0, errno == EINTR { continue }
-                    guard length > 0 else { throw posixError("upload private edit") }
-                    written += length
+                    try cancellation()
+                    var length: UInt32 = 0
+                    try handle.use {
+                        try check(tm_edit_write(client, $0, UInt64(offset) + UInt64(written),
+                            bytes.baseAddress!.advanced(by: written).assumingMemoryBound(to: UInt8.self),
+                            UInt32(count - written), &length))
+                    }
+                    guard length > 0, length <= count - written else { throw UploadError.unresolved }
+                    written += Int(length)
+                    progress.completedUnitCount += Int64(length)
                 }
             }
             offset += Int64(count)
-            progress.completedUnitCount += Int64(count)
         }
         try input.validateUnchanged()
-        guard fsync(fd) == 0 else { throw posixError("flush native edit") }
-        let result = Darwin.close(fd)
-        closed = true
-        guard result == 0 else { throw posixError("close native edit") }
-        let verifier = try open(path: path, access: Self.read, sharing: 5)
-        stageVerifiers[path] = verifier
-        guard try info(verifier)[0...1] == expected[0...1] else { throw UploadError.unresolved }
+        try handle.use { try check(tm_edit_flush(client, $0)) }
         let version = try version(handle, artifactPath: path)
         return try reopenVerified(path: path, expected: version, published: false)
     }
@@ -325,7 +312,7 @@ final class SMBEdit: EditRemote, FileRenameRemote {
 
     func backup(original: String, path: String, created: (EditFileIdentity) throws -> Void) throws -> EditFileVersion {
         guard let source = handles[original], originals.contains(original) else { throw UploadError.unresolved }
-        let backup = try makePrivate(path: path, uploading: false, created: created)
+        let backup = try makePrivate(path: path, created: created)
         try copy(source: source, target: backup, size: Int64(try info(source)[2]))
         let version = try version(backup, artifactPath: path)
         return try reopenVerified(path: path, expected: version, published: false)
@@ -355,14 +342,6 @@ final class SMBEdit: EditRemote, FileRenameRemote {
     func removeArtifact(path: String, version expected: EditFileVersion) throws {
         guard !originals.contains(path), !hiddenOriginals.contains(path),
               path.hasSuffix(".stage") || path.hasSuffix(".recovery") else { throw UploadError.unresolved }
-        // Reacquire exclusive protection so no verifier can defer deletion past its close reply.
-        if let verifier = stageVerifiers[path] {
-            try verifier.use { try check(tm_edit_close(client, $0)) }
-            stageVerifiers[path] = nil
-            guard let handle = handles[path] else { throw UploadError.unresolved }
-            try handle.use { try check(tm_edit_close(client, $0)) }
-            handles[path] = nil
-        }
         guard let actual = try inspect(path: path, original: false) else { throw UploadError.unresolved }
         guard actual == expected else {
             Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
@@ -378,7 +357,7 @@ final class SMBEdit: EditRemote, FileRenameRemote {
     }
 
     func proveAbsent(path: String) throws {
-        guard handles[path] == nil, stageVerifiers[path] == nil,
+        guard handles[path] == nil,
               path.hasSuffix(".stage") || path.hasSuffix(".recovery") else { throw UploadError.unresolved }
         try cancellation()
         let security = Self.privateSecurity(owner: []), full = try remotePath(path)
@@ -388,7 +367,7 @@ final class SMBEdit: EditRemote, FileRenameRemote {
     }
 
     func removeLeftoverCreate(path: String) throws -> Bool {
-        guard handles[path] == nil, stageVerifiers[path] == nil, !originals.contains(path),
+        guard handles[path] == nil, !originals.contains(path),
               !hiddenOriginals.contains(path), path.hasSuffix(".stage") || path.hasSuffix(".recovery") else {
             throw UploadError.unresolved
         }
@@ -415,15 +394,14 @@ final class SMBEdit: EditRemote, FileRenameRemote {
         return true
     }
 
-    private func makePrivate(path: String, uploading: Bool,
-                             created: (EditFileIdentity) throws -> Void) throws -> Handle {
+    private func makePrivate(path: String, created: (EditFileIdentity) throws -> Void) throws -> Handle {
         var security = Self.privateSecurity(owner: [])
         let handle = Handle()
         let full = try remotePath(path)
-        let access = Self.read | Self.delete | 0x40000 | (uploading ? 0 : Self.write)
+        let access = Self.read | Self.write | Self.delete | 0x40000
         try handle.use { file in
             try security.withUnsafeBytes {
-                try check(tm_edit_open_private(client, full, access, uploading ? 3 : 0,
+                try check(tm_edit_open_private(client, full, access, 0,
                                                 $0.bindMemory(to: UInt8.self).baseAddress!, UInt32($0.count), file))
             }
         }
@@ -612,7 +590,7 @@ extension SMBEdit: FolderMoveRemote {
     }
 
     func protectFolderMoveParents(source: String, destination: String) throws -> [FileRenameParent] {
-        guard folder.isRoot, handles.isEmpty, stageVerifiers.isEmpty, deletionTarget == nil else {
+        guard folder.isRoot, handles.isEmpty, deletionTarget == nil else {
             throw UploadError.invalidRequest
         }
         _ = try folderMoveMountIdentity()
@@ -1040,7 +1018,7 @@ extension SMBEdit: DeletionRemote {
     }
 
     func protectParents(of path: String) throws -> [ItemDeletionParent] {
-        guard folder.isRoot, handles.isEmpty, stageVerifiers.isEmpty,
+        guard folder.isRoot, handles.isEmpty,
               originals.isEmpty, hiddenOriginals.isEmpty, deletionTarget == nil, deletionTraversalFiles == nil else {
             throw ItemDeletionError.invalidRequest
         }
@@ -1116,7 +1094,7 @@ extension SMBEdit: DeletionRemote {
 
     func closeTarget(path: String) throws {
         guard path == deletionTarget, handles.count == 1, let handle = handles[path],
-              directories[path] == nil, stageVerifiers.isEmpty else { throw ItemDeletionError.invalidRequest }
+              directories[path] == nil else { throw ItemDeletionError.invalidRequest }
         do { try handle.use { try check(tm_edit_close(client, $0)) } }
         catch { throw Self.deletionFailure(error) }
         handles[path] = nil
@@ -1175,7 +1153,7 @@ extension SMBEdit {
             expected[SMBName.key(expectation.path.string), default: []].append(expectation)
         }
         guard folder.isRoot, deletionTraversalFiles == nil, deletionTarget == nil, handles.isEmpty,
-              stageVerifiers.isEmpty, originals.isEmpty, hiddenOriginals.isEmpty, directories.isEmpty,
+              originals.isEmpty, hiddenOriginals.isEmpty, directories.isEmpty,
               folderMoveParents.isEmpty, folderMoveRoots.isEmpty, folderMoveFiles.isEmpty, !selected.isRoot,
               expected[SMBName.key(selected.string)] != nil else { throw ItemDeletionError.invalidRequest }
         deletionTraversalFiles = [:]
