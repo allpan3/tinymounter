@@ -195,6 +195,9 @@ def main():
             '                        if request.label == "check-keep-restore-start" {\n'
             '                            try checkDeletionKeepRestoration(config)\n'
             '                        }\n'
+            '                        if request.label.hasPrefix("check-incomplete-deletion-") {\n'
+            '                            try await checkIncompleteDeletionReplay(config, label: request.label)\n'
+            '                        }\n'
             + replay_hook)
         helper = replace(helper, '    struct Snapshot: Codable {', '''    struct Deletion: Codable {
         let plan: DeletionPlan

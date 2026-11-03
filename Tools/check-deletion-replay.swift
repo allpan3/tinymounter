@@ -41,6 +41,12 @@ private enum M24KeepRestorationProbe {
 }
 
 extension LocationController {
+    func checkIncompleteDeletionReplay(_ config: M22FinderProbe.Config, label: String) async throws {
+        let report = try await reader.checkIncompleteDeletion(domain: config.domain)
+        try M22FinderProbe.save(report,
+            to: M22FinderProbe.directory(config.run).appending(path: label + "-reply.json"))
+    }
+
     func checkDeletionKeepRestoration(_ config: M22FinderProbe.Config) throws {
         let views = (store.settings?.locations ?? []).filter {
             $0.folder == config.folder && $0.grantID == config.grant
