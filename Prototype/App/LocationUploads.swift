@@ -164,9 +164,13 @@ extension LocationSource {
                 }
             }
             _ = try listOnLane(request.parent, requestID: request.id)
-            guard let row = try liveChild(of: request.parent, named: request.name), row.kind == request.kind,
-                  row.size == record.size || record.kind == .folder,
+            let listed = try liveChild(of: request.parent, named: request.name)
+            guard let row = listed, row.kind == request.kind, row.size == record.size || record.kind == .folder,
                   try withCatalog({ try $0.remoteIdentity(row.id) }) == record.remoteID else {
+                Self.uploadLog.error("""
+                    upload_unresolved request=\(request.id.uuidString, privacy: .public) listed=\(listed != nil) \
+                    kind=\(listed?.kind == request.kind) size=\(listed?.size == record.size)
+                    """)
                 throw UploadError.unresolved
             }
             if row.kind == .file, row.allowsWriting {
