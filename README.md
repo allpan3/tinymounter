@@ -8,8 +8,9 @@ Samba creation-time changes and survive a process restart. A lost checkpoint ret
 a replacement survives replay. All 644 VM tests and required checks pass. The event-version
 repair passes signed Stop restoration, interruption before notification, a later deliberate
 Delete, and refreshed replay after dismissal/restart. IDs, keeps and downloaded bytes survive.
-Concurrent deletions from two overlapping views also complete after busy retries.
-Reader capacity and remaining lifecycle checks are in progress.
+Concurrent deletions from two overlapping views also complete after busy retries. A full reader
+queue refuses deletion, then Finder completes it after one slot is released. All held reads drain.
+Remaining lifecycle checks are in progress.
 Deletion remains disabled in normal builds. See the
 [deletion results](docs/results/2026-10-29-deletion-protocol.md#finder-deletion-and-parent-checkpoints-2026-11-03).
 
