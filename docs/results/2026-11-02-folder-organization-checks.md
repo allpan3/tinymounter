@@ -68,6 +68,11 @@ non-macOS server, such as Samba on ext4.
 The installed app on the physical Mac logged no download failures in the 5 days before this
 check.
 
+A later change sends composed names and compares server names in that form (see
+[name spelling over SMB](../prototype.md#name-spelling-over-smb)). The results above describe
+the tested build. A name stored as NFD on a byte-exact server still can't be opened, but a save
+of it no longer makes a conflict copy.
+
 ## Not run
 
 Stale saves after a move, real crashes at each recovery step, Keep and Settings restoration, and

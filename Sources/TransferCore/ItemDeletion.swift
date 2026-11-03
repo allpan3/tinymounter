@@ -185,7 +185,7 @@ public struct PendingItemDeletion: Codable, Equatable, Sendable {
         for (depth, parent) in parents.enumerated() {
             let expected = target.components.prefix(depth).joined(separator: "/")
             guard parent.path.utf8.elementsEqual(expected.utf8),
-                  parent.name.utf8.elementsEqual((depth == 0 ? "" : target.components[depth - 1]).utf8) else {
+                  SMBName.same(parent.name, depth == 0 ? "" : target.components[depth - 1]) else {
                 throw ItemDeletionError.invalidRequest
             }
         }
@@ -247,8 +247,8 @@ public enum ItemDeletionTransaction {
             guard record.selected.hasSameContents(as: actual) else { throw ItemDeletionError.changed }
             let entries = try remote.list(path: record.parentPath).validatedEntries()
             let matches = entries.filter { $0.identity == record.selected.identity }
-            guard matches.count == 1, matches[0].name.utf8.elementsEqual(record.name.utf8) else {
-                if matches.contains(where: { !$0.name.utf8.elementsEqual(record.name.utf8) }) {
+            guard matches.count == 1, SMBName.same(matches[0].name, record.name) else {
+                if matches.contains(where: { !SMBName.same($0.name, record.name) }) {
                     throw ItemDeletionError.moved
                 }
                 throw ItemDeletionError.unresolved

@@ -590,7 +590,7 @@ extension SMBEdit: FolderMoveRemote {
         _ = try folderMoveMountIdentity()
         let parents = try protectRenameParents(source: source, destination: destination)
         for parent in parents {
-            guard parent.name.utf8.elementsEqual((RelativePath(parent.path)!.components.last ?? "").utf8) else {
+            guard SMBName.same(parent.name, RelativePath(parent.path)!.components.last ?? "") else {
                 throw UploadError.unresolved
             }
         }
@@ -643,7 +643,7 @@ extension SMBEdit: FolderMoveRemote {
               let rootEntry = move.entries.first(where: { $0.item == move.item }), rootEntry.kind == .folder,
               let rootRelative = RelativePath(rootEntry.path), let rootPath = folder.appending(rootRelative),
               let root = try inspectFolderMoveRoot(path: rootPath.string),
-              root.name.utf8.elementsEqual(rootEntry.name.utf8) else { throw SourceFailure.versionChanged }
+              SMBName.same(root.name, rootEntry.name) else { throw SourceFailure.versionChanged }
         var proofs: [String: CatalogFolderMoveProof] = [:]
         for entry in folderMoveOrdered(move.entries) {
             guard let path = folder.appending(RelativePath(entry.path)!),
@@ -852,10 +852,10 @@ extension SMBEdit: FolderMoveRemote {
                                    expected: EditFileIdentity?, moveRoot: Bool = false) throws -> FolderMoveCurrent? {
         let parent = path.components.dropLast().joined(separator: "/"), name = path.components.last!
         guard let entry = try folderMoveListing(parent).first(where: { NameKey($0.name) == NameKey(name) }),
-              expected == nil || (entry.identity == expected && entry.name.utf8.elementsEqual(name.utf8)) else {
+              expected == nil || (entry.identity == expected && SMBName.same(entry.name, name)) else {
             return nil
         }
-        guard entry.kind == kind, entry.name.utf8.elementsEqual(name.utf8) else { throw UploadError.unresolved }
+        guard entry.kind == kind, SMBName.same(entry.name, name) else { throw UploadError.unresolved }
         // Open the root with delete access before a read handle can deny that access.
         if moveRoot { _ = try inspectFolderMoveRoot(path: path.string) }
         let handle: Handle
@@ -881,7 +881,7 @@ extension SMBEdit: FolderMoveRemote {
         guard try folderMoveIdentity(values) == entry.identity,
               values[4] & 0x450 == (kind == .folder ? 0x10 : 0),
               let confirmed = try folderMoveListing(parent).first(where: { NameKey($0.name) == NameKey(name) }),
-              confirmed.identity == entry.identity, confirmed.name.utf8.elementsEqual(name.utf8) else {
+              confirmed.identity == entry.identity, SMBName.same(confirmed.name, name) else {
             throw UploadError.unresolved
         }
         let native = try folderMoveNative(path: path, kind: kind, values: values)
@@ -922,7 +922,7 @@ extension SMBEdit: FolderMoveRemote {
             try mount.requireMounted(root)
             let parent = RelativePath(path.components.dropLast().joined(separator: "/"))!, name = path.components.last!
             let listing = try DirectoryListing.list(locationRoot: root, relativePath: parent, expected: mount)
-            guard let listed = listing.entries.first(where: { $0.name.utf8.elementsEqual(name.utf8) }),
+            guard let listed = listing.entries.first(where: { SMBName.same($0.name, name) }),
                   listed.kind.rawValue == kind.rawValue else { throw UploadError.unresolved }
             let descriptor = openat(root, parent.isRoot ? "." : parent.string,
                                     O_EVTONLY | O_DIRECTORY | O_NOFOLLOW_ANY | O_RESOLVE_BENEATH | O_CLOEXEC)
@@ -1144,12 +1144,12 @@ extension SMBEdit {
         for expectation in expectations {
             guard expectation.path.string.utf8.elementsEqual(selected.string.utf8)
                     || expectation.path.string.utf8.starts(with: below) else { throw ItemDeletionError.invalidRequest }
-            expected[Data(expectation.path.string.utf8), default: []].append(expectation)
+            expected[SMBName.key(expectation.path.string), default: []].append(expectation)
         }
         guard folder.isRoot, deletionTraversalFiles == nil, deletionTarget == nil, handles.isEmpty,
               stageVerifiers.isEmpty, originals.isEmpty, hiddenOriginals.isEmpty, directories.isEmpty,
               folderMoveParents.isEmpty, folderMoveRoots.isEmpty, folderMoveFiles.isEmpty, !selected.isRoot,
-              expected[Data(selected.string.utf8)] != nil else { throw ItemDeletionError.invalidRequest }
+              expected[SMBName.key(selected.string)] != nil else { throw ItemDeletionError.invalidRequest }
         deletionTraversalFiles = [:]
         guard expected.count <= DeletionPlan.maxNodes else { throw SourceFailure.tooManyEntries }
         let name = selected.components.last!
@@ -1161,7 +1161,7 @@ extension SMBEdit {
         do { chain = try protectRenameParents(source: selected.string, destination: selected.string) }
         catch { throw Self.traversalFailure(error) }
         guard chain.count == selected.components.count,
-              zip(chain, [""] + selected.components.dropLast()).allSatisfy({ $0.name.utf8.elementsEqual($1.utf8) }) else {
+              zip(chain, [""] + selected.components.dropLast()).allSatisfy({ SMBName.same($0.name, $1) }) else {
             throw SourceFailure.versionChanged
         }
         let parent = chain.last!.path
@@ -1169,7 +1169,7 @@ extension SMBEdit {
             let entry: RenameDirectoryEntry?
             do { entry = try renameEntry(parent: parent, name: name) }
             catch UploadError.collision { throw ItemDeletionError.unsupported }
-            guard let entry, entry.name.utf8.elementsEqual(name.utf8) else { throw SourceFailure.versionChanged }
+            guard let entry, SMBName.same(entry.name, name) else { throw SourceFailure.versionChanged }
             return entry
         }
         let root = try selectedEntry()
@@ -1186,7 +1186,7 @@ extension SMBEdit {
                   seen.insert([entry.identity.fileID, entry.identity.birthMicroseconds]).inserted else {
                 throw ItemDeletionError.unsupported
             }
-            kinds[Data(path.string.utf8)] = kind
+            kinds[SMBName.key(path.string)] = kind
             guard kind == .folder else {
                 files.append((path, entry))
                 continue
@@ -1198,7 +1198,7 @@ extension SMBEdit {
             let values = try info(handle)
             guard try folderMoveIdentity(values) == entry.identity else { throw SourceFailure.versionChanged }
             guard values[4] & 0x450 == 0x10 else { throw UploadError.unresolved }
-            try requireDeletionExpectations(expected[Data(path.string.utf8)] ?? [], path: path, kind: kind,
+            try requireDeletionExpectations(expected[SMBName.key(path.string)] ?? [], path: path, kind: kind,
                                             values: values)
             let children = try folderMoveListing(path.string)
             if !recursive, path.string.utf8.elementsEqual(selected.string.utf8), !children.isEmpty {
@@ -1230,7 +1230,7 @@ extension SMBEdit {
             guard try folderMoveIdentity(values) == entry.identity else { throw SourceFailure.versionChanged }
             guard values[4] & 0x450 == 0 else { throw UploadError.unresolved }
             guard values[3] == 1 else { throw ItemDeletionError.unsupported }
-            let claims = expected[Data(path.string.utf8)] ?? []
+            let claims = expected[SMBName.key(path.string)] ?? []
             try requireDeletionExpectations(claims, path: path, kind: .file, values: values)
             let version = try version(handle)
             let after = try info(handle)

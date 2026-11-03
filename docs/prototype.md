@@ -488,3 +488,16 @@ recovers pending content. Item IDs, keep requests and an independent download su
 work stays unresolved, and fixture connection delays can defer retries. The fixture, temporary
 dependencies and task windows are cleaned up. See the same results log for the exact coverage
 and limits. No server component is required.
+
+## Name spelling over SMB
+
+The macOS mount and the catalog show accented names decomposed (NFD), but SMB clients on macOS
+and Windows send them composed (NFC). The app's SMB client does the same: one C function
+composes every path before libsmb2 sends it. The app compares server names with catalog names
+in composed form, so saves, renames, moves and deletions find accented items on servers that
+compare names byte for byte. A rename or move that changes only the normalization sends no
+request. A name that another tool stored as NFD can't be opened by any SMB client. Its downloads
+fail as a missing file. Its saves stay unresolved without a conflict copy, and its renames, moves
+and deletions refuse. If the catalog doesn't list such a name, a new file or folder can still be
+created next to it, as through Finder's own mount. Host tests cover this; checks on a byte-exact
+server, such as Samba on ext4, remain.
