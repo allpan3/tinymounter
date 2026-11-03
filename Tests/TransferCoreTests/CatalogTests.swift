@@ -240,7 +240,8 @@ final class CatalogTests: XCTestCase {
             + " || '|' || paused FROM meta"
         XCTAssertEqual(try rows(catalog, meta), ["1|domain-A|16|0|0|0"])
         XCTAssertEqual(try rows(catalog, "SELECT name FROM pragma_table_info('meta')"),
-                       ["id", "domain_id", "epoch", "last_seq", "listing_gen", "paused", "allows_writing"])
+                       ["id", "domain_id", "epoch", "last_seq", "listing_gen", "paused", "allows_writing",
+                        "provider_domain_version"])
         XCTAssertEqual(try rows(catalog, "SELECT name FROM pragma_table_info('items')"),
                        ["row", "id", "parent_id", "name", "name_key", "kind", "size", "mtime_ns", "ctime_ns", "file_id",
                         "keep", "list_gen", "listed_at", "deleted", "change_seq", "keep_request", "listing_complete", "enumeration_key", "edit_version"])
