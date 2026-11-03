@@ -2,16 +2,19 @@
 
 ## Outcome
 
-The candidate is not ready for the physical Mac. The approved direct save-stage upload passes
-required VM checks and 20 signed repeated saves while ext4 reuses the same stage file ID.
-Unicode saves, sharing protection, read-only refusal and interrupted-save retention also pass.
-Reads and ordinary new-file uploads remain native.
+The candidate remains VM-only. The separate single-client prototype passes repeated saves,
+Unicode content, fresh read-only downloads, conflict preservation and interrupted-save recovery.
+An interrupted new upload retains a complete local copy, but its partial server file still needs
+manual recovery. All required VM checks pass with 619 tests and one optional skip. Production
+adoption and physical-Mac installation remain undecided.
 
-Two published saves still needed Retry to finish native confirmation. During a later native
-upload, an empty file with quarantine metadata appeared at a completed transaction's old stage name.
-November 3 probes reproduce both symptoms through stale native SMB caches after direct
-mutations. They establish the failure mechanisms, but do not reconstruct the earlier app
-events. No fix is verified. These findings keep the Mac update withheld.
+Five interleaved 2 GiB trials show comparable provider-callback and native-staging throughput
+in the VM, with cache residency unverified. This does not establish end-to-end handoff time,
+partial File Provider performance or the physical-Mac gates. Finder warns when exporting a
+read-only file, although its contents match. A native-mount export also coincided with an empty
+file appearing at a completed save's old stage name. The earlier probes reproduce that native
+cache failure mechanism; using one client inside the app does not establish safety for every
+operation through the remaining native mount. See the November 3 checks below.
 
 ## Setup and method
 
@@ -301,8 +304,8 @@ candidate requires a fresh domain and separate bundle. It must not open earlier 
 
 Focused host package checks passed 61 tests with one optional fixture skip and no failures.
 They include interrupted direct uploads, reused IDs with changed birth time, damaged payloads,
-short reads, invalid read counts and post-read validation failures. App compilation, required VM
-checks and signed runtime validation remain pending.
+short reads, invalid read counts and post-read validation failures. Subsequent VM compilation,
+required checks and signed runtime results are recorded below.
 
 Private evidence is in `results/org-checks-20261102/native-probes-20261103.tar` and
 `native-trace-linux-20261103.tar`. The archives contain the probe scripts and results, signed
@@ -333,7 +336,7 @@ a 2,400,000-byte file with matching server contents. Retry Pending Changes then 
 the first upload, and Settings no longer showed pending uploads.
 
 The first read-only 2 GiB fetch transferred the complete remote payload but failed its final
-metadata check. No successful download or performance result is claimed. A separate probe
+metadata check. That attempt is excluded from successful downloads and performance results. A probe
 observed reported creation time changing on the first enumeration of Linux-created directories,
 with the other metadata unchanged. The candidate now reads one byte through its protected file
 handle before capturing a read version. It permits only creation time to change across that
@@ -357,8 +360,71 @@ The follow-up permits durably retired saves through that check. It still checks 
 pending inventory, blocks unsettled publications and preserves path-specific mutation checks.
 Retained artifacts and local recovery copies remain protected. Regression assertions cover
 durable retirement, blocked active publication and failed retirement with a damaged successor.
+Required checks and signed build 04 validate the fix: listings resume, an unrelated folder is
+created and named, an ordinary file is renamed, and a 4,194,712-byte upload is acknowledged with
+matching server contents while the retired save remains retained. Read-only Finder paste creates
+no server item, and its context menu exposes no rename or write action.
+
+A new 64 MiB upload was interrupted after the server received 589,824 bytes. Retry did not
+overwrite or acknowledge that partial file. Finder retained the complete pending item under a
+second name beside the partial server item. Exporting the pending item produced all 64 MiB with
+the original hash. This is a preservation pass, not automatic upload-recovery completion.
+
+During the recovery-export check, the save panel first exported to the native-mounted test share.
+The complete exported file arrived, but an empty file with quarantine metadata then appeared at
+the completed successor's old stage name. The intended Desktop export subsequently matched the
+server contents. The timing and metadata are consistent with the native cache mechanism already
+reproduced above; this run did not trace the individual native request. Both artifacts remain for
+inspection. This is an unresolved native-mount interaction, not a claim that all mixed-client
+cache problems are fixed.
+
+#### Read measurements, 2026-11-03
+
+Signed Release build 04 ran in macOS VM 1 against the encrypted Samba 4.19.5/ext4 fixture in
+TinyMounter Samba Test, which has 3.8 GiB RAM. The fixture was a non-sparse 2 GiB random file.
+Both tree connections used SMB 3.1.1 with full encryption and signing. Native negotiated
+AES-128-GCM/GMAC; direct SMB negotiated AES-128-CCM/CMAC. No security setting was reduced.
+
+Native samples used the existing Release `transfer-bench`, 1 MiB reads, `F_NOCACHE` and a local
+APFS staging file. Finder Remove Download preceded each provider sample; every correlated app
+request then read 2 GiB plus one metadata-stabilizing byte from SMB. Provider rates use callback
+entry to completed staging, before final system handoff. Native rates include open and staging.
+Neither is a Finder copy-duration measurement. Server, native-client and local filesystem cache
+residency were unverified; the provider copy was evicted through Finder. No builds or hashes ran
+during timing. The final native hash check ran after its timer, before the last provider sample.
+
+Order was N1, P1, P2, N2, N3, P3, P4, N4, N5, P5. Rates are decimal MB/s.
+
+| Round | Native staging | Provider callback |
+| --- | ---: | ---: |
+| 1 | 180.17 | 207.66 |
+| 2 | 243.76 | 204.56 |
+| 3 | 197.88 | 221.46 |
+| 4 | 199.44 | 216.80 |
+| 5 | 210.55 | 227.60 |
+| Median | 199.44 | 216.80 |
+
+The provider/native median ratio was 1.087. The first and final downloaded exports matched the
+independent fixture-generation hash; native source/staging verification also matched. Finder's
+read-only export warning recurred. Keep Both in the already-populated export directory failed;
+copying to a new empty directory produced all expected bytes with the permission warning.
+These preliminary rates do not pass the complete performance gate: controlled cache states,
+coordinated handoff timing, writable-mode reads, fully local reads and partial File Provider
+throughput remain unmeasured for this build.
+
+A separate direct-library correctness probe read five disjoint 512 MiB ranges of the 3 GiB
+fixture, with 64 MiB gaps. All five hashes matched independent Linux reads. Payload traffic was
+exactly the requested ranges plus one initial byte. The handle's identity and content metadata
+remained stable after the initial read. This verifies bounded transport reads, not File Provider
+read-ahead, seek latency or player behavior. The signed build's legacy `source_nocache=true` log
+field does not describe direct SMB; source now labels that path `transport=direct_smb` instead.
 
 Private evidence is in `results/single-client-20261103/` on the VM. The initial background log
 stream stopped early, so the twenty-save transaction count was recovered with `log show --info`.
-A foreground stream records subsequent tests. The Linux fixture holds independent payload and
-file-ID audits. Interruption, read-only, broader workflow and throughput checks remain pending.
+A foreground stream records subsequent tests. `full-download-comparison.json` contains all
+native samples and correlated provider/direct-read lines. `partial-read-probe.json` records the
+range checks. Linux JSON audits record payloads, identities, connections and interrupted stages.
+The log streams and interruption monitors are stopped, Samba is running, and pending records,
+partial server files and exported copies remain intact. The physical Mac and original NAS were
+not changed. The next evaluation should resolve the copy warning and native-mount interaction,
+then run the remaining end-to-end and writable/partial benchmarks before a transport decision.

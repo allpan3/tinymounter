@@ -460,7 +460,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
             logger.info("""
                 request=\(request.id.uuidString, privacy: .public) domain=\(self.domainID, privacy: .public) \
                 item=\(request.item, privacy: .public) bytes=\(request.range.length) \
-                transfer_seconds=\(output.metrics.transferSeconds) source_nocache=true
+                transfer_seconds=\(output.metrics.transferSeconds) transport=direct_smb
                 """)
             reply(receipt, nil)
         } catch {
