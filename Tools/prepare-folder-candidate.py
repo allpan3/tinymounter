@@ -176,6 +176,9 @@ def main():
             '                        if request.label.hasPrefix("check-reader-jobs-") {\n'
             '                            try await checkDeletionReaderCapacity(config, label: request.label)\n'
             '                        }\n'
+            '                        if request.label.hasPrefix("check-deletion-session-") {\n'
+            '                            try checkDeletionSession(config, label: request.label)\n'
+            '                        }\n'
             + replay_hook)
         helper = replace(helper, '    struct Snapshot: Codable {', '''    struct Deletion: Codable {
         let plan: DeletionPlan
@@ -241,6 +244,10 @@ def main():
             app.write_text(app.read_text() + "\n" + (root / "Tools/check-deletion-finder-crash.swift").read_text())
             deletion = root / "Sources/TransferCore/RecursiveDeletion.swift"
             content = replace(deletion.read_text(),
+                'let observed = ObservedRemote(remote, identity: item.selected.identity)',
+                'let observed = ObservedRemote(M24FinderRemote(remote, plan: plan, outbox: outbox, node: index),\n'
+                '                                                  identity: item.selected.identity)')
+            content = replace(content,
                 '                            try outbox.advance(plan, from: stored, to: updated)\n',
                 '                            try M24FinderCrash.checkpoint(plan, outbox: outbox, node: index,\n'
                 '                                stage: next.state.rawValue + "-before")\n'
