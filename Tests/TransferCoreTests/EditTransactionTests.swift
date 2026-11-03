@@ -417,26 +417,55 @@ final class EditTransactionTests: XCTestCase {
         XCTAssertEqual(remote.updates, 2)
     }
 
-    func testUncertainStageCreationAllowsTheNewerSaveOnlyAfterDurableRetirement() throws {
+    func testUnansweredStageCreateIsSentAgainWhileItsNameIsFree() throws {
+        edit.state = .creatingStage
+        try outbox.save(edit)
+        try finish(&edit)
+        XCTAssertEqual(remote.stages, 1)
+        XCTAssertEqual(remote.files["file.txt"]?.digest, edit.digest)
+        XCTAssertEqual(Set(remote.files.keys), ["file.txt"])
+        XCTAssertEqual(try outbox.pendingCount, 0)
+    }
+
+    func testUnansweredStageCreateWithARefusalReturnsTheSaveToWaiting() throws {
+        edit.state = .creatingStage
+        try outbox.save(edit)
+        remote.failure = .refusedStage
+        XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))
+        XCTAssertEqual(try stored(edit).state, .prepared)
+        XCTAssertTrue(EditOutbox.canStopForRemoval(try stored(edit)))
+    }
+
+    func testSupersededUnansweredStageIsDiscardedOnlyAfterItsNameIsProvedFree() throws {
         edit.state = .creatingStage
         try outbox.save(edit)
         var latest = try save("latest version")
-        XCTAssertThrowsError(try EditTransaction.retire(&edit, outbox: outbox, remote: remote))
-        XCTAssertThrowsError(try outbox.discard(edit))
         XCTAssertThrowsError(try EditTransaction.publish(&latest, outbox: outbox, remote: remote)) {
             XCTAssertEqual($0 as? UploadError, .pendingWrites)
         }
-        XCTAssertEqual(try stored(latest).state, .prepared)
-        XCTAssertEqual(Set(remote.files.keys), ["file.txt"])
+        try EditTransaction.retire(&edit, outbox: outbox, remote: remote)
+        XCTAssertEqual(remote.probes, [edit.stagePath])
         XCTAssertEqual(remote.stages, 0)
-        XCTAssertEqual(try stored(edit).state, .creatingStage)
-        try outbox.validateContents(edit)
-        try outbox.validateContents(latest)
-        XCTAssertEqual(try outbox.pendingCount, 2)
+        XCTAssertEqual(remote.removals, [])
+        XCTAssertNil(try outbox.records().first { $0.id == edit.id })
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outbox.contentURL(edit).path))
+        try finish(&latest)
+        XCTAssertEqual(remote.files["file.txt"]?.digest, latest.digest)
+        XCTAssertEqual(Set(remote.files.keys), ["file.txt"])
+        XCTAssertEqual(try outbox.pendingCount, 0)
+    }
+
+    func testUnansweredStageWithAnOccupiedNameIsRetiredWithItsData() throws {
+        edit.state = .creatingStage
+        try outbox.save(edit)
+        let occupant = try Remote.version(identity: 77, size: 2, digest: String(repeating: "e", count: 64))
+        remote.files[edit.stagePath] = occupant
+        var latest = try save("latest version")
         let stale = edit!
-        try outbox.retainSuperseded(&edit)
+        XCTAssertThrowsError(try EditTransaction.retire(&edit, outbox: outbox, remote: remote))
         outbox = try EditOutbox(directory: directory.appending(path: "Outbox"))
         XCTAssertEqual(try stored(edit).state, .retired)
+        XCTAssertNotEqual(try stored(edit).retiredStageRemoved, true)
         XCTAssertEqual(try outbox.order(item: edit.item).superseded, [])
         var replay = stale
         XCTAssertThrowsError(try EditTransaction.publish(&replay, outbox: outbox, remote: remote))
@@ -445,12 +474,53 @@ final class EditTransactionTests: XCTestCase {
         XCTAssertEqual(remote.files["file.txt"]?.digest, latest.digest)
         XCTAssertFalse(latest.conflict)
         XCTAssertEqual(remote.updates, 1)
+        remote.removals = []
+        XCTAssertThrowsError(try EditTransaction.cleanupRetired(&edit, outbox: outbox, remote: remote))
+        XCTAssertEqual(remote.files[edit.stagePath], occupant)
+        XCTAssertEqual(remote.removals, [])
         XCTAssertEqual(try outbox.pendingCount, 1)
         XCTAssertTrue(try stored(edit).recoveryRetained)
         let exported = directory.appending(path: "retained.txt")
         try outbox.export(edit, to: exported)
         XCTAssertEqual(try Data(contentsOf: exported), try Data(contentsOf: outbox.contentURL(edit)))
         XCTAssertThrowsError(try outbox.removeIfCompleted())
+    }
+
+    func testRetiredUnansweredStageIsSettledByALaterCleanup() throws {
+        edit.state = .creatingStage
+        try outbox.save(edit)
+        var latest = try save("latest version")
+        remote.failure = .probeReply
+        XCTAssertThrowsError(try EditTransaction.retire(&edit, outbox: outbox, remote: remote))
+        XCTAssertEqual(try stored(edit).state, .retired)
+        XCTAssertNotEqual(try stored(edit).retiredStageRemoved, true)
+        try finish(&latest)
+        remote.removals = []
+        outbox = try EditOutbox(directory: directory.appending(path: "Outbox"))
+        try EditTransaction.cleanupRetired(&edit, outbox: outbox, remote: remote)
+        XCTAssertEqual(remote.probes, [edit.stagePath, edit.stagePath])
+        XCTAssertEqual(remote.removals, [])
+        XCTAssertNil(try outbox.records().first { $0.id == edit.id })
+        XCTAssertEqual(try outbox.pendingCount, 0)
+        XCTAssertEqual(remote.files["file.txt"]?.digest, latest.digest)
+    }
+
+    func testProvedFreeStageNameIsNeverProbedAgainAfterRestart() throws {
+        edit.state = .creatingStage
+        try outbox.save(edit)
+        _ = try save("latest version")
+        try outbox.retainSuperseded(&edit)
+        var acknowledged = try stored(edit)
+        acknowledged.retiredStageRemoved = true
+        try outbox.saveRetiredProgress(acknowledged)
+        let occupant = try Remote.version(identity: 77, size: 2, digest: String(repeating: "e", count: 64))
+        remote.files[edit.stagePath] = occupant
+        outbox = try EditOutbox(directory: directory.appending(path: "Outbox"))
+        try EditTransaction.cleanupRetired(&edit, outbox: outbox, remote: remote)
+        XCTAssertEqual(remote.probes, [])
+        XCTAssertEqual(remote.removals, [])
+        XCTAssertEqual(remote.files[edit.stagePath], occupant)
+        XCTAssertNil(try outbox.records().first { $0.id == edit.id })
     }
 
     func testPartiallyUploadedNewestSaveKeepsTheArtifactAndCompleteLocalCopy() throws {
@@ -495,7 +565,8 @@ final class EditTransactionTests: XCTestCase {
         XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))
         XCTAssertEqual(remote.files[edit.stagePath], unknown)
         XCTAssertEqual(try stored(edit).state, .creatingStage)
-        XCTAssertEqual(remote.stages, 0)
+        XCTAssertEqual(remote.stages, 1)
+        XCTAssertEqual(remote.removals, [])
         try outbox.validateContents(edit)
     }
 
@@ -810,12 +881,6 @@ final class EditTransactionTests: XCTestCase {
         XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))
         XCTAssertEqual(edit.state, .creatingBackup)
         var latest = try save("latest version")
-        var uncertain = try stored(edit)
-        uncertain.backupIdentity = nil
-        try outbox.save(uncertain)
-        XCTAssertThrowsError(try EditTransaction.retire(&uncertain, outbox: outbox, remote: remote))
-        XCTAssertNotNil(remote.files[edit.recoveryPath])
-        try outbox.save(edit)
         XCTAssertThrowsError(try EditTransaction.retire(&edit, outbox: outbox, remote: remote))
         edit.backupVersion = try XCTUnwrap(remote.files[edit.recoveryPath])
         edit.state = .backedUp
@@ -833,6 +898,121 @@ final class EditTransactionTests: XCTestCase {
         try finish(&latest)
         XCTAssertEqual(remote.files["file.txt"]?.digest, latest.digest)
         XCTAssertEqual(try outbox.pendingCount, 0)
+    }
+
+    func testUnansweredBackupCreateIsSentAgainWhileItsNameIsFree() throws {
+        try unansweredBackup()
+        try finish(&edit)
+        XCTAssertEqual(remote.backups, 2)
+        XCTAssertEqual(remote.files["file.txt"]?.digest, edit.digest)
+        XCTAssertEqual(remote.files["file.txt"]?.identity.fileID, 1)
+        XCTAssertEqual(Set(remote.files.keys), ["file.txt"])
+        XCTAssertEqual(try outbox.pendingCount, 0)
+    }
+
+    func testUnansweredBackupWithAnOccupiedNameNeverChangesTheOriginal() throws {
+        try unansweredBackup()
+        let occupant = try Remote.version(identity: 77, size: 2, digest: String(repeating: "e", count: 64))
+        remote.files[edit.recoveryPath] = occupant
+        let before = remote.files
+        XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote)) {
+            XCTAssertEqual($0 as? UploadError, .unresolved)
+        }
+        XCTAssertEqual(remote.files, before)
+        XCTAssertEqual(remote.moves, 0)
+        XCTAssertEqual(remote.updates, 0)
+        XCTAssertEqual(try stored(edit).state, .creatingBackup)
+        XCTAssertNil(try stored(edit).backupIdentity)
+        try outbox.validateContents(edit)
+    }
+
+    func testSupersededUnansweredBackupIsCleanedUpAfterItsNameIsProvedFree() throws {
+        try unansweredBackup()
+        var latest = try save("latest version")
+        try EditTransaction.retire(&edit, outbox: outbox, remote: remote)
+        XCTAssertEqual(remote.probes, [edit.recoveryPath])
+        XCTAssertEqual(remote.removals, [edit.stagePath])
+        XCTAssertNil(try outbox.records().first { $0.id == edit.id })
+        try finish(&latest)
+        XCTAssertEqual(remote.files["file.txt"]?.digest, latest.digest)
+        XCTAssertEqual(Set(remote.files.keys), ["file.txt"])
+        XCTAssertEqual(try outbox.pendingCount, 0)
+    }
+
+    func testSupersededUnansweredBackupWithAnOccupiedNameKeepsTheStageAndLocalCopy() throws {
+        try unansweredBackup()
+        let occupant = try Remote.version(identity: 77, size: 2, digest: String(repeating: "e", count: 64))
+        remote.files[edit.recoveryPath] = occupant
+        let stage = remote.files[edit.stagePath]
+        var latest = try save("latest version")
+        XCTAssertThrowsError(try EditTransaction.retire(&edit, outbox: outbox, remote: remote))
+        XCTAssertEqual(remote.removals, [])
+        XCTAssertEqual(try stored(edit).state, .retired)
+        try finish(&latest)
+        XCTAssertEqual(remote.files[edit.stagePath], stage)
+        XCTAssertEqual(remote.files[edit.recoveryPath], occupant)
+        XCTAssertEqual(remote.files["file.txt"]?.digest, latest.digest)
+        try outbox.validateContents(edit)
+    }
+
+    func testBackupAcknowledgementIsNotProbedAgainWhenTheStageRemovalFails() throws {
+        try unansweredBackup()
+        var latest = try save("latest version")
+        remote.failRemovalAt = edit.stagePath
+        XCTAssertThrowsError(try EditTransaction.retire(&edit, outbox: outbox, remote: remote))
+        XCTAssertEqual(try stored(edit).retiredBackupRemoved, true)
+        XCTAssertNotEqual(try stored(edit).retiredStageRemoved, true)
+        try finish(&latest)
+        remote.failRemovalAt = nil
+        remote.probes = []
+        remote.removals = []
+        outbox = try EditOutbox(directory: directory.appending(path: "Outbox"))
+        try EditTransaction.cleanupRetired(&edit, outbox: outbox, remote: remote)
+        XCTAssertEqual(remote.probes, [])
+        XCTAssertEqual(remote.removals, [edit.stagePath])
+        XCTAssertNil(try outbox.records().first { $0.id == edit.id })
+    }
+
+    func testUnansweredBackupWithAChangedOriginalCreatesNoBackupOrConflict() throws {
+        try unansweredBackup()
+        remote.files["file.txt"] = try Remote.version(identity: 1, size: 5, digest: String(repeating: "b", count: 64))
+        let before = remote.files
+        XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote)) {
+            XCTAssertEqual($0 as? UploadError, .unresolved)
+        }
+        XCTAssertEqual(remote.files, before)
+        XCTAssertEqual(remote.backups, 1)
+        XCTAssertEqual(try stored(edit).state, .creatingBackup)
+        XCTAssertFalse(try stored(edit).conflict)
+    }
+
+    func testAcknowledgementWithoutAnIdentityMustHaveNoVersionAndNeedsTheOldVersionForABackup() throws {
+        edit.state = .creatingStage
+        try outbox.save(edit)
+        _ = try save("latest version")
+        try outbox.retainSuperseded(&edit)
+        var record = try stored(edit)
+        record.retiredStageRemoved = true
+        XCTAssertTrue(record.validRetiredProgress)
+        record.stageVersion = try Remote.version(identity: 5, size: edit.size, digest: edit.digest)
+        XCTAssertFalse(record.validRetiredProgress)
+        record.stageVersion = nil
+        record.retiredBackupRemoved = true
+        XCTAssertFalse(record.validRetiredProgress)
+    }
+
+    /// A backup create that got no answer: the stage and old version are recorded, no backup identity.
+    private func unansweredBackup() throws {
+        remote.failure = .backupReply
+        XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))
+        remote.files[edit.recoveryPath] = nil
+        edit = try stored(edit)
+        edit.backupIdentity = nil
+        try outbox.save(edit)
+        XCTAssertEqual(edit.state, .creatingBackup)
+        XCTAssertNotNil(edit.previous)
+        remote.probes = []
+        remote.removals = []
     }
 
     func testSupersessionRecordsAcknowledgedRemovalBeforeTheNextCleanupFails() throws {
@@ -945,7 +1125,7 @@ final class EditTransactionTests: XCTestCase {
     private final class Remote: EditRemote {
         enum Failure {
             case partialCopy, completeCopy, publication, collision, conflictName, conflictReply, backupReply
-            case partialStage, partialBackup, refusedStage
+            case partialStage, partialBackup, refusedStage, probeReply
         }
         var failure: Failure?
         var files: [String: EditFileVersion]
@@ -955,6 +1135,7 @@ final class EditTransactionTests: XCTestCase {
         var backups = 0
         var inspections: [String] = []
         var removals: [String] = []
+        var probes: [String] = []
         var failRemovalAt: String?
         var loseRemovalReplyAt: String?
         private var nextIdentity: UInt64 = 200
@@ -973,6 +1154,7 @@ final class EditTransactionTests: XCTestCase {
             let data = try Data(contentsOf: contents)
             let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
             stages += 1
+            guard files[path] == nil else { throw UploadError.collision }
             if failure == .refusedStage {
                 failure = nil
                 throw EditStageRefusal(UploadError.readOnly)
@@ -999,6 +1181,7 @@ final class EditTransactionTests: XCTestCase {
         func backup(original: String, path: String, created: (EditFileIdentity) throws -> Void) throws -> EditFileVersion {
             let old = try XCTUnwrap(files[original])
             backups += 1
+            guard files[path] == nil else { throw UploadError.collision }
             if failure == .partialBackup {
                 failure = nil
                 let partial = try Self.version(identity: newIdentity(), size: old.size - 1,
@@ -1051,6 +1234,15 @@ final class EditTransactionTests: XCTestCase {
         private func newIdentity() -> UInt64 {
             nextIdentity += 1
             return nextIdentity
+        }
+
+        func proveAbsent(path: String) throws {
+            probes.append(path)
+            guard files[path] == nil else { throw UploadError.collision }
+            if failure == .probeReply {
+                failure = nil
+                throw UploadError.unresolved
+            }
         }
 
         func removeArtifact(path: String, version: EditFileVersion) throws {

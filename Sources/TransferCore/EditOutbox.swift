@@ -172,12 +172,13 @@ public struct PendingEdit: Codable, Equatable, Sendable {
     var validRetiredProgress: Bool {
         if retiredStageRemoved == nil, retiredBackupRemoved == nil, retiredCleanupStarted == nil { return true }
         guard state == .retired, recoveryRetained, published == nil, completedItem == nil else { return false }
-        if retiredStageRemoved == true {
+        // Without an identity, an acknowledgement records an exclusive create that found the name free.
+        if retiredStageRemoved == true, stageIdentity != nil || stageVersion != nil {
             guard stageVersion.map({ $0.identity == stageIdentity && $0.size == size && $0.digest == digest }) == true
             else { return false }
         }
         if retiredBackupRemoved == true {
-            guard let previous, backupVersion.map({
+            guard let previous, backupIdentity == nil && backupVersion == nil || backupVersion.map({
                 $0.identity == backupIdentity && $0.size == previous.size && $0.digest == previous.digest
             }) == true else { return false }
         }

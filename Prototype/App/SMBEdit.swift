@@ -338,6 +338,16 @@ final class SMBEdit: EditRemote, FileRenameRemote {
         handles[path] = nil
     }
 
+    func proveAbsent(path: String) throws {
+        guard handles[path] == nil, stageVerifiers[path] == nil,
+              path.hasSuffix(".stage") || path.hasSuffix(".recovery") else { throw UploadError.unresolved }
+        try cancellation()
+        let security = Self.privateSecurity(owner: []), full = try remotePath(path)
+        try security.withUnsafeBytes {
+            try check(tm_edit_probe_private(client, full, $0.bindMemory(to: UInt8.self).baseAddress!, UInt32($0.count)))
+        }
+    }
+
     private func makePrivate(path: String, uploading: Bool,
                              created: (EditFileIdentity) throws -> Void) throws -> Handle {
         var security = Self.privateSecurity(owner: [])

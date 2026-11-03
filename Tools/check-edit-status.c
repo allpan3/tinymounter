@@ -201,6 +201,8 @@ static void local_failures(void)
     client.ntstatus = SMB2_STATUS_DELETE_PENDING;
     result("invalid private", tm_edit_open_private(&client, "file", 0, 0, NULL, 20, file), EINVAL, 0);
     client.ntstatus = SMB2_STATUS_DELETE_PENDING;
+    result("invalid probe", tm_edit_probe_private(&client, "../file", security, 20), EINVAL, 0);
+    client.ntstatus = SMB2_STATUS_DELETE_PENDING;
     result("invalid list", tm_edit_list(&client, file, 1, buffer, 0, &count, &finished), EINVAL, 0);
     client.ntstatus = SMB2_STATUS_DELETE_PENDING;
     result("invalid copy", tm_edit_copy_chunk(&client, file, key, 0, 0, 0, buffer), EINVAL, 0);
@@ -251,6 +253,7 @@ static void disconnected(void)
     DISCONNECTED("disconnected list", tm_edit_list(&client, file, 1, buffer, 80, &count, &finished));
     DISCONNECTED("disconnected private",
                  tm_edit_open_private(&client, "file", 0, 0, security, 20, file));
+    DISCONNECTED("disconnected probe", tm_edit_probe_private(&client, "file", security, 20));
     DISCONNECTED("disconnected resume", tm_edit_resume_key(&client, file, key));
     DISCONNECTED("disconnected copy", tm_edit_copy_chunk(&client, file, key, 0, 0, 1, buffer));
     DISCONNECTED("disconnected size", tm_edit_set_size(&client, file, 1));
