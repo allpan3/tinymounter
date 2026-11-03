@@ -55,7 +55,7 @@ final class CatalogItem: NSObject, NSFileProviderItem {
     }
     var fileSystemFlags: NSFileProviderFileSystemFlags {
         if isFolder { return row.allowsWriting ? [.userReadable, .userWritable, .userExecutable] : [.userReadable, .userExecutable] }
-        return allowsEditing ? [.userReadable, .userWritable] : .userReadable
+        return [.userReadable, .userWritable]
     }
     /// While paused, kept files are lazy, so the system starts no eager downloads (plan §6).
     var contentPolicy: NSFileProviderContentPolicy {
