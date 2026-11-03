@@ -232,13 +232,61 @@ All required VM checks pass with 650 tests, two optional skips and no Swift warn
 `checks-callback-metadata-complete.log`; the signed candidate's build log also has no Swift
 warnings. The first check run hit the tool's time limit and is retained as incomplete evidence.
 
+## Low-space admission and retry
+
+Signed OfflineCheck-3 retains an earlier complete TXT save while the isolated controls deny
+space first in the provider and then in the app. Both later editor saves remain complete in the
+local file with materialization disabled. The durable earlier record stays unchanged and passes
+validation after both denials. Export Local Copy reproduces that earlier revision while admission
+is blocked. The provider reports `NSCocoaErrorDomain:640`; the app records its reserve refusal.
+
+After both controls are released and Samba restarts, Retry Pending Changes admits the latest
+local revision as sequence 12. The completed receipt, independent server hash and cleared system
+pending entry agree. Publication preserves the server inode and removes its owned stage and
+backup. The four unrelated retained recovery records remain valid.
+
+Evidence is `check-editor-state-queue-space-{earlier,provider,app,reconnected,retry,settled}`,
+`space-retained-report.json`, `space-export-report.json`, `space-retry-report.json`,
+`space-admission.log`, the `space-*-local.json` files and Linux `space-settled-audit.json`.
+Required VM checks pass with 650 tests, two optional skips and no Swift warnings in
+`checks-save-space-candidate.log`; the signed candidate build also has no Swift warnings.
+
+The candidate generator's optional `--save-space-checks` lowers reported capacity below the
+2 GiB reserve separately in the app and extension, using run-bound controls. These controls
+were released. They neither fill the disk nor change ordinary builds. This verifies admission,
+retention, export and retry through signed callbacks. The earlier disposable APFS-image test
+covers real exhaustion in the local outbox; actual OS disk-pressure eviction remains unverified.
+
+## VM restart with a pending RTF save
+
+OfflineCheck-3 downloads and verifies a fresh RTF, then TextEdit saves a bold revision while
+Samba is stopped. Sequence 13 is durably prepared and matches the entire local file. A normal
+macOS VM restart changes the recorded boot time while the server remains unavailable. The same
+local inode and complete bytes remain readable with materialization disabled, and the same
+pending record validates after restarting the diagnostic session.
+
+The app relaunches through macOS window restoration. Automatic mount attempts initially receive
+network timeouts, then stop with `EAUTH` after Samba returns. The disposable fixture's password
+was not available to the automatic mount. A manual Connect shows the authentication dialog;
+it is cancelled, and the existing private fixture credential restores the mount through NetFS.
+No credential is copied into the evidence. This trial does not prove unattended reconnection
+after reboot with saved Keychain credentials.
+
+Once authenticated, recovery publishes the same sequence and clears its system pending entry
+without Retry. Independent Linux inspection verifies the exact saved RTF, original server inode
+and absence of temporary save artifacts. The four earlier recovery records remain retained.
+Cache state is uncontrolled; this is one small-document restart check, not performance evidence.
+
+Evidence includes `restart-{before,after}-local.json`, `restart-before-report.json`,
+`restart-local-report.json`, `restart-share.log`, `restart-auth-restored.json`,
+`check-editor-state-queue-restart-{offline,after,reconnected,authenticated}` and the macOS/Linux
+`restart-completion-report.json` files. The `reconnected` snapshot precedes authentication and
+still shows the prepared save. Restarting diagnostics required its evidence-folder picker again.
+
 ## Remaining work and decision
 
-Continue signed low-space admission, interruption coverage for other document formats and
-broader eviction checks. The candidate generator's optional `--save-space-checks` lowers reported
-capacity below the reserve separately in the app and extension, using run-bound controls. It
-does not fill the disk or change ordinary builds. Restore actual capacity with the release request.
-Do not infer completion from the successful small-document checks.
+Continue interruption coverage for other document formats, saved-credential restart and broader
+eviction checks. Do not infer completion from the successful small-document checks.
 
 Normal Finder deletion cannot be enabled under the current replacement guarantee using the
 observed callbacks. A possible alternative is an explicit provider action for permanent deletion,
