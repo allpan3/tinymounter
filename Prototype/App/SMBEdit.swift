@@ -251,6 +251,47 @@ final class SMBEdit: EditRemote, FileRenameRemote, UploadRemote {
             })
     }
 
+    func transferVersion(path: String, range: ByteRange, stagingDirectory: URL,
+                         progress: Progress, checkSpace: ((Int64) throws -> Void)?) throws
+        -> (output: TransferOutput, version: EditFileVersion) {
+        guard let handle = handles[path] else { throw UploadError.unresolved }
+        let before = try info(handle)
+        guard before[2] <= Int64.max, range.offset == 0, range.length == Int64(before[2]) else {
+            throw UploadError.invalidRequest
+        }
+        let security = try metadata(handle, security: true)
+        readProof = nil
+        let output = try transfer(path: path, range: range, stagingDirectory: stagingDirectory,
+                                  progress: progress, checkSpace: checkSpace)
+        var complete = false
+        defer {
+            if !complete, let url = output.stagingURL { try? FileManager.default.removeItem(at: url) }
+        }
+        guard let url = output.stagingURL else { throw UploadError.unresolved }
+        let local = try ReadOnlyFile(url: url)
+        guard local.snapshot.size == range.length else { throw UploadError.unresolved }
+        // The same deny-write/delete handle protects staging and its complete local verification.
+        let contents = try VerifiedRead.capture(size: range.length) { offset, buffer in
+            try self.cancellation()
+            var count: Int
+            repeat { count = pread(local.descriptor, buffer.baseAddress!, buffer.count, offset) }
+            while count < 0 && errno == EINTR
+            guard count >= 0 else { throw posixError("verify downloaded content") }
+            return count
+        }
+        try local.validateUnchanged()
+        try cancellation()
+        guard try metadata(handle, security: true) == security,
+              try info(handle)[0...6] == before[0...6] else { throw SourceFailure.versionChanged }
+        let version = try EditFileVersion(
+            identity: EditFileIdentity(fileID: before[0], birthMicroseconds: before[1]),
+            size: Int64(before[2]), digest: contents.digest, modifiedMicroseconds: before[5],
+            changedMicroseconds: before[6], attributes: UInt32(before[4]), security: Data(security))
+        readProof = contents.proof
+        complete = true
+        return (output, version)
+    }
+
     func verifyRead(path: String, range: ByteRange, base: EditFileVersion,
                     proof: VerifiedRead) throws -> String? {
         guard proof.size == base.size, proof.digest == base.digest else { return nil }
