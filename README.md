@@ -10,7 +10,8 @@ repair passes signed Stop restoration, interruption before notification, a later
 Delete, and refreshed replay after dismissal/restart. IDs, keeps and downloaded bytes survive.
 Concurrent deletions from two overlapping views also complete after busy retries. A full reader
 queue refuses deletion, then Finder completes it after one slot is released. All held reads drain.
-Remaining lifecycle checks are in progress.
+Six timeout, connection-loss and extension-restart checks complete the original deletion without
+turning it into Stop. Explicit cancellation and remaining controller checks are in progress.
 Deletion remains disabled in normal builds. See the
 [deletion results](docs/results/2026-10-29-deletion-protocol.md#finder-deletion-and-parent-checkpoints-2026-11-03).
 
