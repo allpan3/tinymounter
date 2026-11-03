@@ -220,6 +220,8 @@ public protocol DeletionRemote {
     func markDeletion(path: String) throws
     /// Success requires the close reply and no other owned handles that can defer removal.
     func closeTarget(path: String) throws
+    /// Read the same protected parents after confirmed deletion, before releasing their handles.
+    func parentsAfterDeletion(_ parents: [ItemDeletionParent]) throws -> [ItemDeletionParent]
 }
 
 /// Unintegrated core; admission, durable storage and catalog commits remain caller responsibilities.

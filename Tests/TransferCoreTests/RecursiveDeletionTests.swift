@@ -62,8 +62,62 @@ final class RecursiveDeletionTests: XCTestCase {
         XCTAssertEqual(results.first { $0.item.item == fixture.items["Docs/Tree/b"] }?.outcome, .deleted)
     }
 
+    func testProtectedParentTimeChangesSurviveRestartWithoutChangingAdmission() throws {
+        var record = try fixture.prepare()
+        let plan = record.plan, server = self.server
+        server.changesParentCreationTimes = true
+        server.afterClose["Docs/Tree/Empty"] = { [unowned server] in server.connectFailure = DeletionFixture.Fault.connection }
+        XCTAssertThrowsError(try run(&record))
+        XCTAssertEqual(record.progress.next, 1)
+        XCTAssertEqual(record.progress.parentUpdates?.count, 3)
+        fixture.outbox = try fixture.makeOutbox()
+        record = try XCTUnwrap(fixture.outbox.records().first)
+        server.connectFailure = nil
+        try run(&record)
+        XCTAssertEqual(record.plan, plan)
+        XCTAssertEqual(record.summary, [.deleted: 7])
+        XCTAssertEqual(server.marks, plan.nodes.map(\.path))
+        XCTAssertEqual(Set(server.objects.keys), ["", "Docs", "Docs/neighbor"])
+    }
+
+    func testSameIDParentReplacementAfterCheckpointIsNotAccepted() throws {
+        var record = try fixture.prepare()
+        let server = self.server
+        server.changesParentCreationTimes = true
+        server.afterClose["Docs/Tree/Empty"] = { [unowned server] in server.connectFailure = DeletionFixture.Fault.connection }
+        XCTAssertThrowsError(try run(&record))
+        let parent = try XCTUnwrap(server.objects["Docs/Tree"]?.identity)
+        let replacement = ItemDeletionEvidence.directory(try EditFileIdentity(fileID: parent.fileID,
+            birthMicroseconds: parent.birthMicroseconds + 1))
+        server.objects["Docs/Tree"] = replacement
+        server.connectFailure = nil
+        fixture.outbox = try fixture.makeOutbox()
+        try run(&record)
+        XCTAssertEqual(server.marks, ["Docs/Tree/Empty"])
+        XCTAssertEqual(server.objects["Docs/Tree"], replacement)
+        XCTAssertNotNil(server.objects["Docs/Tree/Sub/c"])
+        XCTAssertNotEqual(record.selectedOutcome, .deleted)
+    }
+
+    func testLostParentCheckpointKeepsAcknowledgedDeletionUnconfirmed() throws {
+        var record = try fixture.prepare()
+        server.changesParentCreationTimes = true
+        server.parentCheckpointFailure = DeletionFixture.Fault.connection
+        XCTAssertThrowsError(try run(&record))
+        XCTAssertEqual(record.progress.current, .closeAcknowledged)
+        XCTAssertEqual(record.progress.next, 0)
+        XCTAssertNil(record.progress.parentUpdates)
+        server.parentCheckpointFailure = nil
+        fixture.outbox = try fixture.makeOutbox()
+        try run(&record)
+        XCTAssertEqual(outcome("Empty", record), .unconfirmed)
+        XCTAssertEqual(server.marks, ["Docs/Tree/Empty"])
+        XCTAssertNotNil(server.objects["Docs/Tree/Sub/c"])
+    }
+
     func testArrivingChildIsNeverAddedAndItsFoldersRemain() throws {
         var record = try fixture.prepare()
+        server.changesParentCreationTimes = true
         let arrival = ItemDeletionEvidence.file(try DeletionFixture.version(40))
         let server = self.server
         server.afterClose["Docs/Tree/Sub/d"] = { [unowned server] in server.objects["Docs/Tree/Sub/new"] = arrival }
@@ -75,8 +129,8 @@ final class RecursiveDeletionTests: XCTestCase {
                                       "Docs/Tree/b"])
         XCTAssertEqual(server.sessions, 6)
         XCTAssertEqual(server.objects["Docs/Tree/Sub/new"], arrival)
-        XCTAssertEqual(server.objects["Docs/Tree/Sub"], record.plan.nodes[3].evidence)
-        XCTAssertEqual(server.objects["Docs/Tree"], record.plan.selected.evidence)
+        XCTAssertEqual(server.objects["Docs/Tree/Sub"]?.identity.fileID, record.plan.nodes[3].evidence.identity.fileID)
+        XCTAssertEqual(server.objects["Docs/Tree"]?.identity.fileID, record.plan.selected.evidence.identity.fileID)
         XCTAssertFalse(record.plan.nodes.contains { $0.path == "Docs/Tree/Sub/new" })
         let sessions = server.sessions
         try run(&record)
@@ -376,7 +430,7 @@ final class RecursiveDeletionTests: XCTestCase {
         server.objects["Docs/Tree/Sub/e"] = .file(try DeletionFixture.version(17))
         var record = try fixture.prepare()
         let replacement = ItemDeletionEvidence.directory(try DeletionFixture.identity(81))
-        server.afterClose["Docs/Tree/Sub/c"] = { [unowned server] in server.objects["Docs/Tree/Sub"] = replacement }
+        server.afterSession["Docs/Tree/Sub/c"] = { [unowned server] in server.objects["Docs/Tree/Sub"] = replacement }
         try run(&record)
         XCTAssertEqual(record.plan.nodes.map(\.path), ["Docs/Tree/Empty", "Docs/Tree/Sub/c", "Docs/Tree/Sub/d",
                                                        "Docs/Tree/Sub/e", "Docs/Tree/Sub", "Docs/Tree/a",
@@ -551,7 +605,10 @@ final class DeletionServer {
     var lostCloses: Set<String> = []
     var onList: [String: () -> Void] = [:]
     var afterClose: [String: () -> Void] = [:]
+    var afterSession: [String: () -> Void] = [:]
     var connectFailure: Error?
+    var parentCheckpointFailure: Error?
+    var changesParentCreationTimes = false
     var sessions = 0
     var targets: [String] = []
     var marks: [String] = []
@@ -568,13 +625,15 @@ final class DeletionServer {
     func session(_ body: (DeletionRemote) throws -> Void) throws {
         if let connectFailure { throw connectFailure }
         sessions += 1
-        try body(DeletionSession(self))
+        let remote = DeletionSession(self)
+        defer { if let target = remote.target { afterSession.removeValue(forKey: target)?() } }
+        try body(remote)
     }
 }
 
 final class DeletionSession: DeletionRemote {
     private let server: DeletionServer
-    private var target: String?
+    fileprivate var target: String?
     private var marked = false
 
     init(_ server: DeletionServer) { self.server = server }
@@ -599,6 +658,14 @@ final class DeletionSession: DeletionRemote {
         return server.objects[DeletionServer.parent(path)] == nil ? .pathNotFound : .nameNotFound
     }
 
+    func parentsAfterDeletion(_ parents: [ItemDeletionParent]) throws -> [ItemDeletionParent] {
+        if let failure = server.parentCheckpointFailure { throw failure }
+        return try parents.map { parent in
+            guard case .directory(let identity)? = server.objects[parent.path] else { throw DeletionFixture.Fault.missing }
+            return ItemDeletionParent(path: parent.path, name: parent.name, identity: identity)
+        }
+    }
+
     func list(path: String) throws -> ItemDeletionListing {
         guard let target, target == path || DeletionServer.parent(target) == path else {
             throw ItemDeletionError.invalidRequest
@@ -621,6 +688,15 @@ final class DeletionSession: DeletionRemote {
         guard path == target, marked else { throw ItemDeletionError.invalidRequest }
         server.closes.append(path)
         server.objects[path] = nil
+        if server.changesParentCreationTimes {
+            let components = path.split(separator: "/")
+            for depth in 0..<components.count {
+                let prefix = components.prefix(depth).joined(separator: "/")
+                guard case .directory(let identity)? = server.objects[prefix] else { throw DeletionFixture.Fault.missing }
+                server.objects[prefix] = .directory(try EditFileIdentity(fileID: identity.fileID,
+                    birthMicroseconds: identity.birthMicroseconds + 1))
+            }
+        }
         if server.lostCloses.remove(path) != nil { throw DeletionFixture.Fault.connection }
         if let failure = server.closeFailures.removeValue(forKey: path) { throw failure }
         server.afterClose.removeValue(forKey: path)?()

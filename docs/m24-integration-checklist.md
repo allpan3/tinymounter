@@ -34,8 +34,12 @@ and update the README after the run. Leave the original NAS and physical-Mac ins
   Last-attempt reasons are in memory, as for PendingCreate. Node outcomes survive restart.
   Stop Deleting stays available while a Settings Retry runs.
 - Dismiss hides only a completed notice. It retains the plan and every outcome, including
-  uncertainty. Settled refusals and stopped requests also have dismissible notices. No new
-  persisted fields, Settings/catalog formats or migrations were added.
+  uncertainty. Settled refusals and stopped requests also have dismissible notices.
+- A confirmed child deletion checkpoints parent identities through their still-protected
+  handles in `DeletionProgress.parentUpdates`. This accounts for synthetic directory creation
+  times changing after child removal. The admitted plan stays immutable; new handles must match
+  the checkpoint exactly. Missing checkpoints retain the earlier evidence and can leave work
+  unconfirmed. No Settings/catalog format or migration is added.
 - Settlement advances the surviving selected item's metadata version after a definite refusal
   or Stop, and after fresh reconciliation of an unconfirmed outcome. This lets a new Finder
   action use a new base while old callbacks replay the old outcome. Content versions, IDs and

@@ -22,6 +22,7 @@ final class SMBEdit: EditRemote, FileRenameRemote, UploadRemote {
     private var originals: Set<String> = []
     private var movedOriginals: Set<String> = []
     private var deletionTarget: String?
+    private var deletionParents: [ItemDeletionParent]?
     private var folderMoveMount: MountIdentity?
     private var folderMoveRoots: [String: Handle] = [:]
     private var folderMoveFiles: [String: Handle] = [:]
@@ -1208,7 +1209,32 @@ extension SMBEdit: DeletionRemote {
             }
         }
         deletionTarget = path
-        return parents.map { ItemDeletionParent(path: $0.path, name: $0.name, identity: $0.identity) }
+        let protected = parents.map { ItemDeletionParent(path: $0.path, name: $0.name, identity: $0.identity) }
+        deletionParents = protected
+        return protected
+    }
+
+    func parentsAfterDeletion(_ parents: [ItemDeletionParent]) throws -> [ItemDeletionParent] {
+        guard deletionParents == parents, deletionTarget != nil, handles.isEmpty else {
+            throw ItemDeletionError.invalidRequest
+        }
+        // Directory reads can change Samba's synthetic creation time while these handles stay held.
+        for parent in parents {
+            guard let handle = directories[parent.path] else { throw ItemDeletionError.unresolved }
+            var buffer = [UInt8](repeating: 0, count: 65_536), count: UInt32 = 0, finished: Int32 = 0
+            try cancellation()
+            try handle.use {
+                try check(tm_edit_list(client, $0, 1, &buffer, UInt32(buffer.count), &count, &finished))
+            }
+        }
+        return try parents.map { parent in
+            guard let handle = directories[parent.path] else { throw ItemDeletionError.unresolved }
+            let values = try info(handle), identity = try folderMoveIdentity(values)
+            guard values[4] & 0x450 == 0x10, identity.fileID == parent.identity.fileID else {
+                throw ItemDeletionError.unresolved
+            }
+            return ItemDeletionParent(path: parent.path, name: parent.name, identity: identity)
+        }
     }
 
     func inspect(path: String, kind: CatalogRow.Kind) throws -> ItemDeletionLookup {

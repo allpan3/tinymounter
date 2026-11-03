@@ -147,7 +147,7 @@ public enum RecursiveDeletionTransaction {
         guard record.plan.owner == owner, record.plan.endpoint.matches(endpoint) else {
             throw ItemDeletionError.invalidRequest
         }
-        let plan = record.plan, directories = plan.directoryIdentities()
+        let plan = record.plan
         // Folders whose protected chain failed in this run; their remaining descendants would fail too.
         var broken: [String] = []
         while true {
@@ -155,6 +155,7 @@ public enum RecursiveDeletionTransaction {
             record.progress = durable
             if record.isSettled { return }
             let index = durable.next
+            let directories = plan.directoryIdentities(updates: durable.parentUpdates ?? [])
             if durable.current == .prepared {
                 let skipped = skips(from: index, plan: plan, progress: durable, broken: broken)
                 if !skipped.isEmpty {
@@ -169,7 +170,7 @@ public enum RecursiveDeletionTransaction {
             var stored = durable, failure: Error?, proved = false
             do {
                 try session { remote in
-                    let observed = ObservedRemote(remote, identity: node.evidence.identity)
+                    let observed = ObservedRemote(remote, identity: item.selected.identity)
                     do {
                         try ItemDeletionTransaction.remove(&item, remote: observed, load: {
                             let current = try outbox.durableProgress(of: plan)
@@ -177,7 +178,17 @@ public enum RecursiveDeletionTransaction {
                             stored = current
                             return try plan.item(at: index, state: current.current, directories: directories)
                         }, checkpoint: { next in
-                            let updated = stored.recording(next.state)
+                            var updated = stored.recording(next.state)
+                            if next.state == .deleted {
+                                let parents = try observed.parentsAfterDeletion(next.parents)
+                                guard parents.count == next.parents.count,
+                                      zip(parents, next.parents).allSatisfy({ actual, expected in
+                                          actual.path.utf8.elementsEqual(expected.path.utf8)
+                                              && actual.name.utf8.elementsEqual(expected.name.utf8)
+                                              && actual.identity.fileID == expected.identity.fileID
+                                      }) else { throw ItemDeletionError.unresolved }
+                                updated = updated.recordingParents(parents)
+                            }
                             try outbox.advance(plan, from: stored, to: updated)
                             stored = updated
                             record.progress = updated
@@ -275,4 +286,7 @@ private final class ObservedRemote: DeletionRemote {
     }
 
     func closeTarget(path: String) throws { try remote.closeTarget(path: path) }
+    func parentsAfterDeletion(_ parents: [ItemDeletionParent]) throws -> [ItemDeletionParent] {
+        try remote.parentsAfterDeletion(parents)
+    }
 }

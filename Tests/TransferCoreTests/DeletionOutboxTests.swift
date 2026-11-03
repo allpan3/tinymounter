@@ -29,6 +29,66 @@ final class DeletionOutboxTests: XCTestCase {
         XCTAssertEqual(try fixture.outbox.records(), [])
     }
 
+    func testParentCheckpointsCannotRetargetOrPrecedeConfirmedDeletion() throws {
+        let plan = try fixture.prepare().plan, initial = DeletionProgress()
+        let item = try plan.item(at: 0, state: .prepared, directories: plan.directoryIdentities())
+        let refreshed = try item.parents.map {
+            ItemDeletionParent(path: $0.path, name: $0.name, identity: try EditFileIdentity(
+                fileID: $0.identity.fileID, birthMicroseconds: $0.identity.birthMicroseconds + 1))
+        }
+        XCTAssertThrowsError(try fixture.outbox.advance(plan, from: initial,
+            to: initial.recording(.attempting).recordingParents(refreshed)))
+        let attempting = initial.recording(.attempting)
+        try fixture.outbox.advance(plan, from: initial, to: attempting)
+        let acknowledged = attempting.recording(.closeAcknowledged)
+        try fixture.outbox.advance(plan, from: attempting, to: acknowledged)
+        let confirmed = acknowledged.recording(.deleted)
+        let foreign = ItemDeletionParent(path: "Docs/Tree/Sub", name: "Sub",
+            identity: try DeletionFixture.identity(14))
+        XCTAssertThrowsError(try fixture.outbox.advance(plan, from: acknowledged,
+            to: confirmed.recordingParents(refreshed + [foreign])))
+        let replaced = ItemDeletionParent(path: refreshed[0].path, name: refreshed[0].name,
+            identity: try DeletionFixture.identity(999))
+        XCTAssertThrowsError(try fixture.outbox.advance(plan, from: acknowledged,
+            to: confirmed.recordingParents([replaced])))
+        let saved = confirmed.recordingParents(refreshed)
+        try fixture.outbox.advance(plan, from: acknowledged, to: saved)
+        var discarded = saved.recording(.attempting)
+        discarded.parentUpdates = nil
+        XCTAssertThrowsError(try fixture.outbox.advance(plan, from: saved, to: discarded))
+        fixture.outbox = try fixture.makeOutbox()
+        XCTAssertEqual(try fixture.outbox.durableProgress(of: plan), saved)
+    }
+
+    func testParentCheckpointPreservesAdmittedServerSpelling() throws {
+        let encoded = try JSONEncoder().encode(fixture.prepare().plan)
+        let text = try XCTUnwrap(String(data: encoded, encoding: .utf8))
+            .replacingOccurrences(of: "Docs", with: "Cafe\u{301}")
+        var values = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+        var parents = try XCTUnwrap(values["parents"] as? [[String: Any]])
+        parents[1]["name"] = "Caf\u{e9}"
+        values["parents"] = parents
+        let plan = try JSONDecoder().decode(DeletionPlan.self, from: JSONSerialization.data(withJSONObject: values))
+        let item = try plan.item(at: 0, state: .prepared, directories: plan.directoryIdentities())
+        let acknowledged = DeletionProgress().recording(.attempting).recording(.closeAcknowledged)
+        let confirmed = acknowledged.recording(.deleted).recordingParents(item.parents)
+        try confirmed.validate(for: plan)
+        try confirmed.validateUpdate(from: acknowledged, plan: plan)
+        let respelled = ItemDeletionParent(path: item.parents[1].path, name: "Cafe\u{301}",
+                                          identity: item.parents[1].identity)
+        XCTAssertThrowsError(try confirmed.recordingParents([respelled]).validate(for: plan))
+    }
+
+    func testDuplicatePersistedParentsAreRejected() throws {
+        let encoded = try JSONEncoder().encode(fixture.prepare().plan)
+        var values = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        var parents = try XCTUnwrap(values["parents"] as? [[String: Any]])
+        parents[1] = parents[0]
+        values["parents"] = parents
+        XCTAssertThrowsError(try JSONDecoder().decode(DeletionPlan.self,
+            from: JSONSerialization.data(withJSONObject: values)))
+    }
+
     func testReplayReturnsTheOperationAndOverlappingRequestsWaitForEveryCatalog() throws {
         var record = try fixture.prepare()
         XCTAssertEqual(try fixture.prepare(), record)

@@ -243,5 +243,8 @@ private final class CancelAfterMark: DeletionRemote {
         progress.cancel()
     }
     func closeTarget(path: String) throws { throw TransferError.cancelled }
+    func parentsAfterDeletion(_ parents: [ItemDeletionParent]) throws -> [ItemDeletionParent] {
+        try remote.parentsAfterDeletion(parents)
+    }
     func endSession() { if let marked { try? remote.closeTarget(path: marked) } }
 }
