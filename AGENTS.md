@@ -43,9 +43,12 @@ current status.
 
 ## Where to test
 
-Develop on the Mac, but run every test and check in the VMPal VM `macOS VM 1`. The Mac has only
-the Command Line Tools: `swift build` works there, but `swift test` and `xcodebuild` don't, and
-runtime checks need the signed app in the VM. The VM's clone in `~/Developer/tinymounter` fetches
+Develop on the Mac, but run the checks and every app build in the VMPal VM `macOS VM 1`. The Mac
+has Xcode, but don't build the app there: Xcode registers each built app with LaunchServices,
+which can expose a second File Provider extension beside the installed one. Package unit tests
+may run on the Mac for quick iteration with
+`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test`. Runtime checks need the
+signed app in the VM. The VM's clone in `~/Developer/tinymounter` fetches
 from the read-only shared folder `tinymounter-host`, its remote `host`, so commit before you
 test; uncommitted edits don't reach the VM. The VM's view of the shared folder's refs can stay
 stale, so `git fetch host` can miss new commits or fail with "not our ref", but new objects show:

@@ -2,7 +2,8 @@
 
 Date: 2026-10-29. Decision status: accepted. The user approved this roadmap, including permanent
 deletion without a tinymounter Trash, parallel agents/worktrees and the first disposable VM test
-session. Implementation follows the safety gates and dependencies below. Installation is deferred.
+session. Implementation follows the safety gates and dependencies below. Each physical-Mac
+installation needs the user's separate approval.
 
 The goal is ordinary document work in Finder: create, open, save, organize and delete files,
 then edit downloaded files while offline. Tinymounter remains a Mac app using an existing SMB
@@ -184,6 +185,13 @@ integration priorities within the accepted milestones:
    deletion after its protocol/UI gate. Measure completion in Finder and verify preserved or
    deliberately removed local data before enabling the normal-build capabilities.
 
+On 2026-11-02 the user asked for parallel agents on the work that can proceed now. Four
+worktrees run at once: M23 remaining code, including an unanswered stage create that blocks the
+share and Stop Uploading for edits (Opus 5.5); M24 Finder routing and recovery controls, gated
+off (Astra); the edited-file cache-miss verification cost above (Astra); and the M21/M22 gaps
+sorted into code and evidence gaps, with the code gaps closed (Opus 5.5). The coordinator
+integrates each branch and runs every VM and signed check.
+
 Use further isolated probes to answer a concrete blocker in those workflows. More standalone
 edge cases do not substitute for completing the accepted user tasks. M25/M26 follow their
 existing dependencies; M27/M28 and the physical-Mac acceptance gates remain open.
@@ -198,7 +206,8 @@ also pass. Bounded reserve, partial-stage continuation, lost-cleanup-reply and f
 replacement-artifact preservation probes pass; real disk exhaustion and broader callbacks remain.
 
 M18 creation, M19 same-object editing and M20 verified-file renaming have signed VM evidence.
-M20 is the development baseline; the physical Mac runs M19. Existing read-only locations stay
+Since 2026-11-02 the physical Mac runs main with the [pending-changes fixes](pending-changes-plan.md)
+and M21 file organization. Existing read-only locations stay
 read-only. Folder organization, deletion, Finder Replace and deliberate offline editing remain
 unavailable. M21 now handles ordinary files in signed VM checks, including unverified files,
 preserved downloads, overlapping views and interrupted moves. Its remaining acceptance checks
