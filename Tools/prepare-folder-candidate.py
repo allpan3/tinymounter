@@ -22,6 +22,8 @@ Settings hold from deletion-fault.json; see the M24 integration checklist.
 --enable-deletion additionally enables deletion only in the generated candidate.
 --deletion-domain-checks observes domain versions and refuses every fixture deletion
 before app/server work. It requires --overlap-checks and --deletion-checks.
+--editor-checks exports local hashes, pending uploads and verified edit outbox state
+for check-editor-state-* requests, including while the fixture is disconnected.
 """
 import argparse
 from pathlib import Path
@@ -53,6 +55,7 @@ def main():
     parser.add_argument("--deletion-checks", action="store_true")
     parser.add_argument("--enable-deletion", action="store_true")
     parser.add_argument("--deletion-domain-checks", action="store_true")
+    parser.add_argument("--editor-checks", action="store_true")
     args = parser.parse_args()
     if args.enable_deletion and not args.deletion_checks:
         parser.error("--enable-deletion requires --deletion-checks")
@@ -228,6 +231,17 @@ def main():
         let snapshot = M22FinderProbe.Snapshot(config: config, label: label,''')
         helper = replace(helper, '            editBases: bases, pendingEdits: pendingEdits)',
                          '            editBases: bases, pendingEdits: pendingEdits, deletions: deletions)')
+    if args.editor_checks:
+        helper += "\n" + (root / "Tools/check-editor-state.swift").read_text()
+        helper = replace(helper, '                    try M22FinderProbe.save(request, to: start)\n'
+                         '                    do {\n',
+            '                    try M22FinderProbe.save(request, to: start)\n'
+            '                    do {\n'
+            '                        if request.label.hasPrefix("check-editor-state-") {\n'
+            '                            try await checkEditorState(config, label: request.label)\n'
+            '                            try M22FinderProbe.save(["label": request.label, "result": "captured"], to: result)\n'
+            '                            continue\n'
+            '                        }\n')
     app = root / "Prototype/App/LocationController.swift"
     content = replace(app.read_text(), '        isReady = true\n',
                       '        isReady = true\n        Task {\n'

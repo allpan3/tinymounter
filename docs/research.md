@@ -319,6 +319,16 @@ dot from the work name avoids it without rewriting user metadata. Private-stage 
 publication does not retain hidden status in the tested configuration. See the
 [folder/save results](results/2026-11-03-folder-organization.md#save-work-name-and-hidden-attributes).
 
+### Finder replacement callbacks, 2026-11-03
+
+The installed Xcode 27 `NSFileProviderReplicatedExtension.h` exposes only `recursive` for
+deletion options. Its reimport flag, `mayAlreadyExist`, is not replacement authorization.
+`NSFileProviderRequest.h` explicitly excludes create/modify/delete from the valid uses of
+`isSystemRequest` and `isFileViewerRequest`. The request's domain version identifies when the
+system observed an event, not its purpose. These headers were read on 2026-11-03. The signed
+[Finder observation](results/2026-11-03-editor-replacement.md) sent separate delete/create
+callbacks for Replace; no supported intent/base binding was found in the reviewed interfaces.
+
 ## Research limitations
 
 Live web documentation and current SDK headers establish API contracts, not actual throughput. Search was unreliable, and several sites initially failed the VM's DNS resolution; direct HTTPS retrieval with explicitly resolved public addresses succeeded. No VM DNS settings were changed. Subsequent work measured native SMB and short NAS-backed provider reads and ran signed correctness checks; dated results logs record those separately. Competitor installations, the player matrix, large-file throughput acceptance, and controlled failure experiments remain incomplete, as described in the benchmark plan.
