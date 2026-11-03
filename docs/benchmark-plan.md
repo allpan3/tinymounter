@@ -117,6 +117,14 @@ each build with its contemporaneous native control. The read-only run substitute
 `--access-mode read-only`. Evict only through Finder and verify zero allocation plus the
 dataless flag before each full arm. Do not run builds or profiling during timing.
 
+When shell access to a File Provider location is unavailable, the same Swift helper can run
+inside a sandboxed test app with user-selected read access. `--choose-file` uses an Open panel
+for one coordinated full download; `--choose-range OFFSET LENGTH` reads that selected range
+with 1 MiB POSIX reads and `F_NOCACHE`. Selection precedes timing. Both modes report allocation
+and dataless state before/after, then checksum the requested bytes outside timing with hydration
+disabled. The result contains no paths. Select only the disposable fixture through the panel;
+this grants one file and does not grant the shell access to a provider domain or app container.
+
 Reuse the private `verified-read-20261101/run-series.py` driver, which calls the existing
 runner, for these separate 2 GiB `e1` seek series. Each has five alternating-order native/provider
 pairs, 1 MiB POSIX reads at fresh offsets 256 MiB apart, and unchanged 16 MiB provider extents:
