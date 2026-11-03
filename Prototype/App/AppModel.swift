@@ -696,6 +696,7 @@ final class AppModel {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             do { try await controller.exportEdit(record, id: edit.id, destination: url) }
+            catch CocoaError.fileWriteUnsupportedScheme { show(UIText.localRecoveryDestination) }
             catch { show(error, grantID: record.grantID) }
         }
     }
@@ -712,6 +713,7 @@ final class AppModel {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             do { try await controller.stopEdit(record, id: edit.id, destination: url) }
+            catch CocoaError.fileWriteUnsupportedScheme { show(UIText.localRecoveryDestination) }
             catch UploadError.unresolved { show(UIText.stopEditRefused) }
             catch { show(error, grantID: record.grantID) }
         }

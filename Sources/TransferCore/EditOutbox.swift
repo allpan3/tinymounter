@@ -545,16 +545,18 @@ public final class EditOutbox {
         try validateContents(record)
         let source = try ReadOnlyFile(url: contentURL(record))
         let attributes = try retainedMetadata(record, descriptor: source.descriptor)
-        let parent = open(destination.deletingLastPathComponent().path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
-        guard parent >= 0 else { throw posixError("open export folder") }
-        defer { close(parent) }
-        guard try FileSystemInfo(fd: parent).isLocal else {
+        var volume = statfs()
+        guard statfs(destination.deletingLastPathComponent().path, &volume) == 0 else {
+            throw posixError("inspect export volume")
+        }
+        guard volume.f_flags & UInt32(MNT_LOCAL) != 0 else {
             throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnsupportedSchemeError,
                 userInfo: [NSLocalizedDescriptionKey: "Choose a folder on this Mac for the recovery copy."])
         }
-        let fd = openat(parent, destination.lastPathComponent, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        let fd = open(destination.path, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
         guard fd >= 0 else { throw posixError("create exported edit") }
         defer { close(fd) }
+        guard try FileSystemInfo(fd: fd).isLocal else { throw UploadError.unresolved }
         guard fcopyfile(source.descriptor, fd, nil, copyfile_flags_t(COPYFILE_ALL)) == 0 else {
             throw posixError("copy exported edit")
         }
