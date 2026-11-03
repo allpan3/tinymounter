@@ -13,8 +13,9 @@ trial exposed unwanted conflict publication; the signed repair retains and expor
 The catalog-binding guard also passes signed moved, returned and deleted-original checks.
 Finder refuses eviction of an unsent TXT file while the app is quit; relaunch publishes the
 complete revision. An offline RTF save survives an app crash and preserves both conflicting
-versions. Recovery export retains the tested tags and resource fork, but omitted attributes
-delivered separately by macOS. The repair awaits signed verification. OS restart, low-space
+versions. Recovery export retains the tested tags and resource fork. A signed repair also retains
+text encoding and syncable callback attributes previously omitted from export. All 650 tests
+and required VM checks pass, with two optional skips and no Swift warnings. OS restart, low-space
 admission and broader metadata checks remain. See the
 [editor and replacement results](docs/results/2026-11-03-editor-replacement.md).
 

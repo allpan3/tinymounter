@@ -213,8 +213,8 @@ trial exposed unwanted conflict publication; the signed repair retains and expor
 A returned-original retry exposed a retired catalog binding; its additional guard passes signed
 moved, returned and deleted-original checks. An app-absent TXT save survives Finder's refused
 eviction and uploads after relaunch. An offline RTF save survives an app crash and a competing
-edit. Recovery export preserves the tested tags and resource fork; separately delivered callback
-attributes need the new retention repair's signed verification. The remaining offline checks continue.
+edit. Recovery export preserves the tested tags and resource fork; the signed retention repair also
+preserves text encoding and syncable callback attributes. The remaining offline checks continue.
 The November 3 APFS image check now covers real local outbox exhaustion: the older save and
 metadata remain exportable, reopening selects it, and retry preserves both complete generations.
 Signed low-space admission and Finder behavior remain unverified.
