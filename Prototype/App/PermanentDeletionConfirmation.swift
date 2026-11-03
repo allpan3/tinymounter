@@ -2,11 +2,12 @@ import AppKit
 
 // A nested modal loop would block main-actor cancellation and recovery while Finder waits.
 @MainActor
-final class PermanentDeletionConfirmation: NSWindowController, NSWindowDelegate {
+final class PermanentDeletionConfirmation: NSObject {
     private let alert: NSAlert
     private let progress: Progress
     private var completion: ((Bool) -> Void)?
     private var cancellation: NSKeyValueObservation?
+    private var isPresented = false
 
     init(_ selection: PermanentDeletionSelection, progress: Progress, completion: @escaping (Bool) -> Void) {
         let alert = NSAlert()
@@ -17,16 +18,11 @@ final class PermanentDeletionConfirmation: NSWindowController, NSWindowDelegate 
             : "This removes the file from the server for everyone. It does not move it to the Trash and cannot be undone."
         alert.addButton(withTitle: UIText.cancel)
         alert.addButton(withTitle: "Delete Permanently").hasDestructiveAction = true
-        alert.layout()
         self.alert = alert
         self.progress = progress
         self.completion = completion
-        super.init(window: alert.window)
-        alert.window.delegate = self
+        super.init()
         for (index, button) in alert.buttons.enumerated() {
-            button.tag = index
-            button.target = self
-            button.action = #selector(respond(_:))
             button.keyEquivalent = index == 0 ? "\r" : ""
         }
         cancellation = progress.observe(\.isCancelled, options: [.initial, .new]) { [weak self] progress, _ in
@@ -34,36 +30,34 @@ final class PermanentDeletionConfirmation: NSWindowController, NSWindowDelegate 
         }
     }
 
-    required init?(coder: NSCoder) { nil }
-
-    func show() {
+    func show(in parent: NSWindow?) {
+        guard completion != nil, !isPresented, let parent else { return }
         guard !progress.isCancelled else { finish(false); return }
+        guard parent.attachedSheet == nil else { finish(false); return }
+        isPresented = true
         NSApp.activate()
-        window?.center()
-        window?.level = .modalPanel
-        showWindow(nil)
-        window?.makeKeyAndOrderFront(nil)
-        window?.orderFrontRegardless()
+        parent.deminiaturize(nil)
+        parent.makeKeyAndOrderFront(nil)
+        alert.beginSheetModal(for: parent) { [weak self] response in
+            self?.finish(response == .alertSecondButtonReturn)
+        }
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.addsToRecentItems = false
         NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration) { [weak self] _, _ in
             Task { @MainActor in
                 guard self?.completion != nil else { return }
-                self?.window?.makeKeyAndOrderFront(nil)
+                self?.alert.window.makeKeyAndOrderFront(nil)
             }
         }
     }
-
-    @objc private func respond(_ sender: NSButton) { finish(sender.tag == 1) }
-    override func cancelOperation(_ sender: Any?) { finish(false) }
-    func windowShouldClose(_ sender: NSWindow) -> Bool { finish(false); return false }
 
     private func finish(_ confirmed: Bool) {
         guard let completion else { return }
         self.completion = nil
         cancellation?.invalidate()
         cancellation = nil
-        window?.orderOut(nil)
+        if let parent = alert.window.sheetParent { parent.endSheet(alert.window, returnCode: .abort) }
+        alert.window.orderOut(nil)
         completion(confirmed && !progress.isCancelled)
     }
 }
