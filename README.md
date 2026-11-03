@@ -6,9 +6,9 @@ Deletion, 2026-11-03: signed VM checks pass for refusal restoration, Finder's pe
 and Cancel, verified and unopened files, and nested folders. Protected parent checkpoints fix
 Samba creation-time changes and survive a process restart. A lost checkpoint retains uncertainty;
 a replacement survives replay. All 635 VM tests and required checks pass. Settings, concurrency
-and remaining recovery checks are in progress. Stop Deleting preserves the server file but
-exposed a missing Finder retry signal. The repair now signals only after durable settlement;
-its signed verification is in progress.
+and remaining recovery checks are in progress. Stop Deleting exposed a replay safety defect:
+Finder retried with refreshed metadata and the candidate treated it as a new deletion.
+A domain-version protocol probe is in progress; deletion remains unsafe to enable.
 Deletion remains disabled in normal builds. See the
 [deletion results](docs/results/2026-10-29-deletion-protocol.md#finder-deletion-and-parent-checkpoints-2026-11-03).
 
