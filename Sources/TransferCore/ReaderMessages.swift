@@ -208,6 +208,43 @@ public struct CreateReceipt: Codable, Sendable {
     public init(item: String) { self.item = item }
 }
 
+public struct DeleteItemRequest: Codable, Equatable, Sendable {
+    public let id: UUID
+    public let item: String
+    public let contentVersion: String
+    public let metadataVersion: String
+    public let recursive: Bool
+
+    public init(id: UUID = UUID(), item: String, contentVersion: String, metadataVersion: String,
+                recursive: Bool) throws {
+        guard ReaderMessage.isItemID(item), item != Catalog.rootItemID,
+              !contentVersion.isEmpty, contentVersion.utf8.count <= 128,
+              metadataVersion.utf8.count <= 20, Int64(metadataVersion).map({ $0 >= 0 }) == true else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        self.id = id
+        self.item = item
+        self.contentVersion = contentVersion
+        self.metadataVersion = metadataVersion
+        self.recursive = recursive
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(id: values.decode(UUID.self, forKey: .id), item: values.decode(String.self, forKey: .item),
+                      contentVersion: values.decode(String.self, forKey: .contentVersion),
+                      metadataVersion: values.decode(String.self, forKey: .metadataVersion),
+                      recursive: values.decode(Bool.self, forKey: .recursive))
+    }
+}
+
+public struct DeleteItemReceipt: Codable, Equatable, Sendable {
+    public let id: UUID
+    public let item: String
+
+    public init(id: UUID, item: String) { self.id = id; self.item = item }
+}
+
 public struct FolderNameRequest: Codable, Sendable {
     public let id: UUID
     public let item: String

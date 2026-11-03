@@ -247,6 +247,30 @@ final class SourceReaderService: NSObject, NSFileProviderServiceSource, NSXPCLis
         return try organize(request, folder: true, progress: progress)
     }
 
+    func deleteItem(_ request: DeleteItemRequest, progress: Progress) throws {
+        guard SourceReaderBridge.deletionEnabled else { throw NSFileProviderError(.deletionRejected) }
+        let response = Response(progress: progress)
+        let id = request.id.uuidString
+        let proxy = try proxy(startupProgress: progress) { response.finish(.failure($0)) }
+        lock.withLock { waiting[id] = response }
+        defer {
+            lock.withLock { waiting[id] = nil }
+            proxy.release(id)
+        }
+        proxy.deleteItem(try ReaderMessage.encode(request)) { data, error in
+            response.finish(Result { try Self.payload(data, error) })
+        }
+        while response.ready.wait(timeout: .now() + 0.1) == .timedOut {
+            guard !progress.isCancelled else { throw TransferError.cancelled }
+            guard !response.hasStalled else { throw NSFileProviderError(.serverUnreachable) }
+        }
+        guard !progress.isCancelled else { throw TransferError.cancelled }
+        let receipt = try ReaderMessage.decode(DeleteItemReceipt.self, from: response.value())
+        guard receipt.id == request.id, receipt.item == request.item else {
+            throw NSFileProviderError(.cannotSynchronize)
+        }
+    }
+
     private func organize(_ request: FileRenameRequest, folder: Bool, progress: Progress) throws -> CreateReceipt {
         let response = Response(progress: progress)
         let id = request.id.uuidString
