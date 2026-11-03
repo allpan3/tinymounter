@@ -902,3 +902,29 @@ reports and callback events. Linux `*-finished-audit.json` files compare against
 `lifecycle-seed.json`; the final audit preserves 19 remaining objects. All holds are released
 and their controls archived. Explicit cancellation, joined waiters and delayed-Settings source
 closure remain to be checked against the current integrated app.
+
+### Explicit provider cancellation, 2026-11-03
+
+The signed build 6 checks pass for cancellation before marking and after marking the first
+protected child. A fixture/item/event-bound test command cancelled the Progress returned by a
+real Finder callback; this is a constructed cancellation trigger, not a Finder cancellation UI
+test. Each original callback completed once with `NSUserCancelledError`. While protection was
+held, the app observed cancelled progress and a queued Stop, but had not yet persisted Stop.
+
+After release, both three-node plans settled in both views. The first node remained unconfirmed
+and the later file and parent were stopped. The before-mark audit preserved every object. The
+after-mark audit found only the active file removed and preserved the other 18 objects. Neither
+run claimed the uncertain result was confirmed. Finder replay returned a stopped refusal with
+the surviving folder, restored that folder, and ceased repeating cancellation errors.
+
+The real Settings Dismiss Notice confirmation explicitly preserves uncertainty. Dismissal changed
+only the durable `dismissed` flag in each record; plans and node outcomes remained unchanged.
+An initial comparison incorrectly included derived `pending` and `canDismiss` flags and failed;
+the corrected check compares persistent state and records those expected visibility changes.
+Post-restart replay of these two records and Settings Stop during active Retry remain separate.
+
+Evidence is `provider-cancellation-report.json`, `check-provider-cancel-*.json`,
+`check-deletion-session-state-cancel-*.json`, `check-cancel-*.json`, the consumed cancellation
+commands and callback events. Linux evidence is `cancel-before-*-audit.json` and
+`cancel-after-finished-audit.json`. All holds and cancellation commands are consumed or archived.
+Build 6 has no Swift warnings; `checks-deletion-cancellation.log` passes the required VM checks.
