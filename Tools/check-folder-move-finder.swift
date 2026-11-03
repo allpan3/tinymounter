@@ -273,6 +273,14 @@ extension M22FinderProbe {
         let rows: [Row]
         let local: [Local]
         let moves: [PendingFolderMove]
+        let editBases: [Base]
+    }
+
+    struct Base: Codable, Sendable {
+        let item: String
+        let content: String
+        let identity: EditFileIdentity
+        let attributes: UInt32
     }
 
     static func rows(_ source: LocationSource) throws -> [Row] {
@@ -444,10 +452,19 @@ extension LocationController {
                 return move
             }
         }
+        let bases = try await Self.offMain {
+            let outbox = try LocationSource.editOutbox(domainID: config.domain)
+            return try rows.compactMap { row -> M22FinderProbe.Base? in
+                guard row.kind == "file", row.content.hasPrefix("e1:"),
+                      let base = try outbox.base(item: row.id, contentVersion: row.content) else { return nil }
+                return M22FinderProbe.Base(item: row.id, content: row.content, identity: base.version.identity,
+                    attributes: base.version.attributes)
+            }
+        }
         let snapshot = M22FinderProbe.Snapshot(config: config, label: label,
             date: ISO8601DateFormatter().string(from: .now), started: started,
             ended: DispatchTime.now().uptimeNanoseconds, settingsPreserved: preserved,
-            pendingKeeps: record.pendingKeeps, rows: rows, local: local, moves: moves)
+            pendingKeeps: record.pendingKeeps, rows: rows, local: local, moves: moves, editBases: bases)
         try M22FinderProbe.save(snapshot, to: M22FinderProbe.directory(config.run).appending(path: label + ".json"))
         try M22FinderProbe.require(preserved, "original-settings-changed")
     }

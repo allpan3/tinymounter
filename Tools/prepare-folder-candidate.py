@@ -11,6 +11,9 @@ organization in the candidate; omit it for the matching disabled baseline.
 --crash-checks adds run/item-bound stop points controlled by fault.json in the
 granted evidence directory. A hit exports its durable intent, then SIGSTOPs the
 app. Kill that exact process to test recovery; each control ID fires only once.
+--overlap-checks accepts an overlap-setup request to add one registered view of
+the same fixture. Later requests export both views, with -peer on the second
+snapshot. Catalog and finished-domain stops include both catalogs' current rows.
 """
 import argparse
 from pathlib import Path
@@ -38,6 +41,7 @@ def main():
     parser.add_argument("output", type=Path)
     parser.add_argument("--enable", action="store_true")
     parser.add_argument("--crash-checks", action="store_true")
+    parser.add_argument("--overlap-checks", action="store_true")
     args = parser.parse_args()
     source = Path(__file__).resolve().parent.parent
     if Path.home() != Path("/Users/user") or not Path("/Volumes/tinymounter-single").is_mount():
@@ -114,12 +118,35 @@ def main():
                          '            M22FinderCrash.setExport(export)\n'
                          '            defer { M22FinderCrash.setExport(nil) }\n'
                          '            while !Task.isCancelled {')
+    overlap = ""
+    if args.overlap_checks:
+        overlap = (root / "Tools/check-folder-move-overlap.swift").read_text()
+        helper = replace(helper, '"recovery-signal-restored"]',
+                         '"recovery-signal-restored", "overlap-setup", "overlap-baseline", '
+                         '"overlap-catalog", "overlap-finished", "overlap-retired", '
+                         '"overlap-rediscovered", "overlap-relisted"]')
+        helper = replace(helper, 'return config.domain == domain ? config : nil',
+                         'return try configs(config).first { $0.domain == domain }')
+        helper = replace(helper,
+            '        for record in settings.locations where grants.contains(record.grantID) && record.id != allowed {',
+            '        let taskIDs = try M22FinderProbe.taskLocations(folder: folder)\n'
+            '        for record in settings.locations where grants.contains(record.grantID)\n'
+            '            && record.id != allowed && !taskIDs.contains(record.id) {')
+        helper = replace(helper, '        withoutTask.locations.removeAll { $0.id == config.location }',
+            '        let taskIDs = try M22FinderProbe.taskLocations(folder: config.folder)\n'
+            '        withoutTask.locations.removeAll { taskIDs.contains($0.id) }')
+        helper = replace(helper, '                        try await m22FinderSnapshot(config, label: request.label)',
+            '                        if request.label == "overlap-setup" { try await m22FinderAddPeer(config) }\n'
+            '                        for (index, view) in try M22FinderProbe.configs(config).enumerated() {\n'
+            '                            try await m22FinderSnapshot(view,\n'
+            '                                label: request.label + (index == 0 ? "" : "-peer"))\n'
+            '                        }')
     app = root / "Prototype/App/LocationController.swift"
     content = replace(app.read_text(), '        isReady = true\n',
                       '        isReady = true\n        Task {\n'
                       '            try? await Task.sleep(for: .seconds(3))\n'
                       '            await self.runM22FinderFixture()\n        }\n')
-    app.write_text(content + "\n" + helper)
+    app.write_text(content + "\n" + helper + "\n" + overlap)
     if args.crash_checks:
         app.write_text(app.read_text() + "\n" + (root / "Tools/check-folder-move-crash.swift").read_text())
         moves = root / "Prototype/App/LocationFolderMoves.swift"
@@ -137,12 +164,14 @@ def main():
         content = replace(content,
             '                    try FolderMoveTransaction.finishDomain(view.domain, record: &current, outbox: outbox)',
             '                    try FolderMoveTransaction.finishDomain(view.domain, record: &current, outbox: outbox)\n'
-            '                    try M22FinderCrash.checkpoint(current, stage: "finished-domain")')
+            '                    try M22FinderCrash.checkpoint(current, stage: "finished-domain",\n'
+            '                        sources: participants.map { $0.1 })')
         content = replace(content,
             '                try source.withCatalog { try $0.settleFolderMove(view.move, settlement: settlement.settlement) }\n'
             '            }\n        }',
             '                try source.withCatalog { try $0.settleFolderMove(view.move, settlement: settlement.settlement) }\n'
-            '            }\n            try M22FinderCrash.checkpoint(record, stage: "catalog")\n        }')
+            '            }\n            try M22FinderCrash.checkpoint(record, stage: "catalog",\n'
+            '                sources: participants.map { $0.1 })\n        }')
         content = replace(content, '        try record.requireMoved()\n        return CreateReceipt(item: request.item)',
             '        try record.requireMoved()\n'
             '        try M22FinderCrash.checkpoint(record, stage: "before-reply")\n'
@@ -168,7 +197,8 @@ def main():
             options: UInt(options.rawValue), reply: completionHandler)
 '''
         content = content[:position] + hook + content[position:]
-    provider.write_text(content + "\n" + helper.split("#if !M22_FINDER_PROVIDER")[0])
+    provider.write_text(content + "\n" + helper.split("#if !M22_FINDER_PROVIDER")[0]
+                        + "\n" + overlap.split("#if !M22_FINDER_PROVIDER")[0])
     if args.enable:
         gates = root / "Prototype/Shared/SourceReaderProtocol.swift"
         gates.write_text(replace(gates.read_text(), "static let folderOrganizationEnabled = false",
