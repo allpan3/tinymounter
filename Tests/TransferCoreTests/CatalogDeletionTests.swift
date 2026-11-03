@@ -66,6 +66,49 @@ final class CatalogDeletionTests: XCTestCase {
                                      metadataVersion: after.metadataVersion)))
     }
 
+    func testUnconfirmedSurvivorRefreshesMetadataOnlyAfterFreshListingAndKeepsOldReplay() throws {
+        let tree = try XCTUnwrap(ids["Tree"])
+        try owner.setKeep(ids: [tree], value: true)
+        let before = try XCTUnwrap(owner.item(id: tree))
+        let neighborBefore = try owner.item(id: XCTUnwrap(ids["neighbor"]))
+        var record = try prepare()
+        server.markFailures["Docs/Tree"] = SourceFailure.serverUnreachable
+        XCTAssertThrowsError(try fixture.run(&record))
+        try fixture.outbox.stop(&record)
+        XCTAssertEqual(record.selectedOutcome, .unconfirmed)
+        XCTAssertNotNil(server.objects["Docs/Tree"])
+        let first = try settle(record)
+        XCTAssertFalse(first.isSettled)
+        XCTAssertEqual(try owner.item(id: tree)?.metadataVersion, before.metadataVersion)
+        let anchor = try owner.currentAnchor()
+        let final = try complete(record, first)
+        let after = try XCTUnwrap(owner.item(id: tree))
+        XCTAssertNotEqual(after.metadataVersion, before.metadataVersion)
+        XCTAssertEqual(after.id, before.id)
+        XCTAssertEqual(after.contentVersion, before.contentVersion)
+        XCTAssertEqual(after.keep, before.keep)
+        XCTAssertEqual(after.keepRequested, before.keepRequested)
+        XCTAssertFalse(after.deleted)
+        XCTAssertTrue(final.refresh.contains(root))
+        XCTAssertTrue(try owner.changes(after: anchor, limit: 100).updated.contains { $0.id == tree })
+        XCTAssertTrue(try settle(record, previous: final).isSettled)
+        XCTAssertEqual(try owner.item(id: tree)?.metadataVersion, after.metadataVersion)
+        XCTAssertEqual(try owner.item(id: XCTUnwrap(ids["neighbor"])), neighborBefore)
+        let shared = try settle(record, catalog: neighbor)
+        XCTAssertTrue(try complete(record, shared, catalog: neighbor).isSettled)
+        for domain in [fixture.owner, fixture.neighbor] { try fixture.outbox.finishDomain(domain, record: &record) }
+        fixture.outbox = try fixture.makeOutbox()
+        let replay = try XCTUnwrap(fixture.outbox.replay(endpoint: fixture.endpoint,
+            owner: fixture.owner, request: record.plan.request))
+        XCTAssertThrowsError(try replay.requireConfirmedDeletion()) {
+            XCTAssertEqual($0 as? ItemDeletionError, .unresolved)
+        }
+        XCTAssertEqual(replay, record)
+        XCTAssertNil(try fixture.outbox.replay(endpoint: fixture.endpoint, owner: fixture.owner,
+            request: DeletionRequest(item: tree, contentVersion: after.contentVersion,
+                                     metadataVersion: after.metadataVersion)))
+    }
+
     func testConfirmedDeletionTombstonesEachAdmittedRowOnceInEachView() throws {
         var record = try prepare()
         try fixture.run(&record)

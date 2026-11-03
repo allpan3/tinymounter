@@ -16,6 +16,9 @@ and update the README after the run. Leave the original NAS and physical-Mac ins
   and recursive option through bounded JSON. A tombstone still requires durable app replay.
 - Changed, replaced, moved, unsupported and refused selected items return `deletionRejected`.
   Remaining children return `directoryNotEmpty`. Unknown results return `cannotSynchronize`.
+  A recorded request must finish every view's settlement before returning a terminal refusal.
+  Until then, failures such as a changed location root or lost write permission return
+  `cannotSynchronize`; Settings and logs retain the original failure.
   Connection, authentication, active cancellation and space errors retain their specific error
   codes. A completed stopped request replays `deletionRejected`, never `userCancelled`.
 - Admission blocked only by another deletion, or by the reader's full job queue, returns
@@ -31,9 +34,9 @@ and update the README after the run. Leave the original NAS and physical-Mac ins
   uncertainty. Settled refusals and stopped requests also have dismissible notices. No new
   persisted fields, Settings/catalog formats or migrations were added.
 - Settlement advances the surviving selected item's metadata version after a definite refusal
-  or Stop. This lets a new Finder action use a new base while old callbacks replay the old
-  outcome. Content versions, IDs and keeps do not change through that metadata refresh.
-  An unconfirmed selected outcome does not get this refresh.
+  or Stop, and after fresh reconciliation of an unconfirmed outcome. This lets a new Finder
+  action use a new base while old callbacks replay the old outcome. Content versions, IDs and
+  keeps do not change through that metadata refresh. Uncertainty remains in the old record.
 - The cancellation token and counted-Stop decisions now live in TransferCore. App KVO,
   progress cancellation, lane scheduling and Settings callbacks retain their existing roles.
 - Only `cancelDeletion` from a cancelled provider Progress, or Settings Stop Deleting, requests
@@ -100,7 +103,7 @@ and update the README after the run. Leave the original NAS and physical-Mac ins
    before. Verify read-only and stale-base refusals still return `deletionRejected`, and a
    lost reader returns `serverUnreachable`. Record retry timing and callback counts.
 
-The installed SDK's `NSFileProviderReplicatedExtension.h`, documentation for
+The macOS 27.2 SDK's `NSFileProviderReplicatedExtension.h`, documentation for
 `deleteItemWithIdentifier:baseVersion:options:request:completionHandler:`, says errors other
 than its listed terminal/domain errors "will be considered to be transient and will cause the
 deletion to be retried." It specifies `NSCocoaErrorDomain/NSXPCConnectionReplyInvalid` for errors
@@ -113,6 +116,9 @@ for completing the active cancelled Progress. Thus a durable stopped replay is a
 the original cancelled provider call still completes with `userCancelled`. The header also says
 macOS can cancel Progress when a call takes too long. The API does not identify whether that
 explicit cancellation came from the user or the system.
+
+The header is under `System/Library/Frameworks/FileProvider.framework/Headers` in that SDK;
+the deletion error and cancellation contract is at lines 805–846.
 
 ## Changed items, arriving children and a new user request
 
@@ -133,6 +139,21 @@ explicit cancellation came from the user or the system.
    reconstructs the selected live item with its updated metadata version. Close the competing handle and explicitly select Delete again. Expect a fresh admission and
    success. Replay the earlier base again and expect its original refusal. This checks that
    Finder distinguishes a new user action from an old callback.
+5. Inject a transport failure at the selected item's mark after the attempting checkpoint while
+   leaving that object present, then Stop and settle. Suspend the fresh listing first. Its
+   metadata version must not advance yet. Let reconciliation finish and verify the surviving
+   selected row advances once, signals the working set, and reappears in Finder. Its ID,
+   content version and keeps must survive. Repeating settlement must not advance it again.
+   Replay the old base before and after restart and expect `cannotSynchronize` with the same
+   unconfirmed record. An explicit new Finder deletion must use the new metadata version.
+6. Interrupt recursive deletion after a confirmed child, then change the location-root inode
+   before Retry so `withDeletionAdmissionRoot` fails with `versionChanged`. Expect
+   `cannotSynchronize`, an incomplete record and accurate partial outcomes, never an early
+   `deletionRejected`. Restore the original root and finish recovery. Repeat with lost write
+   access and an injected `invalidRequest` while a record exists, including a record whose
+   remote work ended but catalog/Settings settlement is pending. Terminal refusal is allowed
+   only after all views finish. Without an admitted record, those refusals keep their existing
+   `deletionRejected` mapping.
 
 ## Lost reply, Retry and Dismiss
 

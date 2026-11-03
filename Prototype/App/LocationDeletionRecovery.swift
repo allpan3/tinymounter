@@ -437,6 +437,7 @@ extension LocationSource {
         deletionStateChanged()
         let replies = recovery.replies
         recovery.replies.removeAll()
-        for reply in replies { reply(result) }
+        let replyResult = result.mapError(recovery.record.completionError)
+        for reply in replies { reply(replyResult) }
     }
 }

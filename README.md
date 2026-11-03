@@ -90,6 +90,12 @@ The fixture is unmounted, its server is stopped and Apple SMB is restored. Uncer
 fixtures and private evidence remain for investigation; see the
 [final validation and restoration record](docs/results/2026-10-29-deletion-protocol.md#final-validation-and-service-restoration-2026-10-30).
 
+Deletion review fixes, 2026-11-02: busy admission now requests automatic retry, and reader
+release no longer requests Stop. Stopped replay and incomplete-record errors are distinct;
+unconfirmed surviving items receive a metadata refresh after reconciliation. The host package
+build and 589 tests pass with one fixture skip. App compilation and signed VM checks remain
+outstanding; deletion stays disabled. See the [review results](docs/results/2026-10-29-deletion-protocol.md#review-fixes-host-validation-2026-11-02).
+
 Status, 2026-10-11: verified NAS-cold full downloads reached **183.3 MB/s versus 192.7 MB/s native SMB (95.1%)**; with the file in NAS RAM, **229.0 versus 247.2 MB/s (92.6%)**. Each condition has five matched pairs, server cache/disk-read evidence, and representative complete-file checksum verification. Fully downloaded local reads also pass, though an unexplained speed gap to a local APFS control remains. See [verified cache results](docs/results/2026-10-11-cache-states.md), [full-download attribution](docs/results/2026-10-11-full-download.md), and [range-delay diagnosis](docs/results/2026-10-11-provider-delay.md).
 
 Players and read-ahead, 2026-10-11: in the measured VM configurations, Finder double-click, Open With and Cmd-O downloaded an uncached video fully before the player started, because Finder made a coordinated whole-file read. VLC's and IINA's own File > Open stream; QuickTime Player always downloads the whole file. Bounded read-ahead now favours seeks, as the user asked: seeks during streaming took **0.23–0.27 s** in all 9 trials, and long sequential partial reads run at **77–93 MB/s (about 30–37% of native)**, fetching about 1.03× the bytes read. A throughput-first setting reached 148.8 versus 249.4 MB/s (59.7%) but let seeks wait up to 1.4 s. Without read-ahead it was 9.6%. See [player and read-ahead results](docs/results/2026-10-11-player-readahead.md). These are VM results: first-frame and seek-resume times and physical-Mac speed remain unverified.
