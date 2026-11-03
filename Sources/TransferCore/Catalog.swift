@@ -92,6 +92,9 @@ public struct ChangeBatch: Sendable {
     public let deletedIDs: [String]
     public let anchor: Data
     public let moreComing: Bool
+    /// The batch covers change sequences above `afterSeq` through `throughSeq`.
+    public let afterSeq: Int64
+    public let throughSeq: Int64
 }
 
 /// The downloaded files of a location, by their catalog sizes.
@@ -323,7 +326,8 @@ public final class Catalog {
             let moreComing = events.count == limit
             let end = moreComing ? events[events.count - 1].seq : lastSeq
             return ChangeBatch(updated: rows.filter { !$0.deleted }, deletedIDs: rows.filter(\.deleted).map(\.id),
-                               anchor: CatalogCursor.anchor(epoch: epoch, changeSeq: end), moreComing: moreComing)
+                               anchor: CatalogCursor.anchor(epoch: epoch, changeSeq: end), moreComing: moreComing,
+                               afterSeq: since, throughSeq: end)
         }
     }
 
