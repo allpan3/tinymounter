@@ -93,6 +93,16 @@ final class PathTests: XCTestCase {
         XCTAssertFalse(SMBName.same("ohm-\u{2126}", "ohm-\u{3a9}"))
     }
 
+    func testStoredSMBNamesMatchOnlyTheRequestedWireSpelling() {
+        XCTAssertTrue(SMBName.matchesStored("Café", requested: "Cafe\u{301}"))
+        XCTAssertTrue(SMBName.matchesStored("Café", requested: "Café"))
+        XCTAssertFalse(SMBName.matchesStored("Cafe\u{301}", requested: "Café"))
+        XCTAssertFalse(SMBName.matchesStored("Cafe\u{301}", requested: "Cafe\u{301}"))
+        XCTAssertFalse(SMBName.matchesStored("CAFÉ", requested: "Café"))
+        XCTAssertTrue(SMBName.matchesStored("ohm-\u{2126}", requested: "ohm-\u{2126}"))
+        XCTAssertFalse(SMBName.matchesStored("ohm-\u{3a9}", requested: "ohm-\u{2126}"))
+    }
+
     func testDirectoryRelativeOpenReadsNestedFileAndRejectsOtherKinds() throws {
         try withTree { root, rootFD, bytes in
             let identity = try MountIdentity(descriptor: rootFD)

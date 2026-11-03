@@ -512,11 +512,15 @@ SIGN and the CJK compatibility ideographs into other characters. The app compare
 with catalog names in composed form, so saves, renames, moves and deletions find accented items
 on servers that compare names byte for byte. A rename or move that changes only the
 normalization sends no request. On the tested byte-exact Samba share, a name stored as NFD
-cannot be opened through the macOS mount or this adapter. Other SMB clients were not tested.
+cannot be opened through the macOS mount or this adapter. An independent libsmb2 client can
+rename an NFC name to NFD without normalization, as the November 3 folder-recovery probe verifies.
 Its downloads fail as a missing file. Its saves stay unresolved without a conflict
 copy, and its renames, moves and deletions refuse. If the catalog doesn't list such a name, a
 new file or folder can still be created next to it, as through Finder's own mount. Unit tests
-cover these comparisons. Signed Samba/ext4 checks verify selected accented uploads and saves,
+cover these comparisons. Folder moves compare literal server names with the composed path
+the client sends. A complete protected listing can therefore retire a binding whose server
+spelling changed to NFD, while still accepting NFD catalog names for NFC server names.
+Signed Samba/ext4 checks verify selected accented uploads and saves,
 and 20 repeated saves with stage file-ID reuse. November 3 probes reproduce stale native names
 after direct rename and quarantine writes recreating a deleted stage after file-ID reuse.
 The separate single-client branch now uses direct SMB for remote listings, metadata, reads and

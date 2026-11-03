@@ -387,7 +387,7 @@ extension LocationSource {
                 == record.destinationParents else { throw UploadError.unresolved }
         if record.rootRetired { return }
         guard let root = try remote.inspectFolderMoveRoot(path: record.destination), root.identity == record.identity,
-              SMBName.same(root.name, record.name) else { throw UploadError.unresolved }
+              SMBName.matchesStored(root.name, requested: record.name) else { throw UploadError.unresolved }
     }
 
     private func signalFolderMove(_ record: PendingFolderMove, participants: [(FolderMoveView, LocationSource)]) {
