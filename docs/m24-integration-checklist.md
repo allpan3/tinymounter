@@ -30,6 +30,9 @@ and update the README after the run. Leave the original NAS and physical-Mac ins
   domain, including when a read or upload holds the last job slot.
 - Retry uses the immutable admitted plan. Automatic launch/reconnect recovery only settles
   records whose remote work has ended. No retry adds a newly discovered child.
+- Completed settlement signals the owner's stopped File Provider requests so Finder can replay
+  a refusal and restore survivors. Launch/reconnect also signals already-complete records;
+  completed-request replay itself sends no new signal.
 - Settings lists records in every admitted view, using paths relative to that location.
   Last-attempt reasons are in memory, as for PendingCreate. Node outcomes survive restart.
   Stop Deleting stays available while a Settings Retry runs.
@@ -68,6 +71,7 @@ synthetic error instead of stopping, so the real callback can fail while retaini
 The `settings` stage requires `action: "hold"` and suspends only the asynchronous Settings
 callback. Create `deletion-release-CONTROL_UUID` in the evidence directory to release it;
 after 180 seconds it fails without settling. This leaves the main actor and request lanes free.
+The `settled` checkpoint stops after durable completion, before signaling File Provider retry.
 
 1. Integrate the commits and run `Tools/run-checks.sh` in the VM. App-target changes have not
    been compiled on the host. No generator changes are needed because all production changes
@@ -183,8 +187,9 @@ the deletion error and cancellation contract is at lines 805–846.
 1. Inject a lost successful close reply before the `closeAcknowledged` checkpoint, using the
    existing signed deletion helper. Independently confirm that the object disappeared. Expect
    the record to remain unsettled, without a success claim based on the absent name.
-2. Restart the app. Expect automatic recovery to leave that remote attempt unsettled. In
-   Settings, click its Retry. Expect the recorded object to become unconfirmed when the fresh
+2. Restart the app. Automatic settlement alone must leave that remote attempt unsettled;
+   Finder may independently replay its callback and resume the original request. If it remains
+   unsettled, click its Settings Retry. Expect the recorded object to become unconfirmed when the fresh
    evidence cannot prove deletion. Reconciliation may remove a now-absent catalog entry, but
    the notice must still say that deletion is unconfirmed.
 3. Repeat with a replacement created at the path before Retry. Expect the replacement to

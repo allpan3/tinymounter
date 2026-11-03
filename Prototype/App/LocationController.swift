@@ -395,7 +395,6 @@ final class LocationController {
         guard deletion.isSettled || SourceReaderBridge.deletionEnabled else { throw UploadError.readOnly }
         // A settled refusal must be selected again in Finder, never admitted again by Retry.
         guard !deletion.isComplete else { return }
-        defer { Task { await resumeCreates(deletion.plan.owner) } }
         _ = try await withCheckedThrowingContinuation { continuation in
             source.retryDeletion(id) { continuation.resume(with: $0) }
         }
@@ -1075,6 +1074,8 @@ final class LocationController {
         }, deletionSettings: { [weak self] deletion, paths in
             guard let self else { throw LocationError.catalogClosed }
             try await self.commitDeletionSettings(deletion, paths: paths, owner: domainID, grant: grant.id)
+        }, deletionRecovered: { [weak self] in
+            Task { await self?.resumeCreates(domainID) }
         }) { folders in
             for item in Set(folders.map { NSFileProviderItemIdentifier($0) } + [.workingSet]) {
                 NSFileProviderManager(for: domain)?.signalEnumerator(for: item) { error in

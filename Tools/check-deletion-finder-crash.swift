@@ -23,7 +23,7 @@ enum M24FinderCrash {
 
     static let checkpoints: Set<String> = ["attempting-before", "attempting-after",
         "closeAcknowledged-before", "closeAcknowledged-after", "deleted-before", "deleted-after",
-        "admitted", "settings"]
+        "admitted", "settings", "settled"]
 
     enum Injection: Error { case failed, timeout }
 

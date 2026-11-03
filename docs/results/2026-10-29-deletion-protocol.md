@@ -689,3 +689,37 @@ their `dismissed` flags; all eight plans and all outcomes remained. Both views a
 peer Settings view hid those two notices while retaining the earlier partial tree notice.
 `repair/deletion-dismissal-report.json` and `check-deletion-dismiss-*.json` retain the comparison.
 Restart/replay after dismissal remains to be checked.
+
+### Concurrent requests and Settings recovery, 2026-11-03
+
+Signed build 31 passes delayed Settings completion and explicit Retry on the same VM/Samba
+fixture, with existing caches. Holding the first of three independent deletions after its
+remote work admitted only that record. Finder received eight transient busy replies for the
+other two items, which remained intact on the server. Releasing Settings let all three finish
+without user Retry. Both catalogs settled, and an independent audit preserved 40 remaining
+objects' identities, permissions, attached data and file contents.
+
+A process stop after successful remote close but before its acknowledgement checkpoint left
+one attempting node. After restart, Finder replay completed settlement with an unconfirmed
+outcome. Settings showed zero confirmed deletions and an explicit uncertainty notice. This
+was Finder replay, not automatic resumption by the app's launch settlement. A separate failure
+after admission left a prepared request; its Settings Retry deleted only the admitted file
+and completed both views. Independent inventories preserved the other 38 objects.
+
+Stop Deleting exposed a defect. It durably stopped an untouched request, completed both views
+and advanced the survivor's metadata version, but Finder kept the file locally hidden. The
+previous `cannotSynchronize` callback needed `signalErrorResolved`; enumeration updates alone
+did not restart it. The server file and all neighbors remained unchanged. An initial backing
+audit lacked traversal permission and failed; the administrator inventory then passed.
+
+The repair signals File Provider after durable settlement, and once during launch/reconnect
+when completed records exist. Completed replay sends no signal, avoiding a retry loop for
+unconfirmed outcomes. Settings Retry no longer signals before incomplete recovery has finished.
+The VM-only helper adds a stop between durable completion and its notification. Signed repair
+checks and required VM checks are pending. Normal deletion capabilities remain disabled.
+
+Evidence is in the same private `repair/` directory: `deletion-concurrency-held-report.json`,
+`check-deletion-gate-held.json`, `check-deletion-busy-complete.json`,
+`check-deletion-lost-reply*.json`, `check-deletion-settings-retried*.json` and
+`check-deletion-settings-stopped*.json`. Linux inventories include `deletion-gates-complete-audit.json`,
+`deletion-retry-after-audit.json` and `deletion-stop-after-audit.json`.
