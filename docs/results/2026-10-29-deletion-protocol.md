@@ -1037,7 +1037,10 @@ Evidence includes `check-survivor-restored-verified-report.json`, `survivor-read
 `check-unconfirmed-new-delete.json`, `survivor-event-comparison.txt` and the Linux
 `unconfirmed-{restored,new-delete}-audit.json` reports. The before, notification-only and after
 recordings compare Finder contents and Settings notices; they do not record an entire continuous
-deletion workflow. A fresh same-process Stop/restoration trial remains separate.
+deletion workflow. A fresh same-process Finder Delete, injected pre-mark failure and actual
+Settings Stop also restore the original file without a restart. Its new record is complete
+in both views and unconfirmed; the restored bytes hash with materialization disabled.
+Evidence is `check-survivor-immediate-{before,finished}*.json` and the archived control.
 
 `checks-deletion-restoration-2.log` passes all 644 tests, with two optional skips, and the required
 project, CLI, unsigned app and SMB checks. It and `build-eventcheck-9.log` contain no Swift

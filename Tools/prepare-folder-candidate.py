@@ -192,6 +192,9 @@ def main():
             '                        if request.label.hasPrefix("check-joined-jobs-") {\n'
             '                            try await checkJoinedDeletionJobs(config, label: request.label)\n'
             '                        }\n'
+            '                        if request.label == "check-keep-restore-start" {\n'
+            '                            try checkDeletionKeepRestoration(config)\n'
+            '                        }\n'
             + replay_hook)
         helper = replace(helper, '    struct Snapshot: Codable {', '''    struct Deletion: Codable {
         let plan: DeletionPlan
@@ -278,6 +281,27 @@ def main():
                 '            try await self.commitDeletionSettings(deletion, paths: paths, owner: domainID, grant: grant.id)',
                 '            try await M24FinderCrash.settings(deletion)\n'
                 '            try await self.commitDeletionSettings(deletion, paths: paths, owner: domainID, grant: grant.id)'))
+            app.write_text(replace(app.read_text(),
+                '        var listed: Set<String> = []\n',
+                '        await M24KeepRestorationProbe.hold(record)\n'
+                '        var listed: Set<String> = []\n'))
+            app.write_text(replace(app.read_text(),
+                '    private func recovered(_ grantID: UUID, _ failures: [SourceFailure]) async {\n',
+                '    private func recovered(_ grantID: UUID, _ failures: [SourceFailure]) async {\n'
+                '        for record in store.settings?.locations ?? [] where record.grantID == grantID {\n'
+                '            if let config = M22FinderProbe.selected(record.domainID) {\n'
+                '                M22FinderProbe.emit(config, call: UUID(), kind: "controller-recovered",\n'
+                '                    fields: ["failures": failures.map { "\\($0)" }.joined(separator: ",")])\n'
+                '            }\n'
+                '        }\n'))
+            settlement = root / "Prototype/App/LocationDeletionSettlement.swift"
+            settlement.write_text(replace(settlement.read_text(),
+                '                let deadline = try source.settleDeletionView(record, attempt: &next)\n',
+                '                if source === participants.last {\n'
+                '                    try M24FinderCrash.checkpoint(record.plan, outbox: Self.deletionOutbox(),\n'
+                '                        node: 0, stage: "catalog-second")\n'
+                '                }\n'
+                '                let deadline = try source.settleDeletionView(record, attempt: &next)\n'))
             recovery = root / "Prototype/App/LocationDeletionRecovery.swift"
             recovery.write_text(replace(recovery.read_text(),
                 '            recovery.rememberRefresh()\n            deletionRecovered()',

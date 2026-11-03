@@ -23,13 +23,19 @@ enum M24FinderCrash {
 
     static let checkpoints: Set<String> = ["attempting-before", "attempting-after",
         "closeAcknowledged-before", "closeAcknowledged-after", "deleted-before", "deleted-after",
-        "admitted", "settings", "settled", "marked"]
+        "admitted", "settings", "settled", "marked", "catalog-second"]
 
     enum Injection: Error { case failed, timeout }
 
     static func checkpoint(_ plan: DeletionPlan, outbox: DeletionOutbox, node: Int,
                            stage: String) throws {
         guard let (control, directory) = try capture(plan, outbox: outbox, node: node, stage: stage) else { return }
+        switch control.action {
+        case "fail-version": throw SourceFailure.versionChanged
+        case "fail-readonly": throw UploadError.readOnly
+        case "fail-invalid": throw ItemDeletionError.invalidRequest
+        default: break
+        }
         if control.action == "fail" || control.action == "fail-repeated" { throw Injection.failed }
         if control.action == "hold" {
             let release = directory.appending(path: "deletion-release-" + control.id.uuidString)
@@ -74,7 +80,8 @@ enum M24FinderCrash {
             && control.source.hasPrefix("Deletion/"), "deletion-fault-subtree")
         let hitURL = directory.appending(path: "deletion-fault-hit-" + control.id.uuidString + ".json")
         if FileManager.default.fileExists(atPath: hitURL.path) {
-            return control.action == "fail-repeated" ? (control, directory) : nil
+            return ["fail-repeated", "fail-version", "fail-readonly", "fail-invalid"]
+                .contains(control.action ?? "") ? (control, directory) : nil
         }
         let progress = try outbox.durableProgress(of: plan)
         try M22FinderProbe.save(Hit(control: control, checkpoint: stage, process: getpid(),

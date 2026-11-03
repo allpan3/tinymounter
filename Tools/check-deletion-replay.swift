@@ -7,7 +7,65 @@ private enum M24ClosedSourceProbe {
     static var record: PendingDeletion?
 }
 
+@MainActor
+private enum M24KeepRestorationProbe {
+    struct Control: Codable {
+        let run: UUID
+        let id: UUID
+    }
+
+    static func hold(_ record: LocationRecord) async {
+        guard let config = M22FinderProbe.selected(record.domainID), config.location == record.id,
+              record.folder == config.folder else { return }
+        do {
+            let directory = try M22FinderProbe.directory(config.run)
+            let url = directory.appending(path: "keep-restore.json")
+            guard FileManager.default.fileExists(atPath: url.path) else { return }
+            let control = try M22FinderProbe.load(Control.self, from: url)
+            try M22FinderProbe.require(control.run == config.run, "keep-restore-scope")
+            let hit = directory.appending(path: "keep-restore-held-" + control.id.uuidString + ".json")
+            guard !FileManager.default.fileExists(atPath: hit.path) else { return }
+            try M22FinderProbe.save(record.pendingKeeps, to: hit)
+            let release = directory.appending(path: "keep-restore-release-" + control.id.uuidString)
+            let deadline = ContinuousClock.now.advanced(by: .seconds(180))
+            while !FileManager.default.fileExists(atPath: release.path) {
+                guard ContinuousClock.now < deadline else { throw M22FinderProbe.Failure.check("keep-restore-timeout") }
+                try await Task.sleep(for: .milliseconds(100))
+            }
+            try M22FinderProbe.save(["released": true],
+                to: directory.appending(path: "keep-restore-ended-" + control.id.uuidString + ".json"))
+        } catch {
+            M22FinderProbe.logger.error("m24_keep_restore_probe_failed")
+        }
+    }
+}
+
 extension LocationController {
+    func checkDeletionKeepRestoration(_ config: M22FinderProbe.Config) throws {
+        let views = (store.settings?.locations ?? []).filter {
+            $0.folder == config.folder && $0.grantID == config.grant
+        }
+        try M22FinderProbe.require(views.count == 2, "keep-restore-two-fixture-views")
+        let paths = ["Deletion/Restore/a.txt", "Deletion/Restore/b.txt", "Deletion/Neighbor.txt"]
+        for view in views {
+            guard let source = sources[view.domainID] else { throw LocationError.catalogClosed }
+            let rows = try M22FinderProbe.rows(source)
+            try M22FinderProbe.require(paths.allSatisfy { path in
+                rows.contains { $0.path == path && $0.kind == "file" }
+            }, "keep-restore-files-listed")
+        }
+        try store.update { settings in
+            for view in views {
+                guard let index = settings.locations.firstIndex(where: { $0.id == view.id }),
+                      settings.locations[index].pendingKeeps.isEmpty else { throw UploadError.pendingWrites }
+                settings.locations[index].pendingKeeps = paths.map {
+                    KeepPath(path: config.folder + "/" + $0, kind: .file)
+                }
+            }
+        }
+        Task { await restorePendingKeeps(config.location) }
+    }
+
     func checkDeletionSourceClose(_ config: M22FinderProbe.Config, label: String) async throws {
         guard let source = sources[config.domain] else { throw LocationError.catalogClosed }
         if label == "check-source-close" {

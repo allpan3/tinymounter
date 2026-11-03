@@ -118,6 +118,13 @@ After releasing Settings, `check-source-closed-state` requires the same durable 
 Stop. These commands omit catalog snapshots because that catalog is intentionally closed. Restart
 the app normally to exercise launch reopening and settlement. This is a source API probe, not a
 user-facing Remove Location action, which pending deletion correctly blocks.
+`catalog-second` injects a failure before the second catalog's settlement. The repeated actions
+`fail-version`, `fail-readonly` and `fail-invalid` exercise the production completion-error mapping.
+`check-keep-restore-start` seeds pending keeps only for the two fixture locations: the files in
+`Deletion/Restore/` and the untouched neighbor. A run-bound `keep-restore.json` control holds the
+actual older restore after it enters the controller's restoring set. Its release file is
+`keep-restore-release-CONTROL_UUID`; the hold times out after 180 seconds. The candidate also
+records actual `controller-recovered` callbacks so reconnect evidence need not infer their use.
 
 1. Integrate the commits and run `Tools/run-checks.sh` in the VM. App-target changes have not
    been compiled on the host. The generator includes the shared domain-version archive helper
