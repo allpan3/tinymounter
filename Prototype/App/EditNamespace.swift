@@ -93,7 +93,7 @@ final class EditNamespace: @unchecked Sendable {
             let outbox = try LocationSource.editOutbox(domainID: domain)
             let pending = try outbox.records().filter(\.isPending)
             guard try outbox.pendingCount == pending.count,
-                  pending.allSatisfy({ [.preparing, .prepared].contains($0.state) }) else {
+                  pending.allSatisfy({ !$0.requiresNamespaceSettlement }) else {
                 throw UploadError.pendingWrites
             }
         }

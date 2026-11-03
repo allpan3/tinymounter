@@ -138,6 +138,10 @@ public struct PendingEdit: Codable, Equatable, Sendable {
     public var completedCleanupStarted: Bool?
 
     public var isPending: Bool { state != .completed && state != .stopped || recoveryRetained }
+    public var requiresNamespaceSettlement: Bool {
+        // Retired saves cannot publish again; their private artifacts do not block unrelated work.
+        isPending && ![.preparing, .prepared, .retired].contains(state)
+    }
     public var isPublicationComplete: Bool { state == .completed || state == .cleaningUp }
     public var publishedIdentity: EditFileIdentity? { conflict ? stageIdentity : previous?.identity }
     public var workPath: String { String(recoveryPath.dropLast("recovery".count)) + "work" }
