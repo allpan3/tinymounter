@@ -44,6 +44,14 @@ final class PermanentDeletionConfirmation: NSWindowController, NSWindowDelegate 
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
         window?.orderFrontRegardless()
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.addsToRecentItems = false
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration) { [weak self] _, _ in
+            Task { @MainActor in
+                guard self?.completion != nil else { return }
+                self?.window?.makeKeyAndOrderFront(nil)
+            }
+        }
     }
 
     @objc private func respond(_ sender: NSButton) { finish(sender.tag == 1) }

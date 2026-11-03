@@ -360,7 +360,10 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
                         throw ItemDeletionError.unresolved
                     }
                     reply(try ReaderMessage.encode(DeleteItemReceipt(id: request.id, item: request.item)), nil)
-                } catch { reply(nil, Self.deletionError(error)) }
+                } catch {
+                    logger.error("deletion request=\(request.id.uuidString, privacy: .public) failed \(logFields(error), privacy: .public)")
+                    reply(nil, Self.deletionError(error))
+                }
             }
             let run = { [self] in
                 source.deleteItem(deletion, recursive: request.recursive, progress: job.progress, started: { [weak self] in

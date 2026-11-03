@@ -360,7 +360,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                     progress.completedUnitCount = progress.totalUnitCount
                     finish(1, nil)
                 } catch {
-                    let failure = providerError(error) as NSError
+                    let failure = permanentDeletionError(error)
                     let cancelled = failure.domain == NSCocoaErrorDomain && failure.code == CocoaError.userCancelled.rawValue
                     finish(0, cancelled && !progress.isCancelled ? nil : failure)
                 }
@@ -388,6 +388,24 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             }
         }
         return progress
+    }
+
+    private func permanentDeletionError(_ error: Error) -> NSError {
+        let failure = providerError(error) as NSError
+        guard failure.domain == NSFileProviderErrorDomain else { return failure }
+        let description: String
+        let suggestion: String
+        switch failure.code {
+        case NSFileProviderError.cannotSynchronize.rawValue:
+            description = "Deletion could not finish."
+            suggestion = "Open tinymounter to check pending changes, then try again."
+        case NSFileProviderError.deletionRejected.rawValue:
+            description = "This item cannot be deleted safely."
+            suggestion = "It may have changed or be in use. Select it again after checking pending changes in tinymounter."
+        default: return failure
+        }
+        return NSError(domain: failure.domain, code: failure.code,
+                       userInfo: [NSLocalizedDescriptionKey: description, NSLocalizedRecoverySuggestionErrorKey: suggestion])
     }
 
     /// Reimport keeps read-only matching; new ordinary items require explicit write access.
