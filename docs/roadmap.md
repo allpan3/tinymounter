@@ -204,6 +204,10 @@ and retirement change pass required VM checks. Recovery cleanup and status repor
 those checks. Signed retained-save cleanup, export, a subsequent TextEdit save and app restart
 also pass. Bounded reserve, partial-stage continuation, lost-cleanup-reply and fresh
 replacement-artifact preservation probes pass; broader callbacks remain.
+The November 3 [Finder Replace observation](results/2026-11-03-editor-replacement.md) sends
+unbound delete/create requests for unopened and verified destinations. This blocks both Replace
+and normal deletion enablement under the accepted guarantee. Ordinary document Save and Save As
+pass for the tested TextEdit, Preview and Xcode files; interruption and offline checks continue.
 The November 3 APFS image check now covers real local outbox exhaustion: the older save and
 metadata remain exportable, reopening selects it, and retry preserves both complete generations.
 Signed low-space admission and Finder behavior remain unverified.

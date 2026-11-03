@@ -305,8 +305,11 @@ before waking stopped requests. A delayed event for another item may still be a 
 Missing, malformed or future events fail without mutation. This format requires fresh catalogs
 and deletion records; no migration is provided. The signed protocol and integrated Stop/replay
 checks pass, including interruption before notification and refreshed bases after dismissal.
-Remaining lifecycle gates still keep normal deletion disabled. See the
-[deletion results](results/2026-10-29-deletion-protocol.md).
+The signed Finder Replace observation also sends an indistinguishable delete followed by a
+separate create. Normal deletion therefore stays disabled under the accepted replacement
+guarantee. An explicit deletion action is an unresolved workflow decision; no replacement binding
+was found in the reviewed public APIs. See the [replacement gate](results/2026-11-03-editor-replacement.md)
+and the [deletion results](results/2026-10-29-deletion-protocol.md).
 
 ## 9. Future server volume mode
 

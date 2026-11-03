@@ -2,6 +2,14 @@
 
 A macOS app that brings a network disk, such as a NAS, into Apple's file system: browse it from Finder or another file manager such as QSpace, download on demand, and keep selected files available offline. Finder is the first file manager and SMB the first protocol it will support. A later mode will mount server volumes, the ordinary macOS SMB mounts, automatically.
 
+Editor saves and Replace, 2026-11-03: TextEdit TXT/RTF, Preview PDF/PNG and Xcode source-file
+Save, repeated Save and Save As pass in the signed VM candidate. Local/server hashes match.
+One disconnected TextEdit conflict preserves the server edit and latest local revision.
+Finder Replace sends separate delete/create requests for both unopened and verified destinations,
+which fails the accepted replacement gate and blocks normal deletion enablement. The candidate
+refuses deletion and preserves both files through Finder's collision handling. Restart, storage
+and broader metadata checks remain. See the [editor and replacement results](docs/results/2026-11-03-editor-replacement.md).
+
 Deletion, 2026-11-03: signed VM checks pass for refusal restoration, Finder's permanent warning
 and Cancel, verified and unopened files, and nested folders. Protected parent checkpoints fix
 Samba creation-time changes and survive a process restart. A lost checkpoint retains uncertainty;
