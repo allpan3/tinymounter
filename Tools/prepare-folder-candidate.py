@@ -164,12 +164,17 @@ def main():
             '                                label: request.label + (index == 0 ? "" : "-peer"))\n'
             '                        }')
     if args.deletion_checks:
+        reader = root / "Prototype/App/SourceReaderHost.swift"
+        reader.write_text(reader.read_text() + "\n" + (root / "Tools/check-deletion-reader-jobs.swift").read_text())
         helper += "\n" + (root / "Tools/check-deletion-replay.swift").read_text()
         replay_hook = ('                        if request.label == "overlap-setup" { try await m22FinderAddPeer(config) }'
                        if args.overlap_checks else '                        try await m22FinderSnapshot(config, label: request.label)')
         helper = replace(helper, replay_hook,
             '                        if request.label.hasPrefix("check-stopped-replay-") {\n'
             '                            try await checkStoppedDeletionReplay(config, label: request.label)\n'
+            '                        }\n'
+            '                        if request.label.hasPrefix("check-reader-jobs-") {\n'
+            '                            try await checkDeletionReaderCapacity(config, label: request.label)\n'
             '                        }\n'
             + replay_hook)
         helper = replace(helper, '    struct Snapshot: Codable {', '''    struct Deletion: Codable {
