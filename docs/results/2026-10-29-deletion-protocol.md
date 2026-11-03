@@ -928,3 +928,53 @@ Evidence is `provider-cancellation-report.json`, `check-provider-cancel-*.json`,
 commands and callback events. Linux evidence is `cancel-before-*-audit.json` and
 `cancel-after-finished-audit.json`. All holds and cancellation commands are consumed or archived.
 Build 6 has no Swift warnings; `checks-deletion-cancellation.log` passes the required VM checks.
+
+### Joined requests and source closure, 2026-11-03
+
+Signed build 7 passes the joined-request check. A real Finder deletion awaited its Settings
+callback while three constructed requests joined the same event in the connected reader session.
+A fifth constructed request and a second real Finder deletion received busy replies. Detaching
+one waiter did not request Stop. Cancelling another queued Stop without changing the already
+confirmed outcome. Releasing Settings produced three single correct replies and zero jobs;
+the second Finder deletion then completed automatically. This tests joined cancellation after
+remote deletion, not during a protected mutation.
+
+The job verifier passed, but its enclosing catalog snapshot failed because the second deletion
+finished during capture. The subsequent `check-joined-finished` snapshots show both original
+records complete in both views. Independent server audits preserve all remaining objects.
+
+Closing the actual controller-created source while its real Settings callback waited returned
+`serverUnreachable`, drained recovery waiters and preserved the exact durable record without
+Stop. Releasing the delayed callback did not change that record. Normal app relaunch completed
+the original plan in both views. The server audit preserved all 15 remaining objects. This
+constructed source-close call is distinct from Remove Location, which blocks pending deletion.
+Post-restart constructed replay also preserved both dismissed cancellation records and the
+earlier kept survivor, including a refreshed item base and equivalent XML event archive.
+
+Evidence includes `check-joined-jobs-*-jobs.json`, `check-joined-finished*.json`,
+`check-source-close-state.json`, `check-source-closed-state-state.json`,
+`check-source-close-reopened*.json`, `check-stopped-replay-cancel-restarted-replay.json`,
+callback events and the Linux `joined-*-audit.json` and `source-close-reopened-audit.json`.
+`checks-deletion-joined.log` passes all 644 tests with two optional skips and the required checks.
+
+### Unconfirmed selected survivor, 2026-11-03
+
+The signed build 7 test found a surviving selected file hidden in Finder after completed Stop.
+The disposable file was verified and kept locally before deletion. An injected failure after
+the attempting checkpoint prevented its mark. Settings Stop settled the single node as
+unconfirmed in both catalogs. The independent Linux audit preserved every object and the file's
+full contents. Finder replay received `cannotSynchronize`; working-set enumeration returned no
+updated row because fresh listing found unchanged metadata. The local URL remained unavailable.
+The earlier stopped-folder checks do not cover this selected-unconfirmed case.
+
+The candidate now advances the surviving selected row's change sequence after fresh
+reconciliation, once per settlement attempt unless listing already supplied a newer row.
+It preserves the item ID, content version and keeps. Event-based replay retains the original
+uncertain result even when the metadata version changes. Signed verification is pending;
+normal deletion remains disabled. The first Delete in this trial was safely rejected before
+admission because Finder still held the metadata version preceding Keep Downloaded. A second
+explicit action reached the intended injected checkpoint.
+
+Evidence is `check-survivor-*.json`, `unconfirmed-control.json`, its checkpoint capture and
+callback events. Linux `survivor-seed.json` and `unconfirmed-stopped-audit.json` preserve the
+independent baseline. The first audit preceded Stop confirmation; a later audit is still needed.

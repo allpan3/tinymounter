@@ -89,16 +89,19 @@ extension LocationController {
             to: M22FinderProbe.directory(config.run).appending(path: label + "-jobs.json"))
     }
 
-    func checkStoppedDeletionReplay(_ config: M22FinderProbe.Config, label: String) async throws {
+    func checkCompletedDeletionReplay(_ config: M22FinderProbe.Config, label: String) async throws {
         guard let source = sources[config.domain] else { throw LocationError.catalogClosed }
+        let uncertain = label.hasPrefix("check-unconfirmed-replay-")
+        let outcome: DeletionNodeOutcome = uncertain ? .unconfirmed : .stopped
+        let expected: ItemDeletionError = uncertain ? .unresolved : .stopped
         let before = try await Self.offMain { try LocationSource.deletionOutbox().records() }
-        let stopped = before.filter {
-            $0.plan.owner == config.domain && $0.isComplete && $0.selectedOutcome == .stopped
+        let completed = before.filter {
+            $0.plan.owner == config.domain && $0.isComplete && $0.selectedOutcome == outcome
                 && $0.plan.selected.path.hasPrefix(config.folder + "/Deletion/")
         }
-        try M22FinderProbe.require(!stopped.isEmpty, "completed-stopped-record-required")
+        try M22FinderProbe.require(!completed.isEmpty, "completed-record-required")
         var checked: [String] = [], refreshed = 0
-        for record in stopped {
+        for record in completed {
             guard let row = try source.withCatalog({ try $0.item(id: record.plan.request.item) }),
                   !row.deleted else { continue }
             let archiver = NSKeyedArchiver(requiringSecureCoding: true)
@@ -118,12 +121,12 @@ extension LocationController {
                     continuation.resume(returning: $0)
                 }
             }
-            guard case .failure(let error) = result, error as? ItemDeletionError == .stopped else {
-                throw M22FinderProbe.Failure.check("original-stopped-outcome-required")
+            guard case .failure(let error) = result, error as? ItemDeletionError == expected else {
+                throw M22FinderProbe.Failure.check("original-outcome-required")
             }
             checked.append(record.id.uuidString)
         }
-        try M22FinderProbe.require(!checked.isEmpty, "live-stopped-item-required")
+        try M22FinderProbe.require(!checked.isEmpty, "live-item-required")
         try M22FinderProbe.require(refreshed > 0, "refreshed-base-required")
         let after = try await Self.offMain { try LocationSource.deletionOutbox().records() }
         try M22FinderProbe.require(before == after, "replay-records-unchanged")
