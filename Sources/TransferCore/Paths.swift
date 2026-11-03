@@ -57,3 +57,13 @@ public struct NameKey: Hashable, Sendable {
             .precomposedStringWithCanonicalMapping
     }
 }
+
+/// Names as SMB clients send them: composed (NFC), as the macOS and Windows clients do. The macOS
+/// client shows names decomposed, so its mount and the server can spell one name differently.
+public enum SMBName {
+    /// Equal for two spellings exactly when a client sends the same bytes for both.
+    public static func key(_ name: String) -> Data { Data(name.precomposedStringWithCanonicalMapping.utf8) }
+
+    /// Case-sensitive, unlike `NameKey`; only the normalization may differ.
+    public static func same(_ lhs: String, _ rhs: String) -> Bool { key(lhs) == key(rhs) }
+}

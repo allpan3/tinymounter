@@ -77,6 +77,17 @@ final class PathTests: XCTestCase {
         XCTAssertNotEqual(NameKey("a b"), NameKey("ab"))
     }
 
+    func testSMBNameIgnoresNormalizationButNotCase() {
+        XCTAssertEqual(SMBName.key("Cafe\u{301}/Re\u{301}sume\u{301}.txt"), Data("Caf\u{e9}/R\u{e9}sum\u{e9}.txt".utf8))
+        XCTAssertEqual(SMBName.key("\u{ac00}"), SMBName.key("\u{1100}\u{1161}"))
+        XCTAssertTrue(SMBName.same("Cafe\u{301}", "Caf\u{e9}"))
+        XCTAssertTrue(SMBName.same("plain", "plain"))
+        XCTAssertFalse(SMBName.same("Caf\u{e9}", "CAF\u{c9}"))
+        XCTAssertFalse(SMBName.same("Movie.MKV", "movie.mkv"))
+        // Compatibility forms are other names on the wire, unlike under NameKey.
+        XCTAssertFalse(SMBName.same("\u{fb01}le", "file"))
+    }
+
     func testDirectoryRelativeOpenReadsNestedFileAndRejectsOtherKinds() throws {
         try withTree { root, rootFD, bytes in
             let identity = try MountIdentity(descriptor: rootFD)
