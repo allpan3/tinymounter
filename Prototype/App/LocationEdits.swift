@@ -327,8 +327,22 @@ extension LocationSource {
                 }
                 phase = "verify"
                 var proof: VerifiedRead?, version: EditFileVersion?, rangeDigest: String?
+                var staged: TransferOutput?, complete = false
+                defer {
+                    if !complete, let url = staged?.stagingURL { try? FileManager.default.removeItem(at: url) }
+                }
                 let protected = base != nil || (request.establishEditBase && row.allowsWriting)
-                if protected {
+                if protected && fullRead {
+                    let downloaded = try remote.transferVersion(path: path.string, range: range,
+                        stagingDirectory: stagingDirectory, progress: progress, checkSpace: checkSpace)
+                    staged = downloaded.output
+                    version = downloaded.version
+                    proof = remote.readProof
+                    if let base, !downloaded.version.hasSameContents(as: base.version) {
+                        try refresh(downloaded.version)
+                        throw SourceFailure.versionChanged
+                    }
+                } else if protected {
                     if let base, !fullRead, !request.establishEditBase {
                         proof = readProofCache().load(receipt: base, path: path)
                         if let proof {
@@ -356,8 +370,9 @@ extension LocationSource {
                     if progress.isCancelled { value.cancel() }
                 }
                 defer { transferObservation.invalidate() }
-                var output = try remote.transfer(path: path.string, range: range, stagingDirectory: stagingDirectory,
-                                                  progress: transferProgress, checkSpace: checkSpace)
+                var output = try staged ?? remote.transfer(path: path.string, range: range,
+                    stagingDirectory: stagingDirectory, progress: transferProgress, checkSpace: checkSpace)
+                staged = output
                 do {
                     phase = "checksum"
                     if let rangeDigest {
@@ -379,6 +394,7 @@ extension LocationSource {
                     if let receipt, let proof { try? readProofCache().store(proof, receipt: receipt, path: path) }
                     progress.completedUnitCount = progress.totalUnitCount
                     phase = "complete"
+                    complete = true
                     return output
                 } catch {
                     if let url = output.stagingURL { try? FileManager.default.removeItem(at: url) }

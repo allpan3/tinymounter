@@ -145,7 +145,9 @@ See the [staging results](results/2026-11-02-samba-names-and-uploads.md).
 
 The separate `single-smb-client-prototype` branch, authorized on 2026-11-03, uses that client for
 remote listing, metadata, payload reads and new uploads as well. It retains native mount grants,
-credentials, lifecycle and change hints. Protected reads initially verify and stage serially.
+credentials, lifecycle and change hints. Protected full reads stage once through the same
+deny-write/delete handle, verify all staged bytes locally, then recheck server metadata and
+security before accepting the version. Protected partial reads still verify and stage serially.
 Its catalog uses server IDs directly and therefore requires fresh test state. A separate signed
 VM bundle passes repeated saves, conflict preservation, interrupted-save recovery and fresh
 read-only downloads. Preliminary full-read callback throughput is comparable with native staging
