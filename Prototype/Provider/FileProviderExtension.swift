@@ -584,7 +584,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                     completionHandler: @escaping (Error?) -> Void) -> Progress {
         guard SourceReaderBridge.deletionEnabled else {
             countMutation("delete", "result=rejected")
-            completionHandler(NSFileProviderError(.deletionRejected))
+            completionHandler(deletionError(NSFileProviderError(.deletionRejected), item: identifier))
             return Progress()
         }
         countMutation("delete", "result=requested recursive=\(options.contains(.recursive))")
@@ -611,10 +611,21 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 progress.completedUnitCount = progress.totalUnitCount
                 finish(nil)
             } catch {
-                finish(providerError(error))
+                finish(deletionError(error, item: identifier))
             }
         }
         return progress
+    }
+
+    private func deletionError(_ error: Error, item: NSFileProviderItemIdentifier) -> Error {
+        let failure = providerError(error) as NSError
+        guard failure.domain == NSFileProviderErrorDomain,
+              failure.code == NSFileProviderError.deletionRejected.rawValue else { return failure }
+        guard let row = try? catalog.liveRow(item.rawValue) else {
+            return NSFileProviderError(.cannotSynchronize)
+        }
+        // macOS needs the surviving item to restore a rejected local deletion.
+        return NSError.fileProviderErrorForRejectedDeletion(of: CatalogItem(row))
     }
 
     /// Mutations are counted without recording names.

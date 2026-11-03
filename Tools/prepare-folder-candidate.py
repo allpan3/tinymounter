@@ -256,7 +256,9 @@ extension M22FinderProbe {
             "baseMetadata": base.metadataVersion.base64EncodedString(),
             "recursive": String(options.contains(.recursive)), "options": String(options.rawValue)])
         return { error in
-            emit(config, call: call, kind: "delete-end", fields: failure(error))
+            let restored = (error as NSError?)?.userInfo[NSFileProviderErrorItemKey] as? NSFileProviderItem
+            emit(config, call: call, kind: "delete-end", fields: failure(error),
+                 items: restored.map { [self.item($0)] } ?? [])
             reply(error)
         }
     }

@@ -16,6 +16,8 @@ and update the README after the run. Leave the original NAS and physical-Mac ins
   enabled. It never advertises `allowsTrashing`. The callback forwards the exact base versions
   and recursive option through bounded JSON. A tombstone still requires durable app replay.
 - Changed, replaced, moved, unsupported and refused selected items return `deletionRejected`.
+  The extension constructs that error with `fileProviderErrorForRejectedDeletion(of:)` and
+  the surviving catalog item; a bare error code makes macOS retry without restoring the item.
   Remaining children return `directoryNotEmpty`. Unknown results return `cannotSynchronize`.
   A recorded request must finish every view's settlement before returning a terminal refusal.
   Until then, failures such as a changed location root or lost write permission return
@@ -57,8 +59,9 @@ evidence picker. The current candidate is still a VM-only transport experiment.
 1. Integrate the commits and run `Tools/run-checks.sh` in the VM. App-target changes have not
    been compiled on the host. No generator changes are needed because all production changes
    use files already included in both targets as appropriate.
-2. Capture the baseline Finder/Settings recordings with deletion disabled. Confirm that direct
-   filesystem deletion also fails and leaves the remote items intact.
+2. Capture the baseline Finder/Settings recordings with deletion disabled. Direct filesystem
+   deletion may succeed locally before its callback. Confirm rejection restores the local item,
+   stops callback retries and leaves the remote item intact.
 3. Enable only `SourceReaderBridge.deletionEnabled` in the disposable candidate. Build and sign
    it using the existing VM procedure. Do not change the normal-build gate in the integration
    branch until all acceptance checks pass.
