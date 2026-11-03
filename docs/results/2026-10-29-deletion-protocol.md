@@ -778,3 +778,57 @@ Evidence includes `check-domain-baseline.json`, `check-domain-changed.json`,
 `check-domain-new-action.json`, their callback events, and the independent
 `deletion-domain-refusals-audit.json`. This result validates the event protocol, not the complete
 production deletion recovery path.
+
+### Integrated event replay and Stop recovery, 2026-11-03
+
+The repair passes signed recovery checks in a fresh `dev.tinymounter.eventcheck` installation
+in macOS VM 1, macOS 27.0.1, against the same Samba 4.19.5/ext4 server. Two locations overlap
+one new disposable subtree. The original foldercheck installation and its evidence remain
+preserved. Selected files initially had no downloads; the final replay check uses a verified,
+kept local copy. These are correctness checks, not performance measurements.
+
+- Stop before any remote attempt remained durable while the real Settings completion waited.
+  The backing audit preserved the selected file and all neighbors. Changing only its server
+  modification time before release did not permit deletion. Finder retried the original event,
+  received the stopped refusal and restored the file.
+- A subsequent explicit Finder Delete carried a different event version and completed a separate
+  operation. The original stopped record remained unchanged.
+- A second Stop reached durable completion in both views, then the test killed the app before
+  its retry notification. After a controlled modification-time change and app/extension restart,
+  launch recovery woke Finder, replay returned the original stopped result, and the file returned.
+  Independent backing audits preserved all 12 remaining objects.
+- A signed helper replayed that stopped event with the current catalog content/metadata versions
+  and an equivalent XML archive. The production app route returned `ItemDeletionError.stopped`
+  without changing any durable record. It passed before Dismiss Notice, after dismissal and
+  after another restart. The catalog ID, content/metadata versions, keep request, local inode
+  and full downloaded digest stayed identical across those checks.
+
+The real Finder retries in these runs retained their original item bases. Refreshed-base app
+routing is therefore established by the signed constructed request, together with the earlier
+real Finder rebasing failure and stable-event protocol probe. Do not describe the constructed
+request as a Finder callback. Semantic event comparison confirmed that retries retain one event
+and the later deliberate action uses another.
+
+The first trial's one-shot injected failure was retried after six seconds, before Stop was
+clicked. Finder completed that still-authorized deletion; the independent audit preserved the
+other 13 objects. That trial does not establish Stop behavior. The test control now supports
+repeated admission failure and a separate Settings hold so subsequent Stop trials are
+independent of GUI timing. An accidental edit to a test location's draft folder was reverted
+without Apply; the snapshots confirm preserved settings.
+
+All required VM checks pass with 644 tests, two optional skips, no failures and no Swift warnings.
+The secure archive comparator, CLI, project, unsigned app and SMB checks also pass. The signed
+candidate builds have no Swift warnings. Normal deletion remains disabled pending the remaining
+concurrency, cancellation and controller-lifecycle gates.
+
+Evidence is in `results/folder-single-20261103/event-recovery/`: `check-event-stop-held*.json`,
+`check-event-stop-complete*.json`, `check-event-new-delete*.json`,
+`check-event-crash-held*.json`, `check-event-crash-restarted*.json`,
+`check-stopped-replay-*.json`, `stopped-replay-preservation-report.json`,
+`event-comparison.txt`, `stop-recovery-after.mov`, and the scoped checkpoint captures.
+The earlier failed build's recording remains the before comparison. Linux evidence is under
+`/tmp/tinymounter-event-RUN`, with `stop-held-audit.json`, `stop-complete-audit.json`,
+`new-delete-audit.json`, `crash-restarted-audit.json` and
+`dismissed-replay-restarted-audit.json`. Build logs are `build-eventcheck-1.log` through
+`build-eventcheck-3.log`; required checks are in `checks-deletion-event-final.log`.
+No deletion fault control or screen recording remains active at the end of these replay checks.

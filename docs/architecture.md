@@ -303,8 +303,10 @@ Each catalog persists the current domain version before registration and advance
 terminal deletion settlement. Launch recovery advances and republishes completed settlement
 before waking stopped requests. A delayed event for another item may still be a first request.
 Missing, malformed or future events fail without mutation. This format requires fresh catalogs
-and deletion records; no migration is provided. The signed protocol probe passes, but integrated
-Stop/replay checks remain pending. See the [deletion results](results/2026-10-29-deletion-protocol.md).
+and deletion records; no migration is provided. The signed protocol and integrated Stop/replay
+checks pass, including interruption before notification and refreshed bases after dismissal.
+Remaining lifecycle gates still keep normal deletion disabled. See the
+[deletion results](results/2026-10-29-deletion-protocol.md).
 
 ## 9. Future server volume mode
 

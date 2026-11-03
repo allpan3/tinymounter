@@ -410,7 +410,8 @@ the removal.
   checkpoints survive restart; lost checkpoints retain uncertainty and replacements survive
   replay. Stop Deleting exposed an unsafe replay after Finder refreshed item metadata.
   The repair binds replay to Apple's event domain version and requires fresh catalogs and
-  deletion records. Its integrated signed verification remains pending. See the
+  deletion records. Signed Stop restoration, interruption before notification and replay after
+  dismissal/restart now pass. Remaining concurrency and lifecycle checks are pending. See the
   [integration checklist](m24-integration-checklist.md).
 - General modify and delete remain denied. A completed new folder can receive its initial name once; the app checks its receipt and remote identity. Create and initial naming require an explicitly enabled location and a fresh scoped write grant. Existing locations stay read-only. A reimport `createItem` (`.mayAlreadyExist`) completes with the live row of the same name and kind, and with `nil` only for a file without contents that no row matches; anything else keeps the error. A matched file with contents is downloaded again from the NAS unless its size equals the row's and its modification date is less than 1 µs from the row's, as measured between `Date`s. A NAS change that keeps the size and mtime and changes only the ctime is not found on reimport, so the old disk copy stays as the current version. Not verified at runtime: it needs a system reimport.
 - Per-request logs record full or partial mode, demand, sequential or speculative kind, Finder (`viewer`) and system flags, queue and transfer times. They don't instrument actual player first frame or system reader resumption.
