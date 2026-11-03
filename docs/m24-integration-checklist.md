@@ -82,6 +82,14 @@ Snapshot labels starting `check-stopped-replay-` also exercise the production ap
 for a completed stopped item with refreshed catalog bases and an equivalent XML event archive.
 The helper requires the original stopped outcome and unchanged durable records. This supplements
 real Finder callbacks; it does not claim that Finder sent the constructed request.
+The `check-reader-jobs-hold` request suspends the idle reader queue and submits four
+constructed reads through the selected domain's connected reader session. Delete another
+fixture file in Finder while those jobs occupy the session. `check-reader-jobs-release-one`
+releases one slot without running the queued reads; Finder must retry the deletion itself.
+`check-reader-jobs-drain` releases the rest and resumes the queue. After the operations drain,
+`check-reader-jobs-verify` requires four single cancellation replies and no remaining jobs.
+A 180-second safety timeout drains the queue and makes verification fail. Each request exports
+a `-jobs.json` report. The deletion uses Finder/XPC; the occupied reads use constructed requests.
 
 1. Integrate the commits and run `Tools/run-checks.sh` in the VM. App-target changes have not
    been compiled on the host. The generator includes the shared domain-version archive helper
