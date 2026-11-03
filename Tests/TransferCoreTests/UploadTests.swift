@@ -38,7 +38,8 @@ final class UploadTests: XCTestCase {
         var version: EditFileVersion
         var createError: Error?
         var writeError: Error?
-        var creates = 0, writes = 0, inspections = 0
+        var creates = 0, writes = 0, inspections = 0, resumptions = 0
+        var resumedIdentity: EditFileIdentity?
 
         init(_ record: PendingUpload) throws {
             version = try EditFileVersion(identity: EditFileIdentity(fileID: 42, birthMicroseconds: 100),
@@ -62,9 +63,15 @@ final class UploadTests: XCTestCase {
             inspections += 1
             return version
         }
+
+        func resumeUpload(path: String, contents: URL, identity: EditFileIdentity) throws -> EditFileVersion {
+            resumptions += 1
+            resumedIdentity = identity
+            return version
+        }
     }
 
-    func testDirectUploadPersistsIdentityBeforeWritingAndRecoversWithoutWriting() throws {
+    func testDirectUploadPersistsIdentityBeforeWritingAndResumesOnlyThatIdentity() throws {
         var record = try prepared()
         let server = try DirectRemote(record)
         server.writeError = TransferError.cancelled
@@ -78,6 +85,11 @@ final class UploadTests: XCTestCase {
         XCTAssertEqual(record.state, .verified)
         XCTAssertEqual(server.creates, 1)
         XCTAssertEqual(server.writes, 1)
+        XCTAssertEqual(server.inspections, 0)
+        XCTAssertEqual(server.resumptions, 1)
+        XCTAssertEqual(server.resumedIdentity, record.serverFile)
+        try outbox.upload(&record, remote: server, progress: Progress())
+        XCTAssertEqual(server.resumptions, 1)
         XCTAssertEqual(server.inspections, 1)
     }
 
@@ -102,7 +114,7 @@ final class UploadTests: XCTestCase {
         }
         XCTAssertEqual(server.creates, 1)
         XCTAssertEqual(server.writes, 0)
-        XCTAssertEqual(server.inspections, 3)
+        XCTAssertEqual(server.resumptions, 3)
         XCTAssertEqual(try Data(contentsOf: root.appending(path: "pending/\(record.id.uuidString).data")), payload)
     }
 
@@ -146,6 +158,37 @@ final class UploadTests: XCTestCase {
         XCTAssertThrowsError(try outbox.upload(&record, remote: server, progress: Progress()))
         XCTAssertEqual(try outbox.records().first?.state, .prepared)
         XCTAssertEqual(server.creates, 0)
+    }
+
+    func testDirectResumeRejectsDamagedLocalPayloadBeforeRemoteAccess() throws {
+        var record = try prepared()
+        let server = try DirectRemote(record)
+        server.writeError = TransferError.cancelled
+        XCTAssertThrowsError(try outbox.upload(&record, remote: server, progress: Progress()))
+        let staged = root.appending(path: "pending/\(record.id.uuidString).data")
+        XCTAssertEqual(chmod(staged.path, 0o600), 0)
+        try Data("damaged".utf8).write(to: staged)
+        XCTAssertThrowsError(try outbox.upload(&record, remote: server, progress: Progress()))
+        XCTAssertEqual(server.resumptions, 0)
+        XCTAssertEqual(record.state, .created)
+    }
+
+    func testAcknowledgedUploadRetainsOriginalNameAfterFinderChoosesDuplicateName() throws {
+        var record = try prepared()
+        let server = try DirectRemote(record)
+        server.writeError = TransferError.cancelled
+        XCTAssertThrowsError(try outbox.upload(&record, remote: server, progress: Progress()))
+        let renamed = try CreateRequest(template: record.template, parent: record.parent,
+                                        name: "new 2.bin", kind: .file, staging: nil)
+        let retry = try outbox.prepare(renamed, path: XCTUnwrap(RelativePath(renamed.name)),
+                                      contents: input, progress: Progress())
+        XCTAssertEqual(retry.name, record.name)
+        XCTAssertEqual(retry.path, record.path)
+        XCTAssertEqual(retry.serverFile, record.serverFile)
+        record.serverFile = nil
+        try outbox.save(record)
+        XCTAssertThrowsError(try outbox.prepare(renamed, path: XCTUnwrap(RelativePath(renamed.name)),
+                                               contents: input, progress: Progress()))
     }
 
     func testOrphanedStagingBlocksLocationRemoval() throws {

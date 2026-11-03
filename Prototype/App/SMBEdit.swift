@@ -376,14 +376,34 @@ final class SMBEdit: EditRemote, FileRenameRemote, UploadRemote {
         return try readVersion(path: path)
     }
 
-    private func writeContents(_ handle: Handle, contents: URL) throws {
+    func resumeUpload(path: String, contents: URL, identity: EditFileIdentity) throws -> EditFileVersion {
+        guard handles[path] == nil, let entry = try renameSourceEntry(path: path),
+              entry.identity == identity, entry.name.utf8.elementsEqual(RelativePath(path)!.components.last!.utf8)
+        else { throw UploadError.unresolved }
+        let handle = try open(path: path, access: Self.read | Self.write, sharing: 0)
+        handles[path] = handle
+        let current = try version(handle)
+        let input = try ReadOnlyFile(url: contents)
+        guard current.identity == identity, current.size <= input.snapshot.size,
+              try input.checksum(range: ByteRange(offset: 0, length: current.size, fileSize: input.snapshot.size))
+                == current.digest else { throw UploadError.unresolved }
+        try input.validateUnchanged()
+        if current.size == input.snapshot.size {
+            return try finishPublishedWrite(path: path, expected: current)
+        }
+        try writeContents(handle, contents: contents, offset: current.size)
+        return try finishPublishedWrite(path: path, expected: version(handle))
+    }
+
+    private func writeContents(_ handle: Handle, contents: URL, offset start: Int64 = 0) throws {
         let expected = try info(handle)
         let input = try ReadOnlyFile(url: contents)
-        guard expected[2] == 0, expected[3] == 1, expected[4] & 0x410 == 0 else {
+        guard start >= 0, expected[2] == start, start <= input.snapshot.size,
+              expected[3] == 1, expected[4] & 0x450 == 0 else {
             throw UploadError.unresolved
         }
         var buffer = [UInt8](repeating: 0, count: 65_536)
-        var offset: Int64 = 0
+        var offset = start
         while offset < input.snapshot.size {
             try cancellation()
             let count = pread(input.descriptor, &buffer, min(buffer.count, Int(input.snapshot.size - offset)), offset)

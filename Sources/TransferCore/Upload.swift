@@ -5,6 +5,7 @@ import Foundation
 public protocol UploadRemote {
     func createUpload(path: String) throws -> EditFileIdentity
     func writeUpload(path: String, contents: URL) throws -> EditFileVersion
+    func resumeUpload(path: String, contents: URL, identity: EditFileIdentity) throws -> EditFileVersion
     func inspectUpload(path: String) throws -> EditFileVersion
 }
 
@@ -104,10 +105,12 @@ public final class UploadOutbox {
                         id: UUID = UUID()) throws -> PendingUpload {
         if var previous = try records().first(where: { $0.template == request.template }) {
             let renamedCollision = previous.state == .collision && !previous.name.utf8.elementsEqual(request.name.utf8)
+            let acknowledgedFile = previous.kind == .file && previous.serverFile != nil
+                && [.created, .verified, .completed].contains(previous.state)
             let createdName = previous.initialName.flatMap { RelativePath($0.source)?.components.last }
             guard previous.parent == request.parent,
                   previous.name.utf8.elementsEqual(request.name.utf8)
-                    || createdName?.utf8.elementsEqual(request.name.utf8) == true || renamedCollision,
+                    || createdName?.utf8.elementsEqual(request.name.utf8) == true || renamedCollision || acknowledgedFile,
                   previous.kind == request.kind else { throw UploadError.unresolved }
             if request.kind == .file {
                 let file = try contents.map { try ReadOnlyFile(url: $0, allowMaterialization: true) }
@@ -290,20 +293,21 @@ public final class UploadOutbox {
         guard fsync(fd) == 0 else { throw posixError("sync payload removal") }
     }
 
-    /// An interrupted existing file is read and proved complete, never reopened for writing.
+    /// A known partial upload resumes only after its identity and existing bytes are proved.
     public func upload(_ record: inout PendingUpload, remote: UploadRemote, progress: Progress,
                        checkpoint: (PendingUpload.State) throws -> Void = { _ in }) throws {
         guard record.kind == .file else { throw UploadError.invalidRequest }
         guard !progress.isCancelled else { throw TransferError.cancelled }
         if record.state == .completed { return }
         if record.state == .collision { throw UploadError.collision }
+        let local = try ReadOnlyFile(url: contentURL(record.id))
+        guard local.snapshot.size == record.size,
+              try local.checksum(range: ByteRange(offset: 0, length: record.size, fileSize: record.size))
+                == record.digest else { throw UploadError.unresolved }
+        try local.validateUnchanged()
         let uncertain = record.state == .attempting && record.serverFile == nil
         let version: EditFileVersion
         if record.state == .prepared || uncertain {
-            let local = try ReadOnlyFile(url: contentURL(record.id))
-            guard local.snapshot.size == record.size,
-                  try local.checksum(range: ByteRange(offset: 0, length: record.size, fileSize: record.size))
-                    == record.digest else { throw UploadError.unresolved }
             record.state = .attempting
             try save(record)
             try checkpoint(.attempting)
@@ -329,7 +333,11 @@ public final class UploadOutbox {
             guard [.created, .verified].contains(record.state), record.serverFile != nil else {
                 throw UploadError.unresolved
             }
-            version = try remote.inspectUpload(path: record.path)
+            if record.state == .created, let identity = record.serverFile {
+                version = try remote.resumeUpload(path: record.path, contents: contentURL(record.id), identity: identity)
+            } else {
+                version = try remote.inspectUpload(path: record.path)
+            }
         }
         guard version.identity == record.serverFile, version.identity.fileID == record.remoteID,
               version.size == record.size, version.digest == record.digest else { throw UploadError.unresolved }
