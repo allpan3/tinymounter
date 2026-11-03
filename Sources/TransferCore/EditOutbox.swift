@@ -63,6 +63,13 @@ public struct EditFileVersion: Codable, Equatable, Sendable {
         identity == other.identity && size == other.size && digest == other.digest
     }
 
+    public var fingerprint: ContentFingerprint {
+        get throws {
+            try ContentFingerprint(smbSize: size, modifiedMicroseconds: modifiedMicroseconds,
+                                   changedMicroseconds: changedMicroseconds)
+        }
+    }
+
     static func validDigest(_ digest: String) -> Bool {
         digest.utf8.count == 64 && digest.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
     }

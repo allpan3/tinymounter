@@ -4,7 +4,7 @@ import OSLog
 import UniformTypeIdentifiers
 
 /// One protected transaction with the existing cached credential.
-final class SMBEdit: EditRemote, FileRenameRemote {
+final class SMBEdit: EditRemote, FileRenameRemote, UploadRemote {
     private final class Handle {
         var bytes = [UInt8](repeating: 0, count: 16)
         func use<T>(_ body: (UnsafeMutablePointer<UInt8>) throws -> T) rethrows -> T {
@@ -162,6 +162,86 @@ final class SMBEdit: EditRemote, FileRenameRemote {
         handles[path] = try open(path: path, access: Self.read, sharing: 1)
     }
 
+    func directoryIdentity(_ path: RelativePath) throws -> EditFileIdentity {
+        try protectAncestors(of: path.appending("child")!.string)
+        guard let full = folder.appending(path), let handle = directories[full.string] else {
+            throw UploadError.unresolved
+        }
+        let values = try info(handle)
+        return try EditFileIdentity(fileID: values[0], birthMicroseconds: values[1])
+    }
+
+    func list(_ path: RelativePath, progressed: () -> Void = {}) throws -> DirectoryListing {
+        let started = ContinuousClock.now
+        _ = try directoryIdentity(path)
+        guard let full = folder.appending(path), let handle = directories[full.string] else {
+            throw UploadError.unresolved
+        }
+        let opened = ContinuousClock.now, before = try info(handle)
+        var entries: [RenameDirectoryEntry] = [], calls = 0
+        while true {
+            try cancellation()
+            var buffer = [UInt8](repeating: 0, count: 65_536), count: UInt32 = 0, finished: Int32 = 0
+            try handle.use {
+                try check(tm_edit_list(client, $0, calls == 0 ? 1 : 0, &buffer, UInt32(buffer.count), &count, &finished))
+            }
+            calls += 1
+            progressed()
+            if finished != 0 { break }
+            let page = try RenameDirectoryEntry.parse(Array(buffer.prefix(Int(count))))
+            guard page.count <= DirectoryListing.defaultLimit - entries.count,
+                  calls <= DirectoryListing.defaultLimit else { throw SourceFailure.tooManyEntries }
+            entries += page
+        }
+        let after = try info(handle)
+        guard before[0...1] == after[0...1], before[5...6] == after[5...6] else {
+            throw SourceFailure.listingIncomplete
+        }
+        return try DirectoryListing(smbEntries: entries, openDuration: started.duration(to: opened),
+                                    bulkDuration: opened.duration(to: .now), bulkCalls: calls)
+    }
+
+    func confirmMissing(_ children: [MissingChild], in path: RelativePath, progressed: () -> Void = {}) throws {
+        guard !children.isEmpty else { return }
+        let current = try list(path, progressed: progressed)
+        for child in children {
+            let key = NameKey(child.name)
+            guard !current.unreadable.contains(where: { $0.key == key }),
+                  !current.collisionLosers.contains(where: { $0.key == key }),
+                  !current.entries.contains(where: { $0.key == key && $0.fileID != child.twinFileID }) else {
+                throw SourceFailure.listingIncomplete
+            }
+        }
+    }
+
+    func readMetadata(path: String) throws -> (identity: EditFileIdentity, fingerprint: ContentFingerprint) {
+        let handle = try handles[path] ?? open(path: path, access: Self.read, sharing: 1)
+        handles[path] = handle
+        let values = try info(handle)
+        guard values[2] <= Int64.max, values[3] == 1, values[4] & 0x450 == 0 else {
+            throw UploadError.unresolved
+        }
+        return try (EditFileIdentity(fileID: values[0], birthMicroseconds: values[1]),
+                    ContentFingerprint(smbSize: Int64(values[2]), modifiedMicroseconds: values[5],
+                                       changedMicroseconds: values[6]))
+    }
+
+    func transfer(path: String, range: ByteRange, stagingDirectory: URL, progress: Progress,
+                  checkSpace: ((Int64) throws -> Void)?) throws -> TransferOutput {
+        guard let handle = handles[path] else { throw UploadError.unresolved }
+        let before = try info(handle)
+        guard before[2] <= Int64.max, before[3] == 1, before[4] & 0x450 == 0 else {
+            throw UploadError.unresolved
+        }
+        return try Transfer.run(size: Int64(before[2]), range: range, stagingDirectory: stagingDirectory,
+            progress: progress, checkSpace: checkSpace, validate: {
+                try self.cancellation()
+                guard try self.info(handle)[0...6] == before[0...6] else { throw SourceFailure.versionChanged }
+            }, read: { offset, buffer in
+                try self.read(handle, offset: offset, buffer: buffer, reportProgress: false)
+            })
+    }
+
     func verifyRead(path: String, range: ByteRange, base: EditFileVersion,
                     proof: VerifiedRead) throws -> String? {
         guard proof.size == base.size, proof.digest == base.digest else { return nil }
@@ -191,7 +271,8 @@ final class SMBEdit: EditRemote, FileRenameRemote {
         }.digest
     }
 
-    private func read(_ handle: Handle, offset: Int64, buffer: UnsafeMutableRawBufferPointer) throws -> Int {
+    private func read(_ handle: Handle, offset: Int64, buffer: UnsafeMutableRawBufferPointer,
+                      reportProgress: Bool = true) throws -> Int {
         try cancellation()
         var count: UInt32 = 0
         try handle.use {
@@ -200,13 +281,13 @@ final class SMBEdit: EditRemote, FileRenameRemote {
         }
         guard count > 0, count <= buffer.count else { throw UploadError.unresolved }
         readBytes += Int64(count)
-        progress.completedUnitCount += Int64(count)
+        if reportProgress { progress.completedUnitCount += Int64(count) }
         return Int(count)
     }
 
     func allowPublishedReads(path: String, expected: EditFileVersion, collectReadProof: Bool = false) throws {
         guard let previous = handles[path] else { throw UploadError.unresolved }
-        // Revalidate after releasing the exclusive guard so native SMB can inspect the saved file.
+        // Revalidate after releasing the exclusive guard before allowing other readers.
         try previous.use { try check(tm_edit_close(client, $0)) }
         handles[path] = nil
         let current = try readVersion(path: path, collectReadProof: collectReadProof)
@@ -251,6 +332,42 @@ final class SMBEdit: EditRemote, FileRenameRemote {
             if absent { throw EditStageRefusal(refused) }
             throw refused
         }
+        try writeContents(handle, contents: contents)
+        let version = try version(handle, artifactPath: path)
+        return try reopenVerified(path: path, expected: version, published: false)
+    }
+
+    func createUpload(path: String) throws -> EditFileIdentity {
+        try protectAncestors(of: path)
+        guard handles[path] == nil else { throw UploadError.unresolved }
+        let handle = Handle(), full = try remotePath(path)
+        do { try handle.use { try check(tm_edit_create(client, full, Self.read | Self.write, $0)) } }
+        catch where Self.serverStatus(error) != nil {
+            let refused = error
+            var absent = false
+            do { absent = try renameSourceEntry(path: path) == nil } catch {}
+            if absent { throw UploadCreateRefusal(refused) }
+            throw refused
+        }
+        handles[path] = handle
+        let values = try info(handle)
+        guard values[2] == 0, values[3] == 1, values[4] & 0x450 == 0 else { throw UploadError.unresolved }
+        return try EditFileIdentity(fileID: values[0], birthMicroseconds: values[1])
+    }
+
+    func writeUpload(path: String, contents: URL) throws -> EditFileVersion {
+        guard let handle = handles[path] else { throw UploadError.unresolved }
+        try writeContents(handle, contents: contents)
+        let written = try version(handle)
+        return try finishPublishedWrite(path: path, expected: written)
+    }
+
+    func inspectUpload(path: String) throws -> EditFileVersion {
+        try protectAncestors(of: path)
+        return try readVersion(path: path)
+    }
+
+    private func writeContents(_ handle: Handle, contents: URL) throws {
         let expected = try info(handle)
         let input = try ReadOnlyFile(url: contents)
         guard expected[2] == 0, expected[3] == 1, expected[4] & 0x410 == 0 else {
@@ -282,8 +399,6 @@ final class SMBEdit: EditRemote, FileRenameRemote {
         }
         try input.validateUnchanged()
         try handle.use { try check(tm_edit_flush(client, $0)) }
-        let version = try version(handle, artifactPath: path)
-        return try reopenVerified(path: path, expected: version, published: false)
     }
 
     func inspect(path: String, original: Bool) throws -> EditFileVersion? {
@@ -890,7 +1005,7 @@ extension SMBEdit: FolderMoveRemote {
               confirmed.identity == entry.identity, SMBName.same(confirmed.name, name) else {
             throw UploadError.unresolved
         }
-        let native = try folderMoveNative(path: path, kind: kind, values: values)
+        let native = try folderMoveFingerprint(kind: kind, values: values)
         let after = try info(handle)
         guard after[0...2] == values[0...2], after[4...6] == values[4...6] else { throw SourceFailure.versionChanged }
         return FolderMoveCurrent(identity: entry.identity, version: version,
@@ -921,64 +1036,15 @@ extension SMBEdit: FolderMoveRemote {
         }
     }
 
-    private func folderMoveNative(path: RelativePath, kind: CatalogRow.Kind, values: [UInt64]) throws
+    private func folderMoveFingerprint(kind: CatalogRow.Kind, values: [UInt64]) throws
         -> (UInt64, ContentFingerprint) {
         let mount = try folderMoveMountIdentity()
-        return try mount.guarding(root: root) {
-            try mount.requireMounted(root)
-            let parent = RelativePath(path.components.dropLast().joined(separator: "/"))!, name = path.components.last!
-            let listing = try DirectoryListing.list(locationRoot: root, relativePath: parent, expected: mount)
-            guard let listed = listing.entries.first(where: { SMBName.same($0.name, name) }),
-                  listed.kind.rawValue == kind.rawValue else { throw UploadError.unresolved }
-            let descriptor = openat(root, parent.isRoot ? "." : parent.string,
-                                    O_EVTONLY | O_DIRECTORY | O_NOFOLLOW_ANY | O_RESOLVE_BENEATH | O_CLOEXEC)
-            guard descriptor >= 0 else { throw posixError("inspect moved folder parent") }
-            defer { Darwin.close(descriptor) }
-            guard try MountIdentity(descriptor: descriptor) == mount else { throw SourceFailure.pathRejected }
-            guard let protectedParent = folderMoveRoots[parent.string] ?? directories[parent.string] else {
-                throw UploadError.unresolved
-            }
-            let parentValues = try info(protectedParent)
-            var parentMetadata = stat()
-            guard fstat(descriptor, &parentMetadata) == 0, parentMetadata.st_mode & S_IFMT == S_IFDIR,
-                  parent.isRoot || (parentMetadata.st_birthtimespec.tv_sec > 0
-                    && UInt64(parentMetadata.st_birthtimespec.tv_sec) * 1_000_000
-                      + UInt64(parentMetadata.st_birthtimespec.tv_nsec / 1_000) == parentValues[1]) else {
-                throw UploadError.unresolved
-            }
-            var metadata = stat()
-            guard fstatat(descriptor, name, &metadata, AT_SYMLINK_NOFOLLOW) == 0 else {
-                throw posixError("inspect moved descendant")
-            }
-            var attributes = attrlist()
-            attributes.bitmapcount = UInt16(ATTR_BIT_MAP_COUNT)
-            attributes.commonattr = attrgroup_t(ATTR_CMN_FSID)
-            var filesystem = [UInt32](repeating: 0, count: 3)
-            guard getattrlistat(descriptor, name, &attributes, &filesystem, 12, UInt(FSOPT_NOFOLLOW)) == 0 else {
-                throw posixError("inspect moved descendant filesystem")
-            }
-            guard filesystem[0] == 12, UInt64(filesystem[1]) | UInt64(filesystem[2]) << 32 == mount.fsid,
-                  metadata.st_dev == parentMetadata.st_dev else { throw SourceFailure.pathRejected }
-            let fingerprint = ContentFingerprint(size: kind == .folder ? 0 : metadata.st_size,
-                mtimeNs: ContentFingerprint.nanoseconds(seconds: Int64(metadata.st_mtimespec.tv_sec),
-                                                       nanoseconds: Int64(metadata.st_mtimespec.tv_nsec)),
-                ctimeNs: ContentFingerprint.nanoseconds(seconds: Int64(metadata.st_ctimespec.tv_sec),
-                                                       nanoseconds: Int64(metadata.st_ctimespec.tv_nsec)))
-            guard metadata.st_mode & S_IFMT == (kind == .folder ? S_IFDIR : S_IFREG), metadata.st_ino != 0,
-                  metadata.st_birthtimespec.tv_sec > 0,
-                  UInt64(metadata.st_birthtimespec.tv_sec) * 1_000_000
-                    + UInt64(metadata.st_birthtimespec.tv_nsec / 1_000) == values[1],
-                  kind == .folder || (metadata.st_nlink == 1 && metadata.st_size >= 0 && UInt64(metadata.st_size) == values[2]),
-                  fingerprint.mtimeNs >= 0, fingerprint.ctimeNs >= 0,
-                  UInt64(fingerprint.mtimeNs / 1_000) == values[5], UInt64(fingerprint.ctimeNs / 1_000) == values[6],
-                  listed.fileID == UInt64(metadata.st_ino), listed.size == fingerprint.size,
-                  listed.mtimeNs == fingerprint.mtimeNs, listed.ctimeNs == fingerprint.ctimeNs else {
-                throw UploadError.unresolved
-            }
-            guard try MountIdentity(descriptor: descriptor) == mount else { throw SourceFailure.pathRejected }
-            try mount.requireMounted(root)
-            return (UInt64(metadata.st_ino), fingerprint)
+        try mount.requireMounted(root)
+        guard values[2] <= Int64.max, values[4] & 0x450 == (kind == .folder ? 0x10 : 0) else {
+            throw UploadError.unresolved
         }
+        return try (values[0], ContentFingerprint(smbSize: kind == .folder ? 0 : Int64(values[2]),
+                                                  modifiedMicroseconds: values[5], changedMicroseconds: values[6]))
     }
 
     private func folderMoveMountIdentity() throws -> MountIdentity {
@@ -1283,7 +1349,7 @@ extension SMBEdit {
     private func requireDeletionExpectations(_ claims: [DeletionExpectation], path: RelativePath,
                                              kind: CatalogRow.Kind, values: [UInt64]) throws {
         guard !claims.isEmpty else { return }
-        let (nativeID, fingerprint) = try folderMoveNative(path: path, kind: kind, values: values)
+        let (nativeID, fingerprint) = try folderMoveFingerprint(kind: kind, values: values)
         guard claims.allSatisfy({
             $0.kind == kind && $0.nativeID == nativeID && (kind == .folder || $0.fingerprint == fingerprint)
         }) else { throw SourceFailure.versionChanged }

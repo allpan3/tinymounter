@@ -4,8 +4,9 @@ A macOS app that brings a network disk, such as a NAS, into Apple's file system:
 
 Samba filename validation, 2026-11-03: the Mac update remains withheld. Isolated probes reproduce
 native metadata writes recreating a deleted stage name after file-ID reuse, and stale native
-directory listings rejecting a published filename. A single-client VM prototype is proposed;
-no further transport change is approved. The accepted direct stage upload passed 20 signed saves
+directory listings rejecting a published filename. The user approved a separate single-client
+VM prototype and its validation; its initial code passes focused package tests but awaits VM
+build and runtime checks. Production adoption remains undecided. The accepted direct stage upload passed 20 signed saves
 and required VM checks with 610 tests, one optional skip and no failures. See the
 [results and decision](docs/results/2026-11-02-samba-names-and-uploads.md).
 

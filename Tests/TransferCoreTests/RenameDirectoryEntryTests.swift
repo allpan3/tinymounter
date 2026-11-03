@@ -12,6 +12,9 @@ final class RenameDirectoryEntryTests: XCTestCase {
         }
         set(0, 4, next ? UInt64(size) : 0)
         set(8, 8, (11_644_473_600_000_000 + 123_456) * 10)
+        set(24, 8, (11_644_473_600_000_000 + 234_567) * 10)
+        set(32, 8, (11_644_473_600_000_000 + 345_678) * 10)
+        set(40, 8, 42)
         set(56, 4, UInt64(attributes))
         set(60, 4, UInt64(encoded.count))
         set(72, 8, id)
@@ -36,6 +39,29 @@ final class RenameDirectoryEntryTests: XCTestCase {
         let parsed = try RenameDirectoryEntry.parse(bytes)
         XCTAssertEqual(parsed.map { Array($0.name.utf8) }, names.dropFirst(2).map { Array($0.utf8) })
         XCTAssertTrue(parsed.allSatisfy { $0.identity.fileID == 7 && $0.identity.birthMicroseconds == 123_456 })
+        XCTAssertTrue(parsed.allSatisfy { $0.size == 42 && $0.modifiedMicroseconds == 234_567
+            && $0.changedMicroseconds == 345_678 })
+    }
+
+    func testSMBListingPreservesCollisionsAndUnsupportedKinds() throws {
+        let bytes = entry("Case.txt", next: true) + entry("case.txt", next: true)
+            + entry("directory", attributes: 0x10, next: true) + entry("link", attributes: 0x400)
+        let listing = try DirectoryListing(smbEntries: RenameDirectoryEntry.parse(bytes),
+                                           openDuration: .zero, bulkDuration: .zero, bulkCalls: 1)
+        XCTAssertEqual(listing.entries.count, 2)
+        XCTAssertEqual(listing.collisionLosers.count, 1)
+        XCTAssertEqual(listing.skipped.otherKinds, 1)
+        XCTAssertEqual(listing.entries.first { $0.kind == .folder }?.size, 0)
+        XCTAssertEqual(listing.entries.first { $0.kind == .file }?.mtimeNs, 234_567_000)
+    }
+
+    func testSMBMetadataRejectsTimeAndSizeOverflow() throws {
+        for range in [24..<32, 32..<40, 40..<48] {
+            var bytes = entry("file")
+            bytes.replaceSubrange(range, with: [UInt8](repeating: 0xff, count: 8))
+            XCTAssertThrowsError(try DirectoryListing(smbEntries: RenameDirectoryEntry.parse(bytes),
+                openDuration: .zero, bulkDuration: .zero, bulkCalls: 1))
+        }
     }
 
     func testTruncatedOffsetsInvalidNamesAndUnprovenIdentityFailClosed() throws {

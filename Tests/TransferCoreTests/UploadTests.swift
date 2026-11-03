@@ -34,6 +34,120 @@ final class UploadTests: XCTestCase {
                                   contents: kind == .file ? input : nil, progress: Progress())
     }
 
+    private final class DirectRemote: UploadRemote {
+        var version: EditFileVersion
+        var createError: Error?
+        var writeError: Error?
+        var creates = 0, writes = 0, inspections = 0
+
+        init(_ record: PendingUpload) throws {
+            version = try EditFileVersion(identity: EditFileIdentity(fileID: 42, birthMicroseconds: 100),
+                size: record.size, digest: record.digest, modifiedMicroseconds: 200,
+                changedMicroseconds: 300, attributes: 0, security: Data([1]))
+        }
+
+        func createUpload(path: String) throws -> EditFileIdentity {
+            creates += 1
+            if let createError { throw createError }
+            return version.identity
+        }
+
+        func writeUpload(path: String, contents: URL) throws -> EditFileVersion {
+            writes += 1
+            if let writeError { throw writeError }
+            return version
+        }
+
+        func inspectUpload(path: String) throws -> EditFileVersion {
+            inspections += 1
+            return version
+        }
+    }
+
+    func testDirectUploadPersistsIdentityBeforeWritingAndRecoversWithoutWriting() throws {
+        var record = try prepared()
+        let server = try DirectRemote(record)
+        server.writeError = TransferError.cancelled
+        XCTAssertThrowsError(try outbox.upload(&record, remote: server, progress: Progress()))
+        outbox = try UploadOutbox(directory: root.appending(path: "pending"))
+        record = try XCTUnwrap(outbox.records().first)
+        XCTAssertEqual(record.state, .created)
+        XCTAssertEqual(record.serverFile, server.version.identity)
+        XCTAssertEqual(record.remoteID, server.version.identity.fileID)
+        try outbox.upload(&record, remote: server, progress: Progress())
+        XCTAssertEqual(record.state, .verified)
+        XCTAssertEqual(server.creates, 1)
+        XCTAssertEqual(server.writes, 1)
+        XCTAssertEqual(server.inspections, 1)
+    }
+
+    func testDirectRecoveryRejectsReusedIdentityPartialContentAndWrongDigest() throws {
+        var record = try prepared()
+        let server = try DirectRemote(record)
+        XCTAssertThrowsError(try outbox.upload(&record, remote: server, progress: Progress()) { state in
+            if state == .created { throw TransferError.cancelled }
+        })
+        let full = server.version
+        for (birth, size, digest) in [(101, full.size, full.digest),
+                                     (100, full.size - 1, full.digest),
+                                     (100, full.size, String(repeating: "0", count: 64))] {
+            server.version = try EditFileVersion(identity: EditFileIdentity(fileID: 42, birthMicroseconds: UInt64(birth)),
+                size: size, digest: digest, modifiedMicroseconds: 200, changedMicroseconds: 300,
+                attributes: 0, security: Data([1]))
+            record = try XCTUnwrap(outbox.records().first)
+            XCTAssertThrowsError(try outbox.upload(&record, remote: server, progress: Progress())) {
+                XCTAssertEqual($0 as? UploadError, .unresolved)
+            }
+            XCTAssertEqual(record.state, .created)
+        }
+        XCTAssertEqual(server.creates, 1)
+        XCTAssertEqual(server.writes, 0)
+        XCTAssertEqual(server.inspections, 3)
+        XCTAssertEqual(try Data(contentsOf: root.appending(path: "pending/\(record.id.uuidString).data")), payload)
+    }
+
+    func testDirectCollisionAfterLostCreateReplyRemainsUnresolved() throws {
+        var record = try prepared()
+        let server = try DirectRemote(record)
+        server.createError = TransferError.cancelled
+        XCTAssertThrowsError(try outbox.upload(&record, remote: server, progress: Progress()))
+        record = try XCTUnwrap(outbox.records().first)
+        XCTAssertEqual(record.state, .attempting)
+        XCTAssertNil(record.serverFile)
+        server.createError = UploadError.collision
+        XCTAssertThrowsError(try outbox.upload(&record, remote: server, progress: Progress())) {
+            XCTAssertEqual($0 as? UploadError, .unresolved)
+        }
+        XCTAssertEqual(try outbox.records().first?.state, .attempting)
+        XCTAssertEqual(server.writes, 0)
+        XCTAssertEqual(server.inspections, 0)
+    }
+
+    func testDirectKnownRefusalAndCollisionKeepSafeRetryStates() throws {
+        var record = try prepared()
+        let server = try DirectRemote(record)
+        server.createError = UploadCreateRefusal(CocoaError(.fileWriteNoPermission))
+        XCTAssertThrowsError(try outbox.upload(&record, remote: server, progress: Progress()))
+        XCTAssertEqual(try outbox.records().first?.state, .prepared)
+        server.createError = UploadError.collision
+        XCTAssertThrowsError(try outbox.upload(&record, remote: server, progress: Progress())) {
+            XCTAssertEqual($0 as? UploadError, .collision)
+        }
+        XCTAssertEqual(try outbox.records().first?.state, .collision)
+        XCTAssertEqual(server.writes, 0)
+    }
+
+    func testDirectUploadRejectsDamagedLocalPayloadBeforeRemoteCreate() throws {
+        var record = try prepared()
+        let server = try DirectRemote(record)
+        let staged = root.appending(path: "pending/\(record.id.uuidString).data")
+        XCTAssertEqual(chmod(staged.path, 0o600), 0)
+        try Data("damaged".utf8).write(to: staged)
+        XCTAssertThrowsError(try outbox.upload(&record, remote: server, progress: Progress()))
+        XCTAssertEqual(try outbox.records().first?.state, .prepared)
+        XCTAssertEqual(server.creates, 0)
+    }
+
     func testOrphanedStagingBlocksLocationRemoval() throws {
         let orphan = root.appending(path: "pending/\(UUID().uuidString).data")
         try payload.write(to: orphan)

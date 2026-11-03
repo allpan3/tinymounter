@@ -143,6 +143,13 @@ November 3 probes reproduce stale native names after direct rename and a native 
 recreating a deleted stage after file-ID reuse. No fix is verified; the Mac update is withheld.
 See the [staging results](results/2026-11-02-samba-names-and-uploads.md).
 
+The separate `single-smb-client-prototype` branch, authorized on 2026-11-03, uses that client for
+remote listing, metadata, payload reads and new uploads as well. It retains native mount grants,
+credentials, lifecycle and change hints. Protected reads initially verify and stage serially.
+Its catalog uses server IDs directly and therefore requires fresh test state. The installed
+builds retain the earlier transport. Correctness and matched throughput checks must precede a
+production choice; see the [experiment record](results/2026-11-02-samba-names-and-uploads.md#single-client-transport-experiment).
+
 ### Selection rule
 
 Keep the native bridge if it meets the throughput gate and works cleanly under the shipping permissions/lifecycle model. Prefer direct SMB if it is comparably fast and materially simpler to deploy/recover. If direct SMB is slow while native-backed File Provider is fast, optimize or replace the SMB transport. If both provider paths are slow but their staging controls are fast, investigate provider scheduling and materialization. Do not switch frameworks solely because one first implementation is slow.
@@ -307,14 +314,15 @@ and first disposable VM test session. Each implementation still has to pass its 
 
 ## 11. Open decisions for the first experiment
 
-- **Single-client transport experiment, proposed 2026-11-03.** Evaluate the existing SMB client
+- **Single-client transport experiment, accepted 2026-11-03.** Evaluate the existing SMB client
   for remote listing, metadata, reads and writes in a separate VM-only prototype. Controlled
   probes reproduce both remaining symptoms when direct mutations leave stale native caches.
   Keep verification, recovery, sandbox and scoped access; use fresh test state. First prove
   correctness, then compare against the VM's native throughput baseline before selecting a
   production transport. No additional dependency or licence change is proposed. This exceeds
-  the private-stage exception and is not yet authorized. See the
-  [scope and evidence](results/2026-11-02-samba-names-and-uploads.md#proposed-transport-experiment).
+  the private-stage exception. The user authorized all needed VM work, including this
+  experiment; production adoption and physical-Mac installation remain separate. See the
+  [scope and evidence](results/2026-11-02-samba-names-and-uploads.md#single-client-transport-experiment).
 - **Protected save-stage uploads, accepted 2026-11-02.** Upload private save-stage contents through
   the existing protected SMB handle. Repeated native opens failed after the Linux fixture reused
   a deleted file ID; a direct-handle probe passed 20 repeated 2 MiB writes with full readback and

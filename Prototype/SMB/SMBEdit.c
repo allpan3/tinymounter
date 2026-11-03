@@ -119,8 +119,8 @@ static void opened(struct smb2_context *smb, int status, void *data, void *conte
     else if (!status) reply->error = EIO;
 }
 
-int tm_edit_open(void *opaque, const char *path, uint32_t access, uint32_t sharing,
-               uint8_t *file)
+static int open_file(void *opaque, const char *path, uint32_t access, uint32_t sharing,
+                     uint32_t disposition, uint8_t *file)
 {
     struct edit_client *client = opaque;
     client->ntstatus = 0;
@@ -132,13 +132,23 @@ int tm_edit_open(void *opaque, const char *path, uint32_t access, uint32_t shari
     request.impersonation_level = SMB2_IMPERSONATION_IMPERSONATION;
     request.desired_access = access;
     request.share_access = sharing;
-    request.create_disposition = SMB2_FILE_OPEN;
+    request.create_disposition = disposition;
     request.create_options = SMB2_FILE_NON_DIRECTORY_FILE | SMB2_FILE_OPEN_REPARSE_POINT;
     request.name = name;
     struct tm_edit_reply reply = {0};
     int error = wait_reply(client, smb2_cmd_create_async(smb, &request, opened, &reply), &reply);
     if (!error) memcpy(file, reply.file, SMB2_FD_SIZE);
     return error;
+}
+
+int tm_edit_open(void *opaque, const char *path, uint32_t access, uint32_t sharing, uint8_t *file)
+{
+    return open_file(opaque, path, access, sharing, SMB2_FILE_OPEN, file);
+}
+
+int tm_edit_create(void *opaque, const char *path, uint32_t access, uint8_t *file)
+{
+    return open_file(opaque, path, access, 0, SMB2_FILE_CREATE, file);
 }
 
 int tm_edit_open_quarantine(void *opaque, const char *path, uint8_t *file)

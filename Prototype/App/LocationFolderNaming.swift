@@ -3,17 +3,12 @@ import Foundation
 import OSLog
 
 private final class FolderReceipt {
-    let root: Int32
-    let path: RelativePath
     let persist: (RemoteFolderIdentity) throws -> Void
     var nativeID: UInt64?
     var error: Error?
     var step = "none"
-    var openError: Int32 = 0
 
-    init(root: Int32, path: RelativePath, persist: @escaping (RemoteFolderIdentity) throws -> Void) {
-        self.root = root
-        self.path = path
+    init(persist: @escaping (RemoteFolderIdentity) throws -> Void) {
         self.persist = persist
     }
 
@@ -21,19 +16,7 @@ private final class FolderReceipt {
         step = "persist"
         let identity = try RemoteFolderIdentity(fileID: fileID, birthMicroseconds: birth)
         try persist(identity)
-        step = "open"
-        let fd = openat(root, path.string, O_RDONLY | O_DIRECTORY | O_NOFOLLOW_ANY | O_RESOLVE_BENEATH | O_CLOEXEC)
-        guard fd >= 0 else {
-            openError = errno
-            throw posixError("open created folder")
-        }
-        defer { Darwin.close(fd) }
-        step = "identity"
-        var info = stat()
-        guard fstat(fd, &info) == 0, info.st_ino != 0, info.st_birthtimespec.tv_sec > 0,
-              UInt64(info.st_birthtimespec.tv_sec) * 1_000_000 + UInt64(info.st_birthtimespec.tv_nsec / 1_000)
-                == birth else { throw UploadError.unresolved }
-        nativeID = info.st_ino
+        nativeID = fileID
         step = "done"
     }
 }
@@ -105,7 +88,7 @@ extension LocationSource {
                     guard let from = folder.appending(source), let to = folder.appending(destination) else {
                         throw UploadError.invalidRequest
                     }
-                    return try folderReceipt(root: pin, path: destination, persist: { _ in }) { context in
+                    return try folderReceipt(persist: { _ in }) { context in
                         var sent: Int32 = 0
                         let code = ShareAccess.withDirectSMB {
                             tm_smb_name_folder(endpoint.host, endpoint.share, endpoint.account,
@@ -135,7 +118,7 @@ extension LocationSource {
         let requestID = record.id
         try outbox.createFolder(&record, progress: progress) { path, identity, persist in
             guard let source = folder.appending(path) else { throw UploadError.invalidRequest }
-            return try folderReceipt(root: root, path: path, persist: persist) { context in
+            return try folderReceipt(persist: persist) { context in
                 var sent: Int32 = 0
                 var trace = tm_smb_folder_trace()
                 let code = ShareAccess.withDirectSMB {
@@ -155,16 +138,14 @@ extension LocationSource {
         namingLog.notice("""
             folder_create request=\(request.uuidString, privacy: .public) stage=\(stage, privacy: .public) \
             parents=\(trace.parents) status=\(status, privacy: .public) errno=\(trace.error) \
-            sent=\(trace.sent_queued)>\(trace.sent) receipt=\(receipt.step, privacy: .public) \
-            receipt_errno=\(receipt.openError)
+            sent=\(trace.sent_queued)>\(trace.sent) receipt=\(receipt.step, privacy: .public)
             """)
     }
 
-    private func folderReceipt(root: Int32, path: RelativePath,
-                               persist: (RemoteFolderIdentity) throws -> Void,
+    private func folderReceipt(persist: (RemoteFolderIdentity) throws -> Void,
                                operation: (UnsafeMutableRawPointer) throws -> Void) throws -> UInt64 {
         try withoutActuallyEscaping(persist) { persist in
-            let receipt = FolderReceipt(root: root, path: path, persist: persist)
+            let receipt = FolderReceipt(persist: persist)
             do { try operation(Unmanaged.passUnretained(receipt).toOpaque()) }
             catch { throw receipt.error ?? error }
             guard let nativeID = receipt.nativeID else { throw UploadError.unresolved }

@@ -57,6 +57,13 @@ public struct ContentFingerprint: Hashable, Sendable {
         self.ctimeNs = ctimeNs
     }
 
+    public init(smbSize: Int64, modifiedMicroseconds: UInt64, changedMicroseconds: UInt64) throws {
+        guard smbSize >= 0, modifiedMicroseconds <= UInt64(Int64.max / 1_000),
+              changedMicroseconds <= UInt64(Int64.max / 1_000) else { throw TransferError.sourceChanged }
+        self.init(size: smbSize, mtimeNs: Int64(modifiedMicroseconds) * 1_000,
+                  ctimeNs: Int64(changedMicroseconds) * 1_000)
+    }
+
     /// At most 65 UTF-8 bytes, within File Provider's 128-byte version limit.
     public var contentVersion: String { "f1:\(size):\(mtimeNs):\(ctimeNs)" }
 
@@ -185,10 +192,26 @@ public enum Transfer {
                            stagingDirectory: URL? = nil, syncStaging: Bool = false,
                            progress: Progress = Progress(),
                            checkSpace: ((Int64) throws -> Void)? = nil) throws -> TransferOutput {
-        _ = try ByteRange(offset: range.offset, length: range.length, fileSize: source.snapshot.size)
+        try run(size: source.snapshot.size, range: range, blockSize: blockSize,
+                stagingDirectory: stagingDirectory, syncStaging: syncStaging, progress: progress,
+                checkSpace: checkSpace, validate: source.validateUnchanged) { offset, buffer in
+            var count: Int
+            repeat { count = pread(source.descriptor, buffer.baseAddress!, buffer.count, offset) }
+            while count < 0 && errno == EINTR
+            guard count >= 0 else { throw posixError("pread") }
+            return count
+        }
+    }
+
+    public static func run(size: Int64, range: ByteRange, blockSize: Int = 1024 * 1024,
+                           stagingDirectory: URL? = nil, syncStaging: Bool = false,
+                           progress: Progress = Progress(), checkSpace: ((Int64) throws -> Void)? = nil,
+                           validate: () throws -> Void,
+                           read: (Int64, UnsafeMutableRawBufferPointer) throws -> Int) throws -> TransferOutput {
+        _ = try ByteRange(offset: range.offset, length: range.length, fileSize: size)
         guard (4096...16 * 1024 * 1024).contains(blockSize) else { throw TransferError.invalidBlockSize }
         guard !progress.isCancelled else { throw TransferError.cancelled }
-        try source.validateUnchanged()
+        try validate()
         try checkSpace?(0)
         let begin = DispatchTime.now().uptimeNanoseconds
         var before = rusage(), after = rusage()
@@ -227,9 +250,9 @@ public enum Transfer {
         while offset < range.end {
             guard !progress.isCancelled else { throw TransferError.cancelled }
             try checkSpace?(offset - range.offset)
-            let n = pread(source.descriptor, buffer, min(blockSize, Int(range.end - offset)), offset)
-            if n < 0 { if errno == EINTR { continue }; throw posixError("pread") }
-            guard n > 0 else { throw TransferError.sourceChanged }
+            let capacity = min(blockSize, Int(range.end - offset))
+            let n = try read(offset, UnsafeMutableRawBufferPointer(start: buffer, count: capacity))
+            guard n > 0, n <= capacity else { throw TransferError.sourceChanged }
             calls += 1
             if firstReadTime == nil { firstReadTime = DispatchTime.now().uptimeNanoseconds }
             if outputFD >= 0 {
@@ -257,7 +280,7 @@ public enum Transfer {
             syncSeconds = seconds(start, DispatchTime.now().uptimeNanoseconds)
         }
         guard !progress.isCancelled else { throw TransferError.cancelled }
-        try source.validateUnchanged()
+        try validate()
         if outputFD >= 0 {
             let fd = outputFD
             outputFD = -1 // close must not be retried: the descriptor may have been reused.

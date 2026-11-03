@@ -50,6 +50,49 @@ final class TransferCoreTests: XCTestCase {
         XCTAssertThrowsError(try ByteRange.aligned(minimum: small, alignment: 3, fileSize: 10))
     }
 
+    func testRemoteShortReadsPreserveOffsetsAndValidateBeforeAndAfter() throws {
+        try withFixture { _, directory, bytes in
+            let range = try ByteRange(offset: 123, length: 8_001, fileSize: Int64(bytes.count))
+            var validations = 0, next = range.offset
+            let output = try Transfer.run(size: Int64(bytes.count), range: range,
+                blockSize: 4096, stagingDirectory: directory, validate: { validations += 1 }) { offset, buffer in
+                XCTAssertEqual(offset, next)
+                let count = min(777, buffer.count)
+                bytes.copyBytes(to: buffer.bindMemory(to: UInt8.self), from: Int(offset)..<(Int(offset) + count))
+                next += Int64(count)
+                return count
+            }
+            XCTAssertEqual(validations, 2)
+            XCTAssertEqual(next, range.end)
+            let staged = try Data(contentsOf: XCTUnwrap(output.stagingURL))
+            XCTAssertEqual(staged[123..<8_124], bytes[123..<8_124])
+        }
+    }
+
+    func testRemoteInvalidReadsAndFailedPostvalidationRemoveStaging() throws {
+        try withFixture { _, directory, bytes in
+            let range = try ByteRange(offset: 0, length: 4096, fileSize: Int64(bytes.count))
+            for invalid in [-1, 0, 4097] {
+                XCTAssertThrowsError(try Transfer.run(size: Int64(bytes.count), range: range,
+                    blockSize: 4096, stagingDirectory: directory, validate: {}) { _, _ in invalid }) {
+                    XCTAssertEqual($0 as? TransferError, .sourceChanged)
+                }
+                XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path), ["fixture.bin"])
+            }
+            var validations = 0
+            XCTAssertThrowsError(try Transfer.run(size: Int64(bytes.count), range: range,
+                blockSize: 4096, stagingDirectory: directory, validate: {
+                    validations += 1
+                    if validations == 2 { throw TransferError.sourceChanged }
+                }) { _, buffer in
+                    bytes.copyBytes(to: buffer.bindMemory(to: UInt8.self), from: 0..<buffer.count)
+                    return buffer.count
+                })
+            XCTAssertEqual(validations, 2)
+            XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path), ["fixture.bin"])
+        }
+    }
+
     func testRangePastEOFIsClampedButStartPastEOFFails() throws {
         let tail = try ByteRange.clampedToEOF(offset: 2_742_681_545, length: 131_072, fileSize: 2_742_783_442)
         XCTAssertEqual(tail.end, 2_742_783_442)

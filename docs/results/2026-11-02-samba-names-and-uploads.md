@@ -271,9 +271,10 @@ trace shows a successful final native `openat`; the earlier app failure was not 
 that save. The original file identity remained unchanged. The existing empty quarantine file,
 retired partial stage and exported recovery copies remain intact.
 
-### Proposed transport experiment
+### Single-client transport experiment
 
-Decision status: proposed. Build a separate VM-only prototype in which the existing SMB client
+Decision status: accepted on 2026-11-03. The user authorized all work needed in the VM.
+Build a separate VM-only prototype in which the existing SMB client
 owns remote listing, metadata, reads and writes. Keep the File Provider architecture, scoped
 access, sandbox, exact verification and recovery rules. Use a fresh disposable location and
 separate test bundle so existing pending records need no migration or removal.
@@ -285,9 +286,23 @@ helpers do not establish that this design can meet them. Adoption and Mac instal
 remain later decisions. No server change or additional library is proposed. The existing
 `Vendor/libsmb2/COPYING` still specifies LGPL-2.1-or-later; distribution review remains open.
 
-This experiment exceeds the approved private-stage exception and requires a user decision.
-The current production transport remains unchanged. No application source changed, so the
-previous required VM checks still apply; no new app build or physical-Mac installation occurred.
+This experiment extends the private-stage exception within the authorized VM scope.
+The installed apps remain unchanged. The `single-smb-client-prototype` branch now routes
+catalog listings, file metadata, payload reads and uploads through the existing SMB adapter.
+Native mounts still supply the scoped grant, cached credentials, mount lifecycle and directory
+change hints. Native root descriptors remain in write admission and deletion settlement; this
+experiment does not yet remove the mount infrastructure.
+
+New uploads use exclusive creation and persist file ID plus birth time before writing. A retry
+only verifies an already-created file. The save transaction retains protected handles, complete
+content verification, close/reopen checks and retained recovery copies. Initial direct reads
+verify and stage serially; no performance result is claimed. Catalog IDs now use SMB IDs, so the
+candidate requires a fresh domain and separate bundle. It must not open earlier prototype data.
+
+Focused host package checks passed 61 tests with one optional fixture skip and no failures.
+They include interrupted direct uploads, reused IDs with changed birth time, damaged payloads,
+short reads, invalid read counts and post-read validation failures. App compilation, required VM
+checks and signed runtime validation remain pending.
 
 Private evidence is in `results/org-checks-20261102/native-probes-20261103.tar` and
 `native-trace-linux-20261103.tar`. The archives contain the probe scripts and results, signed

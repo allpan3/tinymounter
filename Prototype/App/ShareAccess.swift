@@ -299,8 +299,9 @@ final class ShareAccess: @unchecked Sendable {
             enqueue { [self] in
                 continuation.resume(with: Result {
                     try withSession { session, progressed in
-                        try DirectoryListing.list(locationRoot: session.root, relativePath: path,
-                                                  expected: session.identity, progress: progressed)
+                        guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
+                        let remote = try SMBEdit(endpoint: endpoint, folder: .root, root: session.root, progress: Progress())
+                        return try remote.list(path, progressed: progressed)
                     }.entries.filter { $0.kind == .folder }.map(\.name)
                 })
             }
@@ -990,66 +991,7 @@ final class LocationSource: @unchecked Sendable {
     /// Plan §6 step 4: the version, the share state, the catalog path, the file, its fingerprint.
     func transfer(_ request: SourceReadRequest, progress: Progress, stagingDirectory: URL,
                   checkSpace: ((Int64) throws -> Void)? = nil) throws -> TransferOutput {
-        let started = ContinuousClock.now
-        var namespaceWait = Duration.zero
-        let (row, _) = try editNamespace.perform {
-            namespaceWait = started.duration(to: .now)
-            return try readTarget(request)
-        }
-        if request.version.hasPrefix("e1:") || (row.allowsWriting && request.establishEditBase) {
-            return try protectedTransfer(request, progress: progress,
-                                         stagingDirectory: stagingDirectory, checkSpace: checkSpace,
-                                         started: started, namespaceWait: namespaceWait)
-        }
-        let range: ByteRange
-        do {
-            range = try ByteRange(offset: request.range.offset, length: request.range.length, fileSize: row.size)
-        } catch {
-            throw CocoaError(.fileReadCorruptFile)
-        }
-        return try access.withSession { session, progressed in
-            var lease: UUID?
-            // The helper owns the descriptor, so it has closed before the lease ends.
-            defer { if let lease { editNamespace.endRead(lease) } }
-            return try nativeTransfer(request, range: range, session: session, lease: &lease, progress: progress,
-                                      progressed: progressed, stagingDirectory: stagingDirectory, checkSpace: checkSpace)
-        }
-    }
-
-    private func nativeTransfer(_ request: SourceReadRequest, range: ByteRange, session: ShareSession,
-                                lease: inout UUID?, progress: Progress, progressed: @escaping Progressed,
-                                stagingDirectory: URL, checkSpace: ((Int64) throws -> Void)?) throws -> TransferOutput {
-        let root = try session.locationRoot(folder)
-        let (row, file) = try editNamespace.perform {
-            let (current, path) = try readTarget(request)
-            guard let fullPath = folder.appending(path) else { throw UploadError.invalidRequest }
-            try editNamespace.requireUncontested(path: fullPath, excluding: request.id)
-            lease = try editNamespace.beginRead(fullPath)
-            let file = try shareCall(request.id, parent: current.parentID, context: .fetch) {
-                try ReadOnlyFile(directoryFD: root, relativePath: path, expected: session.identity, noCache: true)
-            }
-            let expected = ContentFingerprint(size: current.size, mtimeNs: current.mtimeNs, ctimeNs: current.ctimeNs)
-            guard file.snapshot.fingerprint == expected else {
-                fileChanged(request.id, current, file.snapshot)
-                throw SourceFailure.versionChanged
-            }
-            return (current, file)
-        }
-        // Each block read is progress, so only a transfer that stops reading counts as a stall.
-        let observation = progress.observe(\.completedUnitCount) { _, _ in progressed() }
-        defer { observation.invalidate() }
-        do {
-            return try shareCall(request.id, parent: row.parentID, context: .fetch) {
-                try session.identity.guarding(root: root) {
-                    try Transfer.run(source: file, range: range, stagingDirectory: stagingDirectory,
-                                     progress: progress, checkSpace: checkSpace)
-                }
-            }
-        } catch SourceFailure.versionChanged {
-            // The held descriptor is the file that changed; its path may now name another.
-            if let now = try? file.currentSnapshot() { fileChanged(request.id, row, now) }
-            throw SourceFailure.versionChanged
-        }
+        try directTransfer(request, progress: progress, stagingDirectory: stagingDirectory, checkSpace: checkSpace)
     }
 
     func listOnLane(_ folderID: String, requestID: UUID) throws -> ListReceipt {
@@ -1073,11 +1015,11 @@ final class LocationSource: @unchecked Sendable {
             let located = ContinuousClock.now
             return try access.withSession { session, progressed in
                 let connected = ContinuousClock.now
-                let root = try session.locationRoot(folder)
+                guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
+                let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: session.root, progress: Progress())
                 let rootOpened = ContinuousClock.now
                 let listing = try shareCall(requestID, parent: parentID, context: .listing) {
-                    try DirectoryListing.list(locationRoot: root, relativePath: path, expected: session.identity,
-                                              progress: progressed)
+                    try remote.list(path, progressed: progressed)
                 }
                 let listed = ContinuousClock.now
                 try Self.outbox(domainID: domainID).observeFolderNames(parent: folderID, listing: listing) { record, naming in
@@ -1087,8 +1029,7 @@ final class LocationSource: @unchecked Sendable {
                 }
                 let missing = try withCatalog { try $0.missingChildren(of: folderID, listing: listing) }
                 try shareCall(requestID, parent: parentID, context: .listing) {
-                    try DirectoryListing.confirmMissing(missing, locationRoot: root, relativePath: path,
-                                                        expected: session.identity, progress: progressed)
+                    try remote.confirmMissing(missing, in: path, progressed: progressed)
                 }
                 let checked = ContinuousClock.now
                 var plan: ReconcilePlan?
@@ -1214,31 +1155,6 @@ final class LocationSource: @unchecked Sendable {
                     """)
             }
             throw failure
-        }
-    }
-
-    /// The file on the share differs from its row: record it, so the system asks for the new version.
-    private func fileChanged(_ requestID: UUID, _ row: CatalogRow, _ snapshot: FileSnapshot) {
-        do {
-            let updated = try editNamespace.perform {
-                try editNamespace.requireSettled()
-                return try withCatalog { catalog in
-                    guard let current = try catalog.item(id: row.id), current.contentVersion == row.contentVersion,
-                          current.name.utf8.elementsEqual(row.name.utf8), current.parentID == row.parentID,
-                          current.changeSeq == row.changeSeq else { return false }
-                    return try catalog.updateFingerprint(item: row.id, fingerprint: snapshot.fingerprint, fileID: snapshot.inode)
-                }
-            }
-            if updated { scheduleSignal() }
-            Self.fetchLog.info("""
-                request=\(requestID.uuidString, privacy: .public) item=\(row.id, privacy: .public) \
-                fingerprint_changed=1 updated=\(updated ? 1 : 0)
-                """)
-        } catch {
-            Self.fetchLog.error("""
-                request=\(requestID.uuidString, privacy: .public) item=\(row.id, privacy: .public) \
-                fingerprint_changed=1 updated=0 \(logFields(error), privacy: .public)
-                """)
         }
     }
 
