@@ -28,6 +28,8 @@ final class CatalogItem: NSObject, NSFileProviderItem {
     var documentSize: NSNumber? { isFolder ? nil : NSNumber(value: row.size) }
     var contentModificationDate: Date? { row.parentID == nil ? nil : row.modificationDate }
     var capabilities: NSFileProviderItemCapabilities {
+        if row.name == "copy-writing-probe.txt" { return [.allowsReading, .allowsWriting] }
+        if row.name == "copy-rename-probe.txt" { return [.allowsReading, .allowsRenaming] }
         var result = organizationCapabilities
         if SourceReaderBridge.deletionEnabled, row.parentID != nil, allowsEditing,
            FileRenameRequest.supportsName(row.name),
@@ -54,6 +56,7 @@ final class CatalogItem: NSObject, NSFileProviderItem {
         return row.allowsWriting ? [.allowsReading, .allowsRenaming] : .allowsReading
     }
     var fileSystemFlags: NSFileProviderFileSystemFlags {
+        if row.name == "copy-writing-probe.txt" { return .userReadable }
         if isFolder { return row.allowsWriting ? [.userReadable, .userWritable, .userExecutable] : [.userReadable, .userExecutable] }
         return [.userReadable, .userWritable]
     }
