@@ -71,6 +71,9 @@ the app before or after an attempting, close-acknowledged or deleted checkpoint.
 fires once. Kill only the recorded test process, preserve the hit and resume the fixture app.
 The `admitted` stage stops after traversal handles are released. `action: "fail"` throws a
 synthetic error instead of stopping, so the real callback can fail while retaining pending work.
+`action: "fail-repeated"` keeps that error active across automatic retries until Stop settles
+the record or the control is removed. A `deletion-fault-CHECKPOINT.json` control takes precedence
+at its named checkpoint, allowing admission failure and a separate Settings hold in one trial.
 The `settings` stage requires `action: "hold"` and suspends only the asynchronous Settings
 callback. Create `deletion-release-CONTROL_UUID` in the evidence directory to release it;
 after 180 seconds it fails without settling. This leaves the main actor and request lanes free.
