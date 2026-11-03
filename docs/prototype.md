@@ -515,6 +515,7 @@ Its downloads fail as a missing file. Its saves stay unresolved without a confli
 copy, and its renames, moves and deletions refuse. If the catalog doesn't list such a name, a
 new file or folder can still be created next to it, as through Finder's own mount. Unit tests
 cover these comparisons. Signed Samba/ext4 checks verify selected accented uploads and saves,
-and 20 repeated saves with stage file-ID reuse. Native final confirmation and an unexplained
-quarantine-bearing file at an old stage name still need resolution. See the
+and 20 repeated saves with stage file-ID reuse. November 3 probes reproduce stale native names
+after direct rename and quarantine writes recreating a deleted stage after file-ID reuse.
+No fix is verified; a single-client VM transport experiment is proposed. See the
 [runtime results and accepted staging change](results/2026-11-02-samba-names-and-uploads.md).

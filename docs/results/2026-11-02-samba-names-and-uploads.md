@@ -9,7 +9,9 @@ Reads and ordinary new-file uploads remain native.
 
 Two published saves still needed Retry to finish native confirmation. During a later native
 upload, an empty file with quarantine metadata appeared at a completed transaction's old stage name.
-Its origin is unresolved. These findings keep the Mac update withheld.
+November 3 probes reproduce both symptoms through stale native SMB caches after direct
+mutations. They establish the failure mechanisms, but do not reconstruct the earlier app
+events. No fix is verified. These findings keep the Mac update withheld.
 
 ## Setup and method
 
@@ -221,3 +223,77 @@ Additional private evidence in `results/org-checks-20261102/` includes
 `tinymounter-stage-*.json` Linux audits. The runtime audit records all 20 distinct saved
 versions and the reused stage identity. Unified-log queries also sampled transaction outcomes
 during the run; the final log extraction does not retain every earlier Info event.
+
+## Native cache investigation, 2026-11-03
+
+The same macOS 27.0.1 and Samba 4.19.5/ext4 VMs ran isolated probes in fresh directories on
+the disposable stage share. Each probe deliberately warmed native name and file-ID caches;
+disk caches were uncontrolled. These are correctness results, not throughput measurements.
+Production code and installed build 07 stayed unchanged.
+
+### Recreated stage name
+
+The probe created a private stage through SMB, inspected it through the native mount, and
+deleted it through its protected SMB handle. A native exclusive create at a new name then
+received the same server file ID. Writing a quarantine attribute through that new descriptor
+recreated the deleted stage pathname in all ten trials.
+
+A server syscall trace shows the native client's connection creating the old pathname and
+writing its quarantine stream. Linux independently found the correct payload at the new name
+and a different, empty inode at the old name. A subsequent native metadata open of the new
+name returned size zero while reporting the new file's ID. The probe explicitly wrote the
+quarantine attribute; it does not identify the exact automatic request in the earlier app run.
+
+A control that closed the private handle and deleted through the native mount passed all ten
+trials despite immediate file-ID reuse. Every new file had the correct native size, and no old
+name reappeared. That control is not a production cleanup design: releasing protection before
+a pathname deletion would lose the existing identity and race guarantees.
+
+Apple's published SMB code keys cached nodes by server file ID and removes the node from that
+table before native deletion, explicitly citing immediate Samba/NetApp ID reuse. Direct deletion
+bypasses this native operation. The source supports the probe's explanation; it is not proof
+of the installed kernel's exact implementation. See [research W18](../research.md#native-smb-caches-2026-11-03).
+
+### Confirmation after rename
+
+A second probe renamed a protected file to a temporary name, let the native client cache that
+name, and renamed it back. The direct client reopened the final name successfully. Native
+`getattrlistbulk`, using the app's requested attributes and options, still returned the temporary
+name in all ten trials. Native `O_EVTONLY` opens of the final name returned `ENOENT`.
+
+For the last file, listing and open still failed at the one- and five-second checkpoints. At
+35 seconds the listing returned the final name and the open succeeded. This is not a universal
+cache-expiry bound. Relisting does not guarantee a fresh namespace, so adding a short retry
+would not establish correctness.
+
+The signed app's additional large-file save completed with `recovery=false`. Its filesystem
+trace shows a successful final native `openat`; the earlier app failure was not reproduced in
+that save. The original file identity remained unchanged. The existing empty quarantine file,
+retired partial stage and exported recovery copies remain intact.
+
+### Proposed transport experiment
+
+Decision status: proposed. Build a separate VM-only prototype in which the existing SMB client
+owns remote listing, metadata, reads and writes. Keep the File Provider architecture, scoped
+access, sandbox, exact verification and recovery rules. Use a fresh disposable location and
+separate test bundle so existing pending records need no migration or removal.
+
+First repeat these cache probes and the signed save, conflict, interruption and new-file cases.
+Then compare full downloads, partial reads and uploads with the same VM's native baseline using
+the existing benchmark plan. Existing throughput gates stay unchanged; the current serial SMB
+helpers do not establish that this design can meet them. Adoption and Mac installation
+remain later decisions. No server change or additional library is proposed. The existing
+`Vendor/libsmb2/COPYING` still specifies LGPL-2.1-or-later; distribution review remains open.
+
+This experiment exceeds the approved private-stage exception and requires a user decision.
+The current production transport remains unchanged. No application source changed, so the
+previous required VM checks still apply; no new app build or physical-Mac installation occurred.
+
+Private evidence is in `results/org-checks-20261102/native-probes-20261103.tar` and
+`native-trace-linux-20261103.tar`. The archives contain the probe scripts and results, signed
+save logs, server syscall trace and backing-file audits. The final enumeration probe is
+`native-rename-bulk-confirm.json`; the quarantine reproduction and native control are
+`native-path-quarantine.json` and `native-path-native-delete.json`. Apple source excerpts are
+in `apple-smb-cache-excerpts-20261103.txt`; `final-probe-audit.json` confirms the final rename
+contents and the native control's metadata placement. All diagnostic processes have stopped; fixture
+files remain for inspection, and no server configuration changed.

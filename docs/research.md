@@ -294,6 +294,18 @@ comparison fixes both clients, but no captured server log confirms the exact fal
   independent verification. A disposable Samba 4.19.5/ext4 probe returned close timestamps that
   matched a reopened handle, while pre-close queries returned earlier values after a flush.
 
+### Native SMB caches, 2026-11-03
+
+- **W18:** Apple's published [`smb_hashget`](https://github.com/apple-oss-distributions/SMBClient/blob/main/kernel/smbfs/smbfs_node.c)
+  matches cached nodes by file ID when the server supports them. The native
+  [`smbfs_remove`](https://github.com/apple-oss-distributions/SMBClient/blob/main/kernel/smbfs/smbfs_vnops.c)
+  removes that entry before deletion, with a comment citing immediate ID reuse by Samba and
+  NetApp. A failed delete reinserts it. A direct SMB mutation does not execute this native
+  vnode operation. These public sources explain the isolated wrong-path metadata probe;
+  they are not a verified match to the installed macOS kernel. The
+  [November 3 results](results/2026-11-02-samba-names-and-uploads.md#native-cache-investigation-2026-11-03)
+  separate runtime observations from source-based interpretation.
+
 ## Research limitations
 
 Live web documentation and current SDK headers establish API contracts, not actual throughput. Search was unreliable, and several sites initially failed the VM's DNS resolution; direct HTTPS retrieval with explicitly resolved public addresses succeeded. No VM DNS settings were changed. Subsequent work measured native SMB and short NAS-backed provider reads and ran signed correctness checks; dated results logs record those separately. Competitor installations, the player matrix, large-file throughput acceptance, and controlled failure experiments remain incomplete, as described in the benchmark plan.
