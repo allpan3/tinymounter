@@ -2,7 +2,54 @@ import FileProvider
 import Foundation
 
 #if !M22_FINDER_PROVIDER
+@MainActor
+private enum M24ClosedSourceProbe {
+    static var record: PendingDeletion?
+}
+
 extension LocationController {
+    func checkDeletionSourceClose(_ config: M22FinderProbe.Config, label: String) async throws {
+        guard let source = sources[config.domain] else { throw LocationError.catalogClosed }
+        if label == "check-source-close" {
+            let records = try await Self.offMain { try LocationSource.deletionOutbox().records() }
+            let pending = records.filter { $0.plan.owner == config.domain && !$0.isComplete }
+            try M22FinderProbe.require(M24ClosedSourceProbe.record == nil && pending.count == 1
+                && pending[0].isSettled && pending[0].plan.selected.path == config.folder + "/Deletion/SourceClose.txt",
+                "one-settled-source-close-fixture-required")
+            let record = pending[0]
+            let held: Bool = await withCheckedContinuation { continuation in
+                source.access.enqueue {
+                    continuation.resume(returning: source.deletionRecoveries[record.id]?.settingsPending == true)
+                }
+            }
+            try M22FinderProbe.require(held, "real-settings-completion-held")
+            M24ClosedSourceProbe.record = record
+            source.close()
+        }
+        guard let record = M24ClosedSourceProbe.record else {
+            throw M22FinderProbe.Failure.check("closed-source-probe-required")
+        }
+        let drained: Bool = await withCheckedContinuation { continuation in
+            source.access.enqueue { continuation.resume(returning: source.deletionRecoveries.isEmpty) }
+        }
+        try M22FinderProbe.require(drained && source.deletionRecoveryLock.withLock {
+            source.deletionCancellation.isClosed && !source.deletionCancellation.isStopping(record.id)
+        }, "closed-source-drained-without-stop")
+        let current = try await Self.offMain { try LocationSource.deletionOutbox().reload(record) }
+        try M22FinderProbe.require(current == record, "closed-source-retains-record")
+        try M22FinderProbe.save(["sourceClosed": true, "recoveriesDrained": true,
+            "recordPreserved": true, "noStop": true],
+            to: M22FinderProbe.directory(config.run).appending(path: label + "-state.json"))
+    }
+
+    func checkJoinedDeletionJobs(_ config: M22FinderProbe.Config, label: String) async throws {
+        let phase = String(label.dropFirst("check-joined-jobs-".count))
+        try M22FinderProbe.require(["hold", "release", "cancel", "verify"].contains(phase), "joined-job-phase")
+        let report = try await reader.checkJoinedDeletionJobs(domain: config.domain, phase: phase)
+        try M22FinderProbe.save(report,
+            to: M22FinderProbe.directory(config.run).appending(path: label + "-jobs.json"))
+    }
+
     func checkProviderDeletionCancellation(_ config: M22FinderProbe.Config, label: String) async throws {
         let records = try await Self.offMain { try LocationSource.deletionOutbox().records() }
         let active = records.filter { $0.plan.owner == config.domain && !$0.isSettled }
@@ -50,7 +97,7 @@ extension LocationController {
                 && $0.plan.selected.path.hasPrefix(config.folder + "/Deletion/")
         }
         try M22FinderProbe.require(!stopped.isEmpty, "completed-stopped-record-required")
-        var checked: [String] = []
+        var checked: [String] = [], refreshed = 0
         for record in stopped {
             guard let row = try source.withCatalog({ try $0.item(id: record.plan.request.item) }),
                   !row.deleted else { continue }
@@ -64,8 +111,8 @@ extension LocationController {
                                       "different-archive-required")
             let request = DeletionRequest(item: row.id, contentVersion: row.contentVersion,
                                           metadataVersion: row.metadataVersion, eventVersion: event)
-            try M22FinderProbe.require(request.contentVersion != record.plan.request.contentVersion
-                || request.metadataVersion != record.plan.request.metadataVersion, "refreshed-base-required")
+            if request.contentVersion != record.plan.request.contentVersion
+                || request.metadataVersion != record.plan.request.metadataVersion { refreshed += 1 }
             let result: Result<PendingDeletion, Error> = await withCheckedContinuation { continuation in
                 source.deleteItem(request, recursive: true, progress: Progress(), started: {}) {
                     continuation.resume(returning: $0)
@@ -77,6 +124,7 @@ extension LocationController {
             checked.append(record.id.uuidString)
         }
         try M22FinderProbe.require(!checked.isEmpty, "live-stopped-item-required")
+        try M22FinderProbe.require(refreshed > 0, "refreshed-base-required")
         let after = try await Self.offMain { try LocationSource.deletionOutbox().records() }
         try M22FinderProbe.require(before == after, "replay-records-unchanged")
         try M22FinderProbe.save(checked,
