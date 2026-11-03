@@ -13,8 +13,10 @@ Ordinary Save and Save As passed for the tested TextEdit, Preview and Xcode docu
 disconnected TextEdit saves survived intentional Quit/relaunch, main-app crash and extension
 termination. A competing server edit preserved both versions. A moved-original trial instead
 published an unwanted conflict copy. Build 18 retains and exports the edit, but returning the
-original exposed a catalog-binding retry defect. The additional guard awaits signed verification. These checks
-do not complete the metadata, storage or offline-editing acceptance matrix.
+original exposed a catalog-binding retry defect. Its guard passes the fresh signed checks below.
+An app-absent save survives refused eviction and uploads after relaunch; an RTF save survives an
+app crash and a competing edit. Metadata export exposed omitted callback attributes. The repair
+awaits signed verification. These checks do not complete the storage or offline-editing matrix.
 
 ## Setup and evidence
 
@@ -162,16 +164,69 @@ claimed. Full snapshots waited in user-visible URL resolution, so queue-only sna
 that step explicitly. The app now validates the original catalog binding before beginning any
 pending publication, including Retry. A deleted binding stays local even if its pathname returns.
 Already-started recovery still uses its recorded evidence. A catalog regression test covers the
-read-only, deleted and returned-name cases. Signed verification of this guard remains pending.
+read-only, deleted and returned-name cases. Fresh signed verification is recorded below.
 The fixture's `check-editor-end-trace` action archives only its own tracing pointer after checking
 the run identity. It permits a fresh fixture while preserving the failed location and recovery
 records for investigation. It is absent from ordinary builds.
 
+## Fresh recovery checks
+
+The separate signed OfflineCheck-1 installation uses the same code as EventCheck build 20,
+with its own bundle ID, App Group, settings and fresh fixture. The failed EventCheck transaction
+remains preserved. Only the fresh test domain was enabled in System Settings. Its initial
+`check-editor-state-baseline` preceded enablement and is not hydration evidence.
+`check-editor-state-hydrated` verifies the downloaded TXT bases before disconnection.
+Evidence uses the setup paths above with the fresh run in its own `config.json`.
+
+Stopping the disposable Linux Samba service disconnected these trials. The snapshot's
+`connected` field reports whether a mount path exists, not live server reachability. It can
+remain true during the outage. Cache state was uncontrolled; these are correctness checks.
+
+| Trial | Verified result | Evidence |
+| --- | --- | --- |
+| Moved original | Reconnect retains the prepared save with no server stage or conflict copy. Reconciliation retires the original catalog binding. | `check-editor-state-move-{offline,reconnected}`, Linux `move-reconnected-audit.json` |
+| Returned original | Returning the same server inode and choosing Retry preserves its original bytes. The old local save remains prepared across relaunch and exports completely. | `check-editor-state-queue-return-retry`, `returned-original-export-report.json`, Linux `return-retry-audit.json` |
+| Deleted original | After archiving and unlinking only the disposable original, reconnect and Retry retain the local save. Export reproduces its complete bytes without recreating the server pathname. | `check-editor-state-queue-delete-{offline,reconnected}`, `deleted-original-export-report.json` |
+| Unrelated ordinary save | Another file publishes normally, preserves its inode, and leaves both recovery records intact. | `check-editor-state-queue-normal-save`, Linux `missing-original-report.json` |
+| App absent and eviction | With the app intentionally quit and Samba stopped, TextEdit saves and closes a downloaded file. Finder's Remove Download reports that it cannot be evicted. Complete local bytes remain with materialization disabled. Relaunch publishes the same revision and clears that file's system pending entry. | `app-absent-*.json`, `app-absent-eviction.log`, `check-editor-state-queue-app-absent-relaunch`, Linux `app-absent-{before-relaunch,relaunch}-audit.json` |
+| RTF interruption and conflict | A bold TextEdit save is durably prepared offline. After SIGKILL, a competing server edit and relaunch, the original keeps that edit and inode; one conflict copy matches the entire pending RTF. | `check-editor-state-queue-rich-{offline,reconnected}`, `rich-app-crash-control.json`, Linux `rich-conflict-report.json` |
+
+The returned-name full snapshot also waited in macOS URL resolution. Its request is preserved
+in `blocked-url-requests`; queue-only capture completed after resuming the diagnostic session.
+The first resume attempt used `setup` and was correctly refused as an existing tracing session.
+No domain or pending save was removed to recover diagnostics.
+
+Required VM checks for the binding guard and diagnostic change pass with 648 tests, two optional
+skips and no Swift warnings in `checks-edit-binding.log` and `checks-editor-trace.log` under
+`results/replace-20261103`. These checks do not cover OS restart or real disk-pressure eviction.
+
+## Incoming metadata and recovery export
+
+The fresh fixture also tests a resource fork, Finder tags and a custom attribute. TextEdit
+preserved the tags and custom attribute on TXT but removed its resource fork before delivery.
+A separate in-place POSIX fixture write retained the fork, then triggered a content callback.
+That save remained prepared across app termination and reconnect; the server document stayed
+unchanged. Export Local Copy reproduced the entire content, resource fork and tag data.
+`metadata-input-attributes.json`, `metadata-after-textedit.json`, `metadata-posix-save.json`,
+`metadata-export-report.json` and Linux `metadata-remote-report.json` record the distinction.
+
+The unmarked custom attribute was absent from export. Apple's Xcode 27 SDK documents that
+File Provider filters nonsyncable attributes and caps syncable attributes at about 32 KiB.
+No arbitrary-xattr preservation claim follows. The resource fork travels as contents; tags
+have their own item property. These tests do not enable remote tag or resource-fork syncing.
+
+The earlier TXT recovery exports also omitted `com.apple.TextEncoding`, although the provider
+logged that macOS supplied it in `item.extendedAttributes`. The provider copied only the content
+snapshot and ignored that separate dictionary. It now adds those delivered attributes to its
+private local stage before durable preparation. Pending export can then retain them without
+changing the server metadata policy. Regressions cover export after reopening and refusal of
+symlinks, hard links and invalid attribute names. Signed verification remains pending.
+
 ## Remaining work and decision
 
-Verify the missing-original repair in the signed candidate, then continue interruption/conflict
-coverage beyond TXT, eviction protection while dirty or app-closed, signed low-space admission
-and retained metadata. Do not infer completion from the successful basic save checks.
+Verify the callback-attribute repair in the signed candidate, then continue signed low-space
+admission, interruption coverage for other document formats and broader eviction checks.
+Do not infer completion from the successful small-document checks.
 
 Normal Finder deletion cannot be enabled under the current replacement guarantee using the
 observed callbacks. A possible alternative is an explicit provider action for permanent deletion,

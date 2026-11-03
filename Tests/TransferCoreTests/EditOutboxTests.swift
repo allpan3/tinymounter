@@ -859,4 +859,37 @@ final class EditOutboxTests: XCTestCase {
         XCTAssertThrowsError(try outbox.validateContents(record))
         XCTAssertEqual(try outbox.pendingCount, 1)
     }
+
+    func testCallbackAttributesSurvivePendingSaveRestartAndExport() throws {
+        setAttribute("content snapshot attribute")
+        let attributes = ["com.apple.TextEncoding": Data("UTF-8;134217984".utf8),
+                          "dev.tinymounter.sync#S": Data("callback attribute".utf8)]
+        try Staging.retainExtendedAttributes(attributes, at: input)
+        let record = try prepare()
+        try FileManager.default.removeItem(at: input)
+        let reopened = try EditOutbox(directory: directory.appending(path: "Edits"))
+        let destination = directory.appending(path: "exported.txt")
+        try reopened.export(record, to: destination)
+        XCTAssertEqual(try Data(contentsOf: destination), Data("pending document".utf8))
+        for (name, expected) in attributes.merging(["dev.tinymounter.test":
+            Data("content snapshot attribute".utf8)], uniquingKeysWith: { _, new in new }) {
+            var actual = Data(count: expected.count)
+            XCTAssertEqual(actual.withUnsafeMutableBytes {
+                getxattr(destination.path, name, $0.baseAddress, $0.count, 0, 0)
+            }, expected.count)
+            XCTAssertEqual(actual, expected)
+        }
+    }
+
+    func testCallbackAttributesRejectAliasedFilesAndInvalidNames() throws {
+        let alias = directory.appending(path: "alias")
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: input)
+        let attributes = ["dev.tinymounter.sync#S": Data("callback attribute".utf8)]
+        XCTAssertThrowsError(try Staging.retainExtendedAttributes(attributes, at: alias))
+        XCTAssertThrowsError(try Staging.retainExtendedAttributes(["invalid\0name": Data()], at: input))
+        try FileManager.default.removeItem(at: alias)
+        try FileManager.default.linkItem(at: input, to: alias)
+        XCTAssertThrowsError(try Staging.retainExtendedAttributes(attributes, at: input))
+        XCTAssertEqual(getxattr(input.path, "dev.tinymounter.sync#S", nil, 0, 0, 0), -1)
+    }
 }

@@ -15,6 +15,24 @@ public enum Staging {
         return stageFileName(id).utf8.elementsEqual(name.utf8)
     }
 
+    public static func retainExtendedAttributes(_ attributes: [String: Data], at url: URL) throws {
+        guard !attributes.isEmpty else { return }
+        guard attributes.keys.allSatisfy({ !$0.isEmpty && !$0.utf8.contains(0) }) else {
+            throw CocoaError(.fileWriteInvalidFileName)
+        }
+        let fd = open(url.path, O_RDWR | O_NOFOLLOW | O_CLOEXEC)
+        guard fd >= 0 else { throw posixError("open staged attributes") }
+        defer { close(fd) }
+        var info = stat()
+        guard fstat(fd, &info) == 0 else { throw posixError("inspect staged attributes") }
+        guard info.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG), info.st_nlink == 1,
+              try FileSystemInfo(fd: fd).isLocal else { throw CocoaError(.fileWriteNoPermission) }
+        for (name, value) in attributes {
+            let result = value.withUnsafeBytes { fsetxattr(fd, name, $0.baseAddress, $0.count, 0, 0) }
+            guard result == 0 else { throw posixError("retain staged attribute") }
+        }
+    }
+
     /// Only regular files with `Transfer.run`'s stage-file names go; symlinks and folders stay.
     public static func removeLeftoverStageFiles(in directory: URL, createdBefore cutoff: Date,
                                                 excluding excluded: Set<String> = []) throws -> Int {
