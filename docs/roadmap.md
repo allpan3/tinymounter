@@ -16,6 +16,23 @@ compatibility claim or an estimate of delivery time.
 
 ## Milestones and dependencies
 
+Current checklist, 2026-11-04 (the dated results supersede older status notes below):
+
+| Scope | Implemented and signed-VM verified | Remaining |
+| --- | --- | --- |
+| M21/M22 organization | Ordinary files and folders; preserved IDs, downloads and keeps; interruption recovery; visible recovery for refused renames/moves | Broader NAS and physical-Mac acceptance |
+| M23 recovery | Save ordering, export, Stop Uploading, retained conflicts, low-space recovery and system-only pending items | Broader compatibility and physical-Mac acceptance |
+| M24 deletion | Confirmed Delete Permanently… and interrupted-operation Retry | Ordinary Finder deletion stays refused because its callbacks cannot distinguish Replace |
+| M25 editor saves | Save, repeated Save and Save As for tested TextEdit TXT/RTF, Preview PDF/PNG and Xcode source files | Finder Replace is blocked on safe intent binding; combined rename/content callbacks and broader metadata need evidence |
+| M26 offline saves | Tested TextEdit lifecycle, restart, conflicts, low-space retention and OS pressure eviction | Broader format coverage; saves after plain POSIX reads still make conflict copies without a verified edit base |
+| M27/M28 acceptance and release | Integrated VM candidate; merged build installed and launched on the physical Mac | Physical-Mac daily workflows, broader NAS compatibility and release packaging/licensing remain unverified |
+
+Evidence: [editor saves](results/2026-11-03-editor-replacement.md),
+[candidate validation](results/2026-11-04-candidate-validation.md),
+[adoption](results/2026-11-04-adoption.md) and
+[pending rename recovery](results/2026-11-04-pending-rename-recovery.md).
+Physical-Mac installation is not workflow acceptance.
+
 Numbers identify outcomes; independent work may run in parallel. M21 and M23 can start together
 after agreement on their shared interfaces. M21 includes the identity work
 needed for ordinary existing files. The earlier proposal limited to verified-file moves is

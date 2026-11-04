@@ -2,6 +2,16 @@
 
 A macOS app that brings a network disk, such as a NAS, into Apple's file system: browse it from Finder or another file manager such as QSpace, download on demand, and keep selected files available offline. Finder is the first file manager and SMB the first protocol it will support. A later mode will mount server volumes, the ordinary macOS SMB mounts, automatically.
 
+Pending recovery, 2026-11-04: Settings now shows renames and moves held by macOS without an app
+transaction, with the refusal reason, Show in Finder and instructions to restore the server name
+and parent. Signed VM checks pass for Retry, Finder undo, relaunch and subsequent permanent
+deletion. All 663 tests and required VM checks pass, with two optional skips and no Swift warnings.
+The user-approved update is installed in Applications and launches cleanly on the physical Mac,
+with unchanged signing identity and entitlements and a backup of the earlier app. Preflight and
+launch found no locations or pending items; add locations again to use it. Physical-Mac file
+workflows remain unverified. See the
+[recovery results](docs/results/2026-11-04-pending-rename-recovery.md).
+
 Installation, 2026-11-04: [PR #26](https://github.com/allpan3/tinymounter/pull/26) and
 [PR #27](https://github.com/allpan3/tinymounter/pull/27) passed CI and merged. The signed build is
 installed in Applications and launches cleanly, with unchanged signing identity, App Group and

@@ -4,7 +4,8 @@ Date: 2026-11-02. Decision status: accepted on 2026-11-02 with the recommendatio
 The user asked for simple, effective methods. Parts 1–3 are implemented and pass a signed VM
 check ([results](results/2026-11-02-pending-changes-list.md)). Parts 4–5 are implemented for new
 items and pass a signed VM check ([results](results/2026-11-02-stop-uploading.md)). Stop
-Uploading for edits of existing files is implemented and waits for its VM check.
+Uploading for edits of existing files passes the signed
+[concurrent-save recovery check](results/2026-11-03-permanent-command.md).
 
 On 2026-11-01 three pending records kept the physical Mac's location from being removed and
 stopped NAS change discovery. Settings showed only "Pending changes: 3", and nothing the user
@@ -67,7 +68,7 @@ share-wide.
 The app keeps the last failure of each new file or folder in memory, by its macOS template, with
 its path, a short reason and the time. Success removes it, and Retry clears the list so that the
 next attempts fill it again. Nothing is written to disk, and no record format changes. Edits and
-renames already show their state, so they are not included.
+renames with transaction records already show their state. Part 6 covers changes held only by macOS.
 
 ### 3. List pending new items in Settings
 
@@ -75,7 +76,7 @@ Below the count, the location pane lists each new item that is not on the server
 upload record, or a failure that came before a record existed. Each row shows "New folder:" or
 "New file:" with the path, then "Waiting to upload" or "Did not upload: *reason* Last try:
 *time*." Retry Pending Changes appears whenever anything is pending or listed. Items that macOS
-holds behind a parent folder have no app record, so they are not listed.
+holds behind a parent folder have no app record; part 6 lists them when macOS supplies them.
 
 ### 4. Stop an item only with evidence
 
@@ -102,6 +103,25 @@ things:
    folder in Finder.
 
 Records in uncertain states still block removal, and the dialog names them.
+
+### 6. Show changes held only by macOS
+
+Accepted follow-up, 2026-11-04: Settings also reads File Provider's pending set. This includes
+renames and moves refused before an app transaction exists. Each system row shows its supplied
+name, failure and Show in Finder. The system can supply the server name even when Finder shows
+a pending local name. The list is separate from the app's transaction count; these sets overlap.
+A capped or unavailable system list is reported explicitly.
+
+A stale-base organization refusal keeps `cannotSynchronize`, with a fixed reason that contains
+no path. The provider preserves only this recognized error detail. Settings uses the catalog
+to show the last known server path and tells the user to restore that name and folder in
+Finder. It withholds that guidance for retired bindings or unresolved rename transactions.
+Retry keeps the existing admission checks. It does not rebase the request onto a newer item.
+An older generic error gets its specific reason when Retry sends the request again.
+
+macOS owns the pending entry and its error; no new app storage or data migration is added.
+Undo uses the existing callback that completes only when the requested name and parent already
+match the catalog. No server rename, content discard or forced completion is added.
 
 ## Decisions
 

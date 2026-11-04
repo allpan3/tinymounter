@@ -639,6 +639,22 @@ final class AppModel {
         try await controller.pendingCreates(record)
     }
 
+    func systemPendingChanges(_ record: LocationRecord) async throws -> SystemPendingChanges {
+        try await controller.systemPendingChanges(record)
+    }
+
+    func showPendingInFinder(_ item: SystemPendingChange, record: LocationRecord) {
+        guard let manager = controller.manager(for: record) else { return show(UIText.cannotShow) }
+        Task {
+            do {
+                let url = try await manager.getUserVisibleURL(for: NSFileProviderItemIdentifier(item.id))
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            } catch { show(UIText.cannotShow) }
+        }
+    }
+
     func deletionRecords(_ record: LocationRecord) async throws -> [DeletionStatus] {
         try await controller.deletionRecords(record)
     }

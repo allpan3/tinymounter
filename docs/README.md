@@ -26,6 +26,8 @@ it wrong.
 
 ## Results logs
 
+- [Pending rename recovery](results/2026-11-04-pending-rename-recovery.md). Settings lists system-only pending changes, preserves stale-base refusal reasons and guides Finder undo. Signed VM rename/move recovery, app restart and subsequent permanent deletion pass.
+
 - [Single-client adoption](results/2026-11-04-adoption.md). The user adopted the transport and accepted writable partial reads; normal builds enable folder organization and Delete Permanently…. Retry continues an interrupted permanent deletion; restoring the original name clears a refused rename. Same-steps VM recording and installation preflight.
 - [Single-client candidate validation](results/2026-11-04-candidate-validation.md). Prefetch cleanup, restart reconnection, disk-pressure eviction, interrupted upgrade and account-mismatch refusal pass after three fixes. Concurrent use of two accounts is unverified. Read-only partial reads and seeks meet their VM targets; writable partial reads fail at a median paired ratio of 0.725. Corrects the earlier record and states the adoption decision.
 - [Integrated single-client candidate](results/2026-11-04-integrated-candidate.md). Read-only partial reads reach a ratio of medians of 0.917 with next-extent prefetch. Superseded by the validation above.

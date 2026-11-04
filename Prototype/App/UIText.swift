@@ -1,3 +1,4 @@
+import FileProvider
 import Foundation
 
 /// All UI text, in ASD-STE100 (docs/ui-design.md §8), so the STE checker reads one file.
@@ -202,6 +203,21 @@ enum UIText {
     static let savedChangeSpace = "New saves stop when there is not enough space above the 2 GiB reserve. Saved copies are retained."
     static let retiredEdit = "Older save kept for recovery. It will not upload. Newer saves can continue."
     static let pendingStatusUnavailable = "Cannot read pending change status. Local copies are retained."
+    static let systemPendingIncomplete = "macOS has not supplied the complete pending list. More items may be waiting."
+    static let systemPendingWaiting = "Waiting for macOS to finish this change."
+    static func systemPendingReason(_ error: NSError?) -> String {
+        guard let error else { return systemPendingWaiting }
+        if SourceReaderBridge.isRefusedOrganization(error) {
+            return SourceReaderBridge.refusedOrganizationError.localizedDescription
+        }
+        if error.domain == NSFileProviderErrorDomain, error.code == NSFileProviderError.cannotSynchronize.rawValue {
+            return "macOS could not synchronize this change. Select Retry Pending Changes to check again."
+        }
+        return error.localizedDescription
+    }
+    static func systemPending(_ path: String) -> String { "Pending in macOS: \(path)" }
+    static func pendingOriginalPath(_ path: String) -> String { "Last known server path: \(path)" }
+    static let pendingOrganizationUndo = "To undo a refused rename or move, restore this name and folder in Finder. After it clears, you can try the change again."
     static let renameNeedsRecovery = "File change pending or needs recovery. Keep this location until it finishes."
     static func pendingRename(from: String, to: String) -> String { "Rename \(from) to \(to)" }
     static func pendingMove(from: String, to: String) -> String { "Move \(from) to \(to)" }
