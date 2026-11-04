@@ -43,6 +43,13 @@ final class RemountPolicyTests: XCTestCase {
         XCTAssertEqual(delays, [10, 20, 40, 80, 160, 300, 300].map { Duration.seconds($0) })
     }
 
+    func testUnansweredServerInfoIsRetried() {
+        var policy = wanted()
+        _ = policy.startMount(now: .zero)
+        XCTAssertEqual(policy.finished(status: RemountPolicy.serverInfoFailed, now: .zero), .retry(after: .seconds(10)))
+        XCTAssertTrue(policy.startMount(now: .seconds(10)))
+    }
+
     func testOtherFailureStopsUntilConditionsChange() {
         var policy = wanted()
         _ = policy.startMount(now: .zero)

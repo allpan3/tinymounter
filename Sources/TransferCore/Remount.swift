@@ -65,9 +65,12 @@ public struct RemountPolicy: Sendable {
         }
     }
 
+    /// NetFS's status when the server doesn't answer its server-info request, as when it pauses.
+    public static let serverInfoFailed: Int32 = -1
+
     /// A mount status that can change when the server or the network does.
     public static func isNetworkFailure(_ status: Int32) -> Bool {
-        [ETIMEDOUT, EHOSTUNREACH, ENETUNREACH, EHOSTDOWN, ENETDOWN, ECONNREFUSED, ECONNRESET,
+        [serverInfoFailed, ETIMEDOUT, EHOSTUNREACH, ENETUNREACH, EHOSTDOWN, ENETDOWN, ECONNREFUSED, ECONNRESET,
          ECONNABORTED, ENOTCONN, EADDRNOTAVAIL, EAGAIN, EINTR].contains(status)
     }
 }
