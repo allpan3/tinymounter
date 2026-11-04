@@ -6,7 +6,8 @@ the upstream terms. Copyright notices remain in each source file.
 
 TinyMounter builds a separate dynamic library and embeds it in Contents/Frameworks. It uses
 this library for exclusive folder creation, initial naming and M19's protected save transaction.
-Normal reads, file payload uploads and mount management remain native. M19 adds protected
+On main, normal reads, file payload uploads and mount management remain native. The
+`single-smb-client-prototype` branch also uses it for all reads and uploads. M19 adds protected
 identity/content verification, private stage and backup permissions, server-side COPYCHUNK,
 exclusive renames, exact length, flush and cleanup of proved disposable copies. Verification
 also reads the quarantine stream that macOS can add to a private native upload stage; it does

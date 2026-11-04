@@ -252,9 +252,9 @@ retires only the affected child in both views. Case-colliding and Unicode-equiva
 block recovery without mutation; removing the test collisions permits preserved-ID completion.
 The required VM checks pass with 628 tests. Provider enablement stays gated; the
 single-client branch is a VM-only transport experiment, not a production-adoption decision. Its
-[integrated candidate](results/2026-11-04-integrated-candidate.md) passes read-only partial
-reads and lists the remaining checks: restart reconnection, disk-pressure eviction, writable
-partial reads, seek p95, account isolation, interrupted upgrade and physical-Mac acceptance.
+[candidate validation](results/2026-11-04-candidate-validation.md) passes the functional checks
+and read-only performance targets; writable partial reads stay below target. Adoption and
+physical-Mac acceptance with Start Fresh remain the user's decision.
 
 M24's signed production-adapter checks pass for ordinary files, empty directories, paginated
 confirmation, changed/replaced-file refusal and recovery after injected interruptions. Lost
