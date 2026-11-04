@@ -92,6 +92,13 @@ public struct ServerRecord: Codable, Equatable, Identifiable, Sendable {
         host.caseInsensitiveCompare(other.host) == .orderedSame && account?.lowercased() == other.account?.lowercased()
     }
 
+    /// Whether a share connected through `other` can belong to this server. macOS reuses an
+    /// existing mount of a share, whichever account asked for it, so the mounted account can differ.
+    /// A server typed without an account accepts any account.
+    public func accepts(account other: String) -> Bool {
+        account.map { $0.caseInsensitiveCompare(other) == .orderedSame } ?? true
+    }
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)

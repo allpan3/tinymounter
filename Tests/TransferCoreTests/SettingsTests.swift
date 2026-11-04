@@ -333,6 +333,14 @@ final class SettingsTests: XCTestCase {
                                              SavedKeepList(host: "nas.local", share: "Other", paths: fileKeeps(["a.mkv"]))])
     }
 
+    func testServerAcceptsOnlyItsOwnAccount() throws {
+        let named = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "Account@nas.local")))
+        XCTAssertTrue(named.accepts(account: "account"))
+        XCTAssertFalse(named.accepts(account: "other"), "a reused mount of another account must not join this server")
+        let open = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "nas.local")))
+        XCTAssertTrue(open.accepts(account: "other"))
+    }
+
     func testSettingsRoundTripThroughAPrivateFile() throws {
         let address = try XCTUnwrap(ShareAddress("//account@nas.local/Media"))
         let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "account@nas.local")))
