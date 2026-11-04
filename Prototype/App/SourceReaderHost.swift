@@ -121,24 +121,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
 
         init(isDeletion: Bool = false) { self.isDeletion = isDeletion }
     }
-    /// The read of the extent after a sequential fetch, so its SMB transfer overlaps the system's handoff.
-    private final class Prefetch: @unchecked Sendable {
-        let request: SourceReadRequest
-        let progress = Progress()
-        /// Left when the read ends, whether or not it ran.
-        let finished = DispatchGroup()
-        /// These two change under the session lock.
-        var started = false
-        var output: TransferOutput?
-
-        init(request: SourceReadRequest) {
-            self.request = request
-            finished.enter()
-        }
-    }
     static let maxJobs = 4
-    /// Unclaimed prefetched bytes are this old at most when handed over, then discarded.
-    private static let prefetchLifetime: DispatchTimeInterval = .seconds(2)
     private let domainID: String
     private let source: LocationSource?
     private let queue: OperationQueue
@@ -152,9 +135,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
     private let lock = NSLock()
     private var jobs: [UUID: Job] = [:]
     private var closed = false
-    private var prefetch: Prefetch?
-    /// The end of the last completed fetch; a fetch starting there continues a sequential reader.
-    private var lastEnd: (item: String, version: String, end: Int64)?
+    private let prefetch: ReadPrefetch
     static let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "source-reader")
     private var logger: Logger { Self.logger }
 
@@ -167,6 +148,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
         self.queue = queue
         self.userFetchFailed = userFetchFailed
         self.space = space
+        prefetch = ReadPrefetch(space: space)
         self.confirmDeletion = confirmDeletion
         self.spaceChanged = spaceChanged
     }
@@ -497,100 +479,12 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
     }
 
     func cancelAll() {
-        let (ids, pending) = lock.withLock {
+        let ids = lock.withLock {
             closed = true
-            defer { prefetch = nil }
-            return (Array(jobs.keys), prefetch)
+            return Array(jobs.keys)
         }
         ids.forEach { release($0.uuidString) }
-        if let pending { discard(pending) }
-    }
-
-    /// The finished read of exactly this range, or nil after cancelling any other prefetch.
-    private func claimPrefetch(for request: SourceReadRequest, job: Job) -> TransferOutput? {
-        guard let candidate = lock.withLock({ () -> Prefetch? in
-            defer { prefetch = nil }
-            return prefetch
-        }) else { return nil }
-        let wanted = candidate.request
-        guard lock.withLock({ candidate.started }), wanted.item == request.item, wanted.version == request.version,
-              wanted.range == request.range else {
-            discard(candidate)
-            return nil
-        }
-        while candidate.finished.wait(timeout: .now() + .milliseconds(20)) == .timedOut {
-            if job.progress.isCancelled { discard(candidate); return nil }
-        }
-        guard let output = lock.withLock({ candidate.output }) else { discard(candidate); return nil }
-        space.end(wanted.id)
-        return output
-    }
-
-    private func discard(_ candidate: Prefetch) {
-        candidate.progress.cancel()
-        candidate.finished.notify(queue: .global(qos: .utility)) { [self] in
-            let url = lock.withLock { candidate.output?.stagingURL }
-            if let url { try? FileManager.default.removeItem(at: url) }
-            space.end(candidate.request.id)
-        }
-    }
-
-    /// Reads ahead only for a reader that continued the previous fetch, one extent at a time.
-    private func schedulePrefetch(after request: SourceReadRequest, source: LocationSource) {
-        let continues = lock.withLock { () -> Bool in
-            defer { lastEnd = (request.item, request.version, request.range.end) }
-            guard let lastEnd else { return false }
-            return lastEnd.item == request.item && lastEnd.version == request.version
-                && lastEnd.end == request.range.offset
-        }
-        guard continues, let range = source.nextExtent(after: request),
-              let next = try? SourceReadRequest(id: UUID(), item: request.item, version: request.version,
-                                                range: range, background: true) else { return }
-        let candidate = Prefetch(request: next)
-        let accepted = lock.withLock { () -> Bool in
-            guard !closed, prefetch == nil else { return false }
-            prefetch = candidate
-            return true
-        }
-        guard accepted else { candidate.finished.leave(); return }
-        queue.addOperation { [self] in runPrefetch(candidate, source: source) }
-    }
-
-    private func runPrefetch(_ candidate: Prefetch, source: LocationSource) {
-        defer { candidate.finished.leave() }
-        let request = candidate.request
-        guard lock.withLock({ () -> Bool in
-            guard prefetch === candidate, !candidate.progress.isCancelled else { return false }
-            candidate.started = true
-            return true
-        }) else { return }
-        do {
-            try space.begin(request.id, bytes: request.range.length)
-            let output = try source.transfer(request, progress: candidate.progress,
-                                             stagingDirectory: SharedContainer.stagingDirectory()) { [space] completed in
-                try space.check(request.id, completedBytes: completed)
-            }
-            lock.withLock { candidate.output = output }
-            logger.info("""
-                prefetch request=\(request.id.uuidString, privacy: .public) item=\(request.item, privacy: .public) \
-                offset=\(request.range.offset) bytes=\(request.range.length) \
-                transfer_seconds=\(output.metrics.transferSeconds)
-                """)
-        } catch {
-            logger.info("""
-                prefetch request=\(request.id.uuidString, privacy: .public) item=\(request.item, privacy: .public) \
-                offset=\(request.range.offset) stopped \(logFields(error), privacy: .public)
-                """)
-            return
-        }
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + Self.prefetchLifetime) { [self] in
-            let unclaimed = lock.withLock { () -> Bool in
-                guard prefetch === candidate else { return false }
-                prefetch = nil
-                return true
-            }
-            if unclaimed { discard(candidate) }
-        }
+        prefetch.close()
     }
 
     private func run(_ request: SourceReadRequest, job: Job, source: LocationSource,
@@ -604,7 +498,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
             guard !job.progress.isCancelled else { throw TransferError.cancelled }
             try space.begin(request.id, bytes: request.range.length)
             spaceChanged(request, false)
-            let prefetched = claimPrefetch(for: request, job: job)
+            let prefetched = prefetch.claim(request, isCancelled: { job.progress.isCancelled })
             let output = try prefetched ?? source.transfer(request, progress: job.progress,
                                              stagingDirectory: SharedContainer.stagingDirectory()) { [space] completed in
                 try space.check(request.id, completedBytes: completed)
@@ -626,7 +520,12 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
                 prefetched=\(prefetched != nil)
                 """)
             reply(receipt, nil)
-            schedulePrefetch(after: request, source: source)
+            prefetch.completed(request, next: { source.nextExtent(after: request) },
+                               enqueue: { [queue] in queue.addOperation($0) }) { [space] next, progress in
+                try source.transfer(next, progress: progress, stagingDirectory: SharedContainer.stagingDirectory()) {
+                    try space.check(next.id, completedBytes: $0)
+                }
+            }
         } catch {
             if let staged { try? FileManager.default.removeItem(at: staged) }
             release(request.id.uuidString)
