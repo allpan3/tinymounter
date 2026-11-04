@@ -348,6 +348,7 @@ enum UIText {
     static let notSMBShare = "This volume is not an SMB share. To add a share, click Add Share…."
     static let addressRejected = "tinymounter cannot use the address of this share."
     static let otherShare = "This is a different share. To add it, click Add Share…."
+    static let otherAccount = "This share is connected through another account. To use this account, disconnect the share in Servers. Then click Add Share… again."
     static let shareNotMounted = "The share is not connected. In Servers, click Connect. Then click Select… again."
     static let wrongAddress = "This address is not correct. Type an address such as smb://server/share."
     static func passwordNotAccepted(_ host: String) -> String {

@@ -1065,6 +1065,10 @@ final class AppModel {
                 show(UIText.otherShare)
                 return nil
             }
+            if let server = servers.first(where: { $0.id == serverID }), !server.accepts(account: grant.account) {
+                show(UIText.otherAccount)
+                return nil
+            }
             return try controller.saveGrant(grant)
         } catch {
             show(error, grantID: nil)
