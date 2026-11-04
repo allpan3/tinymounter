@@ -2,6 +2,16 @@
 
 A macOS app that brings a network disk, such as a NAS, into Apple's file system: browse it from Finder or another file manager such as QSpace, download on demand, and keep selected files available offline. Finder is the first file manager and SMB the first protocol it will support. A later mode will mount server volumes, the ordinary macOS SMB mounts, automatically.
 
+Single-client candidate, 2026-11-04: read-only partial reads pass the 90% target in the VM.
+Five fresh 512 MiB reads reach a median of 154.77 MB/s against 168.81 MB/s for native SMB
+(0.917), up from 0.492. The reader host now fetches the next 16 MiB extent while macOS
+materializes the current one, with about 1.06 bytes fetched per byte read. Writable-location
+partial reads still fail at about 27 MB/s, because `fileproviderd` adds about 0.5 s per
+coordinated fault. Restart reconnection needs a saved test credential, and disk-pressure
+eviction needs a small-disk VM or the physical Mac. All 652 tests and required VM checks pass.
+Transport adoption and Mac installation remain the user's decision. See the
+[candidate results](docs/results/2026-11-04-integrated-candidate.md).
+
 Editor saves and Replace, 2026-11-03: TextEdit TXT/RTF, Preview PDF/PNG and Xcode source-file
 Save, repeated Save and Save As pass in the signed VM candidate. Local/server hashes match.
 Disconnected TextEdit saves preserve the latest local revision through intentional Quit/relaunch,

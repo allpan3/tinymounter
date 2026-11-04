@@ -79,7 +79,9 @@ completion phase and total time. Native SMB session counters do not count those 
 starts with five provider full-fetch callbacks and native staging controls with unverified cache
 residency. Its follow-up includes five coordinated full downloads and five partial-read pairs
 with verified empty Linux file cache and independent server traffic counters. The full comparison
-passes for that VM setup; partial throughput remains below target. The later writable full and
+passes for that VM setup. The [November 4 candidate](results/2026-11-04-integrated-candidate.md)
+raises read-only partial throughput to 0.917 of native; writable partial reads remain below
+target. The later writable full and
 fully local comparisons also pass for their stated VM/cache setups. Native session counters alone
 cannot judge this transport. Fully hot server cache and physical-Mac checks remain unverified.
 
