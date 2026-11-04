@@ -407,6 +407,26 @@ final class LocationController {
         await resumeCreates(record.domainID)
     }
 
+    func systemPendingChanges(_ record: LocationRecord) async throws -> SystemPendingChanges {
+        guard let source = sources[record.domainID], let manager = manager(for: record) else {
+            throw LocationError.catalogClosed
+        }
+        let snapshot = try await SystemPendingObserver.read(manager)
+        return try await Self.offMain {
+            let hasUnresolvedRename = try !source.renameRecords().isEmpty
+            return try source.withCatalog { catalog in
+                let items = try snapshot.items.map { item in
+                    SystemPendingChange(change: try PendingChange(item: item.id, name: item.name,
+                        parent: item.parent, trashed: item.trashed,
+                        organizationRefused: SourceReaderBridge.isRefusedOrganization(item.error),
+                        hasUnresolvedRename: hasUnresolvedRename, catalog: catalog), error: item.error)
+                }
+                return SystemPendingChanges(items: items.sorted { $0.change.path < $1.change.path },
+                                            incomplete: snapshot.incomplete)
+            }
+        }
+    }
+
     func pendingCreates(_ record: LocationRecord) async throws -> [PendingCreate] {
         guard let source = sources[record.domainID] else { throw LocationError.catalogClosed }
         return try await Self.offMain { try source.pendingCreates() }

@@ -313,7 +313,10 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
                 timer.cancel()
                 lock.withLock { jobs[request.id] = nil }
                 do { reply(try ReaderMessage.encode(result.get()), nil) }
-                catch { reply(nil, Self.mutationError(error)) }
+                catch {
+                    reply(nil, error as? SourceFailure == .versionChanged
+                          ? SourceReaderBridge.refusedOrganizationError : Self.mutationError(error))
+                }
             }
             if folder { source.moveFolder(request, progress: job.progress, started: started, reply: finish) }
             else { source.renameFile(request, progress: job.progress, started: started, reply: finish) }

@@ -474,6 +474,13 @@ so macOS stops sending it until Retry Pending Changes or a share recovery signal
 finished location. Pending records and content stay in private app storage; the extension sends authenticated create and initial-name requests.
 See the accepted [phase 4 plan](phase4-plan.md).
 
+Settings also lists changes held by macOS, including refused renames with no app transaction.
+Show in Finder selects the local item. A stale-base refusal shows the last known server path;
+restore that name and folder in Finder to undo it, then make a fresh request if needed.
+Retry never overrides the stale base. An older generic error receives the specific reason on
+Retry. The system list overlaps the app's transaction count and can be incomplete; Settings
+reports that limit. See [pending-change recovery](pending-changes-plan.md#6-show-changes-held-only-by-macos).
+
 Normal and repeated TextEdit Save pass in the signed VM app, including a concurrent-edit
 conflict. The installed M19 build has a separate editing opt-in; M20 combines creation, editing
 and supported renaming under the confirmed write mode. Filename-only renaming uses the

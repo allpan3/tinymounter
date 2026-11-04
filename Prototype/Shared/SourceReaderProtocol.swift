@@ -39,6 +39,19 @@ enum SourceReaderBridge {
     static var deletionResumeEnabled: Bool { deletionEnabled || permanentDeletionEnabled }
     static let serviceName = NSFileProviderServiceName("dev.tinymounter.source-reader")
     static let progressInterval = Duration.milliseconds(500)
+    static let refusedOrganizationKey = "dev.tinymounter.refused-organization"
+
+    static var refusedOrganizationError: NSError {
+        NSError(domain: NSFileProviderErrorDomain, code: NSFileProviderError.cannotSynchronize.rawValue,
+                userInfo: [refusedOrganizationKey: true,
+                           NSLocalizedDescriptionKey: "The item changed before it could be renamed or moved."])
+    }
+
+    static func isRefusedOrganization(_ error: NSError?) -> Bool {
+        error?.domain == NSFileProviderErrorDomain
+            && error?.code == NSFileProviderError.cannotSynchronize.rawValue
+            && error?.userInfo[refusedOrganizationKey] as? Bool == true
+    }
 
     static func requirement(forProvider: Bool) throws -> String {
         guard let group = Bundle.main.object(forInfoDictionaryKey: "TinyMounterAppGroup") as? String,

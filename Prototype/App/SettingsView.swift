@@ -590,20 +590,37 @@ private struct UploadStatus: View {
     @State private var blockedEditTargets: Set<UUID> = []
     @State private var renames: [RenameIntent] = []
     @State private var creates: [PendingCreate] = []
+    @State private var systemPending = SystemPendingChanges()
+    @State private var systemUnavailable = false
     @State private var savedBytes: Int64 = 0
     @State private var statusUnavailable = false
 
     var body: some View {
         VStack(alignment: .leading) {
-            if statusUnavailable {
+            if statusUnavailable || systemUnavailable {
                 Label(UIText.pendingStatusUnavailable, systemImage: "exclamationmark.triangle")
             }
             if let count, count > 0 {
                 Label(UIText.pendingUploads(count), systemImage: "arrow.up.circle")
                 Text(UIText.pendingUploadHint).font(.callout).foregroundStyle(.secondary)
             }
-            if count ?? 0 > 0 || !creates.isEmpty {
+            if count ?? 0 > 0 || !creates.isEmpty || !systemPending.items.isEmpty {
                 Button(UIText.retryPending) { model.retryPending(record) }
+            }
+            if systemPending.incomplete {
+                Text(UIText.systemPendingIncomplete).foregroundStyle(.secondary)
+            }
+            ForEach(systemPending.items) { item in
+                VStack(alignment: .leading) {
+                    Text(UIText.systemPending(item.change.path))
+                    Text(UIText.systemPendingReason(item.error))
+                        .font(.callout).foregroundStyle(.secondary)
+                    if let path = item.change.originalPath {
+                        Text(UIText.pendingOriginalPath(path))
+                        Text(UIText.pendingOrganizationUndo).font(.callout).foregroundStyle(.secondary)
+                    }
+                    Button(UIText.showInFinder) { model.showPendingInFinder(item, record: record) }
+                }
             }
             if savedBytes > 0 {
                 Text(UIText.savedChangeBytes(savedBytes))
@@ -642,6 +659,15 @@ private struct UploadStatus: View {
                         Button(UIText.dismissEditNotice) { model.dismissEditNotice(edit, record: record) }
                     }
                 }
+            }
+        }
+        .task(id: record.domainID) {
+            while !Task.isCancelled {
+                do {
+                    systemPending = try await model.systemPendingChanges(record)
+                    systemUnavailable = false
+                } catch { systemUnavailable = true }
+                try? await Task.sleep(for: .seconds(2))
             }
         }
         .task(id: record.domainID) {
