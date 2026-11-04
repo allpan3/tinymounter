@@ -154,7 +154,7 @@ read-only downloads. Five coordinated read-only full downloads exceed the native
 with verified empty Linux file cache. Partial reads reach about 49% of native, below the 90%
 target. Read-only copy and Keep Both pass; recovery export refuses network destinations.
 Arbitrary external native-mount writes remain outside that evidence. The physical Mac retains
-the earlier transport; production adoption remains undecided. See the
+the earlier transport. The user adopted the single-client transport on 2026-11-04 ([§11](#11-open-decisions-for-the-first-experiment)). See the
 [experiment record](results/2026-11-02-samba-names-and-uploads.md#single-client-transport-experiment).
 
 The November 3 continuation adds recovery of acknowledged partial new uploads. It reopens the
@@ -314,8 +314,9 @@ The first command accepts one ordinary file or folder at a time, with recursive 
 Cancel is the default, the selected version is rechecked after confirmation, and pending system
 synchronization in either overlapping view blocks admission. This conservative check can also
 block deletion while an unrelated item in that view is syncing. Signed VM checks establish
-cancellation, local-edit preservation, export and Stop Uploading cleanup. The normal command gate
-stays off pending wider milestone acceptance and the separate transport-adoption decision.
+cancellation, local-edit preservation, export and Stop Uploading cleanup. Normal builds enable
+the command from 2026-11-04. Because the command is the only admitting route, Retry may continue
+an interrupted recorded request although ordinary deletion stays refused.
 A save arriving after deletion can retain its old catalog path solely for local recovery and
 export, including deleted parents.
 Publication still requires a live catalog binding; a new occupant never authorizes that old save.
@@ -358,7 +359,11 @@ and first disposable VM test session. Each implementation still has to pass its 
 
 ## 11. Open decisions for the first experiment
 
-- **Single-client transport experiment, accepted 2026-11-03.** Evaluate the existing SMB client
+- **Single-client transport adopted 2026-11-04.** The user accepted the
+  [candidate validation](results/2026-11-04-candidate-validation.md) including writable partial
+  reads at a median paired ratio of 0.725; 0.90 stays the improvement goal. Normal builds enable
+  folder organization and Delete Permanently… ([adoption](results/2026-11-04-adoption.md)).
+  The November 3 experiment scope: evaluate the existing SMB client
   for remote listing, metadata, reads and writes in a separate VM-only prototype. Controlled
   probes reproduce both remaining symptoms when direct mutations leave stale native caches.
   Keep verification, recovery, sandbox and scoped access; use fresh test state. First prove

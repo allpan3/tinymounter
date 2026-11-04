@@ -8,8 +8,8 @@ Write request-RANDOM_UUID.json there using the existing Request structure.
 The app exports only this fixture's snapshots and callback events there.
 Fresh snapshot labels may start with check- and contain up to 64 lowercase ASCII
 letters, digits or hyphens. Each label creates evidence only once.
-The checkout and ordinary feature gates are unchanged. --enable permits folder
-organization in the candidate; omit it for the matching disabled baseline.
+Each feature gate is set from its flag, whatever the checkout's default. --enable permits
+folder organization in the candidate; omit every enable flag for the disabled baseline.
 --crash-checks adds run/item-bound stop points controlled by fault.json in the
 granted evidence directory. A hit exports its durable intent, then SIGSTOPs the
 app. Kill that exact process to test recovery; each control ID fires only once.
@@ -467,18 +467,13 @@ extension M22FinderProbe {
             '                        for (index, view) in try M22FinderProbe.configs(config).enumerated() {'))
     provider.write_text(content + "\n" + helper.split("#if !M22_FINDER_PROVIDER")[0]
                         + "\n" + overlap.split("#if !M22_FINDER_PROVIDER")[0])
-    if args.enable:
-        gates = root / "Prototype/Shared/SourceReaderProtocol.swift"
-        gates.write_text(replace(gates.read_text(), "static let folderOrganizationEnabled = false",
-                                "static let folderOrganizationEnabled = true"))
-    if args.enable_deletion:
-        gates = root / "Prototype/Shared/SourceReaderProtocol.swift"
-        gates.write_text(replace(gates.read_text(), "static let deletionEnabled = false",
-                                "static let deletionEnabled = true"))
-    if args.enable_permanent_deletion:
-        gates = root / "Prototype/Shared/SourceReaderProtocol.swift"
-        gates.write_text(replace(gates.read_text(), "static let permanentDeletionEnabled = false",
-                                "static let permanentDeletionEnabled = true"))
+    gates = root / "Prototype/Shared/SourceReaderProtocol.swift"
+    text = gates.read_text()
+    for name, enabled in [("folderOrganizationEnabled", args.enable), ("deletionEnabled", args.enable_deletion),
+                          ("permanentDeletionEnabled", args.enable_permanent_deletion)]:
+        current = "true" if f"static let {name} = true" in text else "false"
+        text = replace(text, f"static let {name} = {current}", f"static let {name} = {str(enabled).lower()}")
+    gates.write_text(text)
     subprocess.run(["git", "diff", "--stat"], cwd=root, check=True)
 
 

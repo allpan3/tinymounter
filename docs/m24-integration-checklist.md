@@ -2,9 +2,8 @@
 
 The provider route and Settings recovery controls are implemented. Ordinary deletion stays
 disabled because Finder Replace can delete its destination before saving the new file. The
-approved **Delete Permanently…** command uses a separate route and confirmation. Both gates
-remain false in normal builds. Complete the signed checks below in `macOS VM 1` before
-enabling the custom command.
+approved **Delete Permanently…** command uses a separate route and confirmation. Normal builds
+enable it from 2026-11-04 after the signed checks below; `deletionEnabled` stays false.
 Host Swift package checks do not verify Finder, XPC, signing or controller lifecycle behavior.
 
 This is a handoff procedure, not a results log. Use the approved disposable Samba fixture;
@@ -69,8 +68,8 @@ and update the README after the run. Leave the original NAS and physical-Mac ins
 reuses the existing signed folder fixture and exports deletion callbacks and both views'
 durable deletion records. Add `--enable-permanent-deletion` for the approved command. The separate
 `--enable-deletion` option reproduces the earlier ordinary-deletion protocol checks; never use
-both. These options leave normal-build gates unchanged; use unique `check-` snapshot labels and
-the existing local evidence picker. The current candidate is still a VM-only transport experiment.
+both. Each gate follows its flag, so omitting them prepares the disabled baseline; use unique
+`check-` snapshot labels and the existing local evidence picker.
 Adding `--crash-checks` enables `deletion-fault.json`, bound to the fixture run, selected item,
 `Deletion/` path, node index and checkpoint. It exports the durable plan/progress and stops
 the app before or after an attempting, close-acknowledged or deleted checkpoint. Each control

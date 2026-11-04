@@ -122,8 +122,8 @@ Retry continues an unsettled recorded request. Stop Deleting ends further attemp
 active node ends. Neither action can restore deleted content. Dismiss Notice is available only
 after every affected location finishes settlement, and keeps the replay record. Remove Location
 names pending deletions that block removal. Transient failure reasons last for the app process;
-durable node outcomes remain available after restart. Finder deletion stays gated off in the
-normal build until its warning and callback checks pass.
+durable node outcomes remain available after restart. Normal builds offer only the confirmed
+**Delete Permanently…** command; ordinary Finder deletion and Replace stay refused.
 
 A change to Name applies immediately. A change to Source or Connection Mode shows Revert and Apply
 in a bar at the bottom of the pane. Apply replaces the location's File Provider domain. A

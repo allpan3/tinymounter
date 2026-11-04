@@ -14,7 +14,7 @@ Candidate hookup, owned by the parent
   isReady, start Task { await self.runM22FinderFixture() } once. Do not await its
   command loop in launch(). The setup action calls the existing add API, which
   registers exactly one new task location. The Python driver never registers it.
-  Enable SourceReaderBridge.folderOrganizationEnabled only in this candidate.
+  Keep SourceReaderBridge.folderOrganizationEnabled true (the normal default).
 
   Append the same Swift file to FileProviderExtension.swift in that candidate,
   with M22_FINDER_PROVIDER defined only for the provider target. Add these hooks:

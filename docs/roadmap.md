@@ -250,11 +250,11 @@ protection before that checkpoint can still leave an intent unresolved. Destinat
 changes remain pending until the expected identity returns. Signed Unicode-respelling recovery
 retires only the affected child in both views. Case-colliding and Unicode-equivalent names
 block recovery without mutation; removing the test collisions permits preserved-ID completion.
-The required VM checks pass with 628 tests. Provider enablement stays gated; the
-single-client branch is a VM-only transport experiment, not a production-adoption decision. Its
+The required VM checks pass with 628 tests. Its
 [candidate validation](results/2026-11-04-candidate-validation.md) passes the functional checks
-and read-only performance targets; writable partial reads stay below target. Adoption and
-physical-Mac acceptance with Start Fresh remain the user's decision.
+and read-only performance targets; writable partial reads stay below target. On 2026-11-04 the
+user adopted the transport and normal builds enabled folder organization
+([adoption](results/2026-11-04-adoption.md)). Physical-Mac acceptance follows Start Fresh.
 
 M24's signed production-adapter checks pass for ordinary files, empty directories, paginated
 confirmation, changed/replaced-file refusal and recovery after injected interruptions. Lost
@@ -279,8 +279,9 @@ Delayed Settings completion and explicit Retry pass. Stop Deleting exposed unsaf
 the callback's item metadata. The domain-version repair now passes signed Stop restoration,
 interruption before notification, a later deliberate Delete and refreshed replay after dismissal
 and restart. The restored item's ID, keep and downloaded copy survive. Required VM checks pass
-with 644 tests; remaining concurrency and lifecycle gates keep deletion disabled. Follow the
-[integration checklist](m24-integration-checklist.md) before enablement.
+with 644 tests. Normal builds enable the confirmed Delete Permanently… command from 2026-11-04;
+ordinary Finder deletion stays refused under the Replace design. See the
+[integration checklist](m24-integration-checklist.md).
 
 The supported write boundary remains folders whose writers use SMB and leave tinymounter's
 transaction files alone. All milestones preserve complete pending content, refuse silent

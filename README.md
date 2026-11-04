@@ -2,6 +2,14 @@
 
 A macOS app that brings a network disk, such as a NAS, into Apple's file system: browse it from Finder or another file manager such as QSpace, download on demand, and keep selected files available offline. Finder is the first file manager and SMB the first protocol it will support. A later mode will mount server volumes, the ordinary macOS SMB mounts, automatically.
 
+Adoption, 2026-11-04: the user adopted the single-client transport and accepted its writable
+partial-read speed; 0.90 of native stays the improvement goal. Normal builds now enable folder
+rename and move and the confirmed **Delete Permanently…** command. Ordinary Finder deletion and
+Replace stay refused. Retry now continues an interrupted permanent deletion. Saves after a POSIX
+whole-file read still become conflict copies. Installing on the physical Mac needs Start Fresh.
+Public distribution still needs the libsmb2 licence work. See the
+[adoption record](docs/results/2026-11-04-adoption.md).
+
 Single-client candidate, 2026-11-04: functional checks pass in the VM, and read-only
 performance meets its targets. Prefetch cleanup, automatic reconnection after a full restart,
 OS disk-pressure eviction, an interrupted upgrade and account-mismatch refusal pass, after fixes for
@@ -9,8 +17,7 @@ prefetch failure cleanup, remounting while the server does not answer, and a sha
 another account's server. Concurrent use of two accounts is unverified. Read-only partial reads
 reach a ratio of medians of 0.917 (median paired ratio 0.901); seek p95 is 0.737 s read-only and
 0.824 s writable. Writable partial reads
-fail at a median paired ratio of 0.725. Transport adoption and Mac installation remain the user's
-decision. See the [candidate validation](docs/results/2026-11-04-candidate-validation.md).
+fail at a median paired ratio of 0.725. See the [candidate validation](docs/results/2026-11-04-candidate-validation.md).
 
 Editor saves and Replace, 2026-11-03: TextEdit TXT/RTF, Preview PDF/PNG and Xcode source-file
 Save, repeated Save and Save As pass in the signed VM candidate. Local/server hashes match.
@@ -427,10 +434,10 @@ See [prototype setup and validation](docs/prototype.md). Build the benchmark wit
 
 ## Recommendation
 
-Continue with Apple's replicated File Provider extension and native macOS SMB reads/uploads.
-The accepted direct-SMB adapter handles protected write operations and their verification.
-Complete the integrated Finder workflows and matched performance checks before expanding the
-normal build's capabilities. Any transport change still needs measurement and a separate decision.
+Continue with Apple's replicated File Provider extension. The adopted single-client transport
+uses the app's own SMB connection for listings, metadata, reads and writes, with credentials and
+grants from the macOS mount. Improve writable partial reads toward 0.90 of native, and complete
+the physical-Mac checks before further capabilities.
 
 File Provider supports partial-file downloads. It is not a native SMB mount, and some applications still request whole files. Near-native full-download throughput is verified under the VM conditions above. Sequential partial-read throughput is below target, and Finder-launched opens always download the whole file first.
 

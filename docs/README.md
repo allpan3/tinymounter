@@ -17,7 +17,7 @@ it wrong.
 | [phase2-plan.md](phase2-plan.md) | Phase 2, the read-only vertical slice: decisions, data model, errors, UI scope and milestones | a phase 2 decision, milestone or design choice changes |
 | [phase3-plan.md](phase3-plan.md) | Phase 3, offline and NAS changes you can trust: reconnection, restart after a crash, connecting in the app, verified offline status, folder keeps, live change discovery and disk-space protection and location lifecycle checks (M11 to M17 checked in the VM; limits in results) | a phase 3 decision, milestone or design choice changes |
 | [phase4-plan.md](phase4-plan.md) | Accepted M18 creation, M19 Mac-only editing, M20 file renaming with one write mode, and M21 file organization | write scope, permissions or recovery behavior changes |
-| [m24-integration-checklist.md](m24-integration-checklist.md) | Gated deletion implementation and the signed Finder/recovery checks still required | deletion integration or its remaining checks change |
+| [m24-integration-checklist.md](m24-integration-checklist.md) | Deletion gates and the signed Finder/recovery checks behind Delete Permanently… | deletion integration or its remaining checks change |
 | [pending-changes-plan.md](pending-changes-plan.md) | Accepted fix for stuck pending changes: retry signal, failure reasons and the Settings list, then evidence-based stopping and removal | pending-change recovery or its removal rule changes |
 | [synchronization.md](synchronization.md) | How File Provider locations stay consistent with server volumes and other writers (proposed) | the sync model, its guarantees or its tests change |
 | [ui-design.md](ui-design.md) and [ui-mockup.html](ui-mockup.html) | App and Finder interface, accepted for prototyping: its terms, its ASD-STE100 text and an interactive mockup | the interface or its copy changes |
@@ -26,6 +26,7 @@ it wrong.
 
 ## Results logs
 
+- [Single-client adoption](results/2026-11-04-adoption.md). The user adopted the transport and accepted writable partial reads; normal builds enable folder organization and Delete Permanently…. Retry continues an interrupted permanent deletion. Same-steps VM recording and installation preflight.
 - [Single-client candidate validation](results/2026-11-04-candidate-validation.md). Prefetch cleanup, restart reconnection, disk-pressure eviction, interrupted upgrade and account-mismatch refusal pass after three fixes. Concurrent use of two accounts is unverified. Read-only partial reads and seeks meet their VM targets; writable partial reads fail at a median paired ratio of 0.725. Corrects the earlier record and states the adoption decision.
 - [Integrated single-client candidate](results/2026-11-04-integrated-candidate.md). Read-only partial reads reach a ratio of medians of 0.917 with next-extent prefetch. Superseded by the validation above.
 - [Confirmed permanent deletion](results/2026-11-03-permanent-command.md). Signed Finder command, Cancel, pending-save refusal and permission-loss recovery pass. Concurrent-save recovery retains and exports local bytes; Stop Uploading clears pending state without recreating the server file. The normal command gate stays off.
