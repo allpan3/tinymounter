@@ -562,6 +562,12 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 let content = String(data: baseVersion.contentVersion, encoding: .utf8)
                 let metadata = String(data: baseVersion.metadataVersion, encoding: .utf8)
                 catalogLogger.info("rename_base verified=\(content?.hasPrefix("e1:") == true) metadata=\(metadata.flatMap(Int64.init) != nil) writing=\(row.allowsWriting) parent=\(row.parentID == item.parentItemIdentifier.rawValue)")
+                // Undoing a refused change resends its stale base; otherwise it stays pending forever.
+                if row.name == item.filename, row.parentID == item.parentItemIdentifier.rawValue {
+                    catalogLogger.info("rename_unchanged")
+                    finish(CatalogItem(row), nil)
+                    return
+                }
                 guard row.allowsWriting, row.kind == .file || SourceReaderBridge.folderOrganizationEnabled,
                       item.contentType?.conforms(to: .package) != true,
                       let content, let metadata else {
