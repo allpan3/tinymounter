@@ -1,5 +1,9 @@
 # Integrated single-client candidate, 2026-11-04
 
+> Superseded by the [candidate validation](2026-11-04-candidate-validation.md), which corrects
+> two claims here: 0.917 is a ratio of medians (the median paired ratio is 0.901), and one SMB
+> client does not make stale names or misdirected writes impossible.
+
 ## Outcome
 
 Read-only partial reads now pass the 90% target in macOS VM 1. Five fresh 512 MiB reads from
