@@ -285,11 +285,17 @@ extension LocationSource {
                         checkSpace: ((Int64) throws -> Void)?) throws -> TransferOutput {
         let started = ContinuousClock.now
         var phase = "namespace", bytes: Int64 = 0
+        // Milliseconds from start when the connection, the version checks and the payload finished.
+        var connected = -1.0, prepared = -1.0, transferred = -1.0
+        func mark() -> Double { started.duration(to: .now) / .milliseconds(1) }
         defer {
             Logger(subsystem: "dev.tinymounter.prototype", category: "fetch").info("""
                 direct_read request=\(request.id.uuidString, privacy: .public) \
                 phase=\(phase, privacy: .public) remote_bytes=\(bytes) \
-                total_ms=\(started.duration(to: .now) / .milliseconds(1), format: .fixed(precision: 3))
+                connect_ms=\(connected, format: .fixed(precision: 3)) \
+                prepare_ms=\(prepared, format: .fixed(precision: 3)) \
+                transfer_ms=\(transferred, format: .fixed(precision: 3)) \
+                total_ms=\(mark(), format: .fixed(precision: 3))
                 """)
         }
         return try editNamespace.perform { try uploadLock.withLock {
@@ -302,6 +308,7 @@ extension LocationSource {
                 guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
                 let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: session.root, progress: progress)
                 defer { bytes = remote.readBytes; withExtendedLifetime(remote) {} }
+                connected = mark()
                 try remote.protectAncestors(of: path.string)
                 let metadata = try remote.readMetadata(path: path.string)
                 let expected = ContentFingerprint(size: row.size, mtimeNs: row.mtimeNs, ctimeNs: row.ctimeNs)
@@ -369,6 +376,7 @@ extension LocationSource {
                     }
                 }
                 phase = "transfer"
+                prepared = mark()
                 let verified = progress.completedUnitCount, transferProgress = Progress()
                 progress.totalUnitCount = max(1, Int64(clamping: Int128(verified)
                     + Int128(range.length) * (rangeDigest == nil ? 1 : 2)))
@@ -380,6 +388,7 @@ extension LocationSource {
                 var output = try staged ?? remote.transfer(path: path.string, range: range,
                     stagingDirectory: stagingDirectory, progress: transferProgress, checkSpace: checkSpace)
                 staged = output
+                transferred = mark()
                 do {
                     phase = "checksum"
                     if let rangeDigest {

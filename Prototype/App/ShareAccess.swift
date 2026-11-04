@@ -1003,6 +1003,13 @@ final class LocationSource: @unchecked Sendable {
         }
     }
 
+    /// The same-length extent after a read of a current, unpaused file; nil at its end.
+    func nextExtent(after request: SourceReadRequest) -> ByteRange? {
+        guard let (row, _) = try? readTarget(request), !row.paused, request.range.end < row.size else { return nil }
+        return try? ByteRange(offset: request.range.end, length: min(request.range.length, row.size - request.range.end),
+                              fileSize: row.size)
+    }
+
     /// Plan §6 step 4: the version, the share state, the catalog path, the file, its fingerprint.
     func transfer(_ request: SourceReadRequest, progress: Progress, stagingDirectory: URL,
                   checkSpace: ((Int64) throws -> Void)? = nil) throws -> TransferOutput {
