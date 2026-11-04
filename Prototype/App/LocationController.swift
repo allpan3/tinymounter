@@ -426,7 +426,7 @@ final class LocationController {
 
     func retryDeletion(_ record: LocationRecord, id: UUID) async throws {
         let (source, deletion) = try await deletionOwner(record, id: id)
-        guard deletion.isSettled || SourceReaderBridge.deletionEnabled else { throw UploadError.readOnly }
+        guard deletion.isSettled || SourceReaderBridge.deletionResumeEnabled else { throw UploadError.readOnly }
         // A settled refusal must be selected again in Finder, never admitted again by Retry.
         guard !deletion.isComplete else { return }
         _ = try await withCheckedThrowingContinuation { continuation in

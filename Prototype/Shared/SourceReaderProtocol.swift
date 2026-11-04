@@ -35,6 +35,8 @@ enum SourceReaderBridge {
     static let folderOrganizationEnabled = false
     static let deletionEnabled = false
     static let permanentDeletionEnabled = false
+    /// Only an enabled route admits a deletion record, so Retry may continue its recorded request.
+    static var deletionResumeEnabled: Bool { deletionEnabled || permanentDeletionEnabled }
     static let serviceName = NSFileProviderServiceName("dev.tinymounter.source-reader")
     static let progressInterval = Duration.milliseconds(500)
 

@@ -14,7 +14,7 @@ struct DeletionStatus: Identifiable, Sendable {
 
     var id: UUID { record.id }
     var canRetry: Bool {
-        !record.isComplete && attempt?.active != true && (record.isSettled || SourceReaderBridge.deletionEnabled)
+        !record.isComplete && attempt?.active != true && (record.isSettled || SourceReaderBridge.deletionResumeEnabled)
     }
 
     init(record: PendingDeletion, domain: String, attempt: DeletionAttemptStatus?) throws {
