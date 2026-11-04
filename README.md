@@ -5,8 +5,10 @@ A macOS app that brings a network disk, such as a NAS, into Apple's file system:
 Adoption, 2026-11-04: the user adopted the single-client transport and accepted its writable
 partial-read speed; 0.90 of native stays the improvement goal. Normal builds now enable folder
 rename and move and the confirmed **Delete Permanently…** command. Ordinary Finder deletion and
-Replace stay refused. Retry now continues an interrupted permanent deletion. Saves after a POSIX
-whole-file read still become conflict copies. Installing on the physical Mac needs Start Fresh.
+Replace stay refused. Retry now continues an interrupted permanent deletion, and restoring the
+original name clears a refused rename. Signed VM checks and all 658 tests pass. Saves after a POSIX
+whole-file read still become conflict copies. Installing on the physical Mac needs the location
+removed and added again.
 Public distribution still needs the libsmb2 licence work. See the
 [adoption record](docs/results/2026-11-04-adoption.md).
 
