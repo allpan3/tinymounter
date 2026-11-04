@@ -6,15 +6,15 @@ corrects two of its claims, and states the decision that remains.
 
 ## Outcome
 
-The candidate passes every functional check that was run, after two fixes found by those checks.
-Read-only performance meets its targets; writable partial reads do not.
+The candidate passes the functional checks below, after three fixes found by those checks.
+Measured read-only performance meets its targets in the VM; writable partial reads do not.
 
 - **Functional checks pass.** Prefetch cleanup, automatic reconnection after a full VM restart,
-  OS disk-pressure eviction, an interrupted upgrade and account isolation were checked in
-  macOS VM 1 against the Linux Samba fixture. The checks found and fixed two defects: a failed
-  prefetch kept its space reservation and slot until expiry, and an unanswered NetFS server-info
-  request stopped automatic remounting. A third, found by the account-isolation check, let one
-  account's share move to another account's server record; it is fixed too.
+  OS disk-pressure eviction, an interrupted upgrade and account-mismatch refusal were checked in
+  macOS VM 1 against the Linux Samba fixture. The checks found and fixed three defects: a failed
+  prefetch kept its space reservation and slot without scheduling expiry; an unanswered NetFS
+  server-info request stopped automatic remounting; and one account's share could move to another
+  account's server record. Successful concurrent use of two accounts was not established.
 - **Read-only performance passes.** Partial reads reach a ratio of medians of 0.917 and a
   median paired ratio of 0.901 against native SMB. Seeks during streaming reach a p95 of
   0.737 s over 24 seeks, within the 1 s target.
@@ -36,7 +36,7 @@ and permanent deletion stay off.
 - **0.917 is a ratio of medians.** The earlier record called 0.917 a "median ratio". It is the
   median provider rate, 154.77 MB/s, divided by the median native rate, 168.81 MB/s. The median
   of the five paired ratios is 0.901, and the lowest is 0.870. Both summary values pass the 90%
-  target; one of five pairs is below it.
+  target; two of five pairs are below it.
 - **One SMB client does not make stale names or misdirected writes impossible.** The earlier
   record said no native-cache interaction can show them. This branch still mounts each share
   natively to obtain the user's grant and credentials, and other SMB clients, other Macs and
@@ -54,7 +54,7 @@ and permanent deletion stay off.
 | Automatic reconnection after a full VM restart | Pass | Offline save and a new read recovered without user action |
 | OS disk-pressure eviction | Pass | Kept and pending items stayed; ordinary downloads became dataless |
 | Interrupted upgrade with unchanged format | Pass | A killed upload and an offline save published after the new build launched |
-| Account isolation | Pass after fix | A second account's server no longer takes the first account's share |
+| Account-mismatch refusal | Pass after fix | The existing share and its locations stay under the first account; concurrent use of both accounts was not established |
 
 ### Prefetch
 
@@ -133,7 +133,7 @@ account` refuses such a share with an explanation; build 21 shows it and keeps t
 The private `tmiso` share could not be connected while `tmtest` was connected to the same host:
 macOS reused the existing session, and the server refused it. No data crossed between the
 accounts. The app's message for that case, "tinymounter cannot do this (status=2)", does not
-explain the cause. A second account on the same server needs a different host name for it.
+explain the cause. Connecting both accounts through different host names was not tested.
 
 ## Performance
 
@@ -203,8 +203,8 @@ when its host disk limit was reached.
 
 ## Supported workflows
 
-The workflows in the earlier record still pass. The folder, deletion and permanent-deletion
-workflows need the validation gates that normal builds keep off. Custom Delete Permanently… is
+The workflows in the earlier record still pass. Folder organization and custom permanent
+deletion need the validation gates that normal builds keep off. Custom Delete Permanently… is
 approved by the user. Ordinary Finder deletion and Finder Replace remain refused.
 
 | Workflow | Status |
@@ -253,11 +253,13 @@ maintenance and security responsibility, not new licence obligations.
 
 Distribution of either branch must meet these obligations, which are not yet fully met:
 
-- **Change notices (§2(a)).** Each modified file must carry a prominent notice of the change and
+- **Change notices (§2(b)).** Each modified file must carry a prominent notice of the change and
   its date. The local changes are described in `Vendor/libsmb2/README.md`, but the modified files
   carry no such notices.
-- **Source (§6).** The library's complete corresponding source, including the local changes,
-  must accompany the app or be offered in writing.
+- **Source (§4).** The bundled library needs complete corresponding source, including local
+  changes and build scripts. Supply it with the library or provide equivalent access from the
+  same download location. Any written-offer route under §6(c) also needs the materials specified
+  in §6(a) and an offer valid for at least three years.
 - **Relinking (§6).** Users must be able to replace the library with a modified version. With
   hardened runtime and library validation, a re-signed library does not load unless the user
   re-signs the whole app or disables library validation; release packaging must document that.
@@ -272,7 +274,7 @@ Distribution of either branch must meet these obligations, which are not yet ful
 | Physical-Mac acceptance | Blocked by that decision | Installation, then the physical-Mac checks |
 | Writable partial reads | Product limit | Accept about 0.73 of native, or a design change measured by the same method |
 | Saves after a POSIX whole-file read | Product limit | Accept conflict copies, or a design that establishes an edit base for such reads |
-| libsmb2 distribution obligations | Release gate | Change notices, source offer and relinking documentation |
+| libsmb2 distribution obligations | Release gate | Change notices, source provision and relinking documentation |
 
 ## Evidence
 
@@ -293,3 +295,8 @@ session transcript. The fixtures `bench-20261104/`, `restart-20261104/`, `pressu
 and `diag-20261104/` remain on the Linux Samba share. The M22 Overlap view is writable, build 21
 is installed in the VM, and the temporary reserve volumes, filler files and test account are
 removed.
+
+Host disk-use limits were raised during testing from 150 to 170 GB for macOS VM 1 and from
+30 to 40 GB for TinyMounter Samba Test. After cleanup, macOS VM 1 uses about 127 GB and its
+150 GB limit is restored. The Samba VM uses about 35 GB with the retained fixtures, so its
+40 GB limit remains; restoring 30 GB would put it over the limit again.

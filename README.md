@@ -4,10 +4,11 @@ A macOS app that brings a network disk, such as a NAS, into Apple's file system:
 
 Single-client candidate, 2026-11-04: functional checks pass in the VM, and read-only
 performance meets its targets. Prefetch cleanup, automatic reconnection after a full restart,
-OS disk-pressure eviction, an interrupted upgrade and account isolation pass, after fixes for
+OS disk-pressure eviction, an interrupted upgrade and account-mismatch refusal pass, after fixes for
 prefetch failure cleanup, remounting while the server does not answer, and a share moving to
-another account's server. Read-only partial reads reach a ratio of medians of 0.917 (median
-paired ratio 0.901); seek p95 is 0.737 s read-only and 0.824 s writable. Writable partial reads
+another account's server. Concurrent use of two accounts is unverified. Read-only partial reads
+reach a ratio of medians of 0.917 (median paired ratio 0.901); seek p95 is 0.737 s read-only and
+0.824 s writable. Writable partial reads
 fail at a median paired ratio of 0.725. Transport adoption and Mac installation remain the user's
 decision. See the [candidate validation](docs/results/2026-11-04-candidate-validation.md).
 
