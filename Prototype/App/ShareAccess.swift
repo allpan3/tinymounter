@@ -1188,17 +1188,6 @@ final class LocationSource: @unchecked Sendable {
     }
 }
 
-/// A `SourceFailure` case, or a domain and code; never a description, which can hold a path.
-func logFields(_ error: Error) -> String {
-    switch error as? SourceFailure {
-    case .unknown(let domain, let code)?: return "domain=\(domain) code=\(code)"
-    case let failure?: return "failure=\(failure)"
-    case nil:
-        let error = error as NSError
-        return "domain=\(error.domain) code=\(error.code)"
-    }
-}
-
 /// A mount-table row. `identity.mountFrom` holds the SMB account, so never log it.
 private struct MountEntry {
     let identity: MountIdentity
