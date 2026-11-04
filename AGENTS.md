@@ -21,7 +21,9 @@ current status.
   On 2026-11-03 the user authorized all work needed in the VM, including a separate
   single-client prototype for remote listing, metadata, reads and writes and its correctness
   and performance checks. Do not ask again for VM implementation or experiment approval.
-  Production adoption, physical-Mac installation and publication remain separate decisions.
+  On 2026-11-04 the user adopted the single-client transport, accepted its writable
+  partial-read speed and approved installing the merged build on the physical Mac with Start
+  Fresh. Publication remains a separate decision.
   Further dependencies need a user decision after measurement and a licence review ([architecture.md §5](docs/architecture.md#5-native-smb-versus-direct-smb)).
   M19's accepted design adds protected regular-file staging, verification and transactional
   rename/cleanup, gated by the [protocol checks](docs/phase4-plan.md#m19-online-editing).
@@ -80,8 +82,10 @@ Never break these without an explicit task to do so.
   The user accepted the [remaining roadmap](docs/roadmap.md) on 2026-10-29, authorizing M21
   through M28 in dependency order after their protocol gates. This includes ordinary-file and
   folder organization, pending-save recovery, permanent deletion without a custom Trash,
-  safe replacement and bounded offline editing. These remain denied in the current build until
-  implemented and verified. On 2026-10-31 the user granted standing permission for all work inside
+  safe replacement and bounded offline editing. Normal builds enable folder organization and the
+  confirmed **Delete Permanently…** command from 2026-11-04. Ordinary Finder deletion and Replace
+  stay refused; other items remain denied until implemented and verified. On 2026-10-31 the
+  user granted standing permission for all work inside
   the VM, including new fixture sessions, mounts, service/settings changes, restarts, network
   interruption and test installations. Do not ask again for VM-operation approval. Preserve
   evidence and restore temporary test state. Physical-Mac installation and publication remain
