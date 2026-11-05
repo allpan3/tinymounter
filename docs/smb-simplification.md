@@ -27,6 +27,10 @@ locking semantics, and queued offline saves have no exact native-mount equivalen
 equivalence beyond the ordinary operations tested. Optional fail-on-conflict requests must be
 honored if received; stop advertising that optional feature for the last-writer-wins design.
 
+The client serializes only libsmb2 context creation/destruction, whose context list is global.
+Each connection owns its requests and credentials; unrelated payload I/O can run concurrently.
+Runtime concurrency checks remain pending.
+
 ## Implementation order and evidence
 
 1. Remove custom save transactions, edit receipts, read proofs and their recovery interface.

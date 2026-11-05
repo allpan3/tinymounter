@@ -28,6 +28,7 @@ struct edit_client {
 };
 extern void *tm_smb_begin_edit(const char *, const char *, const char *, int *);
 extern void tm_smb_end_edit(void *);
+extern void tm_smb_destroy_context(void *);
 extern int tm_smb_compose(const char *, char *, size_t);
 
 void *tm_edit_connect(const char *server, const char *share, const char *account, int *error)
@@ -85,7 +86,7 @@ static int wait_reply(struct edit_client *client, struct smb2_pdu *pdu, struct t
         t_socket connection = smb2_get_fd(client->smb);
         if (connection >= 0) (void)setsockopt(connection, SOL_SOCKET, SO_LINGER, &reset, sizeof(reset));
         // Destroy queued callbacks while their reply storage is still alive.
-        smb2_destroy_context(client->smb);
+        tm_smb_destroy_context(client->smb);
         client->smb = NULL;
         return error;
     }
@@ -149,28 +150,6 @@ int tm_edit_open(void *opaque, const char *path, uint32_t access, uint32_t shari
 int tm_edit_create(void *opaque, const char *path, uint32_t access, uint8_t *file)
 {
     return open_file(opaque, path, access, 0, SMB2_FILE_CREATE, file);
-}
-
-int tm_edit_open_quarantine(void *opaque, const char *path, uint8_t *file)
-{
-    struct edit_client *client = opaque;
-    client->ntstatus = 0;
-    struct smb2_context *smb = client->smb;
-    if (!smb) return EIO;
-    char composed[1024], name[1088];
-    if (!composed_path(path, composed)) return EINVAL;
-    snprintf(name, sizeof(name), "%s:com.apple.quarantine:$DATA", composed);
-    struct smb2_create_request request = {0};
-    request.impersonation_level = SMB2_IMPERSONATION_IMPERSONATION;
-    request.desired_access = SMB2_FILE_READ_DATA | SMB2_FILE_READ_ATTRIBUTES;
-    request.share_access = SMB2_FILE_SHARE_READ | SMB2_FILE_SHARE_DELETE;
-    request.create_disposition = SMB2_FILE_OPEN;
-    request.create_options = SMB2_FILE_NON_DIRECTORY_FILE | SMB2_FILE_OPEN_REPARSE_POINT;
-    request.name = name;
-    struct tm_edit_reply reply = {0};
-    int error = wait_reply(client, smb2_cmd_create_async(smb, &request, opened, &reply), &reply);
-    if (!error) memcpy(file, reply.file, SMB2_FD_SIZE);
-    return error;
 }
 
 int tm_edit_close(void *opaque, uint8_t *file)
@@ -271,121 +250,6 @@ int tm_edit_list(void *opaque, uint8_t *directory, int restart, uint8_t *buffer,
     *count = reply.count;
     *finished = reply.values[0] != 0;
     return error;
-}
-
-static void little16(uint8_t *out, uint16_t value)
-{
-    for (int i = 0; i < 2; ++i) out[i] = (uint8_t)(value >> (8 * i));
-}
-
-static void little32(uint8_t *out, uint32_t value)
-{
-    for (int i = 0; i < 4; ++i) out[i] = (uint8_t)(value >> (8 * i));
-}
-
-static void little64(uint8_t *out, uint64_t value)
-{
-    for (int i = 0; i < 8; ++i) out[i] = (uint8_t)(value >> (8 * i));
-}
-
-static int open_private(struct edit_client *client, const char *path, uint32_t access, uint32_t sharing,
-                        uint32_t options, const uint8_t *security, uint32_t length, uint8_t *file)
-{
-    client->ntstatus = 0;
-    struct smb2_context *smb = client->smb;
-    if (!smb) return EIO;
-    char name[1024];
-    if (!composed_path(path, name) || !security || length < 20 || length > 4096) return EINVAL;
-    uint32_t context_length = (24 + length + 7) & ~7;
-    uint8_t *context = calloc(1, context_length);
-    if (!context) return ENOMEM;
-    little16(context + 4, 16);
-    little16(context + 6, 4);
-    little16(context + 10, 24);
-    little32(context + 12, length);
-    memcpy(context + 16, "SecD", 4);
-    memcpy(context + 24, security, length);
-    struct smb2_create_request request = {0};
-    request.impersonation_level = SMB2_IMPERSONATION_IMPERSONATION;
-    request.desired_access = access;
-    request.share_access = sharing;
-    request.create_disposition = SMB2_FILE_CREATE;
-    request.create_options = SMB2_FILE_NON_DIRECTORY_FILE | SMB2_FILE_OPEN_REPARSE_POINT | options;
-    request.name = name;
-    request.create_context_length = context_length;
-    request.create_context = context;
-    struct tm_edit_reply reply = {0};
-    int error = wait_reply(client, smb2_cmd_create_async(smb, &request, opened, &reply), &reply);
-    free(context);
-    if (!error) memcpy(file, reply.file, SMB2_FD_SIZE);
-    return error;
-}
-
-int tm_edit_open_private(void *opaque, const char *path, uint32_t access, uint32_t sharing,
-                       const uint8_t *security, uint32_t length, uint8_t *file)
-{
-    return open_private(opaque, path, access, sharing, 0, security, length, file);
-}
-
-int tm_edit_probe_private(void *opaque, const char *path, const uint8_t *security, uint32_t length)
-{
-    uint8_t file[SMB2_FD_SIZE];
-    // Delete-on-close also removes the probe when the session ends before the close is answered.
-    int error = open_private(opaque, path, SMB2_DELETE | SMB2_FILE_READ_ATTRIBUTES, 0,
-                             SMB2_FILE_DELETE_ON_CLOSE, security, length, file);
-    return error ? error : tm_edit_close(opaque, file);
-}
-
-static void ioctl_done(struct smb2_context *smb, int status, void *data, void *context)
-{
-    struct tm_edit_reply *reply = context;
-    struct smb2_ioctl_reply *info = data;
-    done(smb, status, data, context);
-    if (!status && info && info->output && info->output_count <= reply->capacity) {
-        memcpy(reply->buffer, info->output, info->output_count);
-        reply->count = info->output_count;
-    } else if (!status) reply->error = EOVERFLOW;
-    if (!status && info && info->output) smb2_free_data(smb, info->output);
-}
-
-int tm_edit_resume_key(void *opaque, uint8_t *file, uint8_t *key)
-{
-    struct edit_client *client = opaque;
-    client->ntstatus = 0;
-    struct smb2_context *smb = client->smb;
-    if (!smb) return EIO;
-    uint8_t buffer[64];
-    struct smb2_ioctl_request request = {.ctl_code = SMB2_FSCTL_SRV_REQUEST_RESUME_KEY, .flags = 1};
-    memcpy(request.file_id, file, SMB2_FD_SIZE);
-    struct tm_edit_reply reply = {.buffer = buffer, .capacity = sizeof(buffer)};
-    int error = wait_reply(client, smb2_cmd_ioctl_async(smb, &request, ioctl_done, &reply), &reply);
-    if (!error && reply.count < 28) return EIO;
-    if (!error) memcpy(key, buffer, 24);
-    return error;
-}
-
-int tm_edit_copy_chunk(void *opaque, uint8_t *target, const uint8_t *key, uint64_t source_offset,
-                     uint64_t target_offset, uint32_t length, uint8_t *result)
-{
-    struct edit_client *client = opaque;
-    client->ntstatus = 0;
-    struct smb2_context *smb = client->smb;
-    if (!smb) return EIO;
-    const uint64_t limit = INT64_MAX;
-    if (!length || length > 1024 * 1024 || source_offset > limit || target_offset > limit ||
-        length > limit - source_offset || length > limit - target_offset) return EINVAL;
-    uint8_t input[56] = {0};
-    memcpy(input, key, 24);
-    little32(input + 24, 1);
-    little64(input + 32, source_offset);
-    little64(input + 40, target_offset);
-    little32(input + 48, length);
-    struct smb2_ioctl_request request = {.ctl_code = SMB2_FSCTL_SRV_COPYCHUNK, .flags = 1,
-                                         .input = input, .input_count = sizeof(input)};
-    memcpy(request.file_id, target, SMB2_FD_SIZE);
-    struct tm_edit_reply reply = {.buffer = result, .capacity = 12};
-    int error = wait_reply(client, smb2_cmd_ioctl_async(smb, &request, ioctl_done, &reply), &reply);
-    return !error && reply.count != 12 ? EIO : error;
 }
 
 int tm_edit_set_size(void *opaque, uint8_t *file, uint64_t size)
@@ -546,60 +410,4 @@ int tm_edit_flush(void *opaque, uint8_t *file)
     memcpy(request.file_id, file, SMB2_FD_SIZE);
     struct tm_edit_reply reply = {0};
     return wait_reply(client, smb2_cmd_flush_async(smb, &request, done, &reply), &reply);
-}
-
-static void queried(struct smb2_context *smb, int status, void *data, void *context)
-{
-    struct tm_edit_reply *reply = context;
-    struct smb2_query_info_reply *info = data;
-    done(smb, status, data, context);
-    if (!status && info && info->output_buffer && info->output_buffer_length <= reply->capacity) {
-        memcpy(reply->buffer, info->output_buffer, info->output_buffer_length);
-        reply->count = info->output_buffer_length;
-    } else if (!status) reply->error = EOVERFLOW;
-    if (!status && info && info->output_buffer) smb2_free_data(smb, info->output_buffer);
-}
-
-int tm_edit_metadata(void *opaque, uint8_t *file, int security, uint8_t *buffer,
-                   uint32_t capacity, uint32_t *count)
-{
-    struct edit_client *client = opaque;
-    client->ntstatus = 0;
-    struct smb2_context *smb = client->smb;
-    if (!smb) return EIO;
-    struct smb2_query_info_request request = {0};
-    request.info_type = security ? SMB2_0_INFO_SECURITY : SMB2_0_INFO_FILE;
-    request.file_info_class = security ? 0 : SMB2_FILE_STREAM_INFORMATION;
-    request.additional_information = (uint32_t)security;
-    request.output_buffer_length = capacity;
-    memcpy(request.file_id, file, SMB2_FD_SIZE);
-    struct tm_edit_reply reply = {.buffer = buffer, .capacity = capacity};
-    smb2_set_passthrough(smb, 1);
-    int error = wait_reply(client, smb2_cmd_query_info_async(smb, &request, queried, &reply), &reply);
-    if (client->smb) smb2_set_passthrough(client->smb, 0);
-    *count = reply.count;
-    return error;
-}
-
-int tm_edit_set_metadata(void *opaque, uint8_t *file, int security,
-                       uint8_t *buffer, uint32_t length)
-{
-    struct edit_client *client = opaque;
-    client->ntstatus = 0;
-    struct smb2_context *smb = client->smb;
-    if (!smb) return EIO;
-    if (!security || !buffer || length > 4096 || length < 20) return EINVAL;
-    struct smb2_set_info_request request = {0};
-    request.info_type = security ? SMB2_0_INFO_SECURITY : SMB2_0_INFO_FILE;
-    request.file_info_class = security ? 0 : SMB2_FILE_BASIC_INFORMATION;
-    request.additional_information = security ? SMB2_DACL_SECURITY_INFORMATION : 0;
-    request.input_data = buffer;
-    request.buffer_length = length;
-    request.buffer_offset = 96;
-    memcpy(request.file_id, file, SMB2_FD_SIZE);
-    struct tm_edit_reply reply = {0};
-    smb2_set_passthrough(smb, 1);
-    int error = wait_reply(client, smb2_cmd_set_info_async(smb, &request, done, &reply), &reply);
-    if (client->smb) smb2_set_passthrough(client->smb, 0);
-    return error;
 }
