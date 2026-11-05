@@ -163,3 +163,26 @@ The next performance investigation should isolate direct SMB transfer from local
 matched cache/security settings, then measure partial-read dispatch and materialization. Further
 read-ahead or transport changes need that attribution. Publishing or installing this branch on
 the physical Mac remains a separate decision.
+
+## PR preparation, 2026-11-05
+
+The user authorized creating and merging a PR, then installing the verified build. Read-only
+physical-Mac preflight found no registered TinyMounter domains or pending items. Installation
+has not occurred at this checkpoint.
+
+[Before recording](../media/smb-simplification/before.gif) ·
+[After recording](../media/smb-simplification/after.gif)
+
+Both recordings show Finder viewing a fresh disposable server folder. The same steps prepare
+an original document and local edit, flush a competing server edit, then save the local contents
+and refresh Finder. The baseline uses the production transaction from the current main branch;
+the candidate uses the production ordinary-overwrite adapter. These CLI demonstrations show
+the remote filename outcome, not signed editor dispatch or save latency. Captures retain their
+timing and crop out unrelated windows and sidebar locations.
+
+Independent Linux reads confirmed that the baseline retained the competing edit in Document.txt
+and saved the local edit as one conflict file. The candidate left only Document.txt containing
+the local edit. The disposable demo files were then removed. Raw frames and encoding sources
+are in the host's `results/smb-simplification-pr-20261105/`; the VM's
+`results/simplification-demo-20261105/` retains the compiled sources and operation records, and
+the Samba VM's `/tmp/simplification-demo-audit.json` records the exact final contents and hashes.

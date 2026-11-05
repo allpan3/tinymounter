@@ -72,5 +72,6 @@ for native overwrite plus fsync (medians, five alternating pairs, warmed unverif
 app's final readback. It is evidence of redundant work, not an editor-latency measurement.
 See [save recheck](results/2026-11-04-save-recheck.md).
 
-Use fresh test state. Preserve the older VM application's pending fixtures. This task does not
-authorize publication or installation of the new architecture on the physical Mac.
+Use fresh test state and preserve the older VM application's pending fixtures. On 2026-11-05
+the user authorized creating and merging a PR, then installing the verified build on the
+physical Mac. Check pending work before installation; older save transactions are not migrated.
