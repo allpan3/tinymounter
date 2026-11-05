@@ -8,10 +8,14 @@ installation guidance now requires temporary-copy cleanup and no retained app ba
 See the [cleanup record](docs/results/2026-11-05-spotlight-cleanup.md).
 
 SMB simplification, 2026-11-05: ordinary SMB overwrites replace remote save transactions,
-conflict copies and content-proof reads on `simplify-smb-operations`. Signed VM saves, interrupted
+conflict copies and content-proof reads. Signed VM saves, interrupted
 upload retention/retry and file/folder organization pass. Required VM checks pass, including 518
 package tests with one optional skip. Matched VM saves are near native cost; full and partial
-reads still miss the 90% target. The physical Mac retains the earlier build. See the
+reads still miss the 90% target. [PR #32](https://github.com/allpan3/tinymounter/pull/32) passed CI
+and merged. The merged build is installed in Applications and launches cleanly on the physical
+Mac, with unchanged signing identity and sandbox entitlements. Preflight found no locations or
+pending items; no settings were reset. Temporary app copies were removed; only the installed app
+and provider remain registered. Physical-Mac file workflows and performance remain unverified. See the
 [audit and measurements](docs/results/2026-11-05-smb-simplification.md).
 
 Save recheck, 2026-11-04: the transaction now checks the original after staging and again after
