@@ -16,16 +16,15 @@ static enum delivery delivery;
 static struct smb2_pdu *queued;
 static uint32_t response_status;
 static void *response_data;
-static int fail_create, fail_allocation, clock_calls, destroyed, freed_data;
+static int fail_create, clock_calls, destroyed, freed_data;
 static int failures, cases;
 
 static void fake_queue(struct smb2_context *smb, struct smb2_pdu *pdu);
 static int fake_poll(struct pollfd *fds, nfds_t count, int milliseconds);
 static int fake_service(struct smb2_context *smb, int revents);
 static int fake_clock(clockid_t clock, struct timespec *value);
-static void fake_destroy(struct smb2_context *smb);
+static void fake_destroy(void *opaque);
 static void fake_free_data(struct smb2_context *smb, void *data);
-static void *fake_calloc(size_t count, size_t size);
 static struct smb2_pdu *fake_create(struct smb2_context *smb, struct smb2_create_request *request,
                                     smb2_command_cb callback, void *context);
 static struct smb2_pdu *fake_set_info(struct smb2_context *smb, struct smb2_set_info_request *request,
@@ -40,9 +39,8 @@ static uint8_t sent_write[48], sent_payload[4096];
 #define poll fake_poll
 #define smb2_service fake_service
 #define clock_gettime fake_clock
-#define smb2_destroy_context fake_destroy
+#define tm_smb_destroy_context fake_destroy
 #define smb2_free_data fake_free_data
-#define calloc fake_calloc
 #define smb2_cmd_create_async fake_create
 #define smb2_cmd_set_info_async fake_set_info
 #include "../Prototype/SMB/SMBEdit.c"
@@ -50,9 +48,8 @@ static uint8_t sent_write[48], sent_payload[4096];
 #undef poll
 #undef smb2_service
 #undef clock_gettime
-#undef smb2_destroy_context
+#undef tm_smb_destroy_context
 #undef smb2_free_data
-#undef calloc
 #undef smb2_cmd_create_async
 #undef smb2_cmd_set_info_async
 
@@ -104,8 +101,9 @@ static int fake_clock(clockid_t clock, struct timespec *value)
     return 0;
 }
 
-static void fake_destroy(struct smb2_context *smb)
+static void fake_destroy(void *opaque)
 {
+    struct smb2_context *smb = opaque;
     destroyed++;
     if (queued) {
         struct smb2_pdu *pdu = queued;
@@ -121,11 +119,6 @@ static void fake_free_data(struct smb2_context *smb, void *data)
     (void)smb;
     (void)data;
     freed_data++;
-}
-
-static void *fake_calloc(size_t count, size_t size)
-{
-    return fail_allocation ? NULL : calloc(count, size);
 }
 
 static struct smb2_pdu *fake_create(struct smb2_context *smb, struct smb2_create_request *request,
@@ -165,7 +158,7 @@ void tm_smb_end_edit(void *smb)
 }
 
 static struct edit_client client;
-static uint8_t file[SMB2_FD_SIZE], buffer[4096], key[24], security[20];
+static uint8_t file[SMB2_FD_SIZE], buffer[4096];
 static uint64_t values[8];
 static uint32_t count;
 static int finished;
@@ -180,7 +173,7 @@ static void prepare(void)
     delivery = reply_ready;
     response_status = 0;
     response_data = NULL;
-    fail_create = fail_allocation = clock_calls = destroyed = freed_data = 0;
+    fail_create = clock_calls = destroyed = freed_data = 0;
     inspect_write = 0;
 }
 
@@ -215,8 +208,6 @@ static void server_failures(void)
     response_status = SMB2_STATUS_ACCESS_DENIED;
     response_data = &error_reply;
     result("query failure", tm_edit_info(&client, file, values), EACCES, response_status);
-    result("metadata failure", tm_edit_metadata(&client, file, 0, buffer, sizeof(buffer), &count),
-           EACCES, response_status);
     expect(freed_data == 0, "query failure", "decoded error payload as success data");
 }
 
@@ -227,25 +218,11 @@ static void local_failures(void)
     client.ntstatus = SMB2_STATUS_DELETE_PENDING;
     result("invalid directory", tm_edit_open_directory(&client, NULL, 0, 0, file), EINVAL, 0);
     client.ntstatus = SMB2_STATUS_DELETE_PENDING;
-    result("invalid quarantine", tm_edit_open_quarantine(&client, "", file), EINVAL, 0);
-    client.ntstatus = SMB2_STATUS_DELETE_PENDING;
-    result("invalid private", tm_edit_open_private(&client, "file", 0, 0, NULL, 20, file), EINVAL, 0);
-    client.ntstatus = SMB2_STATUS_DELETE_PENDING;
-    result("invalid probe", tm_edit_probe_private(&client, "../file", security, 20), EINVAL, 0);
-    client.ntstatus = SMB2_STATUS_DELETE_PENDING;
     result("invalid list", tm_edit_list(&client, file, 1, buffer, 0, &count, &finished), EINVAL, 0);
-    client.ntstatus = SMB2_STATUS_DELETE_PENDING;
-    result("invalid copy", tm_edit_copy_chunk(&client, file, key, 0, 0, 0, buffer), EINVAL, 0);
     client.ntstatus = SMB2_STATUS_DELETE_PENDING;
     result("invalid size", tm_edit_set_size(&client, file, UINT64_MAX), EINVAL, 0);
     client.ntstatus = SMB2_STATUS_DELETE_PENDING;
     result("invalid rename", tm_edit_rename(&client, file, "/file"), EINVAL, 0);
-    client.ntstatus = SMB2_STATUS_DELETE_PENDING;
-    result("invalid metadata", tm_edit_set_metadata(&client, file, 0, security, 20), EINVAL, 0);
-    prepare();
-    fail_allocation = 1;
-    result("allocation failure", tm_edit_open_private(&client, "file", 0, 0, security, 20, file),
-           ENOMEM, 0);
     prepare();
     fail_create = 1;
     result("request allocation failure", tm_edit_open(&client, "file", 0, 0, file), EIO, 0);
@@ -284,10 +261,6 @@ static void composed_names(void)
     sent("composed open", tm_edit_open(&client, decomposed, 0, 0, file), composed);
     sent("composed directory", tm_edit_open_directory(&client, "Cafe\xcc\x81", 0, 0, file), "Caf\xc3\xa9");
     sent("share root directory", tm_edit_open_directory(&client, "", 0, 0, file), "");
-    sent("composed quarantine", tm_edit_open_quarantine(&client, decomposed, file),
-         "Caf\xc3\xa9/R\xc3\xa9sum\xc3\xa9.txt:com.apple.quarantine:$DATA");
-    sent("composed private", tm_edit_open_private(&client, decomposed, 0, 0, security, 20, file), composed);
-    sent("composed probe", tm_edit_probe_private(&client, decomposed, security, 20), composed);
     sent("composed rename", tm_edit_rename(&client, file, decomposed), "Caf\xc3\xa9\\R\xc3\xa9sum\xc3\xa9.txt");
     // U+2126, U+F900 and U+2F800 stay as they are, as from macOS; the accents around them compose.
     sent("kept singletons", tm_edit_open(&client, "e\xcc\x81\xe2\x84\xa6\xef\xa4\x80\xf0\xaf\xa0\x80" "e\xcc\x81", 0, 0, file),
@@ -307,16 +280,10 @@ static void disconnected(void)
     smb2_destroy_context(client.smb);
     client.smb = NULL;
     DISCONNECTED("disconnected open", tm_edit_open(&client, "file", 0, 0, file));
-    DISCONNECTED("disconnected quarantine", tm_edit_open_quarantine(&client, "file", file));
     DISCONNECTED("disconnected close", tm_edit_close(&client, file));
     DISCONNECTED("disconnected close info", tm_edit_close_info(&client, file, values));
     DISCONNECTED("disconnected directory", tm_edit_open_directory(&client, "", 0, 0, file));
     DISCONNECTED("disconnected list", tm_edit_list(&client, file, 1, buffer, 80, &count, &finished));
-    DISCONNECTED("disconnected private",
-                 tm_edit_open_private(&client, "file", 0, 0, security, 20, file));
-    DISCONNECTED("disconnected probe", tm_edit_probe_private(&client, "file", security, 20));
-    DISCONNECTED("disconnected resume", tm_edit_resume_key(&client, file, key));
-    DISCONNECTED("disconnected copy", tm_edit_copy_chunk(&client, file, key, 0, 0, 1, buffer));
     DISCONNECTED("disconnected size", tm_edit_set_size(&client, file, 1));
     DISCONNECTED("disconnected info", tm_edit_info(&client, file, values));
     DISCONNECTED("disconnected read", tm_edit_read(&client, file, 0, buffer, 1, &count));
@@ -324,8 +291,6 @@ static void disconnected(void)
     DISCONNECTED("disconnected rename", tm_edit_rename(&client, file, "target"));
     DISCONNECTED("disconnected delete", tm_edit_delete(&client, file));
     DISCONNECTED("disconnected flush", tm_edit_flush(&client, file));
-    DISCONNECTED("disconnected metadata", tm_edit_metadata(&client, file, 0, buffer, 80, &count));
-    DISCONNECTED("disconnected set metadata", tm_edit_set_metadata(&client, file, 4, security, 20));
 }
 
 static void decoded_success(void)
@@ -343,14 +308,6 @@ static void decoded_success(void)
     result("malformed read", tm_edit_read(&client, file, 0, buffer, 1, &count), EIO, 0);
     result("malformed list", tm_edit_list(&client, file, 1, buffer, 80, &count, &finished),
            EOVERFLOW, 0);
-    result("malformed metadata", tm_edit_metadata(&client, file, 0, buffer, 80, &count),
-           EOVERFLOW, 0);
-    result("malformed ioctl", tm_edit_resume_key(&client, file, key), EOVERFLOW, 0);
-    uint8_t short_reply[1] = {0};
-    struct smb2_ioctl_reply ioctl_reply = {.output = short_reply, .output_count = 1};
-    response_data = &ioctl_reply;
-    result("short resume key", tm_edit_resume_key(&client, file, key), EIO, 0);
-    result("short copy reply", tm_edit_copy_chunk(&client, file, key, 0, 0, 1, buffer), EIO, 0);
 }
 
 static void transport_failures(void)
@@ -403,7 +360,7 @@ static uint64_t decode_little(const uint8_t *bytes, size_t length)
     return value;
 }
 
-static void stage_writes(void)
+static void file_writes(void)
 {
     prepare();
     for (size_t i = 0; i < sizeof(file); i++) file[i] = (uint8_t)(i + 1);
@@ -411,34 +368,34 @@ static void stage_writes(void)
     struct smb2_write_reply reply = {.count = sizeof(buffer)};
     response_data = &reply;
     inspect_write = 1;
-    result("stage write", tm_edit_write(&client, file, 4294967297ULL, buffer, sizeof(buffer), &count), 0, 0);
-    expect(count == sizeof(buffer), "stage write", "lost successful count");
+    result("file write", tm_edit_write(&client, file, 4294967297ULL, buffer, sizeof(buffer), &count), 0, 0);
+    expect(count == sizeof(buffer), "file write", "lost successful count");
     expect(decode_little(sent_write + 4, 4) == sizeof(buffer)
            && decode_little(sent_write + 8, 8) == 4294967297ULL
            && !memcmp(sent_write + 16, file, sizeof(file))
-           && !memcmp(sent_payload, buffer, sizeof(buffer)), "stage write", "encoded write changed");
+           && !memcmp(sent_payload, buffer, sizeof(buffer)), "file write", "encoded write changed");
     reply.count = 7;
-    result("short stage write", tm_edit_write(&client, file, INT64_MAX - 9, buffer, 9, &count), 0, 0);
-    expect(count == 7, "short stage write", "lost partial acknowledgement");
+    result("short file write", tm_edit_write(&client, file, INT64_MAX - 9, buffer, 9, &count), 0, 0);
+    expect(count == 7, "short file write", "lost partial acknowledgement");
     reply.count = 0;
     count = 99;
-    result("zero stage write", tm_edit_write(&client, file, 0, buffer, 9, &count), EIO, 0);
-    expect(count == 99, "zero stage write", "failure published count");
+    result("zero file write", tm_edit_write(&client, file, 0, buffer, 9, &count), EIO, 0);
+    expect(count == 99, "zero file write", "failure published count");
     reply.count = 10;
-    result("oversized stage reply", tm_edit_write(&client, file, 0, buffer, 9, &count), EIO, 0);
+    result("oversized write reply", tm_edit_write(&client, file, 0, buffer, 9, &count), EIO, 0);
     response_data = NULL;
-    result("missing stage reply", tm_edit_write(&client, file, 0, buffer, 9, &count), EIO, 0);
-    result("empty stage request", tm_edit_write(&client, file, 0, buffer, 0, &count), EINVAL, 0);
-    result("large stage request", tm_edit_write(&client, file, 0, buffer, 65537, &count), EINVAL, 0);
-    result("overflowing stage offset", tm_edit_write(&client, file, INT64_MAX, buffer, 1, &count), EINVAL, 0);
-    result("invalid stage offset", tm_edit_write(&client, file, UINT64_MAX, buffer, 1, &count), EINVAL, 0);
-    result("missing stage buffer", tm_edit_write(&client, file, 0, NULL, 1, &count), EINVAL, 0);
+    result("missing write reply", tm_edit_write(&client, file, 0, buffer, 9, &count), EIO, 0);
+    result("empty write request", tm_edit_write(&client, file, 0, buffer, 0, &count), EINVAL, 0);
+    result("large write request", tm_edit_write(&client, file, 0, buffer, 65537, &count), EINVAL, 0);
+    result("overflowing write offset", tm_edit_write(&client, file, INT64_MAX, buffer, 1, &count), EINVAL, 0);
+    result("invalid write offset", tm_edit_write(&client, file, UINT64_MAX, buffer, 1, &count), EINVAL, 0);
+    result("missing write buffer", tm_edit_write(&client, file, 0, NULL, 1, &count), EINVAL, 0);
     struct smb2_error_reply error_reply = {0};
     response_status = SMB2_STATUS_DISK_FULL;
     response_data = &error_reply;
-    result("stage space failure", tm_edit_write(&client, file, 0, buffer, 9, &count),
+    result("write space failure", tm_edit_write(&client, file, 0, buffer, 9, &count),
            nterror_to_errno(response_status), response_status);
-    expect(count == 99, "stage space failure", "failure published count");
+    expect(count == 99, "write space failure", "failure published count");
     const enum delivery modes[] = {service_failure, timeout, reply_then_service_failure};
     const int errors[] = {EIO, ETIMEDOUT, EIO};
     for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
@@ -447,9 +404,9 @@ static void stage_writes(void)
         reply.count = 9;
         response_data = &reply;
         count = 99;
-        result("lost stage reply", tm_edit_write(&client, file, 0, buffer, 9, &count), errors[i], 0);
+        result("lost write reply", tm_edit_write(&client, file, 0, buffer, 9, &count), errors[i], 0);
         expect(count == 99 && destroyed == 1 && !client.smb,
-               "lost stage reply", "uncertain write acknowledged or context retained");
+               "lost write reply", "uncertain write acknowledged or context retained");
     }
 }
 
@@ -492,7 +449,7 @@ int main(void)
     decoded_success();
     transport_failures();
     close_attributes();
-    stage_writes();
+    file_writes();
     composed_names();
     exclusive_uploads();
     if (client.smb) smb2_destroy_context(client.smb);

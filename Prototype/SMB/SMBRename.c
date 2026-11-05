@@ -14,7 +14,23 @@
 #include <smb2/libsmb2.h>
 #include <smb2/libsmb2-raw.h>
 
-static pthread_mutex_t client_lock = PTHREAD_MUTEX_INITIALIZER;
+// libsmb2 links contexts globally; payload I/O belongs to each independent context.
+static pthread_mutex_t context_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static struct smb2_context *create_context(void)
+{
+    pthread_mutex_lock(&context_lock);
+    struct smb2_context *smb = smb2_init_context();
+    pthread_mutex_unlock(&context_lock);
+    return smb;
+}
+
+void tm_smb_destroy_context(void *opaque)
+{
+    pthread_mutex_lock(&context_lock);
+    smb2_destroy_context(opaque);
+    pthread_mutex_unlock(&context_lock);
+}
 
 struct credential_lookup {
     atomic_int references;
@@ -286,7 +302,7 @@ static int same_name(const char *left, const char *right, CFStringCompareFlags f
 static struct smb2_context *connect_folder_share(const char *server, const char *share,
                                                  const char *account, int *error)
 {
-    struct smb2_context *smb = smb2_init_context();
+    struct smb2_context *smb = create_context();
     char *principal = cached_principal(server, account);
     os_log_t log = os_log_create("dev.tinymounter.prototype", "smb");
     os_log_info(log, "smb_connect cached_credential=%d", principal != NULL);
@@ -313,7 +329,7 @@ static struct smb2_context *connect_folder_share(const char *server, const char 
     free(principal);
     return smb;
 done:
-    smb2_destroy_context(smb);
+    tm_smb_destroy_context(smb);
     free(principal);
     return NULL;
 }
@@ -361,12 +377,11 @@ int tm_smb_create_folder(const char *server, const char *share, const char *acco
         !tm_smb_compose(path, composed, sizeof(composed)) || !valid_path(composed) ||
         (!!expected_id != !!expected_birth)) return EINVAL;
     path = composed;
-    pthread_mutex_lock(&client_lock);
     struct reply reply = {0};
     int error;
     trace->stage = TM_FOLDER_CONNECT;
     struct smb2_context *smb = connect_folder_share(server, share, account, &error);
-    if (!smb) goto unlock;
+    if (!smb) goto finish;
     trace->stage = TM_FOLDER_PARENT;
     const char *leaf = strrchr(path, '/');
     error = hold_parents(smb, path, leaf ? (size_t)(leaf - path + 1) : 0, &reply, &trace->parents);
@@ -392,11 +407,10 @@ int tm_smb_create_folder(const char *server, const char *share, const char *acco
     if (!error) trace->stage = TM_FOLDER_DONE;
 done:
     trace->status = reply.status;
-    smb2_destroy_context(smb);
-unlock:
+    tm_smb_destroy_context(smb);
+finish:
     trace->error = error;
     trace->sent = *create_sent;
-    pthread_mutex_unlock(&client_lock);
     return error;
 }
 
@@ -417,10 +431,9 @@ int tm_smb_name_folder(const char *server, const char *share, const char *accoun
     size_t parent_length = source_leaf ? (size_t)(source_leaf - source + 1) : 0;
     if (parent_length != (destination_leaf ? (size_t)(destination_leaf - destination + 1) : 0) ||
         strncmp(source, destination, parent_length)) return EINVAL;
-    pthread_mutex_lock(&client_lock);
     int error;
     struct smb2_context *smb = connect_folder_share(server, share, account, &error);
-    if (!smb) { pthread_mutex_unlock(&client_lock); return error; }
+    if (!smb) return error;
     struct reply reply = {0};
     int parents = 0;
     error = hold_parents(smb, source, parent_length, &reply, &parents);
@@ -471,8 +484,7 @@ int tm_smb_name_folder(const char *server, const char *share, const char *accoun
     free(target);
     if (!error) error = receipt(context, reply.identity, reply.birth);
 done:
-    smb2_destroy_context(smb);
-    pthread_mutex_unlock(&client_lock);
+    tm_smb_destroy_context(smb);
     return error;
 }
 
@@ -482,14 +494,11 @@ void *tm_smb_begin_edit(const char *server, const char *share, const char *accou
         *error = EACCES;
         return NULL;
     }
-    pthread_mutex_lock(&client_lock);
     struct smb2_context *smb = connect_folder_share(server, share, account, error);
-    if (!smb) pthread_mutex_unlock(&client_lock);
     return smb;
 }
 
 void tm_smb_end_edit(void *smb)
 {
-    if (smb) smb2_destroy_context(smb);
-    pthread_mutex_unlock(&client_lock);
+    if (smb) tm_smb_destroy_context(smb);
 }
