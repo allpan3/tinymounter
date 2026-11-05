@@ -27,6 +27,8 @@ it wrong.
 
 ## Results logs
 
+- [Spotlight cleanup](results/2026-11-05-spotlight-cleanup.md). Removed leftover app bundles and stale registrations on the physical Mac; signing and installation cleanup now prevents retained runnable copies.
+
 - [Save recheck](results/2026-11-04-save-recheck.md). Fresh original-content checks route detected changes through conflict-copy recovery; the later copy window remains unresolved.
 
 - [Write confirmation and save races](results/2026-11-04-write-confirmation.md). The access picker drops its technical warning. Direct-writer VM probes reproduce lost or mixed contents during a save; a pre-mutation check catches earlier changes but leaves the copy window open.
