@@ -235,8 +235,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
             let contents: URL
             do {
                 contents = try SharedContainer.uploadInbox(request.staging)
-                let size = try ReadOnlyFile(url: contents).snapshot.size
-                try space.begin(request.id, bytes: size)
+                _ = try ReadOnlyFile(url: contents)
             } catch {
                 release(request.id.uuidString)
                 throw error
@@ -244,11 +243,8 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
             let timer = progressTimer(request.id, job)
             source.edit(request, contents: contents, progress: job.progress, started: { [weak self] in
                 try? self?.registration()?.started(ReaderMessage.encode(SourceReadStarted(id: request.id)))
-            }, checkSpace: { [space] completed in
-                try space.check(request.id, completedBytes: completed)
             }) { [self] result in
                 timer.cancel()
-                space.end(request.id)
                 lock.withLock { jobs[request.id] = nil }
                 do { reply(try ReaderMessage.encode(result.get()), nil) }
                 catch {

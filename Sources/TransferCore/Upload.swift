@@ -3,10 +3,10 @@ import Darwin
 import Foundation
 
 public protocol UploadRemote {
-    func createUpload(path: String) throws -> EditFileIdentity
-    func writeUpload(path: String, contents: URL) throws -> EditFileVersion
-    func resumeUpload(path: String, contents: URL, identity: EditFileIdentity) throws -> EditFileVersion
-    func inspectUpload(path: String) throws -> EditFileVersion
+    func createUpload(path: String) throws -> RemoteFileIdentity
+    func writeUpload(path: String, contents: URL) throws -> RemoteFileVersion
+    func resumeUpload(path: String, contents: URL, identity: RemoteFileIdentity) throws -> RemoteFileVersion
+    func inspectUpload(path: String) throws -> RemoteFileVersion
 }
 
 public struct UploadCreateRefusal: Error {
@@ -33,7 +33,7 @@ public struct PendingUpload: Codable, Sendable {
     public var item: String?
     public var initialName: InitialFolderName?
     public var serverFolder: RemoteFolderIdentity?
-    public var serverFile: EditFileIdentity?
+    public var serverFile: RemoteFileIdentity?
 
     public var isPending: Bool { ![.completed, .stopped].contains(state) || initialName?.isPending == true }
     /// Nothing reached the server: no create was sent, or the server refused it, or the name was taken.
@@ -272,7 +272,6 @@ public final class UploadOutbox {
         return true
     }
 
-    // EditOutbox proves supersession or incomplete local preparation before removing a payload.
     func discardUnpublishedPayload(_ id: UUID) throws {
         if let record = try records().first(where: { $0.id == id }) {
             guard record.kind == .file, [.staging, .prepared].contains(record.state),
@@ -306,7 +305,7 @@ public final class UploadOutbox {
                 == record.digest else { throw UploadError.unresolved }
         try local.validateUnchanged()
         let uncertain = record.state == .attempting && record.serverFile == nil
-        let version: EditFileVersion
+        let version: RemoteFileVersion
         if record.state == .prepared || uncertain {
             record.state = .attempting
             try save(record)
@@ -340,7 +339,7 @@ public final class UploadOutbox {
             }
         }
         guard version.identity == record.serverFile, version.identity.fileID == record.remoteID,
-              version.size == record.size, version.digest == record.digest else { throw UploadError.unresolved }
+              version.size == record.size else { throw UploadError.unresolved }
         record.state = .verified
         try save(record)
         try checkpoint(.verified)

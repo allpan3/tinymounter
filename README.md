@@ -2,6 +2,12 @@
 
 A macOS app that brings a network disk, such as a NAS, into Apple's file system: browse it from Finder or another file manager such as QSpace, download on demand, and keep selected files available offline. Finder is the first file manager and SMB the first protocol it will support. A later mode will mount server volumes, the ordinary macOS SMB mounts, automatically.
 
+SMB simplification, 2026-11-05: implementation in progress on `simplify-smb-operations`.
+The approved design uses ordinary writes and File Provider pending uploads, with no custom
+remote save recovery or content-proof reads. Package checks pass (518 tests, one optional
+skip). App build, signed VM behavior and performance are not yet verified. The installed Mac
+build remains the earlier release candidate. See the [task record](docs/smb-simplification.md).
+
 Save recheck, 2026-11-04: the transaction now checks the original after staging and again after
 backup verification. A detected change uses the existing conflict-copy behavior; retries retain
 the conflict decision. Signed VM checks pass for both change windows, crash recovery and repeated

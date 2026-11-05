@@ -19,7 +19,7 @@ public struct FolderMoveView: Codable, Equatable, Sendable {
         move.destinationPath(for: entry)
     }
 
-    func validate(source: RelativePath, destination: RelativePath, identity: EditFileIdentity) throws {
+    func validate(source: RelativePath, destination: RelativePath, identity: RemoteFileIdentity) throws {
         guard UUID(uuidString: domain)?.uuidString == domain, let folder = RelativePath(folder),
               !move.entries.isEmpty, move.entries.count <= DirectoryListing.defaultLimit,
               Set(move.entries.map(\.item)).count == move.entries.count,
@@ -56,7 +56,7 @@ public struct FolderMoveView: Codable, Equatable, Sendable {
                 guard entry.kind == .folder else { throw UploadError.invalidRequest }
             case .file(let receipt):
                 guard entry.kind == .file, receipt.version.size == entry.size,
-                      !entry.contentVersion.hasPrefix("e1:") || receipt.contentVersion == entry.contentVersion else {
+                      !entry.contentVersion.hasPrefix("r1:") || receipt.contentVersion == entry.contentVersion else {
                     throw UploadError.invalidRequest
                 }
             }
@@ -80,8 +80,8 @@ public struct FolderMoveSettlement: Codable, Equatable, Sendable {
 }
 
 public enum FolderMoveObservation: Sendable {
-    case directory(CatalogFolderMoveObservation, identity: EditFileIdentity)
-    case file(CatalogFolderMoveObservation, version: EditFileVersion)
+    case directory(CatalogFolderMoveObservation, identity: RemoteFileIdentity)
+    case file(CatalogFolderMoveObservation, version: RemoteFileVersion)
     case removed(item: String)
 
     public var item: String {
@@ -129,7 +129,7 @@ public struct PendingFolderMove: Codable, Equatable, Sendable {
     public let metadataVersion: String
     public let source: String
     public let destination: String
-    public let identity: EditFileIdentity
+    public let identity: RemoteFileIdentity
     public var parents: [FileRenameParent]
     public let views: [FolderMoveView]
     public var state: State = .prepared
@@ -280,8 +280,8 @@ public struct PendingFolderMove: Codable, Equatable, Sendable {
     private func validateSettlements(_ settlements: [FolderMoveSettlement]) throws {
         enum PhysicalResolution: Equatable {
             case removed
-            case preserved(EditFileIdentity, CatalogRow.Kind, UInt64, ContentFingerprint, EditFileVersion?)
-            case changed(EditFileVersion, UInt64, ContentFingerprint)
+            case preserved(RemoteFileIdentity, CatalogRow.Kind, UInt64, ContentFingerprint, RemoteFileVersion?)
+            case changed(RemoteFileVersion, UInt64, ContentFingerprint)
         }
         guard settlements.count == views.count, Set(settlements.map(\.domain)) == Set(views.map(\.domain)) else {
             throw UploadError.invalidRequest
@@ -327,7 +327,7 @@ public struct PendingFolderMove: Codable, Equatable, Sendable {
                 switch resolution {
                 case .removed: evidence = .removed
                 case .preserved(let after):
-                    let version: EditFileVersion?
+                    let version: RemoteFileVersion?
                     if case .file(let receipt) = proofs[entry.item]! { version = receipt.version }
                     else { version = nil }
                     evidence = .preserved(proofs[entry.item]!.identity, after.kind, after.nativeID,
@@ -357,10 +357,10 @@ public struct PendingFolderMove: Codable, Equatable, Sendable {
                 case .changed(let after, let receipt):
                     guard case .file(let original) = proofs[entry.item]!, entry.kind == .file,
                           receipt.item == entry.item, receipt.version.identity == original.version.identity,
-                          !receipt.version.hasSameContents(as: original.version)
+                          !receipt.version.hasSameDataVersion(as: original.version)
                             || receipt.version.modifiedMicroseconds != original.version.modifiedMicroseconds,
                           versions.insert(receipt.contentVersion).inserted,
-                          after.preservesContents == receipt.version.hasSameContents(as: original.version),
+                          after.preservesContents == receipt.version.hasSameDataVersion(as: original.version),
                           after.size == receipt.version.size, after.mtimeNs >= 0, after.ctimeNs >= 0,
                           UInt64(after.mtimeNs / 1_000) == receipt.version.modifiedMicroseconds,
                           UInt64(after.ctimeNs / 1_000) == receipt.version.changedMicroseconds else {
@@ -532,7 +532,7 @@ extension PendingFolderMove {
                             throw UploadError.unresolved
                         }
                     case (.file(let original), .file(let receipt)):
-                        let unchanged = receipt.version.hasSameContents(as: original.version)
+                        let unchanged = receipt.version.hasSameDataVersion(as: original.version)
                             && receipt.version.modifiedMicroseconds == original.version.modifiedMicroseconds
                         if unchanged {
                             guard receipt == original, after.contentVersion == old.contentVersion else {
@@ -604,7 +604,7 @@ extension PendingFolderMove {
                             throw UploadError.unresolved
                         }
                         if case .file(let lhs) = other.entry.proof, case .file(let rhs) = entry.proof {
-                            guard lhs.version.hasSameContents(as: rhs.version),
+                            guard lhs.version.hasSameDataVersion(as: rhs.version),
                                   lhs.version.modifiedMicroseconds == rhs.version.modifiedMicroseconds else {
                                 throw UploadError.unresolved
                             }
@@ -716,16 +716,16 @@ extension PendingFolderMove {
                           value.mtimeNs >= 0, value.ctimeNs >= 0,
                           UInt64(value.mtimeNs / 1_000) == fresh.modifiedMicroseconds,
                           UInt64(value.ctimeNs / 1_000) == fresh.changedMicroseconds,
-                          value.preservesContents == fresh.hasSameContents(as: base.version) else {
+                          value.preservesContents == fresh.hasSameDataVersion(as: base.version) else {
                         throw UploadError.unresolved
                     }
                     after = value
-                    if fresh.hasSameContents(as: base.version)
+                    if fresh.hasSameDataVersion(as: base.version)
                         && fresh.modifiedMicroseconds == base.version.modifiedMicroseconds {
                         proof = before.proof
                         version = before.contentVersion
                     } else {
-                        let receipt = try EditBaseReceipt(item: before.item, version: fresh)
+                        let receipt = try FileRevision(item: before.item, version: fresh)
                         proof = .file(receipt)
                         version = receipt.contentVersion
                     }
@@ -774,7 +774,7 @@ extension FileRenameOutbox {
     }
 
     public func prepareFolder(owner: String, request: FileRenameRequest, source: RelativePath,
-                              destination: RelativePath, identity: EditFileIdentity,
+                              destination: RelativePath, identity: RemoteFileIdentity,
                               parents: [FileRenameParent], views: [FolderMoveView]) throws -> PendingFolderMove {
         if let existing = try replayFolder(owner: owner, request: request) { return existing }
         guard let view = views.first(where: { $0.domain == owner }), view.move.item == request.item,
@@ -798,10 +798,10 @@ extension FileRenameOutbox {
 }
 
 public struct FolderMoveEvidence: Sendable {
-    public let identity: EditFileIdentity
+    public let identity: RemoteFileIdentity
     public let name: String
 
-    public init(identity: EditFileIdentity, name: String) {
+    public init(identity: RemoteFileIdentity, name: String) {
         self.identity = identity
         self.name = name
     }

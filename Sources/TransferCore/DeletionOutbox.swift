@@ -226,8 +226,8 @@ public struct DeletionPlan: Codable, Equatable, Sendable {
         }
     }
 
-    func directoryIdentities(updates: [ItemDeletionParent] = []) -> [Data: EditFileIdentity] {
-        var result: [Data: EditFileIdentity] = [:]
+    func directoryIdentities(updates: [ItemDeletionParent] = []) -> [Data: RemoteFileIdentity] {
+        var result: [Data: RemoteFileIdentity] = [:]
         for parent in parents { result[Data(parent.path.utf8)] = parent.identity }
         for node in nodes {
             if case .directory(let identity) = node.evidence { result[Data(node.path.utf8)] = identity }
@@ -238,7 +238,7 @@ public struct DeletionPlan: Codable, Equatable, Sendable {
 
     /// The node as a one-object request; its chain adds the admitted tree folders above it.
     func item(at index: Int, state: PendingItemDeletion.State,
-              directories: [Data: EditFileIdentity]) throws -> PendingItemDeletion {
+              directories: [Data: RemoteFileIdentity]) throws -> PendingItemDeletion {
         let node = nodes[index]
         guard let path = RelativePath(node.path), path.components.count >= parents.count else {
             throw ItemDeletionError.invalidRequest
@@ -267,7 +267,7 @@ struct DeletionIdentityKey: Hashable {
     let fileID: UInt64
     let birthMicroseconds: UInt64
 
-    init(_ identity: EditFileIdentity) {
+    init(_ identity: RemoteFileIdentity) {
         fileID = identity.fileID
         birthMicroseconds = identity.birthMicroseconds
     }

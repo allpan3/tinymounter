@@ -95,8 +95,8 @@ public struct CatalogFolderMoveObservation: Codable, Equatable, Sendable {
 }
 
 public enum CatalogFolderMoveProof: Codable, Equatable, Sendable {
-    case directory(item: String, identity: EditFileIdentity)
-    case file(EditBaseReceipt)
+    case directory(item: String, identity: RemoteFileIdentity)
+    case file(FileRevision)
 
     public var item: String {
         switch self {
@@ -105,7 +105,7 @@ public enum CatalogFolderMoveProof: Codable, Equatable, Sendable {
         }
     }
 
-    public var identity: EditFileIdentity {
+    public var identity: RemoteFileIdentity {
         switch self {
         case .directory(_, let identity): identity
         case .file(let receipt): receipt.version.identity
@@ -116,7 +116,7 @@ public enum CatalogFolderMoveProof: Codable, Equatable, Sendable {
 public enum CatalogFolderMoveResolution: Codable, Equatable, Sendable {
     case preserved(CatalogFolderMoveObservation)
     // Mint and persist a fresh receipt; never reuse a version previously handed to File Provider.
-    case changed(CatalogFolderMoveObservation, receipt: EditBaseReceipt)
+    case changed(CatalogFolderMoveObservation, receipt: FileRevision)
     case removed(item: String)
 
     public var item: String {
@@ -130,29 +130,29 @@ public enum CatalogFolderMoveResolution: Codable, Equatable, Sendable {
 public struct CatalogFolderMoveListing: Codable, Equatable, Sendable {
     public struct Child: Codable, Equatable, Sendable {
         public let name: String
-        public let identity: EditFileIdentity
+        public let identity: RemoteFileIdentity
         // Unsupported kinds must remain in the listing, so they cannot be mistaken for absence.
         public let kind: CatalogRow.Kind?
 
-        public init(name: String, identity: EditFileIdentity, kind: CatalogRow.Kind?) {
+        public init(name: String, identity: RemoteFileIdentity, kind: CatalogRow.Kind?) {
             self.name = name
             self.identity = identity
             self.kind = kind
         }
 
-        func matches(identity: EditFileIdentity, exactName: String) -> Bool {
+        func matches(identity: RemoteFileIdentity, exactName: String) -> Bool {
             self.identity == identity && SMBName.matchesStored(name, requested: exactName)
         }
     }
 
     public let parent: String
     public let path: String
-    public let identity: EditFileIdentity
+    public let identity: RemoteFileIdentity
     // Requires every page and name, including unsupported kinds, without unreadable or skipped entries.
     public let complete: Bool
     public let children: [Child]
 
-    public init(parent: String, path: RelativePath, identity: EditFileIdentity, complete: Bool, children: [Child]) {
+    public init(parent: String, path: RelativePath, identity: RemoteFileIdentity, complete: Bool, children: [Child]) {
         self.parent = parent
         self.path = path.string
         self.identity = identity
@@ -175,18 +175,18 @@ public struct CatalogFolderMoveSettlement: Codable, Equatable, Sendable {
 }
 
 public enum CatalogFolderMoveRetirement: Codable, Equatable, Sendable {
-    case listed(parent: String, identity: EditFileIdentity, name: String, occupant: CatalogFolderMoveListing.Child?)
+    case listed(parent: String, identity: RemoteFileIdentity, name: String, occupant: CatalogFolderMoveListing.Child?)
     case parent(item: String)
 
-    static func proved(_ entry: CatalogFolderMoveEntry, identity: EditFileIdentity,
-                       parentIdentity: EditFileIdentity, parentPath: RelativePath,
+    static func proved(_ entry: CatalogFolderMoveEntry, identity: RemoteFileIdentity,
+                       parentIdentity: RemoteFileIdentity, parentPath: RelativePath,
                        listing: CatalogFolderMoveListing) throws -> Self {
         try proved(parent: entry.parent, name: entry.name, identity: identity,
                    parentIdentity: parentIdentity, parentPath: parentPath, listing: listing)
     }
 
-    static func proved(parent: String, name: String, identity: EditFileIdentity,
-                       parentIdentity: EditFileIdentity, parentPath: RelativePath,
+    static func proved(parent: String, name: String, identity: RemoteFileIdentity,
+                       parentIdentity: RemoteFileIdentity, parentPath: RelativePath,
                        listing: CatalogFolderMoveListing) throws -> Self {
         guard listing.parent == parent, listing.identity == parentIdentity, listing.complete,
               listing.path.utf8.elementsEqual(parentPath.string.utf8),
@@ -362,7 +362,7 @@ public struct CatalogFolderMoveState: Codable, Equatable, Sendable {
                       UInt64(entry.mtimeNs / 1_000) == receipt.version.modifiedMicroseconds,
                       entry.contentVersion == receipt.contentVersion
                         || (entry.contentVersion == before.contentVersion && entry.proof == first.proof),
-                      !entry.contentVersion.hasPrefix("e1:") || entry.contentVersion == receipt.contentVersion else {
+                      !entry.contentVersion.hasPrefix("r1:") || entry.contentVersion == receipt.contentVersion else {
                     throw UploadError.unresolved
                 }
                 if entry.contentVersion == first.contentVersion || receipt.contentVersion == first.contentVersion {
@@ -718,7 +718,7 @@ extension Catalog {
                 guard entry.kind == .folder else { throw UploadError.unresolved }
             case .file(let receipt):
                 guard entry.kind == .file, receipt.version.size == entry.size,
-                      !entry.contentVersion.hasPrefix("e1:") || entry.contentVersion == receipt.contentVersion else {
+                      !entry.contentVersion.hasPrefix("r1:") || entry.contentVersion == receipt.contentVersion else {
                     throw UploadError.unresolved
                 }
                 usedVersions.insert(receipt.contentVersion)
@@ -741,10 +741,10 @@ extension Catalog {
             case .changed(let after, let receipt):
                 guard entry.kind == .file, case .file(let original) = proofs[entry.item]!,
                       receipt.item == entry.item, receipt.version.identity == original.version.identity,
-                      !receipt.version.hasSameContents(as: original.version)
+                      !receipt.version.hasSameDataVersion(as: original.version)
                         || receipt.version.modifiedMicroseconds != original.version.modifiedMicroseconds,
                       usedVersions.insert(receipt.contentVersion).inserted,
-                      after.preservesContents == receipt.version.hasSameContents(as: original.version),
+                      after.preservesContents == receipt.version.hasSameDataVersion(as: original.version),
                       after.size == receipt.version.size,
                       after.mtimeNs >= 0, after.ctimeNs >= 0,
                       UInt64(after.mtimeNs / 1_000) == receipt.version.modifiedMicroseconds,

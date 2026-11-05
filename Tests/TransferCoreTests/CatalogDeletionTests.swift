@@ -190,7 +190,7 @@ final class CatalogDeletionTests: XCTestCase {
         var record = try prepare()
         let sequence = try owner.counts().lastSeq, generation = try owner.counts().listingGen
         try fixture.run(&record)
-        objects["Docs/Tree/a"] = .file(try DeletionFixture.version(15, digest: "b"))
+        objects["Docs/Tree/a"] = .file(try DeletionFixture.version(15, modified: 30))
         server.objects = objects
         try list(owner, XCTUnwrap(ids["Tree"]), "Docs/Tree")
         XCTAssertEqual(try owner.counts().lastSeq, sequence)
@@ -235,7 +235,7 @@ final class CatalogDeletionTests: XCTestCase {
         try owner.updateFingerprint(item: a, fingerprint: ContentFingerprint(size: 99, mtimeNs: 1, ctimeNs: 2), fileID: 15)
         let first = try settle(record)
         server.objects["Docs/Tree"] = .directory(try DeletionFixture.identity(10))
-        server.objects["Docs/Tree/a"] = .file(try DeletionFixture.version(15, digest: "b"))
+        server.objects["Docs/Tree/a"] = .file(try DeletionFixture.version(15, modified: 30))
         let finished = try complete(record, first)
         XCTAssertTrue(finished.isSettled)
         XCTAssertEqual(try owner.item(id: a)?.contentVersion,
@@ -257,7 +257,7 @@ final class CatalogDeletionTests: XCTestCase {
         try fixture.run(&record)
         server.objects["Docs/Tree"] = .directory(try DeletionFixture.identity(10))
         server.objects["Docs/Tree/Sub"] = .directory(try DeletionFixture.identity(12))
-        server.objects["Docs/Tree/Sub/c"] = .file(try DeletionFixture.version(13, digest: "b"))
+        server.objects["Docs/Tree/Sub/c"] = .file(try DeletionFixture.version(13, modified: 30))
         try list(owner, root, "Docs")
         var settlement = try settle(record)
         XCTAssertFalse(settlement.isSettled)
@@ -488,7 +488,7 @@ final class CatalogDeletionTests: XCTestCase {
         try owner.setKeep(ids: rows("Tree/b", "Tree/Sub"), value: true)
         var record = try prepare()
         server.objects["Docs/Tree/a"] = .file(try DeletionFixture.version(50))
-        server.objects["Docs/Tree/b"] = .file(try DeletionFixture.version(16, digest: "c"))
+        server.objects["Docs/Tree/b"] = .file(try DeletionFixture.version(16, modified: 30))
         try fixture.run(&record)
         XCTAssertEqual(record.selectedOutcome, .directoryNotEmpty)
         let survivors = try rows("Tree/a", "Tree/b", "Tree").map { try XCTUnwrap(owner.item(id: $0)) }

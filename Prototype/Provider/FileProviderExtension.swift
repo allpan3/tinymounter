@@ -139,7 +139,6 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             return progress
         }
         let partial = requested?.location == NSNotFound ? nil : requested
-        let establishEditBase = partial == nil && version == nil
         let start = partial.map { Int64($0.location) - Int64($0.location) % Int64(max(alignment, 1)) }
         let (kind, seekCancels, cancelled) = lock.withLock { () -> (ReadAheadPlanner.Kind?, [Progress], Bool) in
             var kind: ReadAheadPlanner.Kind?
@@ -205,8 +204,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 defer { stopProgress() }
                 let isBackground = lock.withLock { background.contains(requestID) }
                 let result = try sourceReader.fetch(SourceReadRequest(id: requestID, item: row.id, version: row.contentVersion,
-                                                                      range: range, background: isBackground,
-                                                                      establishEditBase: establishEditBase),
+                                                                      range: range, background: isBackground),
                                                     directory: directory, progress: progress)
                 staging = result.0
                 progress.completedUnitCount = range.length
@@ -561,7 +559,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 let row = try catalog.liveRow(item.itemIdentifier.rawValue)
                 let content = String(data: baseVersion.contentVersion, encoding: .utf8)
                 let metadata = String(data: baseVersion.metadataVersion, encoding: .utf8)
-                catalogLogger.info("rename_base verified=\(content?.hasPrefix("e1:") == true) metadata=\(metadata.flatMap(Int64.init) != nil) writing=\(row.allowsWriting) parent=\(row.parentID == item.parentItemIdentifier.rawValue)")
+                catalogLogger.info("rename_base verified=\(content?.hasPrefix("r1:") == true) metadata=\(metadata.flatMap(Int64.init) != nil) writing=\(row.allowsWriting) parent=\(row.parentID == item.parentItemIdentifier.rawValue)")
                 // Undoing a refused change resends its stale base; otherwise it stays pending forever.
                 if row.name == item.filename, row.parentID == item.parentItemIdentifier.rawValue {
                     catalogLogger.info("rename_unchanged")
@@ -614,7 +612,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 let id = UUID(), target = try SharedContainer.uploadInbox(id)
                 let input = try ReadOnlyFile(url: contents, allowMaterialization: true)
                 guard Int128(try DownloadSpace.available(at: target.deletingLastPathComponent()))
-                    >= Int128(DownloadSpace.reserveBytes) + Int128(input.snapshot.size) * 2 else {
+                    >= Int128(DownloadSpace.reserveBytes) + Int128(input.snapshot.size) else {
                     throw CocoaError(.fileWriteOutOfSpace)
                 }
                 try FileManager.default.copyItem(at: contents, to: target)
@@ -625,16 +623,10 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                                                name: item.filename, baseVersion: base, staging: id,
                                                failOnConflict: options.contains(.failOnConflict))
                 let receipt = try sourceReader.edit(message, progress: progress)
-                // Stop already exported these exact bytes; a deleted target has no version to fetch.
-                if receipt.contentVersion.isEmpty, !receipt.conflict, receipt.item == row.id,
-                   try catalog.read({ try $0.item(id: row.id)?.deleted == true }) {
-                    completion(nil, [], false, nil)
-                    return
-                }
-                let current = try catalog.liveRow(deletionConflict ? receipt.item : row.id)
+                let current = try catalog.liveRow(receipt.item)
                 progress.completedUnitCount = progress.totalUnitCount
                 completion(CatalogItem(current), changedFields.subtracting([.contents, .filename, .parentItemIdentifier]),
-                           (receipt.conflict && !deletionConflict) || current.contentVersion != receipt.contentVersion, nil)
+                           current.contentVersion != receipt.contentVersion, nil)
             } catch {
                 completion(nil, [], false, providerError(error))
             }

@@ -830,7 +830,7 @@ private final class M24Probe: @unchecked Sendable {
                     guard let after = try remote.inspectRename(path: destination) else {
                         throw M24Check(label: "replacement-held-missing")
                     }
-                    try require(after.version.hasSameContents(as: before.version)
+                    try require(after.version.hasSameDataVersion(as: before.version)
                         && after.name == "replaced-x.txt", "replacement-protected-move-verified")
                     try remote.releaseRename(path: destination)
                 }

@@ -35,36 +35,36 @@ final class UploadTests: XCTestCase {
     }
 
     private final class DirectRemote: UploadRemote {
-        var version: EditFileVersion
+        var version: RemoteFileVersion
         var createError: Error?
         var writeError: Error?
         var creates = 0, writes = 0, inspections = 0, resumptions = 0
-        var resumedIdentity: EditFileIdentity?
+        var resumedIdentity: RemoteFileIdentity?
 
         init(_ record: PendingUpload) throws {
-            version = try EditFileVersion(identity: EditFileIdentity(fileID: 42, birthMicroseconds: 100),
-                size: record.size, digest: record.digest, modifiedMicroseconds: 200,
-                changedMicroseconds: 300, attributes: 0, security: Data([1]))
+            version = try RemoteFileVersion(identity: RemoteFileIdentity(fileID: 42, birthMicroseconds: 100),
+                size: record.size, modifiedMicroseconds: 200,
+                changedMicroseconds: 300, attributes: 0)
         }
 
-        func createUpload(path: String) throws -> EditFileIdentity {
+        func createUpload(path: String) throws -> RemoteFileIdentity {
             creates += 1
             if let createError { throw createError }
             return version.identity
         }
 
-        func writeUpload(path: String, contents: URL) throws -> EditFileVersion {
+        func writeUpload(path: String, contents: URL) throws -> RemoteFileVersion {
             writes += 1
             if let writeError { throw writeError }
             return version
         }
 
-        func inspectUpload(path: String) throws -> EditFileVersion {
+        func inspectUpload(path: String) throws -> RemoteFileVersion {
             inspections += 1
             return version
         }
 
-        func resumeUpload(path: String, contents: URL, identity: EditFileIdentity) throws -> EditFileVersion {
+        func resumeUpload(path: String, contents: URL, identity: RemoteFileIdentity) throws -> RemoteFileVersion {
             resumptions += 1
             resumedIdentity = identity
             return version
@@ -93,19 +93,17 @@ final class UploadTests: XCTestCase {
         XCTAssertEqual(server.inspections, 1)
     }
 
-    func testDirectRecoveryRejectsReusedIdentityPartialContentAndWrongDigest() throws {
+    func testDirectRecoveryRequiresOwnedIdentityAndCompleteWrite() throws {
         var record = try prepared()
         let server = try DirectRemote(record)
         XCTAssertThrowsError(try outbox.upload(&record, remote: server, progress: Progress()) { state in
             if state == .created { throw TransferError.cancelled }
         })
         let full = server.version
-        for (birth, size, digest) in [(101, full.size, full.digest),
-                                     (100, full.size - 1, full.digest),
-                                     (100, full.size, String(repeating: "0", count: 64))] {
-            server.version = try EditFileVersion(identity: EditFileIdentity(fileID: 42, birthMicroseconds: UInt64(birth)),
-                size: size, digest: digest, modifiedMicroseconds: 200, changedMicroseconds: 300,
-                attributes: 0, security: Data([1]))
+        for (birth, size) in [(101, full.size), (100, full.size - 1)] {
+            server.version = try RemoteFileVersion(identity: RemoteFileIdentity(fileID: 42, birthMicroseconds: UInt64(birth)),
+                size: size, modifiedMicroseconds: 200, changedMicroseconds: 300,
+                attributes: 0)
             record = try XCTUnwrap(outbox.records().first)
             XCTAssertThrowsError(try outbox.upload(&record, remote: server, progress: Progress())) {
                 XCTAssertEqual($0 as? UploadError, .unresolved)
@@ -114,7 +112,7 @@ final class UploadTests: XCTestCase {
         }
         XCTAssertEqual(server.creates, 1)
         XCTAssertEqual(server.writes, 0)
-        XCTAssertEqual(server.resumptions, 3)
+        XCTAssertEqual(server.resumptions, 2)
         XCTAssertEqual(try Data(contentsOf: root.appending(path: "pending/\(record.id.uuidString).data")), payload)
     }
 

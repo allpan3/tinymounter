@@ -11,26 +11,22 @@ final class ItemDeletionTests: XCTestCase {
 
     override func setUpWithError() throws { try setUpTarget(.file(version())) }
 
-    private func version(identity: UInt64 = 30, digest: Character = "a",
-                         modified: UInt64 = 20, security: Data = Data([1]),
-                         quarantine: Data? = nil) throws -> EditFileVersion {
-        try EditFileVersion(identity: EditFileIdentity(fileID: identity, birthMicroseconds: 10), size: 12,
-                            digest: String(repeating: String(digest), count: 64), modifiedMicroseconds: modified,
-                            changedMicroseconds: 40, attributes: 32, security: security,
-                            artifactQuarantine: quarantine)
+    private func version(identity: UInt64 = 30, modified: UInt64 = 20) throws -> RemoteFileVersion {
+        try RemoteFileVersion(identity: RemoteFileIdentity(fileID: identity, birthMicroseconds: 10), size: 12, modifiedMicroseconds: modified,
+                            changedMicroseconds: 40, attributes: 32)
     }
 
     private func setUpTarget(_ selected: ItemDeletionEvidence) throws {
         let parents = [
-            ItemDeletionParent(path: "", name: "", identity: try EditFileIdentity(fileID: 1, birthMicroseconds: 2)),
+            ItemDeletionParent(path: "", name: "", identity: try RemoteFileIdentity(fileID: 1, birthMicroseconds: 2)),
             ItemDeletionParent(path: "folder", name: "folder",
-                               identity: try EditFileIdentity(fileID: 3, birthMicroseconds: 4))
+                               identity: try RemoteFileIdentity(fileID: 3, birthMicroseconds: 4))
         ]
         record = try PendingItemDeletion(path: XCTUnwrap(RelativePath("folder/item")), selected: selected,
                                          parents: parents)
         store = try Store(record)
         remote = Remote(record: record)
-        remote.files["folder/neighbor"] = .file(try version(identity: 99, digest: "b"))
+        remote.files["folder/neighbor"] = .file(try version(identity: 99, modified: 30))
     }
 
     private func remove(_ current: inout PendingItemDeletion) throws {
@@ -55,8 +51,7 @@ final class ItemDeletionTests: XCTestCase {
     }
 
     func testWholeObjectPolicyDoesNotCompareChangedAttachedMetadata() throws {
-        remote.files[record.path] = .file(try version(modified: 80, security: Data([9]),
-                                                     quarantine: Data("changed".utf8)))
+        remote.files[record.path] = .file(try version())
         remote.attached = Data("existing attached data".utf8)
         remote.beforeMark = { self.remote.attached = Data("new attached data".utf8) }
         try remove()
@@ -66,7 +61,7 @@ final class ItemDeletionTests: XCTestCase {
     }
 
     func testChangedMainContentsAndIdenticalByteReplacementAreRefused() throws {
-        for (replacement, expected) in [(try version(digest: "c"), ItemDeletionError.changed),
+        for (replacement, expected) in [(try version(modified: 40), ItemDeletionError.changed),
                                          (try version(identity: 31), .replaced)] {
             remote.files[record.path] = .file(replacement)
             XCTAssertThrowsError(try remove()) { XCTAssertEqual($0 as? ItemDeletionError, expected) }
@@ -80,16 +75,16 @@ final class ItemDeletionTests: XCTestCase {
         remote.files[record.path] = .directory(record.selected.identity)
         XCTAssertThrowsError(try remove()) { XCTAssertEqual($0 as? ItemDeletionError, .changed) }
         let ordinary = try version()
-        remote.files[record.path] = .file(try EditFileVersion(identity: ordinary.identity, size: ordinary.size,
-            digest: ordinary.digest, modifiedMicroseconds: ordinary.modifiedMicroseconds,
-            changedMicroseconds: ordinary.changedMicroseconds, attributes: 0x400, security: ordinary.security))
+        remote.files[record.path] = .file(try RemoteFileVersion(identity: ordinary.identity, size: ordinary.size,
+            modifiedMicroseconds: ordinary.modifiedMicroseconds,
+            changedMicroseconds: ordinary.changedMicroseconds, attributes: 0x400))
         XCTAssertThrowsError(try remove()) { XCTAssertEqual($0 as? ItemDeletionError, .unsupported) }
         XCTAssertEqual(remote.markCalls, 0)
     }
 
     func testChangedParentIdentityOrSpellingRefusesBeforeOpeningTheTarget() throws {
         for changed in [ItemDeletionParent(path: "folder", name: "folder",
-                                           identity: try EditFileIdentity(fileID: 50, birthMicroseconds: 4)),
+                                           identity: try RemoteFileIdentity(fileID: 50, birthMicroseconds: 4)),
                         ItemDeletionParent(path: "folder", name: "FOLDER", identity: record.parents[1].identity)] {
             remote.parents[1] = changed
             XCTAssertThrowsError(try remove()) { XCTAssertEqual($0 as? ItemDeletionError, .parentChanged) }
@@ -178,7 +173,7 @@ final class ItemDeletionTests: XCTestCase {
     func testInterruptedBeforeRequestRevalidatesBeforeRetry() throws {
         store.failure = (.attempting, true)
         XCTAssertThrowsError(try remove())
-        remote.files[record.path] = .file(try version(digest: "c"))
+        remote.files[record.path] = .file(try version(modified: 40))
         XCTAssertThrowsError(try remove()) { XCTAssertEqual($0 as? ItemDeletionError, .changed) }
         XCTAssertEqual(record.state, .attempting)
         XCTAssertEqual(remote.markCalls, 0)
@@ -279,7 +274,7 @@ final class ItemDeletionTests: XCTestCase {
         store.failure = (.closeAcknowledged, true)
         XCTAssertThrowsError(try remove())
         remote.parents[0] = ItemDeletionParent(path: "", name: "",
-                                              identity: try EditFileIdentity(fileID: 80, birthMicroseconds: 81))
+                                              identity: try RemoteFileIdentity(fileID: 80, birthMicroseconds: 81))
         XCTAssertThrowsError(try remove()) { XCTAssertEqual($0 as? ItemDeletionError, .parentChanged) }
         XCTAssertEqual(record.state, .closeAcknowledged)
         XCTAssertEqual(remote.inspectCalls, 1)
@@ -312,7 +307,7 @@ final class ItemDeletionTests: XCTestCase {
     }
 
     func testEmptyDirectoryDeletionAndPopulatedDirectoryRefusal() throws {
-        try setUpTarget(.directory(EditFileIdentity(fileID: 30, birthMicroseconds: 10)))
+        try setUpTarget(.directory(RemoteFileIdentity(fileID: 30, birthMicroseconds: 10)))
         let child = ItemDeletionEvidence.file(try version(identity: 45))
         remote.files[record.path + "/child"] = child
         XCTAssertThrowsError(try remove()) { XCTAssertEqual($0 as? ItemDeletionError, .directoryNotEmpty) }
@@ -330,7 +325,7 @@ final class ItemDeletionTests: XCTestCase {
 
     func testChildArrivalBeforeMarkOrCloseKeepsBothDirectoryAndChild() throws {
         for beforeMark in [true, false] {
-            try setUpTarget(.directory(EditFileIdentity(fileID: 30, birthMicroseconds: 10)))
+            try setUpTarget(.directory(RemoteFileIdentity(fileID: 30, birthMicroseconds: 10)))
             let path = record.path + "/child", child = ItemDeletionEvidence.file(try version(identity: 45))
             let arrival = { self.remote.files[path] = child }
             if beforeMark { remote.beforeMark = arrival } else { remote.beforeClose = arrival }
@@ -347,7 +342,7 @@ final class ItemDeletionTests: XCTestCase {
     }
 
     func testDirectoryLostCloseReplyRemainsUnconfirmed() throws {
-        try setUpTarget(.directory(EditFileIdentity(fileID: 30, birthMicroseconds: 10)))
+        try setUpTarget(.directory(RemoteFileIdentity(fileID: 30, birthMicroseconds: 10)))
         remote.loseCloseReply = true
         XCTAssertThrowsError(try remove())
         XCTAssertEqual(record.state, .attempting)

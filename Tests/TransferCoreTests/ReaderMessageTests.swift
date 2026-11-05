@@ -57,7 +57,7 @@ final class ReaderMessageTests: XCTestCase {
 
     func testEditMessagesKeepBaseAndConflictPolicyAndRejectUnsafePaths() throws {
         let request = try EditRequest(item: UUID().uuidString, parent: Catalog.rootItemID, name: "note.txt",
-                                      baseVersion: "e1:" + UUID().uuidString, staging: UUID(), failOnConflict: true)
+                                      baseVersion: "r1:" + UUID().uuidString, staging: UUID(), failOnConflict: true)
         let decoded = try ReaderMessage.decode(EditRequest.self, from: ReaderMessage.encode(request))
         XCTAssertEqual(decoded.baseVersion, request.baseVersion)
         XCTAssertEqual(decoded.staging, request.staging)

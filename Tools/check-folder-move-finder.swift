@@ -280,7 +280,7 @@ extension M22FinderProbe {
     struct Base: Codable, Sendable {
         let item: String
         let content: String
-        let identity: EditFileIdentity
+        let identity: RemoteFileIdentity
         let attributes: UInt32
     }
 

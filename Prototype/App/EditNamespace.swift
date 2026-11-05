@@ -89,19 +89,10 @@ final class EditNamespace: @unchecked Sendable {
             $0.isPending && $0.id != id && $0.domains.contains { domains[$0] != nil }
         }
         guard pendingRenames.isEmpty else { throw UploadError.pendingWrites }
-        for domain in domains.keys {
-            let outbox = try LocationSource.editOutbox(domainID: domain)
-            let pending = try outbox.records().filter(\.isPending)
-            guard try outbox.pendingCount == pending.count,
-                  pending.allSatisfy({ !$0.requiresNamespaceSettlement }) else {
-                throw UploadError.pendingWrites
-            }
-        }
         guard try blockingDeletions(excluding: id).isEmpty else { throw deletionBusyError }
     }
 
-    func requireUncontested(path: RelativePath, excluding id: UUID,
-                            retaining: (domain: String, item: String)? = nil) throws {
+    func requireUncontested(path: RelativePath, excluding id: UUID) throws {
         guard !isReserved(path) else { throw UploadError.pendingWrites }
         for record in try blockingDeletions(excluding: id) {
             guard let selected = RelativePath(record.plan.selected.path), !Self.contains(selected, path) else {
@@ -117,16 +108,6 @@ final class EditNamespace: @unchecked Sendable {
             case .folder(let record):
                 guard let source = RelativePath(record.source), let destination = RelativePath(record.destination),
                       !Self.contains(source, path), !Self.contains(destination, path) else {
-                    throw UploadError.pendingWrites
-                }
-            }
-        }
-        for (domain, folder) in domains {
-            for record in try LocationSource.editOutbox(domainID: domain).records()
-                where record.id != id && record.mayHaveChangedOriginal {
-                if retaining?.domain == domain, retaining?.item == record.item { continue }
-                guard let relative = RelativePath(record.path), let full = folder.appending(relative),
-                      NameKey(full.string) != NameKey(path.string) else {
                     throw UploadError.pendingWrites
                 }
             }

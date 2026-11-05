@@ -7,7 +7,7 @@ final class FileRenameTests: XCTestCase {
     private var directory: URL!
     private var catalog: Catalog!
     private var row: CatalogRow!
-    private var base: EditBaseReceipt!
+    private var base: FileRevision!
     private var outbox: FileRenameOutbox!
     private var remote: RenameRemote!
     private let domain = UUID().uuidString
@@ -21,9 +21,9 @@ final class FileRenameTests: XCTestCase {
             .entry(.init(name: "z.txt", kind: .file, size: 10, mtimeNs: 1_000, ctimeNs: 2_000, fileID: 8))
         ])) { _ in true }
         row = try XCTUnwrap(catalog.liveChild(parent: Catalog.rootItemID, nameKey: NameKey("original.txt")))
-        base = try EditBaseReceipt(item: row.id, version: version())
+        base = try FileRevision(item: row.id, version: version())
         try catalog.setAllowsWriting(true)
-        try catalog.rememberEditBase(base, expectedVersion: row.contentVersion)
+        try catalog.rememberRevision(base, expectedVersion: row.contentVersion)
         row = try XCTUnwrap(catalog.item(id: row.id))
         outbox = try FileRenameOutbox(directory: directory.appending(path: "Renames"))
         remote = RenameRemote()
@@ -35,10 +35,9 @@ final class FileRenameTests: XCTestCase {
         try FileManager.default.removeItem(at: directory)
     }
 
-    private func version(identity: UInt64 = 12, digest: Character = "a") throws -> EditFileVersion {
-        try EditFileVersion(identity: EditFileIdentity(fileID: identity, birthMicroseconds: 34), size: 10,
-                            digest: String(repeating: String(digest), count: 64), modifiedMicroseconds: 1,
-                            changedMicroseconds: 2, attributes: 32, security: Data([1]))
+    private func version(identity: UInt64 = 12, modified: UInt64 = 1) throws -> RemoteFileVersion {
+        try RemoteFileVersion(identity: RemoteFileIdentity(fileID: identity, birthMicroseconds: 34), size: 10, modifiedMicroseconds: modified,
+                            changedMicroseconds: 2, attributes: 32)
     }
 
     private func request(name: String = "renamed.txt", metadata: String? = nil) throws -> FileRenameRequest {
@@ -81,7 +80,7 @@ final class FileRenameTests: XCTestCase {
     }
 
     func testChangedOrReplacedSourceIsRefusedWithoutMutation() throws {
-        for changed in [try version(digest: "b"), try version(identity: 13)] {
+        for changed in [try version(modified: 3), try version(identity: 13)] {
             var record = try prepare()
             remote.files[NameKey(row.name)] = FileRenameEvidence(version: changed, name: row.name)
             XCTAssertThrowsError(try FileRenameTransaction.publish(&record, outbox: outbox, remote: remote)) {
@@ -99,7 +98,7 @@ final class FileRenameTests: XCTestCase {
         remote.failAfterMove = true
         XCTAssertThrowsError(try FileRenameTransaction.publish(&record, outbox: outbox, remote: remote))
         remote.failAfterMove = false
-        let competitor = try version(identity: 99, digest: "b")
+        let competitor = try version(identity: 99, modified: 3)
         remote.files[NameKey(record.name)] = FileRenameEvidence(version: competitor, name: record.name)
         XCTAssertThrowsError(try FileRenameTransaction.publish(&record, outbox: outbox, remote: remote))
         XCTAssertEqual(record.state, .attempting)
@@ -112,7 +111,7 @@ final class FileRenameTests: XCTestCase {
     func testCollisionBeforeAndDuringRequestPreservesBothVersions() throws {
         for duringRequest in [false, true] {
             var record = try prepare()
-            let competitor = FileRenameEvidence(version: try version(identity: 99, digest: "b"), name: record.name)
+            let competitor = FileRenameEvidence(version: try version(identity: 99, modified: 3), name: record.name)
             let name = record.name
             if duringRequest {
                 remote.beforeMove = { self.remote.files[NameKey(name)] = competitor }
@@ -255,7 +254,7 @@ final class FileRenameTests: XCTestCase {
         try catalog.reconcile(folder: destination.id, listing: DirectoryListing([])) { _ in true }
         if unverified {
             row = try XCTUnwrap(catalog.liveChild(parent: Catalog.rootItemID, nameKey: NameKey("z.txt")))
-            base = try EditBaseReceipt(item: row.id, version: version(identity: 88))
+            base = try FileRevision(item: row.id, version: version(identity: 88))
             remote.files[NameKey(row.name)] = FileRenameEvidence(version: base.version, name: row.name)
         }
         let request = try FileRenameRequest(item: row.id, parent: destination.id, name: "moved.txt",
@@ -264,8 +263,8 @@ final class FileRenameTests: XCTestCase {
                                       path: XCTUnwrap(RelativePath(row.name)),
                                       nativeID: unverified ? 8 : 7, destinationParent: destination.id)
         remote.parents = [
-            FileRenameParent(path: "", name: "", identity: try EditFileIdentity(fileID: 90, birthMicroseconds: 10)),
-            FileRenameParent(path: "Archive", name: "Archive", identity: try EditFileIdentity(fileID: 50, birthMicroseconds: 20))
+            FileRenameParent(path: "", name: "", identity: try RemoteFileIdentity(fileID: 90, birthMicroseconds: 10)),
+            FileRenameParent(path: "Archive", name: "Archive", identity: try RemoteFileIdentity(fileID: 50, birthMicroseconds: 20))
         ]
         return try outbox.prepare(owner: domain, request: request, base: base,
                                   source: XCTUnwrap(RelativePath(row.name)), views: [view],
@@ -317,7 +316,7 @@ final class FileRenameTests: XCTestCase {
         var record = try prepareMove()
         let parents = remote.parents
         for replacement in [
-            FileRenameParent(path: "Archive", name: "Archive", identity: try EditFileIdentity(fileID: 51, birthMicroseconds: 20)),
+            FileRenameParent(path: "Archive", name: "Archive", identity: try RemoteFileIdentity(fileID: 51, birthMicroseconds: 20)),
             FileRenameParent(path: "Archive", name: "ARCHIVE", identity: parents[1].identity)
         ] {
             remote.parents = [parents[0], replacement]

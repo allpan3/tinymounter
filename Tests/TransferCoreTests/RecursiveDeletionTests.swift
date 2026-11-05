@@ -87,7 +87,7 @@ final class RecursiveDeletionTests: XCTestCase {
         server.afterClose["Docs/Tree/Empty"] = { [unowned server] in server.connectFailure = DeletionFixture.Fault.connection }
         XCTAssertThrowsError(try run(&record))
         let parent = try XCTUnwrap(server.objects["Docs/Tree"]?.identity)
-        let replacement = ItemDeletionEvidence.directory(try EditFileIdentity(fileID: parent.fileID,
+        let replacement = ItemDeletionEvidence.directory(try RemoteFileIdentity(fileID: parent.fileID,
             birthMicroseconds: parent.birthMicroseconds + 1))
         server.objects["Docs/Tree"] = replacement
         server.connectFailure = nil
@@ -140,7 +140,7 @@ final class RecursiveDeletionTests: XCTestCase {
     func testChangedAndReplacedChildrenSurviveWhileTheirSiblingsAreDeleted() throws {
         var record = try fixture.prepare()
         let replacement = ItemDeletionEvidence.file(try DeletionFixture.version(50))
-        let changed = ItemDeletionEvidence.file(try DeletionFixture.version(16, digest: "c"))
+        let changed = ItemDeletionEvidence.file(try DeletionFixture.version(16, modified: 30))
         server.objects["Docs/Tree/a"] = replacement
         server.objects["Docs/Tree/b"] = changed
         try run(&record)
@@ -301,7 +301,7 @@ final class RecursiveDeletionTests: XCTestCase {
             XCTAssertThrowsError(try run(&record))
             XCTAssertEqual(record.progress.current, .attempting)
             switch expected {
-            case .changed: server.objects[path] = .file(try DeletionFixture.version(15, digest: "c"))
+            case .changed: server.objects[path] = .file(try DeletionFixture.version(15, modified: 30))
             case .moved: server.objects["Docs/Tree/moved"] = server.objects.removeValue(forKey: path)
             case .cannotDelete: server.markFailures[path] = ItemDeletionError.cannotDelete
             default: XCTFail("Unexpected survival outcome")
@@ -525,13 +525,13 @@ final class DeletionFixture {
 
     func remove() { try? FileManager.default.removeItem(at: directory) }
 
-    static func identity(_ id: UInt64) throws -> EditFileIdentity {
-        try EditFileIdentity(fileID: id, birthMicroseconds: 10)
+    static func identity(_ id: UInt64) throws -> RemoteFileIdentity {
+        try RemoteFileIdentity(fileID: id, birthMicroseconds: 10)
     }
 
-    static func version(_ id: UInt64, digest: Character = "a") throws -> EditFileVersion {
-        try EditFileVersion(identity: identity(id), size: 12, digest: String(repeating: String(digest), count: 64),
-                            modifiedMicroseconds: 20, changedMicroseconds: 40, attributes: 32, security: Data([1]))
+    static func version(_ id: UInt64, modified: UInt64 = 20) throws -> RemoteFileVersion {
+        try RemoteFileVersion(identity: identity(id), size: 12,
+                            modifiedMicroseconds: modified, changedMicroseconds: 40, attributes: 32)
     }
 
     func makeOutbox() throws -> DeletionOutbox {
@@ -695,7 +695,7 @@ final class DeletionSession: DeletionRemote {
             for depth in 0..<components.count {
                 let prefix = components.prefix(depth).joined(separator: "/")
                 guard case .directory(let identity)? = server.objects[prefix] else { throw DeletionFixture.Fault.missing }
-                server.objects[prefix] = .directory(try EditFileIdentity(fileID: identity.fileID,
+                server.objects[prefix] = .directory(try RemoteFileIdentity(fileID: identity.fileID,
                     birthMicroseconds: identity.birthMicroseconds + 1))
             }
         }

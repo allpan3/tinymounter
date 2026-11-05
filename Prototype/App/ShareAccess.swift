@@ -803,9 +803,6 @@ final class LocationSource: @unchecked Sendable {
     let failedCreatesLock = NSLock()
     var editNamespace: EditNamespace { access.editNamespace }
     var mutationsSuspended = false
-    // Namespace and upload locks protect the memory copy; disk evidence needs fresh server checks.
-    var verifiedRead: (receipt: EditBaseReceipt, path: RelativePath, proof: VerifiedRead)?
-    weak var verifiedReadSession: ShareSession?
     private let lock = NSLock()
     /// Folders with a listing queued or running, and the replies that wait for it.
     private var waiting: [String: [Reply]] = [:]
@@ -848,9 +845,6 @@ final class LocationSource: @unchecked Sendable {
         }
         closeDeletionRecovery()
         editNamespace.perform {
-            verifiedRead = nil
-            verifiedReadSession = nil
-            try? readProofCache().remove()
             catalogLock.withLock { catalog = nil }
             editNamespace.detach(domainID)
         }

@@ -2,7 +2,7 @@ import Foundation
 
 public struct RenameDirectoryEntry: Sendable {
     public let name: String
-    public let identity: EditFileIdentity
+    public let identity: RemoteFileIdentity
     public let attributes: UInt32
     public let size: Int64
     public let modifiedMicroseconds: UInt64
@@ -36,7 +36,7 @@ public struct RenameDirectoryEntry: Sendable {
             if name != ".", name != ".." {
                 let ticks = try integer(offset + 8, 8)
                 guard ticks / 10 > 11_644_473_600_000_000 else { throw UploadError.unresolved }
-                let identity = try EditFileIdentity(fileID: integer(offset + 72, 8),
+                let identity = try RemoteFileIdentity(fileID: integer(offset + 72, 8),
                                                     birthMicroseconds: ticks / 10 - 11_644_473_600_000_000)
                 let size = try integer(offset + 40, 8)
                 let modified = try integer(offset + 24, 8), changed = try integer(offset + 32, 8)

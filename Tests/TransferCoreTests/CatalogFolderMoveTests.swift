@@ -40,11 +40,10 @@ final class CatalogFolderMoveTests: XCTestCase {
     func testPopulatedMovePreservesIDsVersionsAndEnumerationKeys() throws {
         try catalog.setAllowsWriting(true)
         let verified = try child(nested.id, "deep")
-        let receipt = try EditBaseReceipt(item: verified.id, version: EditFileVersion(
-            identity: EditFileIdentity(fileID: 30, birthMicroseconds: 100), size: verified.size,
-            digest: String(repeating: "a", count: 64), modifiedMicroseconds: 1, changedMicroseconds: 2,
-            attributes: 32, security: Data([1])))
-        try catalog.rememberEditBase(receipt, expectedVersion: verified.contentVersion)
+        let receipt = try FileRevision(item: verified.id, version: RemoteFileVersion(
+            identity: RemoteFileIdentity(fileID: 30, birthMicroseconds: 100), size: verified.size, modifiedMicroseconds: 1, changedMicroseconds: 2,
+            attributes: 32))
+        try catalog.rememberRevision(receipt, expectedVersion: verified.contentVersion)
         let move = try prepare()
         let keys = try rows("SELECT id || '|' || enumeration_key FROM items ORDER BY row")
         let evidence = try observations(move)
@@ -390,15 +389,15 @@ final class CatalogFolderMoveTests: XCTestCase {
         try refuses(move, ordinary)
     }
 
-    func testSettlementChangesTimestampIdenticalFilesWithFreshVersions() throws {
+    func testSettlementRecordsChangedMetadataWithFreshVersions() throws {
         try catalog.setAllowsWriting(true)
         let deep = try child(nested.id, "deep"), plain = try child(tree.id, "plain")
-        let original = try receipt(item: deep.id, identity: EditFileIdentity(fileID: 10_030, birthMicroseconds: 100))
-        try catalog.rememberEditBase(original, expectedVersion: deep.contentVersion)
+        let original = try receipt(item: deep.id, identity: RemoteFileIdentity(fileID: 10_030, birthMicroseconds: 100))
+        try catalog.rememberRevision(original, expectedVersion: deep.contentVersion)
         let move = try prepare(), proofs = try proofs(move, receipts: [deep.id: original])
         let changedPlain = try receipt(item: plain.id, identity: XCTUnwrap(proofs.first { $0.item == plain.id }).identity,
-                                       digest: "b")
-        let changedDeep = try receipt(item: deep.id, identity: original.version.identity, digest: "c")
+                                       modified: 3)
+        let changedDeep = try receipt(item: deep.id, identity: original.version.identity, modified: 4)
         let settlement = try settlement(move, proofs: proofs, changed: [plain.id: changedPlain, deep.id: changedDeep])
         let restored = try JSONDecoder().decode(CatalogFolderMoveSettlement.self,
                                                  from: JSONEncoder().encode(settlement))
@@ -412,7 +411,7 @@ final class CatalogFolderMoveTests: XCTestCase {
                 XCTAssertEqual(row.contentVersion, changed.contentVersion)
                 XCTAssertNotEqual(row.contentVersion, entry.contentVersion)
                 XCTAssertEqual(row.size, entry.size)
-                XCTAssertEqual(row.mtimeNs, entry.mtimeNs)
+                XCTAssertEqual(row.mtimeNs, Int64(changed.version.modifiedMicroseconds) * 1_000)
                 XCTAssertEqual(row.ctimeNs, entry.ctimeNs)
             } else {
                 XCTAssertEqual(row.contentVersion, entry.contentVersion)
@@ -426,7 +425,7 @@ final class CatalogFolderMoveTests: XCTestCase {
         try catalog.settleFolderMove(move, settlement: restored)
         XCTAssertEqual(try dump(), committed)
         let plan = try list(nested.id, [.entry(.init(name: "deep", kind: .file, size: 10,
-            mtimeNs: 1_000, ctimeNs: 2_000, fileID: 1_030))])
+            mtimeNs: 4_000, ctimeNs: 2_000, fileID: 1_030))])
         XCTAssertEqual(plan.updated, 0)
         XCTAssertEqual(try catalog.item(id: deep.id)?.contentVersion, changedDeep.contentVersion)
     }
@@ -439,13 +438,13 @@ final class CatalogFolderMoveTests: XCTestCase {
         }
         for changed in [
             try receipt(item: plain.id, identity: original.version.identity),
-            try receipt(item: plain.id, identity: original.version.identity, id: original.id, digest: "b"),
-            try receipt(item: plain.id, identity: EditFileIdentity(fileID: 999, birthMicroseconds: 100), digest: "b"),
-            try receipt(item: UUID().uuidString, identity: original.version.identity, digest: "b")
+            try receipt(item: plain.id, identity: original.version.identity, id: original.id, modified: 3),
+            try receipt(item: plain.id, identity: RemoteFileIdentity(fileID: 999, birthMicroseconds: 100), modified: 3),
+            try receipt(item: UUID().uuidString, identity: original.version.identity, modified: 3)
         ] {
             try refusesSettlement(move, settlement(move, proofs: proofs, changed: [plain.id: changed]))
         }
-        let changed = try receipt(item: plain.id, identity: original.version.identity, digest: "b")
+        let changed = try receipt(item: plain.id, identity: original.version.identity, modified: 3)
         let valid = try settlement(move, proofs: proofs, changed: [plain.id: changed])
         let invalid = valid.resolutions.map { resolution -> CatalogFolderMoveResolution in
             guard case .changed(let observed, let receipt) = resolution else { return resolution }
@@ -461,8 +460,8 @@ final class CatalogFolderMoveTests: XCTestCase {
     func testSettlementRequiresTheAdmittedVerifiedReceipt() throws {
         try catalog.setAllowsWriting(true)
         let plain = try child(tree.id, "plain")
-        let original = try receipt(item: plain.id, identity: EditFileIdentity(fileID: 10_020, birthMicroseconds: 100))
-        try catalog.rememberEditBase(original, expectedVersion: plain.contentVersion)
+        let original = try receipt(item: plain.id, identity: RemoteFileIdentity(fileID: 10_020, birthMicroseconds: 100))
+        try catalog.rememberRevision(original, expectedVersion: plain.contentVersion)
         let move = try prepare()
         try refusesSettlement(move, settlement(move))
         let valid = try settlement(move, proofs: proofs(move, receipts: [plain.id: original]))
@@ -478,7 +477,7 @@ final class CatalogFolderMoveTests: XCTestCase {
         let incomplete = CatalogFolderMoveListing(parent: listing.parent, path: RelativePath(listing.path)!,
             identity: listing.identity, complete: false, children: listing.children)
         let wrongParent = CatalogFolderMoveListing(parent: listing.parent, path: RelativePath(listing.path)!,
-            identity: try EditFileIdentity(fileID: 999, birthMicroseconds: 100), complete: true, children: listing.children)
+            identity: try RemoteFileIdentity(fileID: 999, birthMicroseconds: 100), complete: true, children: listing.children)
         let wrongPath = CatalogFolderMoveListing(parent: listing.parent, path: RelativePath("wrong")!,
             identity: listing.identity, complete: true, children: listing.children)
         let ambiguous = CatalogFolderMoveListing(parent: listing.parent, path: RelativePath(listing.path)!,
@@ -503,7 +502,7 @@ final class CatalogFolderMoveTests: XCTestCase {
         try catalog.setKeep(ids: [plain.id], value: true)
         let move = try prepare(), proofs = try proofs(move)
         let replacement = CatalogFolderMoveListing.Child(name: plain.name,
-            identity: try EditFileIdentity(fileID: 99_000, birthMicroseconds: 100), kind: .file)
+            identity: try RemoteFileIdentity(fileID: 99_000, birthMicroseconds: 100), kind: .file)
         let listing = try moveListing(move, parent: tree.id, proofs: proofs, replacements: [plain.id: replacement])
         let accepted = try settlement(move, proofs: proofs, removed: [plain.id], listings: [listing])
         try catalog.settleFolderMove(move, settlement: accepted)
@@ -529,7 +528,7 @@ final class CatalogFolderMoveTests: XCTestCase {
     func testReplacedDirectoryRetiresItsKnownSubtreeWithoutInferringChildren() throws {
         let move = try prepare(), proofs = try proofs(move), deep = try child(nested.id, "deep")
         let replacement = CatalogFolderMoveListing.Child(name: nested.name,
-            identity: try EditFileIdentity(fileID: 99_000, birthMicroseconds: 100), kind: .folder)
+            identity: try RemoteFileIdentity(fileID: 99_000, birthMicroseconds: 100), kind: .folder)
         let listing = try moveListing(move, parent: tree.id, proofs: proofs, replacements: [nested.id: replacement])
         try refusesSettlement(move, settlement(move, proofs: proofs, removed: [nested.id], listings: [listing]))
         let accepted = try settlement(move, proofs: proofs, removed: [nested.id, deep.id], listings: [listing])
@@ -692,7 +691,7 @@ final class CatalogFolderMoveTests: XCTestCase {
         let listing = try moveListing(move, parent: tree.id, proofs: proofs, replacements: [plain.id: alias])
         try refusesSettlement(move, settlement(move, proofs: proofs, listings: [listing]))
         let unsupported = CatalogFolderMoveListing.Child(name: plain.name,
-            identity: try EditFileIdentity(fileID: 99_000, birthMicroseconds: 100), kind: nil)
+            identity: try RemoteFileIdentity(fileID: 99_000, birthMicroseconds: 100), kind: nil)
         let complete = try moveListing(move, parent: tree.id, proofs: proofs, replacements: [plain.id: unsupported])
         try catalog.settleFolderMove(move,
             settlement: settlement(move, proofs: proofs, removed: [plain.id], listings: [complete]))
@@ -706,7 +705,7 @@ final class CatalogFolderMoveTests: XCTestCase {
         let first = try CatalogFolderMoveState.settled(move, settlement: settlement(move, proofs: proofs))
         let plainID = try child(tree.id, "plain").id
         let plain = try XCTUnwrap(first.entries.first { $0.item == plainID })
-        let changed = try receipt(item: plain.item, identity: plain.proof.identity, digest: "b")
+        let changed = try receipt(item: plain.item, identity: plain.proof.identity, modified: 3)
         let target = try recoveryState(first, replacing: [plain.item: changed])
         XCTAssertEqual(try catalog.classifyFolderMove(move, proofs: proofs, allowed: [admission, first, target]), admission)
         let keys = try rows("SELECT id || '|' || enumeration_key FROM items ORDER BY row")
@@ -731,7 +730,7 @@ final class CatalogFolderMoveTests: XCTestCase {
         let departure = try rows("SELECT item || '|' || parent || '|' || seq FROM departures")
         let plain = try child(tree.id, "plain"), explicit = try child(tree.id, "explicit")
         let changed = try receipt(item: plain.id,
-            identity: XCTUnwrap(first.entries.first { $0.item == plain.id }).proof.identity, digest: "b")
+            identity: XCTUnwrap(first.entries.first { $0.item == plain.id }).proof.identity, modified: 3)
         let target = try recoveryState(first, replacing: [plain.id: changed], retiring: [explicit.id])
         XCTAssertEqual(try catalog.classifyFolderMove(move, proofs: proofs, allowed: [admission, first, target]), first)
         try catalog.applyFolderMoveRecovery(move, proofs: proofs, expected: first, target: target)
@@ -773,9 +772,9 @@ final class CatalogFolderMoveTests: XCTestCase {
         }
         let plain = try child(tree.id, "plain"), old = try XCTUnwrap(ctimeOnly.entries.first { $0.item == plain.id })
         guard case .file(let base) = old.proof else { return XCTFail("Expected file proof") }
-        let refreshed = try EditBaseReceipt(item: old.item, version: EditFileVersion(identity: base.version.identity,
-            size: base.version.size, digest: base.version.digest, modifiedMicroseconds: 2, changedMicroseconds: 4,
-            attributes: base.version.attributes, security: base.version.security))
+        let refreshed = try FileRevision(item: old.item, version: RemoteFileVersion(identity: base.version.identity,
+            size: base.version.size, modifiedMicroseconds: 2, changedMicroseconds: 4,
+            attributes: base.version.attributes))
         let next = try recoveryState(ctimeOnly, replacing: [old.item: refreshed])
         try catalog.applyFolderMoveRecovery(move, proofs: proofs, expected: ctimeOnly, target: next)
         XCTAssertEqual(try catalog.item(id: old.item)?.contentVersion, refreshed.contentVersion)
@@ -794,7 +793,7 @@ final class CatalogFolderMoveTests: XCTestCase {
         XCTAssertEqual(try dump(), before)
     }
 
-    private func recoveryState(_ previous: CatalogFolderMoveState, replacing: [String: EditBaseReceipt] = [:],
+    private func recoveryState(_ previous: CatalogFolderMoveState, replacing: [String: FileRevision] = [:],
                                retiring: Set<String> = [], ctimeDelta: Int64 = 0) throws -> CatalogFolderMoveState {
         try CatalogFolderMoveState(moved: true, entries: previous.entries.map { before in
             if before.retired { return before }
@@ -814,24 +813,23 @@ final class CatalogFolderMoveTests: XCTestCase {
         })
     }
 
-    private func receipt(item: String, identity: EditFileIdentity, id: UUID = UUID(),
-                         digest: String = "a") throws -> EditBaseReceipt {
-        try EditBaseReceipt(id: id, item: item, version: EditFileVersion(identity: identity, size: 10,
-            digest: String(repeating: digest, count: 64), modifiedMicroseconds: 1, changedMicroseconds: 2,
-            attributes: 32, security: Data([1])))
+    private func receipt(item: String, identity: RemoteFileIdentity, id: UUID = UUID(),
+                         modified: UInt64 = 1) throws -> FileRevision {
+        try FileRevision(id: id, item: item, version: RemoteFileVersion(identity: identity, size: 10, modifiedMicroseconds: modified, changedMicroseconds: 2,
+            attributes: 32))
     }
 
     private func proofs(_ move: CatalogFolderMove,
-                        receipts: [String: EditBaseReceipt] = [:]) throws -> [CatalogFolderMoveProof] {
+                        receipts: [String: FileRevision] = [:]) throws -> [CatalogFolderMoveProof] {
         try move.entries.map { entry in
-            let identity = try EditFileIdentity(fileID: entry.nativeID + 10_000, birthMicroseconds: 100)
+            let identity = try RemoteFileIdentity(fileID: entry.nativeID + 10_000, birthMicroseconds: 100)
             if entry.kind == .folder { return .directory(item: entry.item, identity: identity) }
             return .file(try receipts[entry.item] ?? receipt(item: entry.item, identity: identity))
         }
     }
 
     private func settlement(_ move: CatalogFolderMove, proofs supplied: [CatalogFolderMoveProof]? = nil,
-                            removed: Set<String> = [], changed: [String: EditBaseReceipt] = [:],
+                            removed: Set<String> = [], changed: [String: FileRevision] = [:],
                             listings: [CatalogFolderMoveListing] = []) throws -> CatalogFolderMoveSettlement {
         let resolutions = try observations(move).map { observed -> CatalogFolderMoveResolution in
             if removed.contains(observed.item) { return .removed(item: observed.item) }

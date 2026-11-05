@@ -25,8 +25,9 @@ current status.
   partial-read speed and approved installing the merged build on the physical Mac with Start
   Fresh. Publication remains a separate decision.
   Further dependencies need a user decision after measurement and a licence review ([architecture.md §5](docs/architecture.md#5-native-smb-versus-direct-smb)).
-  M19's accepted design adds protected regular-file staging, verification and transactional
-  rename/cleanup, gated by the [protocol checks](docs/phase4-plan.md#m19-online-editing).
+  On 2026-11-04 the user approved the [SMB simplification](docs/smb-simplification.md):
+  ordinary SMB save/conflict behavior replaces custom remote recovery. Implementation and VM
+  validation are authorized; publication and a new physical-Mac installation are separate.
 
 ## Where things are
 
@@ -73,18 +74,12 @@ Never break these without an explicit task to do so.
   per-location write opt-in, with no overwrite. Runtime writes in development use only the approved
   disposable VM fixture; the original NAS stays read-only. Run disruptive tests only within an
   agreed isolated scope.
-  M19 permits existing-file content updates only through its accepted recovery transaction;
-  it does not authorize overwrites at the ordinary pathname or general rename, move or delete.
-  M20's accepted scope adds protected no-replace renaming of verified ordinary files within
-  their folder. Its single write mode defaults on for new locations after scoped access and
-  safety confirmation; existing read-only locations remain read-only. Agent tests still use
-  only the approved disposable VM fixture. Moves, general deletion and replacement stay denied.
-  The user accepted the [remaining roadmap](docs/roadmap.md) on 2026-10-29, authorizing M21
-  through M28 in dependency order after their protocol gates. This includes ordinary-file and
-  folder organization, pending-save recovery, permanent deletion without a custom Trash,
-  safe replacement and bounded offline editing. Normal builds enable folder organization and the
-  confirmed **Delete Permanently…** command from 2026-11-04. Ordinary Finder deletion and Replace
-  stay refused; other items remain denied until implemented and verified. On 2026-10-31 the
+  The accepted [SMB simplification](docs/smb-simplification.md) permits ordinary overwrites,
+  rename, move, deletion and replacement in writable locations. NAS snapshots/backups own
+  previous-version recovery. Remove custom recovery guarantees and redundant content proofs;
+  preserve pending local uploads, server errors, containment and account isolation. Enable
+  changed provider operations after their VM checks. Existing read-only locations remain
+  read-only. On 2026-10-31 the
   user granted standing permission for all work inside
   the VM, including new fixture sessions, mounts, service/settings changes, restarts, network
   interruption and test installations. Do not ask again for VM-operation approval. Preserve

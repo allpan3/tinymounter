@@ -78,15 +78,7 @@ extension LocationSource {
             let parents = try remote.protectRenameParents(source: path.string, destination: destination.string)
             guard let evidence = try remote.inspectRename(path: path.string),
                   evidence.name == path.components.last else { throw SourceFailure.versionChanged }
-            let base: EditBaseReceipt
-            if request.contentVersion.hasPrefix("e1:") {
-                guard let receipt = try Self.editOutbox(domainID: domainID)
-                    .base(item: request.item, contentVersion: request.contentVersion),
-                      receipt.version.hasSameContents(as: evidence.version) else { throw SourceFailure.versionChanged }
-                base = receipt
-            } else {
-                base = try EditBaseReceipt(item: request.item, version: evidence.version)
-            }
+            let base = try FileRevision(item: request.item, version: evidence.version)
             let views = try sources.map {
                 try $0.renameView(path: path, destination: destination, version: evidence.version,
                                   parents: parents, session: $0.access === access ? session : nil)
@@ -215,12 +207,10 @@ extension LocationSource {
     private func requireRenamePathsSettled(source: RelativePath, destination: RelativePath) throws {
         try uploadLock.withLock {
             guard !mutationsSuspended else { throw UploadError.pendingWrites }
-            let uploads = try Self.outbox(domainID: domainID), edits = try Self.editOutbox(domainID: domainID)
+            let uploads = try Self.outbox(domainID: domainID)
             let pendingUploads = try uploads.records().filter(\.isPending)
-            let pendingEdits = try edits.records().filter(\.isPending)
-            guard try uploads.pendingCount == pendingUploads.count,
-                  try edits.pendingCount == pendingEdits.count else { throw UploadError.pendingWrites }
-            for pending in pendingUploads.map(\.path) + pendingEdits.map(\.path) {
+            guard try uploads.pendingCount == pendingUploads.count else { throw UploadError.pendingWrites }
+            for pending in pendingUploads.map(\.path) {
                 guard let relative = RelativePath(pending), let full = folder.appending(relative) else {
                     throw UploadError.unresolved
                 }
@@ -232,7 +222,7 @@ extension LocationSource {
         }
     }
 
-    private func renameView(path: RelativePath, destination: RelativePath, version: EditFileVersion,
+    private func renameView(path: RelativePath, destination: RelativePath, version: RemoteFileVersion,
                             parents: [FileRenameParent], session: ShareSession?) throws -> FileRenameView {
         try uploadLock.withLock {
             guard !mutationsSuspended else { throw UploadError.pendingWrites }
@@ -268,16 +258,8 @@ extension LocationSource {
             }
             let native = (inode: version.identity.fileID, fingerprint: try version.fingerprint)
             guard native.inode == identity else { throw SourceFailure.versionChanged }
-            if row.contentVersion.hasPrefix("e1:") {
-                guard let receipt = try Self.editOutbox(domainID: domainID)
-                    .base(item: row.id, contentVersion: row.contentVersion),
-                      receipt.version.hasSameContents(as: version) else { throw SourceFailure.versionChanged }
-            } else {
-                guard native.fingerprint == ContentFingerprint(size: row.size, mtimeNs: row.mtimeNs, ctimeNs: row.ctimeNs),
-                      row.size == version.size, row.mtimeNs >= 0, row.ctimeNs >= 0,
-                      UInt64(row.mtimeNs / 1_000) == version.modifiedMicroseconds,
-                      UInt64(row.ctimeNs / 1_000) == version.changedMicroseconds else { throw SourceFailure.versionChanged }
-            }
+            guard native.fingerprint == ContentFingerprint(size: row.size, mtimeNs: row.mtimeNs, ctimeNs: row.ctimeNs)
+            else { throw SourceFailure.versionChanged }
             return try FileRenameView(domain: domainID, folder: folder, row: row, path: actual,
                                       nativeID: identity, destinationParent: destinationParent)
         }
@@ -333,7 +315,7 @@ extension LocationSource {
         guard let version = record.verified else { throw UploadError.unresolved }
         try remote.allowPublishedReads(path: record.destination, expected: version)
         guard let evidence = try remote.inspectRename(path: record.destination),
-              SMBName.same(evidence.name, record.name), evidence.version.hasSameContents(as: version) else {
+              SMBName.same(evidence.name, record.name), evidence.version.hasSameDataVersion(as: version) else {
             throw UploadError.unresolved
         }
         if NameKey(record.source) != NameKey(record.destination) {

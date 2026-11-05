@@ -97,8 +97,8 @@ enum M23Mode: Sendable {
 /// Parent-kept evidence: a record UUID and SMB identities as FILEID:BIRTH_MICROSECONDS, or "-".
 struct M23Pins: Sendable {
     var retired: UUID?
-    var retiredStage: EditFileIdentity?
-    var occupant: EditFileIdentity?
+    var retiredStage: RemoteFileIdentity?
+    var occupant: RemoteFileIdentity?
 
     init?(retired: String, retiredStage: String, occupant: String) {
         if retired != "-" {
@@ -115,11 +115,11 @@ struct M23Pins: Sendable {
         }
     }
 
-    private static func identity(_ text: String) -> EditFileIdentity? {
+    private static func identity(_ text: String) -> RemoteFileIdentity? {
         let parts = text.split(separator: ":", omittingEmptySubsequences: false)
         guard parts.count == 2, let fileID = UInt64(parts[0]), let birth = UInt64(parts[1]),
               text == "\(fileID):\(birth)" else { return nil }
-        return try? EditFileIdentity(fileID: fileID, birthMicroseconds: birth)
+        return try? RemoteFileIdentity(fileID: fileID, birthMicroseconds: birth)
     }
 }
 
@@ -209,16 +209,16 @@ private enum M23FinalProbe {
         var inspected: [String] = []
         var removed: [String] = []
         init(_ remote: SMBEdit) { self.remote = remote }
-        func stage(path: String, contents: URL, created: (EditFileIdentity) throws -> Void) throws -> EditFileVersion {
+        func stage(path: String, contents: URL, created: (RemoteFileIdentity) throws -> Void) throws -> RemoteFileVersion {
             stages += 1
             if loseStageAnswer { return try remote.stage(path: path, contents: contents) { _ in throw Failure.injected } }
             return try remote.stage(path: path, contents: contents, created: created)
         }
-        func inspect(path: String, original: Bool) throws -> EditFileVersion? {
+        func inspect(path: String, original: Bool) throws -> RemoteFileVersion? {
             inspected.append(path)
             return try remote.inspect(path: path, original: original)
         }
-        func backup(original: String, path: String, created: (EditFileIdentity) throws -> Void) throws -> EditFileVersion {
+        func backup(original: String, path: String, created: (RemoteFileIdentity) throws -> Void) throws -> RemoteFileVersion {
             if loseBackupAnswer {
                 return try remote.backup(original: original, path: path) { _ in throw Failure.injected }
             }
@@ -231,7 +231,7 @@ private enum M23FinalProbe {
         func update(work: String, stage: String, size: Int64) throws {
             try remote.update(work: work, stage: stage, size: size)
         }
-        func removeArtifact(path: String, version: EditFileVersion) throws {
+        func removeArtifact(path: String, version: RemoteFileVersion) throws {
             removed.append(path)
             if path == beforeRemoval { throw Failure.injected }
             try remote.removeArtifact(path: path, version: version)
@@ -301,9 +301,9 @@ private enum M23FinalProbe {
         let local: URL
         let output: URL
         let item: String
-        let original: EditFileVersion
-        let neighbor: EditFileVersion
-        let base: EditBaseReceipt
+        let original: RemoteFileVersion
+        let neighbor: RemoteFileVersion
+        let base: FileRevision
         let outbox: EditOutbox
         var root: Int32 { share.root }
         var identity: MountIdentity { share.identity }
@@ -317,18 +317,18 @@ private enum M23FinalProbe {
             output = local
             item = UUID().uuidString
             outbox = try EditOutbox(directory: local.appending(path: "Outbox"))
-            let versions: (EditFileVersion, EditFileVersion) = try share.withRemote("admit", path: path) { remote in
+            let versions: (RemoteFileVersion, RemoteFileVersion) = try share.withRemote("admit", path: path) { remote in
                 (try remote.readVersion(path: path), try remote.readVersion(path: caseID + "/neighbor.txt"))
             }
             original = versions.0
             neighbor = versions.1
-            base = try EditBaseReceipt(item: item, version: original)
+            base = try FileRevision(item: item, version: original)
             try outbox.storeBase(base)
         }
 
         // A continuation adopts the recorded item and base receipt; it never stores a new base.
         init(resuming caseID: String, share: Share, local: URL, output: URL, outbox: EditOutbox,
-             item: String, base: EditBaseReceipt, neighbor: EditFileVersion) {
+             item: String, base: FileRevision, neighbor: RemoteFileVersion) {
             self.share = share
             path = caseID + "/document.txt"
             self.local = local
@@ -760,7 +760,7 @@ private enum M23FinalProbe {
         }
         try require(retained.state == .retired && (retained.retiredStageRemoved == true) == !loseReply)
         try fixture.export(first, expected: firstBytes)
-        var replacement: EditFileVersion?
+        var replacement: RemoteFileVersion?
         if !loseReply {
             trace.enter("stage-gone")
             _ = try DirectoryListing.list(locationRoot: fixture.root, relativePath: RelativePath("c03")!,
@@ -820,10 +820,10 @@ private enum M23FinalProbe {
 
     struct OccupantEvidence: Codable {
         let retired: UUID
-        let retiredStage: EditFileVersion
-        let occupant: EditFileVersion
-        let original: EditFileVersion
-        let neighbor: EditFileVersion
+        let retiredStage: RemoteFileVersion
+        let occupant: RemoteFileVersion
+        let original: RemoteFileVersion
+        let neighbor: RemoteFileVersion
     }
 
     /// Publishes c02's already prepared newest save; the retired partial stage must stay untouched.
@@ -878,7 +878,7 @@ private enum M23FinalProbe {
         let absent = [first.recoveryPath, first.workPath, latest.stagePath, latest.recoveryPath, latest.workPath]
         let before = try snapshot(share, "before", first: first, absent: absent)
         trace.enter("document-before")
-        try require(before.document.hasSameContents(as: base.version)
+        try require(before.document.hasSameDataVersion(as: base.version)
             && before.document.modifiedMicroseconds == base.version.modifiedMicroseconds)
         trace.enter("document-before-metadata")
         try require(before.document == base.version)
@@ -918,7 +918,7 @@ private enum M23FinalProbe {
 
     // Comparisons happen outside the session, so each failed one has its own step label.
     static func snapshot(_ share: Share, _ label: String, first: PendingEdit, absent: [String]) throws
-        -> (document: EditFileVersion, neighbor: EditFileVersion, stage: EditFileVersion) {
+        -> (document: RemoteFileVersion, neighbor: RemoteFileVersion, stage: RemoteFileVersion) {
         try share.withRemote(label, path: first.path) { remote in
             for name in absent { try require(remote.renameSourceEntry(path: name) == nil) }
             try require(remote.renameSourceEntry(path: first.stagePath)?.identity == first.stageIdentity)
@@ -978,7 +978,7 @@ private enum M23FinalProbe {
         let prefix = caseID + "/.tinymounter-" + owner.uuidString
         let absent = [latest.stagePath, latest.recoveryPath, latest.workPath, prefix + ".recovery",
                       caseID + "/tinymounter-" + owner.uuidString + ".work"]
-        let versions: (EditFileVersion, EditFileVersion, EditFileVersion) = try share.withRemote(
+        let versions: (RemoteFileVersion, RemoteFileVersion, RemoteFileVersion) = try share.withRemote(
             "inspect", path: path) { remote in
             let occupant = try remote.readVersion(path: prefix + ".stage")
             try require(remote.renameSourceEntry(path: prefix + ".stage")?.identity == occupant.identity)

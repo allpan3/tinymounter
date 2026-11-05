@@ -612,12 +612,6 @@ final class AppModel {
                                     includingResourceValuesForKeys: nil, relativeTo: nil)
     }
 
-    func editRecords(_ record: LocationRecord) async throws -> [PendingEdit] { try await controller.editRecords(record) }
-
-    func blockedEditTargets(_ record: LocationRecord) async throws -> Set<UUID> {
-        try await controller.blockedEditTargets(record)
-    }
-
     func savedChangeBytes(_ record: LocationRecord) async throws -> Int64 { try await controller.savedChangeBytes(record) }
 
     func retryPending(_ record: LocationRecord) { controller.retryPending(record) }
@@ -687,49 +681,8 @@ final class AppModel {
         }
     }
 
-    func dismissEditNotice(_ edit: PendingEdit, record: LocationRecord) {
-        Task {
-            do { try await controller.dismissEditNotice(record, id: edit.id) }
-            catch { show(error, grantID: record.grantID) }
-        }
-    }
-
     func renameRecords(_ record: LocationRecord) async throws -> [RenameIntent] {
         try await controller.renameRecords(record)
-    }
-
-    func exportEdit(_ edit: PendingEdit, record: LocationRecord) {
-        Task {
-            let panel = NSSavePanel()
-            panel.directoryURL = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
-            panel.message = UIText.localRecoveryDestination
-            panel.nameFieldStringValue = (edit.path as NSString).lastPathComponent
-            panel.prompt = UIText.exportEdit
-            guard await run(panel), let url = panel.url else { return }
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            do { try await controller.exportEdit(record, id: edit.id, destination: url) }
-            catch CocoaError.fileWriteUnsupportedScheme { show(UIText.localRecoveryDestination) }
-            catch { show(error, grantID: record.grantID) }
-        }
-    }
-
-    /// The save panel is the confirmation: Cancel changes nothing.
-    func stopEdit(_ edit: PendingEdit, record: LocationRecord) {
-        Task {
-            let panel = NSSavePanel()
-            panel.directoryURL = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
-            panel.nameFieldStringValue = UIText.stoppedEditName(edit.path, date: .now)
-            panel.message = UIText.stopEditMessage + " " + UIText.localRecoveryDestination
-            panel.prompt = UIText.stopUploading
-            guard await run(panel), let url = panel.url else { return }
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            do { try await controller.stopEdit(record, id: edit.id, destination: url) }
-            catch CocoaError.fileWriteUnsupportedScheme { show(UIText.localRecoveryDestination) }
-            catch UploadError.unresolved { show(UIText.stopEditRefused) }
-            catch { show(error, grantID: record.grantID) }
-        }
     }
 
     func pendingUploads(_ record: LocationRecord) async throws -> Int { try await controller.pendingUploads(record) }
