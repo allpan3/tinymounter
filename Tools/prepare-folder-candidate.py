@@ -119,7 +119,7 @@ def main():
                     fileSize: metadata.fingerprint.size)
                 let stage = try SharedContainer.stagingDirectory()
                 let output = try remote.transfer(path: path, range: range, stagingDirectory: stage,
-                    progress: Progress())
+                    progress: Progress(), checkSpace: nil)
                 guard let url = output.stagingURL else { throw CocoaError(.fileReadUnknown) }
                 defer { try? FileManager.default.removeItem(at: url) }
                 let actual = SHA256.hash(data: try Data(contentsOf: url)).map { String(format: "%02x", $0) }.joined()

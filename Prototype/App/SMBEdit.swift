@@ -317,7 +317,7 @@ final class SMBEdit: FileRenameRemote, UploadRemote {
         let handle = try open(path: path, access: Self.read | Self.write, sharing: 0)
         handles[path] = handle
         guard try version(handle).identity == identity else { throw UploadError.unresolved }
-        try writeContents(handle, contents: contents, overwrite: true)
+        try writeContents(handle, contents: contents)
         return try closeWritten(path: path, version: version(handle))
     }
 
@@ -349,7 +349,7 @@ final class SMBEdit: FileRenameRemote, UploadRemote {
                                               changedMicroseconds: before[6])
         guard expected == nil || expected == current else { throw UploadError.editConflict }
         progress.totalUnitCount = max(1, input.snapshot.size)
-        try writeContents(handle, contents: contents, overwrite: true)
+        try writeContents(handle, contents: contents)
         var closed = [UInt64](repeating: 0, count: 5)
         try handle.use { try check(tm_edit_close_info(client, $0, &closed)) }
         handles[path] = nil
@@ -360,15 +360,10 @@ final class SMBEdit: FileRenameRemote, UploadRemote {
         return (before[0], fingerprint)
     }
 
-    private func writeContents(_ handle: Handle, contents: URL, offset start: Int64 = 0, overwrite: Bool = false) throws {
-        let expected = try info(handle)
+    private func writeContents(_ handle: Handle, contents: URL) throws {
         let input = try ReadOnlyFile(url: contents)
-        guard start >= 0, overwrite || expected[2] == start, start <= input.snapshot.size,
-              expected[3] == 1, expected[4] & 0x450 == 0 else {
-            throw UploadError.unresolved
-        }
         var buffer = [UInt8](repeating: 0, count: 1 << 20)
-        var offset = start
+        var offset: Int64 = 0
         while offset < input.snapshot.size {
             try cancellation()
             let count = pread(input.descriptor, &buffer, min(buffer.count, Int(input.snapshot.size - offset)), offset)

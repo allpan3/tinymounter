@@ -224,7 +224,7 @@ extension LocationSource {
         try editNamespace.perform {
             guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
             let remote = try SMBEdit(endpoint: endpoint, folder: .root, root: session.root, progress: progress)
-            // The SMB connection lock and handles must end before the namespace lock is released.
+            // Release SMB handles before another namespace operation can start.
             return try withExtendedLifetime(remote) { try operation(remote) }
         }
     }
