@@ -1,6 +1,6 @@
 import Foundation
 
-/// Shared grants to one SMB source must observe a save transaction as one catalog change.
+/// Coordinates namespace changes across locations that share an SMB source.
 final class EditNamespace: @unchecked Sendable {
     private static let registryLock = NSLock()
     nonisolated(unsafe) private static var registry: [String: EditNamespace] = [:]
@@ -12,7 +12,7 @@ final class EditNamespace: @unchecked Sendable {
     }
     private var sources: [String: Source] = [:]
     private var reservations: [UUID: [RelativePath]] = [:]
-    // Native range reads run outside `lock`, so their lifetimes are tracked under a separate condition.
+    // Payload transfers run outside `lock`; folder moves must wait for their handles to close.
     private let reads = NSCondition()
     private var activeReads: [UUID: RelativePath] = [:]
 

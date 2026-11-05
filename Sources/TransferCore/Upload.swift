@@ -155,9 +155,9 @@ public final class UploadOutbox {
     private func stage(_ record: PendingUpload, contents: URL?, progress: Progress,
                        checkSpace: ((Int64) throws -> Void)?) throws {
         let source = try contents.map { try ReadOnlyFile(url: $0, allowMaterialization: true) }
-        guard source?.filesystem.isLocal != false, source?.snapshot.size ?? 0 == record.size,
-              try source.map({ try $0.checksum(range: ByteRange(offset: 0, length: record.size, fileSize: record.size)) })
-                ?? Self.emptyDigest == record.digest else { throw UploadError.unresolved }
+        guard source?.filesystem.isLocal != false, source?.snapshot.size ?? 0 == record.size else {
+            throw UploadError.unresolved
+        }
         if try finishStagedPayload(record) { return }
         let destination = contentURL(record.id)
         if FileManager.default.fileExists(atPath: destination.path) {
@@ -292,7 +292,7 @@ public final class UploadOutbox {
         guard fsync(fd) == 0 else { throw posixError("sync payload removal") }
     }
 
-    /// A known partial upload resumes only after its identity and existing bytes are proved.
+    /// A known partial upload restarts only after its remote identity is checked.
     public func upload(_ record: inout PendingUpload, remote: UploadRemote, progress: Progress,
                        checkpoint: (PendingUpload.State) throws -> Void = { _ in }) throws {
         guard record.kind == .file else { throw UploadError.invalidRequest }

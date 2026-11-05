@@ -77,7 +77,7 @@ public struct CatalogFolderMoveObservation: Codable, Equatable, Sendable {
     public let mtimeNs: Int64
     public let ctimeNs: Int64
     public let preservesIdentity: Bool
-    // True only after the caller proves the same file and its complete contents.
+    // True only when the caller observes the same identity and content metadata.
     public let preservesContents: Bool
 
     public init(item: String, path: RelativePath, kind: CatalogRow.Kind, nativeID: UInt64,
