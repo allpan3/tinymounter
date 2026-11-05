@@ -17,7 +17,7 @@ Focused transaction regressions cover changes during staging and after backup, f
 reads, lost backup and conflict replies, persisted conflict decisions, failOnConflict, missing
 originals, changed or partial backups, and metadata-only changes. All 81 focused transaction
 tests pass. The required VM checks pass with 674 tests, two optional skips, no failures and no
-Swift warnings. This change is not installed on the physical Mac.
+Swift warnings. Physical-Mac installation status is tracked in the [README](../../README.md).
 
 Signed TextEdit checks ran on 2026-11-04 in macOS VM 1, macOS 27.0.1, against the existing
 disposable Samba 4.19.5 VM. The fixture used small plain-text files with distinct original,
