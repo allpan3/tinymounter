@@ -214,7 +214,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 let queueSeconds = Double(startedAt - queuedAt) / 1e9
                 let planners = lock.withLock { readAhead.count }
                 logger.info("request=\(requestID.uuidString, privacy: .public) item=\(row.id, privacy: .public) mode=\(mode, privacy: .public) kind=\(kind.map(Self.label) ?? "full", privacy: .public) viewer=\(request.isFileViewerRequest) system=\(request.isSystemRequest) offset=\(range.offset) bytes=\(range.length) queue_seconds=\(queueSeconds) callback_seconds=\(elapsed) transfer_seconds=\(result.1.transferSeconds) planners=\(planners)")
-                completion(staging, CatalogItem(row, contentVersion: result.2), NSRange(location: Int(range.offset), length: Int(range.length)), nil)
+                completion(staging, CatalogItem(row), NSRange(location: Int(range.offset), length: Int(range.length)), nil)
                 // Ownership now belongs to File Provider; never modify or unlink after handoff.
                 staging = nil
                 if let kind {
@@ -413,7 +413,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         if options.contains(.deletionConflicted), let url,
            let version = itemTemplate.itemVersion ?? nil, Self.kind(of: itemTemplate) == .file {
             return modifyContents(itemTemplate, baseVersion: version, changedFields: fields, contents: url,
-                                  options: [], deletionConflict: true, completion: completionHandler)
+                                  options: [], completion: completionHandler)
         }
         if !options.contains(.mayAlreadyExist), !options.contains(.deletionConflicted) {
             countMutation("create", "new=1 phase=received")
@@ -590,7 +590,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
 
     private func modifyContents(_ item: NSFileProviderItem, baseVersion: NSFileProviderItemVersion,
                                 changedFields: NSFileProviderItemFields, contents: URL,
-                                options: NSFileProviderModifyItemOptions, deletionConflict: Bool = false,
+                                options: NSFileProviderModifyItemOptions,
                                 completion: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void) -> Progress {
         countMutation("modify", "result=contents fields=\(changedFields.rawValue) fail_on_conflict=\(options.contains(.failOnConflict) ? 1 : 0)")
         let attributes = item.extendedAttributes ?? [:]

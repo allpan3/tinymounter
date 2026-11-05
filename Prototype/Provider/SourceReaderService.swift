@@ -143,7 +143,7 @@ final class SourceReaderService: NSObject, NSFileProviderServiceSource, NSXPCLis
     }
 
     /// D2: until the app's `started`, only a reply, a lost connection or cancellation ends the wait.
-    func fetch(_ request: SourceReadRequest, directory: URL, progress: Progress) throws -> (URL, TransferMetrics, String?) {
+    func fetch(_ request: SourceReadRequest, directory: URL, progress: Progress) throws -> (URL, TransferMetrics) {
         let id = request.id.uuidString
         let response = Response(progress: progress)
         let proxy = try proxy(startupProgress: progress) { response.finish(.failure($0)) }
@@ -174,7 +174,7 @@ final class SourceReaderService: NSObject, NSFileProviderServiceSource, NSXPCLis
                          UInt32(RENAME_EXCL)) == 0 else {
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
         }
-        return (destination, receipt.metrics, receipt.contentVersion)
+        return (destination, receipt.metrics)
     }
 
     /// Waits for the app's commit, as a fetch waits before `started`, but never past `keepDeadline`.

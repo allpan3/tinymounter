@@ -161,12 +161,10 @@ public struct KeepReceipt: Codable, Equatable, Sendable {
 public struct SourceReadReceipt: Codable, Sendable {
     public let stagingName: String
     public let metrics: TransferMetrics
-    public let contentVersion: String?
 
-    public init(stagingName: String, metrics: TransferMetrics, contentVersion: String? = nil) {
+    public init(stagingName: String, metrics: TransferMetrics) {
         self.stagingName = stagingName
         self.metrics = metrics
-        self.contentVersion = contentVersion
     }
 }
 

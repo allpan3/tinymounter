@@ -5,10 +5,8 @@ import UniformTypeIdentifiers
 /// File Provider permits creation only in a location with explicit write access.
 final class CatalogItem: NSObject, NSFileProviderItem {
     private let row: CatalogRow
-    private let contentVersion: String
-    init(_ row: CatalogRow, contentVersion: String? = nil) {
+    init(_ row: CatalogRow) {
         self.row = row
-        self.contentVersion = contentVersion ?? row.contentVersion
     }
 
     private var isFolder: Bool { row.kind == .folder }
@@ -75,7 +73,7 @@ final class CatalogItem: NSObject, NSFileProviderItem {
             && UTType(filenameExtension: (row.name as NSString).pathExtension)?.conforms(to: .package) != true
     }
     var itemVersion: NSFileProviderItemVersion {
-        NSFileProviderItemVersion(contentVersion: Data(contentVersion.utf8),
+        NSFileProviderItemVersion(contentVersion: Data(row.contentVersion.utf8),
                                   metadataVersion: Data(row.metadataVersion.utf8))
     }
 }
