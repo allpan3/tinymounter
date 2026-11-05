@@ -290,9 +290,13 @@ items that never reached the server no longer prevent removal, because macOS kee
 
 M20 replaces separate creation and editing controls with one Read only toggle. It defaults off
 for a new location; a duplicate retains the original's mode. Writable setup obtains the macOS
-share grant and confirms the SMB-only writer and transaction-file requirements once. All
-supported write operations use that mode, including M20 file renaming. Unsupported operations
+share grant once. All supported write operations use that mode, including M20 file renaming. Unsupported operations
 remain unavailable. Do not add another feature switch.
+
+The write-access picker asks only for permission to change the selected share. On 2026-11-04,
+the user removed the SMB-only warning and technical details from this flow. Concurrent edits
+are a synchronization concern; setup must not ask users to certify how every other app accesses
+the NAS. The [follow-up](results/2026-11-04-write-confirmation.md) records the remaining save race.
 
 Once confirmed, enabling Read only blocks new remote changes but retains the grant for later
 reuse. Refuse that change while writes are pending. Changing the source needs a fresh scoped

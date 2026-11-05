@@ -385,8 +385,11 @@ payload; the app's payload transport is unchanged. Its JSON reports observations
 not a claim that M19 is implemented.
 The [gate status](results/2026-10-27-edit-publication.md) records the approved writable VM probe.
 Native/direct interoperability and publication passed against competing SMB clients. Direct
-backing-filesystem writes, renames and deletion bypassed protection. The user accepted an SMB-only writer boundary after this result. Same-name editing requires
-that explicit location opt-in; the client cannot establish server-wide access policy itself.
+backing-filesystem writes, renames and deletion bypassed protection. The user accepted an SMB-only writer boundary after this result. Same-name editing required
+that explicit location opt-in in the initial prototype. On 2026-11-04 the user rejected this
+as a setup requirement; the client cannot establish server-wide access policy itself. The
+remaining race must be addressed in synchronization, without treating the warning removal as
+proof that competing direct writes are now safe.
 Use --check-backing-access to reproduce this limit on the disposable fixture. Transport errors
 terminate the probe process with status 70 so queued callbacks cannot outlive their storage.
 The authenticated follow-up also fails the permission-preservation gate: direct security
@@ -534,9 +537,9 @@ identity work. General moves, deletion, Finder Replace and combined rename/conte
 outside this scope. Existing M18 initial folder naming continues unchanged.
 
 Creation, editing and renaming use one write mode. A Read only toggle defaults off for new
-locations. Adding a writable location obtains the macOS share grant and confirms the existing
-SMB-only writer and transaction-file requirements during setup. Existing read-only locations
-remain read-only. Already confirmed M19 write access also permits the supported M20 rename.
+locations. Adding a writable location obtains the macOS share grant. The 2026-11-04 UI decision
+removes the SMB-only eligibility warning; the save-time race remains engineering work.
+Existing read-only locations remain read-only. Already confirmed M19 write access also permits the supported M20 rename.
 Legacy creation-only grants retain their existing access and pending work until the user
 completes the one-time write confirmation; they do not silently acquire editing permission.
 The UI reports that unfinished setup without separate controls for individual write features.
