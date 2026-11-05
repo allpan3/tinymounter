@@ -7,11 +7,12 @@ the physical Mac. Only the installed app and its provider remain registered. Sig
 installation guidance now requires temporary-copy cleanup and no retained app backups.
 See the [cleanup record](docs/results/2026-11-05-spotlight-cleanup.md).
 
-SMB simplification, 2026-11-05: implementation in progress on `simplify-smb-operations`.
-The approved design uses ordinary writes and File Provider pending uploads, with no custom
-remote save recovery or content-proof reads. Package checks pass (518 tests, one optional
-skip). App build, signed VM behavior and performance are not yet verified. The installed Mac
-build remains the earlier release candidate. See the [task record](docs/smb-simplification.md).
+SMB simplification, 2026-11-05: ordinary SMB overwrites replace remote save transactions,
+conflict copies and content-proof reads on `simplify-smb-operations`. Signed VM saves, interrupted
+upload retention/retry and file/folder organization pass. Required VM checks pass, including 518
+package tests with one optional skip. Matched VM saves are near native cost; full and partial
+reads still miss the 90% target. The physical Mac retains the earlier build. See the
+[audit and measurements](docs/results/2026-11-05-smb-simplification.md).
 
 Save recheck, 2026-11-04: the transaction now checks the original after staging and again after
 backup verification. A detected change uses the existing conflict-copy behavior; retries retain

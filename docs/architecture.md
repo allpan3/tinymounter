@@ -1,10 +1,10 @@
 # Architecture proposal
 
-The [accepted SMB simplification](smb-simplification.md) supersedes this document's custom
-remote recovery and conflict-preservation requirements from 2026-11-04. Implementation and VM
-validation are in progress; earlier completed milestones remain historical evidence.
+The [accepted SMB simplification](smb-simplification.md) replaces custom remote recovery and
+content proofs. Implementation and signed VM checks are complete; the current read-performance
+targets remain unmet. See the [November 5 results](results/2026-11-05-smb-simplification.md).
 
-Date: 2026-10-19. Decision status: production architecture proposed; the user set the phase order on 2026-10-18; the app-owned reader experiment and the bounded read-ahead experiment are approved and implemented. Phase 2's M4 and M5 build moves them from one file to catalog-backed folders, read by item; signed VM browsing and reads are verified, with the remaining recovery and materialization limits recorded in the [runtime follow-up](results/2026-10-15-runtime-followup.md). Full downloads exceed 90% of native speed in verified NAS-cold and NAS-cached states; sequential partial reads don't yet. The shipping transport remains gated by experiments. Source references resolve in [research.md](research.md).
+Date: 2026-10-19. Decision status: production architecture proposed; the user set the phase order on 2026-10-18; the app-owned reader experiment and the bounded read-ahead experiment are approved and implemented. Phase 2's M4 and M5 build moves them from one file to catalog-backed folders, read by item; signed VM browsing and reads are verified, with the remaining recovery and materialization limits recorded in the [runtime follow-up](results/2026-10-15-runtime-followup.md). Full downloads exceed 90% of native speed in verified NAS-cold and NAS-cached states; sequential partial reads don't yet. The direct SMB transport was adopted on November 4; current results supersede those earlier transport measurements. Source references resolve in [research.md](research.md).
 
 ## 1. Product contract
 
@@ -30,14 +30,15 @@ The modes have different paths and semantics. Do not silently change a File Prov
 | macOS integration | `NSFileProviderReplicatedExtension` plus `NSFileProviderPartialContentFetching` | Native integration with Finder and other file managers, local APFS materialization, offline reads, range requests |
 | Implementation | Swift app and core libraries; SwiftUI/AppKit where appropriate; C interop for a direct SMB library | Small native macOS application; no UI runtime in the byte path |
 | First transport prototype | Native SMB mount, read using POSIX APIs | Holds the SMB implementation constant against Finder to isolate integration cost |
-| Shipping SMB transport | Decide between native bridge and async `libsmb2` after the spike | Native performance must be balanced against permissions, hangs, helper lifecycle, and deployment |
+| Selected SMB transport | Direct `libsmb2` for remote I/O; native mounts for grants and lifecycle | Adopted after the single-client experiments; distribution and performance gates remain |
 | Metadata | Per-domain SQLite database in an App Group, WAL, short transactions | Stable identities, directory snapshots, ordered changes, pins, restart recovery |
 | Downloaded content | OS-managed materialized files; short-lived staging in the provider's temporary directory | Avoid an unnecessary second permanent content cache |
 | Credentials | Keychain with a deliberate shared access group | Separate connection records by account; never put passwords in URLs or process arguments |
 | Distribution | Signed development builds first; Developer ID/notarized beta proposed | Prove real extension behavior and entitlements early; App Store remains a separate packaging gate |
 | Future mount management | NetFS APIs, per-user login component, `NWPathMonitor` plus actual SMB reachability | Native mounts and reconnection without inventing a filesystem |
 
-File Provider, cache ownership, and metadata architecture are selected. The shipping transport is deliberately **not** selected from documentation alone.
+File Provider, cache ownership, metadata architecture and the direct SMB transport are selected.
+The dated experiments below record the earlier native-transport design and its measurements.
 
 ## 3. Components and ownership
 
@@ -132,41 +133,23 @@ Separate latency-sensitive metadata from bulk reads; pool authenticated sessions
 
 `libsmb2` is LGPL-2.1-or-later. Dependency selection must include notices/source obligations, linkage and user-relinking requirements, and signing/distribution compatibility. The wrapper's MIT license does not erase its bundled library's obligations [L1–L2]. Complete that review before committing to a distribution build.
 
-A limited `libsmb2-6.3` prototype is accepted for M18 exclusive folder creation and initial naming
-on 2026-10-23. Native reads and new-file uploads remain selected. The app embeds a separate dynamic
-library and uses public GSS APIs for macOS-cached NTLM credentials. Authenticated mutations require SMB encryption.
-Its source, local changes and licence are in Vendor/libsmb2. This does not select a replacement
-read transport or a distribution package. See the [authentication checks](results/2026-10-23-folder-naming-authentication.md).
+The user adopted `libsmb2-6.3` for remote listing, metadata, reads and writes on 2026-11-04.
+The app embeds a separate dynamic library and uses public GSS APIs for cached credentials.
+Native mounts retain scoped grants, lifecycle checks and directory change hints. Authenticated
+mutations require encryption. The library source and licence are in `Vendor/libsmb2`; distribution
+still needs the release licence/relinking review.
 
-On 2026-11-02 the user approved uploading private save-stage contents through the existing
-protected SMB handle. Native stage opens failed after the Linux fixture reused deleted file IDs;
-the direct-handle probe passed 20 repeated 2 MiB uploads. The implementation uses bounded writes,
-retains exclusive sharing protection, and verifies the flushed and reopened stage before publication.
-Signed VM checks pass for repeated stages, Unicode saves, sharing protection and interrupted uploads.
-November 3 probes reproduce stale native names after direct rename and a native metadata write
-recreating a deleted stage after file-ID reuse. No fix is verified; the Mac update is withheld.
-See the [staging results](results/2026-11-02-samba-names-and-uploads.md).
+The [simplification audit](smb-simplification.md) removes full-content proofs and remote save
+transactions. Each operation owns its connection and credentials. A small lock protects only
+library context creation/destruction; independent connections can transfer concurrently. Read
+and write requests are capped at 1 MiB, negotiated server limits and available credits. One
+request is outstanding per connection; pipelining and session pooling are not implemented.
 
-The separate `single-smb-client-prototype` branch, authorized on 2026-11-03, uses that client for
-remote listing, metadata, payload reads and new uploads as well. It retains native mount grants,
-credentials, lifecycle and change hints. Protected full reads stage once through the same
-deny-write/delete handle, verify all staged bytes locally, then recheck server metadata and
-security before accepting the version. Protected partial reads still verify and stage serially.
-Its catalog uses server IDs directly and therefore requires fresh test state. A separate signed
-VM bundle passes repeated saves, conflict preservation, interrupted-save recovery and fresh
-read-only downloads. Five coordinated read-only full downloads exceed the native staging median
-with verified empty Linux file cache. Partial reads reach about 49% of native, below the 90%
-target. Read-only copy and Keep Both pass; recovery export refuses network destinations.
-Arbitrary external native-mount writes remain outside that evidence. The physical Mac retains
-the earlier transport. The user adopted the single-client transport on 2026-11-04 ([§11](#11-open-decisions-for-the-first-experiment)). See the
-[experiment record](results/2026-11-02-samba-names-and-uploads.md#single-client-transport-experiment).
-
-The November 3 continuation adds recovery of acknowledged partial new uploads. It reopens the
-recorded file with exclusive SMB sharing, proves the exact identity and every existing byte
-against the retained complete payload, and appends only missing bytes. Changed identities,
-changed prefixes, oversized files and uncertain create replies remain unresolved. Full flush,
-close and reopen verification still precedes acknowledgment. Signed VM checks pass for resumed
-uploads and refusal of changed prefixes or replacement identities.
+New uploads use exclusive creation. An acknowledged partial upload restarts the complete write
+only after matching the recorded server identity; an uncertain create never overwrites an
+unrelated destination. Local retained contents have integrity checks, but the remote upload is
+not read back in full. Existing-file saves use ordinary overwrite semantics. Current checks and
+measurement limits are in the [VM results](results/2026-11-05-smb-simplification.md).
 
 ### Selection rule
 
@@ -227,18 +210,21 @@ ranges fail. Writable and read-only locations use the same read path.
 A save writes directly through an SMB handle, sets the final length, flushes and closes it.
 The File Provider callback completes only after that succeeds; macOS retains failed uploads.
 Previous-version recovery belongs to NAS snapshots/backups. This branch removes the remote
-stage/backup/work transaction, persistent edit bases and read proofs. Signed VM validation is
-pending; prior results describe the older implementation.
+stage/backup/work transaction, persistent edit bases and read proofs. Signed VM saves and
+interruption/restart retry pass; see the [current results](results/2026-11-05-smb-simplification.md).
 
 ## 8. Writes and offline editing, later
 
-Offline editing means saving to the downloaded local copy and uploading when the server returns. Preserve both copies when the server copy also changed. Even online writes require the same foundation to survive an unexpected disconnect.
+The [ordinary SMB contract](smb-simplification.md) governs existing-file saves. File Provider owns
+pending local contents and retries; the app never acknowledges an unfinished remote write.
+Competing edits may be overwritten, and interrupted writes may leave partial remote data.
+Previous-version recovery belongs to the NAS. The separate local upload outbox remains for new
+items, where exclusive creation and retry identity prevent accidental replacement.
 
-Add a durable upload outbox with item/base-version, immutable staged content, requested metadata operation, idempotency identity, and explicit states. Respect Apple's ownership/lifetime rules for callback URLs; keep an authorized clone before acknowledging work that will continue later. Mark content uploaded only after a verified remote commit, or follow Apple's deferred-upload contract with `isUploaded = false` so dirty content cannot be evicted [A2–A3].
-
-Upload to a uniquely named temporary sibling; close/flush as required, validate the base, and atomically publish where the server supports it. A `stat` followed by `rename` is **not** compare-and-swap: another client can write between them. SMB sharing modes/locks and target replacement semantics require server-specific testing. When conditional replacement cannot be made safe, preserve a separate conflict file rather than silently replace the NAS version.
-
-Crashes after remote commit but before local acknowledgement must be recoverable without duplicate writes or deletions. Renames, safe saves, moves across folders, packages, case-only renames, and remote deletes during local edits are first-class tests. Never silently discard an outbox during domain removal, reset, upgrade, or uninstall. Do not promise arbitrary live SQLite databases, VM disk images, or remote POSIX lock semantics on a synchronized local replica.
+Do not discard pending local data during domain removal, reset, upgrade or uninstall. Removal
+uses macOS's preserve-dirty-user-data option. Older save transactions must finish or be exported
+with their original build before Start Fresh. A synchronized local replica does not promise
+remote POSIX locking for databases or VM disk images.
 
 Deletion replay binds the owner domain, item ID and `NSFileProviderRequest.domainVersion`.
 Finder can refresh a retry's item base versions, so those versions only validate new admission.
@@ -261,15 +247,13 @@ block deletion while an unrelated item in that view is syncing. Signed VM checks
 cancellation, local-edit preservation, export and Stop Uploading cleanup. Normal builds enable
 the command from 2026-11-04. Because the command is the only admitting route, Retry may continue
 an interrupted recorded request although ordinary deletion stays refused.
-A save arriving after deletion can retain its old catalog path solely for local recovery and
-export, including deleted parents.
-Publication still requires a live catalog binding; a new occupant never authorizes that old save.
-Once Stop Uploading has verified the exported bytes, a deleted target can return a successful nil
-item to File Provider so its local replica and pending upload clear without server recreation.
-No replacement binding was found in the reviewed public APIs. See the
-[replacement gate](results/2026-11-03-editor-replacement.md),
-[command results](results/2026-11-03-permanent-command.md) and
-[deletion results](results/2026-10-29-deletion-protocol.md).
+A save arriving after deletion fails and remains pending in File Provider. The removed custom
+edit outbox no longer provides Export Local Copy or Stop Uploading for edits. Copy the pending
+local file outside the location before resolving a missing-target error. Ordinary Finder deletion
+and Replace remain disabled pending new callback validation under the simplified contract;
+the earlier requirement to preserve both complete remote versions has been withdrawn.
+See [replacement observations](results/2026-11-03-editor-replacement.md) and
+[command results](results/2026-11-03-permanent-command.md).
 
 ## 9. Future server volume mode
 
@@ -296,22 +280,18 @@ and first disposable VM test session. Each implementation still has to pass its 
 1. **Feasibility harness.** Signed File Provider with a small local fixture; full/range fetching; cancellation; local-network permissions tested for both app and extension; native SMB baseline; native-backed provider; async SMB comparator. Exit: attribution of throughput overhead, player matrix, and transport/permissions decision. Follow [benchmark-plan.md](benchmark-plan.md). Do this before the full UI.
 2. **Read-only vertical slice.** One SMB share, persistent IDs/database, lazy directory enumeration, range/full reads, Keychain, meaningful offline/auth errors, safe restart. Exit: real Finder browsing and media reading without memory growth or leaked mounts/staging files. Started 2026-10-12 before phase 1's exit, on the current transport, with the user's Finder connection standing in for Keychain until the transport decision; see the [phase 2 plan](phase2-plan.md). It ends with M9, exit validation in the VM, and M10, daily use on the physical Mac: updates keep locations, removal steps, and a signature that lasts.
 3. **Offline and NAS changes you can trust.** It starts with reconnection, because in M9 macOS dropped the Finder connection after a 70 s outage and the user had to connect again. After an outage, sleep or a network change, the app asks macOS to mount the share again with the password that the user saved in the Keychain, and it leaves an intentional eject alone. A VM spike showed that the sandboxed app can mount. After a crash, the extension starts the app again, but not after the user quits it ([phase 3 plan](phase3-plan.md)). The user then connects in the app, with macOS's own login dialog, and Finder shows only the locations (M12). M13 verifies kept-file offline status after a public File Provider stabilization barrier, against the catalog version observed by the app ([results](results/2026-10-19-offline-versions.md)). M14 adds recursive folder requests, inherited retention and aggregate offline status ([results](results/2026-10-19-folder-keeps.md)). M15 adds bounded directory watches and periodic discovery in materialized and kept folders while the app runs ([results](results/2026-10-19-nas-change-discovery.md)). M16 adds a shared local-space budget with a 2 GiB reserve, disk-full status and persisted retry that respects Pause ([results](results/2026-10-21-disk-space-protection.md)). M17 verifies location-change ordering, interrupted Apply/Remove and provider disablement with two locations ([results](results/2026-10-22-location-lifecycle.md)). Full restart and OS eviction under pressure remain unverified. Exit: the share comes back by itself after an outage, and an eject stays; the app comes back after a crash, and a Quit stays; pinned files survive disconnect/reboot and hashes match; incomplete files are never represented as available offline; a NAS change in a listed folder shows without a relaunch. Testing NAS changes needs an isolated writable share.
-4. **Writable synchronization.** Durable outbox, conflict preservation, remote commit/recovery semantics, then offline editing. This is a separate data-integrity project, not a checkbox added to the downloader. It needs change discovery from phase 3, and an isolated writable share for its tests. The [phase 4 plan](phase4-plan.md) sets new files and folders as M18; the user approved its scope and disposable writable VM fixture on 2026-10-23. The [native publication check](results/2026-10-23-upload-publication.md) found that exclusive creation works, but exposes a new file remotely during upload. The user accepted that visibility tradeoff on 2026-10-23; M18 creation and recovery are implemented. After an approved VM daemon restart, normal Finder file and nested-folder uploads passed with matching hashes and native progress. Initial naming and file Keep Both pass the signed follow-ups. See the [M18 results](results/2026-10-23-create-items.md).
+4. **Writable synchronization.** Ordinary SMB operations, durable pending local uploads, correct catalog settlement and verified offline retry. NAS snapshots/backups own previous-version recovery. It needs change discovery from phase 3, and an isolated writable share for its tests. The [phase 4 plan](phase4-plan.md) sets new files and folders as M18; the user approved its scope and disposable writable VM fixture on 2026-10-23. The [native publication check](results/2026-10-23-upload-publication.md) found that exclusive creation works, but exposes a new file remotely during upload. The user accepted that visibility tradeoff on 2026-10-23; M18 creation and recovery are implemented. After an approved VM daemon restart, normal Finder file and nested-folder uploads passed with matching hashes and native progress. Initial naming and file Keep Both pass the signed follow-ups. See the [M18 results](results/2026-10-23-create-items.md).
 5. **Own connection.** Credentials that the app keeps in the Keychain, and an SMB connection of its own instead of the macOS mount, if phase 1's transport decision chooses one.
 6. **Release hardening.** Multiple shares/accounts, several locations on one folder, load and failure testing, app-closed behavior, signing/notarization, clean install/update/uninstall, accessibility and diagnostics. Performance gates must pass on the physical Mac/NAS pair. Add broader NAS coverage before broad compatibility claims.
 7. **Server volume mode.** Mount server volumes automatically. Reuse connections, Keychain, reachability, and any proven native mount component. Add the policy state machine and safe user controls. It can be prioritized independently after File Provider locations are proven.
 
 ## 11. Open decisions for the first experiment
 
-- **Direct-writer save races, investigation requested 2026-11-04.** Remove the SMB-only
-  eligibility warning from write setup. Investigate concurrent NAS edits as synchronization
-  behavior. The current copy can overwrite an intervening direct write before final verification
-  sees it. Rechecking the original immediately before mutation could narrow this window, but
-  cannot close it. The [VM investigation](results/2026-11-04-write-confirmation.md#disposable-server-follow-up)
-  confirms lost pre-copy contents and mixed contents during copying. On 2026-11-04 the user approved
-  the [fresh check with conflict-copy recovery](results/2026-11-04-save-recheck.md). Signed VM
-  verification passes; this check cannot close the copy window. No replacement,
-  retention or server-component design is approved by the UI change.
+- **Ordinary SMB semantics, accepted 2026-11-04.** The user replaced custom recovery and
+  conflict preservation with ordinary writes. Competing edits may be overwritten; failed writes
+  may leave partial remote contents. The [audit](smb-simplification.md) removes redundant payload
+  verification while preserving pending local uploads, containment and accurate completion.
+  VM validation is authorized; publication and a new physical-Mac installation are separate.
 
 - **Single-client transport adopted 2026-11-04.** The user accepted the
   [candidate validation](results/2026-11-04-candidate-validation.md) including writable partial
@@ -326,42 +306,31 @@ and first disposable VM test session. Each implementation still has to pass its 
   the private-stage exception. The user authorized all needed VM work, including this
   experiment; production adoption and physical-Mac installation remain separate. See the
   [scope and evidence](results/2026-11-02-samba-names-and-uploads.md#single-client-transport-experiment).
-- **Protected save-stage uploads, accepted 2026-11-02.** Upload private save-stage contents through
-  the existing protected SMB handle. Repeated native opens failed after the Linux fixture reused
-  a deleted file ID; a direct-handle probe passed 20 repeated 2 MiB writes with full readback and
-  close-metadata verification. This changes the native-upload choice only for private save stages.
-  Native reads and new-file uploads remain selected. No dependency or licence changes are needed;
-  distribution review remains open. Required VM checks and signed repeated-stage, sharing and
-  interruption checks pass. Native final-confirmation failures and a recreated file at an old
-  stage name block the Mac update. Further transport changes remain undecided. See the
-  [evidence and next steps](results/2026-11-02-samba-names-and-uploads.md#signed-app-verification-2026-11-02).
-- **M23 interrupted uploads, accepted 2026-10-29.** The [ordering core](results/2026-10-29-pending-save-order.md)
-  and retirement change pass the required VM checks. The user permits a newer save after durably
-  preventing an older save from publishing, provided it has not started changing the original.
-  Retain its uncertain artifacts and local copy, visible and exportable. Signed update recovery
-  published the latest save and preserved the older export. Recovery cleanup and status reporting
-  pass required VM checks. Broader signed workflows and storage admission checks remain.
+- **Earlier save transactions, superseded 2026-11-04.** Protected stages, remote backups,
+  complete-content rechecks and the M23 edit outbox were removed by the ordinary SMB decision.
+  Their evidence remains in the [save recheck](results/2026-11-04-save-recheck.md) and
+  [transport investigation](results/2026-11-02-samba-names-and-uploads.md).
 - **M24 attached data during deletion, accepted 2026-10-29.** The [VM probe](results/2026-10-29-deletion-protocol.md)
   completed file/folder deletion and eleven crash scenarios. SMB permits adding streams under
   a deny-all main-file handle. Deleting all attached data present at removal, including such
   concurrent additions, is accepted. Lost-reply absence remains unconfirmed as already
-  required. No app deletion capability is enabled.
+  required. The confirmed Delete Permanently… command is enabled; ordinary deletion remains refused.
 
 - **M21 admission for ordinary catalog rows, accepted 2026-10-29.** Source review found that legacy
   downloaded and never-downloaded rows lack historical server identity. Name-derived native IDs
   and matching timestamps cannot distinguish an earlier replacement. The organization probe
   tests protected operations and recovery, but cannot supply that missing history. Binding a
   move to the object currently at the path, after matching known details and establishing
-  protected identity/content evidence, is implemented but awaits signed verification. An indistinguishable
+  protected identity/metadata evidence, is implemented and has signed VM verification. An indistinguishable
   prior replacement may therefore be moved. The [protocol results and accepted boundary](results/2026-10-29-file-organization-protocol.md#admission-decision)
-  retain full-content recovery and existing verified-file admission. All nine isolated protocol
+  record the earlier full-content contract, now superseded by metadata-based organization. All nine isolated protocol
   cases pass, but cannot establish the missing history.
 
 - **Remaining milestones, accepted 2026-10-29.** The user requested one forward plan and
   approved parallel agents/worktrees. The [roadmap](roadmap.md) defines M21 to M28, completion
   criteria and shared integration ownership. Accepted scopes include explicit permanent deletion
-  and bounded offline editing. The first disposable VM test session is approved. Weaker recovery
-  evidence, subsequent fixture sessions, installation and publication need separate decisions.
+  and bounded offline editing. The first disposable VM test session is approved. The later simplification and standing VM authorization supersede the original recovery and
+  fixture-session restrictions. Physical-Mac installation and publication remain separate.
   Existing benchmark and phase exit gates remain.
 - **M21 file organization, accepted 2026-10-29.** Rename and move ordinary files within one
   location, including files never downloaded, with an identity gate before mutation. Preserve
@@ -369,48 +338,11 @@ and first disposable VM test session. Each implementation still has to pass its 
   Reuse protected no-replace rename with durable evidence for both parents. Initially refuse
   crossing an overlapping location's boundary and moves between locations; folder operations
   follow in M22. The [transaction plan](phase4-plan.md#m21-organize-ordinary-files) keeps the
-  content-preservation checks. Its first disposable VM protocol session is approved.
-- **M20 file renaming, accepted 2026-10-29.** After M19 installation, the next feature
-  is renaming an ordinary file within its folder, using an existing M19 verified revision.
-  Preserve the original object and item ID; refuse collisions, changed sources and uncertain
-  identity. Folder renaming, moves and unverified files remain outside the first scope. The
-  [design](phase4-plan.md#m20-file-renaming) covers protected no-replace rename, recovery and a
-  fresh disposable VM fixture. The user approved one write mode for all supported mutations,
-  with a Read only toggle that defaults off for new locations. Existing read-only locations
-  remain read-only. Signed VM Finder, conflict, interruption and preservation checks pass;
-  see the [results](results/2026-10-29-file-renaming.md). Physical-Mac M20 behavior is unverified.
-- **M19 online editing, accepted 2026-10-27.** The [safety design](phase4-plan.md#m19-online-editing)
-  uses protected, no-replace renames through a recovery name, complete local pending copies,
-  proven base revisions and conflict copies. The user accepted the temporary absence of
-  the original pathname, internal file rename/cleanup and the limited libsmb2 expansion.
-  The approved VM probe passed mixed native/direct staging and competing SMB access checks,
-  but server-local access bypassed protection. The user accepted an SMB-only writer boundary:
-  the initial prototype required confirmation that every writer used SMB. On 2026-11-04 the
-  user removed this setup requirement; direct-writer save races remain unresolved.
-  A different client transport does
-  not fix server-local exclusion. Editor callbacks, metadata
-  preservation and interrupted recovery were the next gates. The authenticated Apple SMB fixture
-  does not expose security descriptors, and native SMB also misses an explicit backing ACL.
-  The user approved a standalone Samba fixture and its test dependencies in VM 1.
-  It exposes security descriptors, but competing SMB permission and named-stream changes
-  bypass the proposed guard. The accepted SMB-only boundary does not cover this gap.
-  Denying all sharing also permits those changes. That replacement route is rejected.
-  The revised design below preserves the original object instead. The earlier temporary
-  server, installation and test data were removed, with Apple's sharing settings unchanged.
-  The revised M19 transaction and provider integration pass signed VM save and retention checks.
-  The user reaffirmed Mac-only operation through the server's existing SMB service. The
-  [revised design](phase4-plan.md#revised-mac-only-save-proposal), approved on 2026-10-28,
-  keeps the original object, backs up its contents and updates it while temporarily renamed.
-  Approval covers hidden content writes, longer unavailability, disposable transaction files,
-  additional SMB operations and a fresh disposable VM fixture session. The
-  [CLI protocol gate](results/2026-10-28-same-object-save.md) passed on the disposable Samba
-  fixture, including private copies, ancestor protection, crashes and actual space exhaustion.
-  Signed TextEdit saves, conflicts, interruption retention, local export and item/keep preservation
-  pass. Partial work stays unresolved; fixture connection delays can defer retries. The disposable
-  fixture and dependencies are removed, and original settings are verified. No server component
-  or Save Edited Copy workflow is approved. See the [earlier gate](results/2026-10-27-edit-publication.md) for the
-  rejected replacement sequence.
-- **Safe upload publication, accepted for M18.** Use native exclusive creation, preserve complete local pending copies, and verify before acknowledging upload. Other devices can see partial new content. Never open an existing remote destination for writing. An uncertain interrupted attempt remains pending unless remote identity and complete contents prove success. See the [API results](results/2026-10-23-upload-publication.md).
+  stable-identity and metadata checks. Its first disposable VM protocol session is approved.
+- **M19/M20 historical gates.** The earlier protected save and verified-file rename designs
+  are recorded in [phase 4](phase4-plan.md) and its dated results. Ordinary saves now overwrite
+  directly, and file organization uses metadata without complete-content proofs. Broader
+  editor combinations and Finder Replace still need signed callback checks before enablement.
 - **Initial folder naming, accepted for M18 on 2026-10-23.** Finder creates an untitled folder, then sends a rename for the typed name. The callback and signed Finder checks pass. Native exclusive folder rename failed, and create/delete is unsafe under replacement races. An isolated direct SMB client passed no-overwrite rename checks. A limited `libsmb2` prototype is accepted for exclusive folder creation and initial naming, retaining server identity separately from native inodes. Corrected credential checks connected without a password, and signed naming and interrupted recovery passed on the disposable VM fixture. Folder renaming beyond initial naming stays deferred. See the [naming investigation](results/2026-10-23-initial-folder-naming.md). File Keep Both now passes the [signed follow-up](results/2026-10-25-keep-both.md). Enabled locations advertise rename capability so Finder can choose a new copy name. M20 also supports same-folder renames of verified ordinary files through its protected transaction.
 
 - Physical Mac hardware, exact NAS/disk models, NIC/link topology, and physical-Mac SMB settings. VM/NAS telemetry now establishes 64 GB RAM, Samba 4.17.12-Debian, ext4/LVM/linear md storage and the negotiated VM SMB settings; see the cache report.

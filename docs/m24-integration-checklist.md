@@ -158,8 +158,10 @@ authorize enabling ordinary deletion. For the accepted workflow, use Finder's
 Escape cancel on the first press, including after closing Settings with a text field active.
 Verify one click confirms, cancellation remains responsive, and connection loss before
 confirmation admits no record. Verify a pending save blocks the action and a save racing after
-admission remains exportable. After Stop Uploading exports that save, confirm system pending
-state clears without restoring a server file. Check both overlapping views and refused Replace.
+admission remains complete in File Provider when its missing target is refused. Copy that local
+file outside the location and verify its bytes. The simplified save path has no edit-specific
+export or Stop Uploading action; the earlier command results do not validate this revised race.
+Check both overlapping views and refused Replace.
 
 1. Select the regular file and invoke Finder's deletion command. The warning must say that the
    item will be deleted immediately or permanently, and that the action cannot be undone.
@@ -169,8 +171,8 @@ state clears without restoring a server file. Check both overlapping views and r
 2. Cancel the warning. Expect no deletion request or remote change. Repeat and confirm. Expect
    the admitted file to disappear from backing storage, both catalogs and both location views.
    Confirmed-node keep requests must clear. The untouched neighbor must retain its contents,
-   metadata, identity and downloaded bytes. Repeat for a never-downloaded file and a file with
-   a verified editing base.
+   metadata, identity and downloaded bytes. Repeat for a never-downloaded file and a downloaded
+   file that was saved through the provider.
 3. Delete the empty folder. Expect one confirmed node, removal from both views, and no change
    to its neighboring objects. There must be no hidden retention copy.
 4. Delete the populated folder. Record whether Finder sends `.recursive` or individual child

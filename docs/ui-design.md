@@ -104,16 +104,16 @@ Selecting a location shows one grouped form with all of its settings:
 5. **Remove Location.** A destructive button. Its confirmation says that the files on the server do
    not change and that the downloaded copies are removed from this Mac. It also asks whether to save
    the Keep Downloaded list. A saved list comes back when the user adds a location on the same share
-   that contains those items. If the location has new items or saves that never reached the
+   that contains those items. If the location has new items that never reached the
    server, the confirmation lists them: macOS keeps them on this Mac in a folder, which
    tinymounter shows in Finder after the removal. Changes that can be on the server prevent the
    removal, and a dialog names them.
 
-Each pending save offers Export Local Copy. A save that never reached the server, or whose
-conflict copy is published, also offers Stop Uploading. Its save panel suggests a name like
-`Report (not uploaded 2026-11-02).txt`. After tinymounter writes and checks that copy, it stops
-the upload, and macOS replaces the local file with the version on the server. Cancel changes
-nothing.
+The pending-changes list includes saves held by macOS and offers Retry Pending Changes and
+Show in Finder. Existing-file saves no longer have Export Local Copy or Stop Uploading controls.
+Copy a pending file outside the location before resolving a missing-target error. Stop Uploading
+remains available for new items whose records prove that no remote mutation is in progress.
+All domain removal preserves dirty user data. See the [pending-change contract](pending-changes-plan.md).
 
 The pending-changes list includes permanent deletions. Each row names the selected item and
 shows waiting, a failure reason, or an unconfirmed result. Item results show the outcome for

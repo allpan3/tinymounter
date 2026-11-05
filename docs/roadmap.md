@@ -1,8 +1,8 @@
 # Roadmap to everyday use
 
-The [accepted SMB simplification](smb-simplification.md) supersedes this document's custom
-remote recovery and conflict-preservation requirements from 2026-11-04. Implementation and VM
-validation are in progress; earlier completed milestones remain historical evidence.
+The [accepted SMB simplification](smb-simplification.md) replaces custom remote recovery and
+content proofs. Implementation and signed VM checks are complete; read-performance targets
+remain unmet. Earlier dated milestones remain historical evidence.
 
 Date: 2026-10-29. Decision status: accepted. The user approved this roadmap, including permanent
 deletion without a tinymounter Trash, parallel agents/worktrees and the first disposable VM test
@@ -20,15 +20,15 @@ compatibility claim or an estimate of delivery time.
 
 ## Milestones and dependencies
 
-Current checklist, 2026-11-04 (the dated results supersede older status notes below):
+Current checklist, 2026-11-05 (the dated results supersede older status notes below):
 
 | Scope | Implemented and signed-VM verified | Remaining |
 | --- | --- | --- |
 | M21/M22 organization | Ordinary files and folders; preserved IDs, downloads and keeps; interruption recovery; visible recovery for refused renames/moves | Broader NAS and physical-Mac acceptance |
-| M23 recovery | Save ordering, export, Stop Uploading, retained conflicts, low-space recovery and system-only pending items | Broader compatibility and physical-Mac acceptance |
+| M23 saves/retry | Ordinary overwrite, competing edits, shorter/empty saves, system pending items and automatic interrupted-upload retry | Broader compatibility and physical-Mac acceptance; old export/conflict recovery is removed |
 | M24 deletion | Confirmed Delete Permanently… and interrupted-operation Retry | Ordinary Finder deletion stays refused because its callbacks cannot distinguish Replace |
-| M25 editor saves | Save, repeated Save and Save As for tested TextEdit TXT/RTF, Preview PDF/PNG and Xcode source files | Finder Replace is blocked on safe intent binding; combined rename/content callbacks and broader metadata need evidence |
-| M26 offline saves | Tested TextEdit lifecycle, restart, conflicts, low-space retention and OS pressure eviction | Broader format coverage; saves after plain POSIX reads still make conflict copies without a verified edit base |
+| M25 editor saves | Earlier transaction builds covered TextEdit, Preview and Xcode; the simplified path covers TextEdit and ordinary file writes | Repeat broader editor coverage; Finder Replace and combined rename/content callbacks remain disabled |
+| M26 offline saves | Signed VM offline retention and automatic retry across app/provider restart | Broader formats, OS restart and pressure checks with the simplified implementation |
 | M27/M28 acceptance and release | Integrated VM candidate; merged build installed and launched on the physical Mac | Physical-Mac daily workflows, broader NAS compatibility and release packaging/licensing remain unverified |
 
 Evidence: [editor saves](results/2026-11-03-editor-replacement.md),
@@ -47,10 +47,10 @@ for organizing it.
 | --- | --- | --- | --- |
 | M21: organize files | Rename and move ordinary files within one location, including files never downloaded | Finder handles verified, legacy downloaded and never-downloaded files; collisions fail; unchanged contents, IDs and downloaded copies survive | M20 and the identity gate below |
 | M22: organize folders | Rename and move folders with their contents | Descendant IDs, downloads and keeps survive the move and the next listing; old/new folders enumerate correctly | M21 |
-| M23: finish pending saves | Repeated saves stay in order, retry after reconnect, and have a clear recovery action when stuck | The final accepted local save reaches the intended file; uncertain older work remains protected; low space cannot destroy a saved version | M19/M20; shared admission contract with M21 |
+| M23: finish pending saves | Repeated saves stay in order, retry after reconnect, and have a clear recovery action when stuck | The final accepted local save reaches the intended file; pending local contents survive failure; low space refuses new staging | M19/M20; shared admission contract with M21 |
 | M24: delete items | Delete files and folders from writable locations, with explicit permanent-deletion behavior | Changed/replaced items survive, recursive failures are accurate, retries never delete a new occupant, and every affected view updates | M21, M22 and M23 |
-| M25: everyday saves and Replace | Use the tested ordinary-document editor workflows and Finder's file Replace | Callback sequences have been observed; interrupted replacement retains complete old/new versions; supported metadata behavior is explicit | M21, M23 and M24 |
-| M26: edit offline | Save downloaded ordinary files repeatedly while disconnected; upload on reconnect | The latest durable save uploads once, conflicts preserve both versions, and app/extension interruption loses no accepted save | M23 and M25, integrated with M21/M22 |
+| M25: everyday saves and Replace | Use the tested ordinary-document editor workflows and Finder's file Replace | Callback sequences have been observed; replacement follows ordinary SMB semantics with accurate failure reporting; supported metadata behavior is explicit | M21, M23 and M24 |
+| M26: edit offline | Save downloaded ordinary files repeatedly while disconnected; upload on reconnect | The latest durable save uploads once, competing changes may be overwritten, and app/extension interruption loses no accepted save | M23 and M25, integrated with M21/M22 |
 | M27: daily-use validation | A combined build with a precise supported-workflow list | Integrated VM checks and the separately authorized physical-Mac acceptance checks pass; earlier unresolved correctness gates are accounted for | M21 to M26 |
 | M28: release readiness | A package ready for a separately approved beta | Signing, licensing, clean lifecycle, diagnostics, accessibility, compatibility and performance gates have evidence | M27; research and measurement design can start earlier |
 
@@ -60,13 +60,13 @@ M21's [transaction plan](phase4-plan.md#m21-organize-ordinary-files) protects th
 and both parent directories, publishes with one no-replace rename, and recovers from recorded
 evidence. Bind the selected catalog item and parents to actual server objects before mutation.
 Fresh observation must not assign an old downloaded copy to an unproven object at the same name.
-Keep full-content checks where the existing contract needs them. Removing those checks, including
-during recovery after protection was lost, is not approved by this roadmap. Measure the cost;
-do not claim constant-time moves or require silent local hydration to establish evidence.
+The accepted simplification removes full-content hashes from organization, including retries.
+Use server identity and metadata; do not hydrate file contents merely to rename or move them.
+Folder moves still inspect descendant metadata, so they are not constant-time operations.
 The accepted SMB expansion is limited to protected ordinary-file admission, parent/directory
 identity queries, no-replace file/folder moves and verified user-requested deletion. Prove each
 operation on the disposable fixture before integration. There is no new dependency, general
-replacement-by-path API or replacement for native bulk reads/uploads in this plan.
+replacement-by-path API in this plan. The separately adopted direct transport handles bulk I/O.
 
 M22 extends the same operation to the original directory object. Handle concurrent child changes
 without pretending every descendant stayed unchanged. Preserve proven unchanged descendants'
@@ -82,31 +82,21 @@ Moves must stay within the same set of overlapping registered roots; all affecte
 be available. Cross-filesystem errors and incompatible open handles fail clearly. No copy/delete
 fallback, permission rewrite or automatic movement of configured roots is included.
 
-### M23: save ordering and recovery
+### M23: save ordering and retry
 
-First reproduce the repeated-save ordering issue below. Add a durable per-file order and retain
-the latest fully staged generation. Earlier local-only generations can be consolidated after
-the newer copy is durable; this is not a history-of-every-save feature. Resolve any publication
-that may have changed the original before publishing a successor. Accepted on 2026-10-29:
-an older save proved not to have started changing the original may be durably prevented from
-publishing, allowing a newer save to continue. Keep its uncertain temporary files and local
-copy visible and exportable; retirement does not authorize their deletion. A conflict must contain the
-latest accepted local contents, without treating the app's own earlier save as another device's
-edit. Retry on reconnect needs explicit evidence rather than reliance on untested system replay.
+File Provider owns pending local saves. A callback succeeds only after the complete SMB write,
+size update, flush and close. Failed writes remain pending; connection failures must permit
+retry. The latest callback contents may overwrite competing server changes. Earlier remote
+versions belong to NAS snapshots/backups, with no TinyMounter conflict copies or remote recovery.
 
-Show waiting, conflict and recovery-required states separately. Give retained data a bounded
-space policy that refuses new work before deleting saved content. Keep Export Local Copy and
-add evidence-based restoration/cleanup where it is safe. A partial original cannot simply be
-renamed back over the public file. Do not add a force-discard action that hides unresolved remote
-work. Dismiss a completed notice only when no pending data or artifact ownership is lost.
+Settings lists system pending items and offers Retry Pending Changes. The 2 GiB staging reserve
+remains. Do not discard a pending local edit to make room or clear an error. Missing remote
+targets remain pending instead of recreating the old path. Copy local contents outside the
+location before resolving such failures.
 
-Storage policy accepted on 2026-10-30: keep the existing 2 GiB free-space reserve, with no
-separate recovery-storage quota. Refuse a new save when its complete local copy cannot fit
-above that reserve. Never delete saved recovery data to make room.
-
-Done includes multiple saves, duplicate callbacks, concurrent external edits, low space, crashes
-between generations, and recovery with unchanged IDs/keeps. A newer failed save must leave the
-previous complete save available. This milestone also protects online saves racing a disconnect.
+The signed VM interruption test verifies complete local retention across app/provider restart
+and automatic upload after reconnection. Multiple editors, full OS restart and physical-Mac
+acceptance still need evidence with this implementation.
 
 ### M24: deletion policy
 
@@ -122,7 +112,7 @@ cannot exclude that race. Main-content protection and visibly unconfirmed lost r
 On 2026-10-30 the user also approved current-name admission for unverified files: Delete may
 act on the server object currently at the selected name when its known details still match.
 An earlier replacement with indistinguishable details may therefore be deleted. Protect and
-verify that object before deletion; previously verified files keep historical identity/content
+verify that object before deletion; previously observed files keep identity/metadata
 checks. Recovery stays bound to the admitted identity and must never delete a later replacement.
 
 Start implementation with ordinary files and empty directories; the milestone also includes
@@ -142,7 +132,7 @@ Include repeated Save, Save As, temporary/lock-file cleanup, rename plus content
 Finder's file Replace. Installed app/format coverage belongs in the results, not a claim that
 all editors work. Packages and folder Replace remain outside this milestone.
 
-Replacement must preserve complete incoming and previous contents until publication is verified.
+Replacement follows ordinary SMB overwrite behavior; previous-version preservation belongs to NAS snapshots.
 An unrelated same-name create, a reimport, or a delete followed by a create is not proof of an
 authorized replacement transaction. If File Provider does not provide a supported way to bind
 that intent and base, stop at that gate and present the limitation. Do not use M18's partial
@@ -156,20 +146,15 @@ needs a later merge policy and is not included here.
 
 ### M26: offline editing
 
-Scope: edit ordinary files whose complete current local copy and editing base were verified
-before disconnection. Repeated saves keep the latest durable contents. On reconnect, an unchanged
-base receives those contents; a competing edit preserves both versions. For a deleted or moved
-remote original, retain the local edit for recovery/export rather than guess where it belongs or
-silently recreate the old pathname. The single-client candidate applies the same missing-original
-policy to connected saves before publication, without a separate offline record format.
+Scope: edit ordinary files with complete local contents, then upload the latest pending save
+when the server returns. Ordinary overwrite semantics apply if the server changed. A missing
+remote target remains an error. No full-content editing base is required.
 
-Offline creation, renaming, moving and deletion are deferred. Test the app-running, intentional
-Quit, app-crash and extension-termination cases separately. If the app is unavailable, prove
-macOS retains and replays dirty contents without eviction, or present the required ownership
-change for approval. A local editor's Save is not a claim that the server has received it.
-Done requires automatic reconnect upload, correct conflict contents, durable pending status,
-bounded storage, and no loss across interrupted staging or upload. Full OS restart remains a
-separately authorized acceptance check.
+The signed VM checks cover offline save and mid-write interruption across app/provider restart.
+They do not establish retention of every intermediate generation or full OS-restart behavior.
+Offline creation, rename, move and deletion remain outside this milestone's verified scope.
+A local editor's Save is not a claim that the server received the change. Test supported editors,
+low-space admission and OS restart before broad offline guarantees.
 
 ### M27 and M28: evidence for use and distribution
 
@@ -188,7 +173,7 @@ licensing/relinking obligations and verify clean install/update/uninstall before
 ready. Broader OS/NAS compatibility needs its own evidence. A ready package is not permission to
 install, notarize, publish or buy a developer account.
 
-## Starting point
+## Starting point before the simplification
 
 The [2026-10-31 everyday-use review](results/2026-10-31-everyday-use-review.md) sets the next
 integration priorities within the accepted milestones:
@@ -351,8 +336,8 @@ Opus and Astra may both handle bounded implementation and review tasks.
 
 Return for a decision when evidence requires a smaller user-visible scope, a weaker safety
 guarantee, different deletion or retention behavior, a new dependency, or transport behavior
-outside the accepted plan. A failed safety gate does not authorize a fallback. Keep the current
-native read/upload transport unless its replacement is separately approved.
+outside the accepted plan. A failed safety gate does not authorize a fallback. The single-client
+transport and ordinary overwrite semantics have separate explicit approval.
 
 Test permissions remain separate from feature scope. On 2026-10-31 the user granted standing
 permission for all work inside the VM, including fixture sessions, mounts, service/settings
@@ -402,7 +387,7 @@ persisted records or shared interface.
 | Workstream | First assignment | Ownership and integration dependency |
 | --- | --- | --- |
 | Organization | M21 identity, move intent and catalog changes; then M22 | Catalog identity/change records, FileRename and the SMB organization adapter; integrate after protocol gates |
-| Saves and recovery | M23 ordering, durable consolidation and recovery; then M26 local queue behavior | EditOutbox/EditTransaction and recovery UI; coordinate admission with organization and integrate offline behavior after M25 |
+| Saves and retry | Ordinary writes, File Provider pending contents and M26 lifecycle verification | LocationEdits and provider callbacks; coordinate admission with organization |
 | Protocol and compatibility | Probe identity, delete behavior and actual editor/Replace callbacks; prepare M24/M25 work | Isolated probe sources and fixtures; coordinator runs them in VM 1; production enablement follows results |
 
 The coordinator owns shared provider/IPC wiring and integrates one accepted contract at a time.
@@ -413,9 +398,8 @@ agents is not a measured implementation speedup.
 
 For the first implementation batch, catalog work accepts only a caller-proven file move and
 owns departure/arrival history and keep recomputation. It does not establish server identity or
-enable a provider capability. Save-queue work owns EditOutbox, EditTransaction and LocationEdits;
-it preserves the existing EditBaseReceipt contract and leaves shared controller/IPC wiring to
-the coordinator. Protocol work owns an isolated organization probe and proposes any required
+enable a provider capability. Save work owns LocationEdits and the provider content callback, with File Provider retaining
+pending contents. Shared controller/IPC wiring stays with the integration owner. Protocol work owns an isolated organization probe and proposes any required
 SMB adapter change before another branch uses it. Only the coordinator changes shared settings
 compatibility, project generation and production capability admission after those gates pass.
 
@@ -443,5 +427,5 @@ location is distinct from a transactional move. External rename matching is not 
 native pathname-derived IDs.
 
 Native server-volume automount remains an independent later mode under architecture §9. It
-does not provide offline copies. An app-owned replacement for native SMB remains conditional
-on the transport decision; it is not an automatic milestone or a prerequisite added by this plan.
+does not provide offline copies. File Provider's adopted direct SMB transport does not replace
+native mounts in that future mode.
