@@ -180,7 +180,6 @@ public struct TransferOutput {
     /// Caller owns this file until handing it to File Provider. Remove it after a standalone benchmark.
     public let stagingURL: URL?
     public let metrics: TransferMetrics
-    public var contentVersion: String?
 }
 
 public enum Transfer {

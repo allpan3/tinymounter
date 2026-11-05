@@ -505,7 +505,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
             staged = output.stagingURL
             guard let staged else { throw CocoaError(.fileReadUnknown) }
             let receipt = try ReaderMessage.encode(SourceReadReceipt(stagingName: staged.lastPathComponent,
-                                                                     metrics: output.metrics, contentVersion: output.contentVersion))
+                                                                     metrics: output.metrics))
             let retained = lock.withLock {
                 guard !closed, jobs[request.id] === job, !job.progress.isCancelled else { return false }
                 job.staging = staged
