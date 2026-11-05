@@ -36,9 +36,9 @@ public struct FileRenameView: Codable, Equatable, Sendable {
 public struct FileRenameParent: Codable, Equatable, Sendable {
     public let path: String
     public let name: String
-    public let identity: EditFileIdentity
+    public let identity: RemoteFileIdentity
 
-    public init(path: String, name: String, identity: EditFileIdentity) {
+    public init(path: String, name: String, identity: RemoteFileIdentity) {
         self.path = path
         self.name = name
         self.identity = identity
@@ -56,14 +56,14 @@ public struct PendingFileRename: Codable, Equatable, Sendable {
 
     public let id: UUID
     public let owner: String
-    public let base: EditBaseReceipt
+    public let base: FileRevision
     public let metadataVersion: String
     public let source: String
     public let destination: String
     public let views: [FileRenameView]
     public var state: State = .prepared
     public var refusal: Refusal?
-    public var verified: EditFileVersion?
+    public var verified: RemoteFileVersion?
     public var parents: [FileRenameParent]?
 
     public var isPending: Bool { state != .completed && state != .refused }
@@ -80,10 +80,10 @@ public struct PendingFileRename: Codable, Equatable, Sendable {
               Int64(metadataVersion).map({ $0 >= 0 }) == true,
               !views.isEmpty, Set(views.map(\.domain)).count == views.count,
               views.contains(where: { $0.domain == owner && $0.item == base.item
-                  && (!$0.contentVersion.hasPrefix("e1:") || $0.contentVersion == base.contentVersion) }),
+                  && (!$0.contentVersion.hasPrefix("r1:") || $0.contentVersion == base.contentVersion) }),
               parents != nil || views.contains(where: { $0.domain == owner && $0.contentVersion == base.contentVersion }),
               (state == .refused) == (refusal != nil),
-              ![.verified, .completed].contains(state) || verified?.hasSameContents(as: base.version) == true else {
+              ![.verified, .completed].contains(state) || verified?.hasSameDataVersion(as: base.version) == true else {
             throw UploadError.invalidRequest
         }
         for view in views {
@@ -199,7 +199,7 @@ public final class FileRenameOutbox {
         })
     }
 
-    public func prepare(owner: String, request: FileRenameRequest, base: EditBaseReceipt,
+    public func prepare(owner: String, request: FileRenameRequest, base: FileRevision,
                         source: RelativePath, views: [FileRenameView], destination: RelativePath? = nil,
                         parents: [FileRenameParent]? = nil) throws -> PendingFileRename {
         if let existing = try replay(owner: owner, request: request) { return existing }
@@ -207,7 +207,7 @@ public final class FileRenameOutbox {
                           destination: destination, parents: parents)
     }
 
-    public func prepareFile(owner: String, request: FileRenameRequest, base: EditBaseReceipt,
+    public func prepareFile(owner: String, request: FileRenameRequest, base: FileRevision,
                             source: RelativePath, views: [FileRenameView], destination: RelativePath? = nil,
                             parents: [FileRenameParent]? = nil) throws -> PendingFileRename {
         if let existing = try replayFile(owner: owner, request: request) { return existing }
@@ -215,7 +215,7 @@ public final class FileRenameOutbox {
                           destination: destination, parents: parents)
     }
 
-    private func create(owner: String, request: FileRenameRequest, base: EditBaseReceipt,
+    private func create(owner: String, request: FileRenameRequest, base: FileRevision,
                         source: RelativePath, views: [FileRenameView], destination: RelativePath?,
                         parents: [FileRenameParent]?) throws -> PendingFileRename {
         guard request.item == base.item,
@@ -380,10 +380,10 @@ public enum RenameIntent: Equatable, Sendable {
 }
 
 public struct FileRenameEvidence: Sendable {
-    public let version: EditFileVersion
+    public let version: RemoteFileVersion
     public let name: String
 
-    public init(version: EditFileVersion, name: String) {
+    public init(version: RemoteFileVersion, name: String) {
         self.version = version
         self.name = name
     }
@@ -409,7 +409,7 @@ public enum FileRenameTransaction {
         }
         let attempted = record.state != .prepared
         let target = try remote.inspectRename(path: record.destination)
-        if let target, target.version.hasSameContents(as: record.base.version),
+        if let target, target.version.hasSameDataVersion(as: record.base.version),
            SMBName.same(target.name, record.name) {
             record.verified = target.version
             record.state = .verified
@@ -419,7 +419,7 @@ public enum FileRenameTransaction {
         }
         try remote.releaseRename(path: record.destination)
         guard let source = try remote.inspectRename(path: record.source),
-              source.version.hasSameContents(as: record.base.version),
+              source.version.hasSameDataVersion(as: record.base.version),
               SMBName.same(source.name, record.oldName) else {
             if !attempted { try refuse(&record, .changed, outbox: outbox) }
             throw UploadError.unresolved
@@ -440,7 +440,7 @@ public enum FileRenameTransaction {
             throw error
         }
         guard let published = try remote.inspectRename(path: record.destination),
-              published.version.hasSameContents(as: record.base.version),
+              published.version.hasSameDataVersion(as: record.base.version),
               SMBName.same(published.name, record.name) else { throw UploadError.unresolved }
         record.verified = published.version
         record.state = .verified

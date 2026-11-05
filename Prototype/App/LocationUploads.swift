@@ -48,10 +48,6 @@ extension LocationSource {
             let text = record.kind == .folder ? UIText.newFolderPending(record.path) : UIText.newFilePending(record.path)
             if record.isStoppable { stoppable.append(text) } else { blocking.append(text) }
         }
-        for record in try editOutbox(domainID: domainID).records() where record.isPending {
-            let text = UIText.editPending(record.path)
-            if EditOutbox.canStopForRemoval(record) { stoppable.append(text) } else { blocking.append(text) }
-        }
         blocking += try renameOutbox().intents().filter { $0.isPending && $0.domains.contains(domainID) }
             .map(UIText.renameDescription)
         blocking += try deletionOutbox().records()
@@ -174,9 +170,6 @@ extension LocationSource {
                     kind=\(listed?.kind == request.kind) size=\(listed?.size == record.size)
                     """)
                 throw UploadError.unresolved
-            }
-            if row.kind == .file, row.allowsWriting {
-                try establishUploadedEditBase(record, row: row, bookmark: bookmark, progress: progress)
             }
             try outbox.complete(&record, item: row.id)
             scheduleSignal()

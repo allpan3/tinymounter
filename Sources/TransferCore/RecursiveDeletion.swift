@@ -261,10 +261,10 @@ public enum RecursiveDeletionTransaction {
 /// Presence evidence expires when deletion is marked; a later refusal cannot prove survival.
 private final class ObservedRemote: DeletionRemote {
     private let remote: DeletionRemote
-    private let identity: EditFileIdentity
+    private let identity: RemoteFileIdentity
     private(set) var proved = false
 
-    init(_ remote: DeletionRemote, identity: EditFileIdentity) {
+    init(_ remote: DeletionRemote, identity: RemoteFileIdentity) {
         self.remote = remote
         self.identity = identity
     }

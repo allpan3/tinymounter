@@ -658,7 +658,7 @@ private final class GapProbe: @unchecked Sendable {
             return "refused"
         }
         guard let after = try remote.inspectRename(path: new), after.version.identity == before.version.identity,
-              after.version.hasSameContents(as: before.version) else {
+              after.version.hasSameDataVersion(as: before.version) else {
             throw GapCheck(label: label + "-respell-same-file")
         }
         try remote.releaseRename(path: new)
@@ -667,7 +667,7 @@ private final class GapProbe: @unchecked Sendable {
     }
 
     /// The production no-replace folder rename on a fixture folder, proved by identity before and after.
-    private func renameFolder(_ remote: SMBEdit, _ from: String, _ to: String) throws -> EditFileIdentity {
+    private func renameFolder(_ remote: SMBEdit, _ from: String, _ to: String) throws -> RemoteFileIdentity {
         _ = try remote.protectFolderMoveParents(source: from, destination: to)
         let fromName = RelativePath(from)!.components.last!, toName = RelativePath(to)!.components.last!
         guard let before = try remote.inspectFolderMoveRoot(path: from),

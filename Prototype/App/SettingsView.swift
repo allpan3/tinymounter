@@ -586,8 +586,6 @@ private struct UploadStatus: View {
     let record: LocationRecord
     @Bindable var model: AppModel
     @State private var count: Int?
-    @State private var edits: [PendingEdit] = []
-    @State private var blockedEditTargets: Set<UUID> = []
     @State private var renames: [RenameIntent] = []
     @State private var creates: [PendingCreate] = []
     @State private var systemPending = SystemPendingChanges()
@@ -643,23 +641,6 @@ private struct UploadStatus: View {
                 }
             }
             DeletionStatusList(record: record, model: model)
-            ForEach(edits.filter {
-                $0.isPending || ($0.conflict && $0.state != .stopped && !$0.conflictNoticeDismissed)
-            }, id: \.id) { edit in
-                VStack(alignment: .leading) {
-                    Text((edit.path as NSString).lastPathComponent)
-                    Text(status(edit))
-                        .font(.callout).foregroundStyle(.secondary)
-                    if edit.isPending {
-                        Button(UIText.exportEdit) { model.exportEdit(edit, record: record) }
-                        if EditOutbox.canStop(edit, among: edits) {
-                            Button(UIText.stopUploading) { model.stopEdit(edit, record: record) }
-                        }
-                    } else if edit.state == .completed, edit.conflict {
-                        Button(UIText.dismissEditNotice) { model.dismissEditNotice(edit, record: record) }
-                    }
-                }
-            }
         }
         .task(id: record.domainID) {
             while !Task.isCancelled {
@@ -674,8 +655,6 @@ private struct UploadStatus: View {
             while !Task.isCancelled {
                 do {
                     count = try await model.pendingUploads(record)
-                    edits = try await model.editRecords(record)
-                    blockedEditTargets = try await model.blockedEditTargets(record)
                     renames = try await model.renameRecords(record)
                     creates = try await model.pendingCreates(record)
                     savedBytes = try await model.savedChangeBytes(record)
@@ -688,17 +667,6 @@ private struct UploadStatus: View {
         }
     }
 
-    private func status(_ edit: PendingEdit) -> String {
-        if edit.state == .retired { return UIText.retiredEdit }
-        if edit.state == .preparing { return UIText.editPreparing }
-        if edit.isPublicationComplete, edit.recoveryRetained {
-            return edit.conflict ? UIText.conflictRecovery : UIText.publishedRecovery
-        }
-        if edit.conflict { return edit.state == .completed ? UIText.conflictSaved : UIText.editConflict }
-        if blockedEditTargets.contains(edit.id) { return UIText.editTargetUnavailable }
-        if edit.state == .prepared { return UIText.waitingToUpload }
-        return edit.mayHaveChangedOriginal ? UIText.editNeedsRecovery : UIText.editInterrupted
-    }
 }
 
 private struct DeletionStatusList: View {

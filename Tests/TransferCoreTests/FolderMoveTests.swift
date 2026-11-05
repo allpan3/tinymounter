@@ -8,7 +8,7 @@ final class FolderMoveTests: XCTestCase {
     private var catalog: Catalog!
     private var tree: CatalogRow!
     private var destination: CatalogRow!
-    private var base: EditBaseReceipt!
+    private var base: FileRevision!
     private var outbox: FileRenameOutbox!
     private var remote: FolderRemote!
     private let domain = UUID().uuidString
@@ -26,8 +26,8 @@ final class FolderMoveTests: XCTestCase {
         try list(destination.id, [])
         try catalog.setAllowsWriting(true)
         let verified = try child(tree.id, "verified")
-        base = try EditBaseReceipt(item: verified.id, version: version(40))
-        try catalog.rememberEditBase(base, expectedVersion: verified.contentVersion)
+        base = try FileRevision(item: verified.id, version: version(40))
+        try catalog.rememberRevision(base, expectedVersion: verified.contentVersion)
         tree = try XCTUnwrap(catalog.item(id: tree.id))
         outbox = try FileRenameOutbox(directory: directory.appending(path: "Renames"))
         remote = FolderRemote()
@@ -181,7 +181,7 @@ final class FolderMoveTests: XCTestCase {
         XCTAssertEqual(record.state, .verified)
         let old = record.parents[0]
         record.parents[0] = FileRenameParent(path: old.path, name: old.name,
-            identity: try EditFileIdentity(fileID: old.identity.fileID,
+            identity: try RemoteFileIdentity(fileID: old.identity.fileID,
                                            birthMicroseconds: old.identity.birthMicroseconds + 1))
         XCTAssertThrowsError(try outbox.save(record))
         XCTAssertEqual(try saved().parents, remote.parents)
@@ -253,7 +253,7 @@ final class FolderMoveTests: XCTestCase {
         try catalog.settleFolderMove(record.views[0].move, settlement: settled)
         let verified = try child(tree.id, "verified")
         XCTAssertNotEqual(verified.contentVersion, base.contentVersion)
-        XCTAssertTrue(verified.contentVersion.hasPrefix("e1:"))
+        XCTAssertTrue(verified.contentVersion.hasPrefix("r1:"))
         let oldPlain = try XCTUnwrap(record.views[0].move.entries.first { $0.name == "plain" })
         XCTAssertTrue(try XCTUnwrap(catalog.item(id: oldPlain.item)).deleted)
         let deep = try XCTUnwrap(record.views[0].move.entries.first { $0.name == "deep" })
@@ -587,8 +587,8 @@ final class FolderMoveTests: XCTestCase {
         let divergent = changed[1].settlement
         let alteredContents = try divergent.resolutions.map { resolution -> CatalogFolderMoveResolution in
             guard case .changed(let observation, let receipt) = resolution else { return resolution }
-            let replacement = try EditBaseReceipt(item: receipt.item,
-                version: version(receipt.version.identity.fileID, digest: "c", modified: 3, changed: 4))
+            let replacement = try FileRevision(item: receipt.item,
+                version: version(receipt.version.identity.fileID, modified: 5, changed: 4))
             return .changed(observation, receipt: replacement)
         }
         proposed.settlements = [changed[0], FolderMoveSettlement(domain: other,
@@ -680,7 +680,7 @@ final class FolderMoveTests: XCTestCase {
             if state == .moved { throw UploadError.unresolved }
         })
         let removed = try settlements(record, removed: "plain")
-        func replaced(_ result: FolderMoveSettlement, identity: EditFileIdentity, name: String) -> FolderMoveSettlement {
+        func replaced(_ result: FolderMoveSettlement, identity: RemoteFileIdentity, name: String) -> FolderMoveSettlement {
             let listings = result.settlement.listings.map { listing in
                 guard listing.parent == first.move.item else { return listing }
                 return CatalogFolderMoveListing(parent: listing.parent, path: RelativePath(listing.path)!,
@@ -825,7 +825,7 @@ final class FolderMoveTests: XCTestCase {
         XCTAssertThrowsError(try prepare(views: [duplicate]))
         let wrongBase = try valid.proofs.map { proof -> CatalogFolderMoveProof in
             if case .file(let receipt) = proof, receipt.item == base.item {
-                return .file(try EditBaseReceipt(item: receipt.item, version: receipt.version))
+                return .file(try FileRevision(item: receipt.item, version: receipt.version))
             }
             return proof
         }
@@ -834,8 +834,8 @@ final class FolderMoveTests: XCTestCase {
         let other = UUID().uuidString
         let differing = try valid.proofs.map { proof -> CatalogFolderMoveProof in
             if case .file(let receipt) = proof, receipt.item != base.item {
-                return .file(try EditBaseReceipt(item: receipt.item,
-                    version: version(receipt.version.identity.fileID, digest: "b")))
+                return .file(try FileRevision(item: receipt.item,
+                    version: version(receipt.version.identity.fileID, modified: 3)))
             }
             return proof
         }
@@ -860,7 +860,7 @@ final class FolderMoveTests: XCTestCase {
 
     func testInitialSettlementRequiresNewReceiptForMtimeOnlyChange() throws {
         var record = try prepare()
-        let refreshed = try EditBaseReceipt(item: base.item, version: version(40, modified: 2, changed: 3))
+        let refreshed = try FileRevision(item: base.item, version: version(40, modified: 2, changed: 3))
         func result(_ record: PendingFolderMove, changed: Bool) throws -> [FolderMoveSettlement] {
             try settlements(record).map { result in
                 let resolutions = result.settlement.resolutions.map { resolution -> CatalogFolderMoveResolution in
@@ -868,7 +868,7 @@ final class FolderMoveTests: XCTestCase {
                     let after = CatalogFolderMoveObservation(item: observed.item, path: RelativePath(observed.path)!,
                         kind: .file, nativeID: observed.nativeID,
                         fingerprint: ContentFingerprint(size: observed.size, mtimeNs: 2_000, ctimeNs: 3_000),
-                        preservesIdentity: true, preservesContents: true)
+                        preservesIdentity: true, preservesContents: false)
                     return changed ? .changed(after, receipt: refreshed) : .preserved(after)
                 }
                 return FolderMoveSettlement(domain: result.domain, settlement: CatalogFolderMoveSettlement(
@@ -935,7 +935,7 @@ final class FolderMoveTests: XCTestCase {
             destinationParent: archive.id, destinationName: "Moved")
         let proofs = try move.entries.map { entry -> CatalogFolderMoveProof in
             if entry.kind == .folder { return .directory(item: entry.item, identity: try identity(entry.nativeID)) }
-            return .file(try EditBaseReceipt(item: entry.item, version: version(entry.nativeID)))
+            return .file(try FileRevision(item: entry.item, version: version(entry.nativeID)))
         }
         let second = FolderMoveView(domain: otherDomain, folder: .root, move: move, proofs: proofs)
         var record = try prepare(views: [first, second])
@@ -1001,7 +1001,7 @@ final class FolderMoveTests: XCTestCase {
         let retimed = try XCTUnwrap(current.target.entries.first { $0.item == item })
         XCTAssertNotEqual(retimed.contentVersion, base.contentVersion)
         guard case .file(let retimedReceipt) = retimed.proof else { return XCTFail("Expected receipt") }
-        XCTAssertTrue(retimedReceipt.version.hasSameContents(as: base.version))
+        XCTAssertFalse(retimedReceipt.version.hasSameDataVersion(as: base.version))
         XCTAssertEqual(retimedReceipt.version.modifiedMicroseconds, 2)
         try catalog.applyFolderMoveRecovery(record.views[0].move, proofs: record.views[0].proofs,
                                              expected: current.expected, target: current.target)
@@ -1248,7 +1248,7 @@ final class FolderMoveTests: XCTestCase {
         try list(discovered.id, [file("verified", 40)])
         let fresh = try child(discovered.id, "verified")
         XCTAssertNotEqual(fresh.id, base.item)
-        XCTAssertFalse(fresh.contentVersion.hasPrefix("e1:"))
+        XCTAssertFalse(fresh.contentVersion.hasPrefix("r1:"))
         XCTAssertFalse(fresh.keepRequested)
         let anchor = try catalog.currentAnchor()
         try FolderMoveTransaction.publish(&record, outbox: outbox, remote: remote)
@@ -1271,7 +1271,7 @@ final class FolderMoveTests: XCTestCase {
             destinationParent: archive.id, destinationName: "Moved")
         let proofs = try move.entries.map { entry -> CatalogFolderMoveProof in
             if entry.kind == .folder { return .directory(item: entry.item, identity: try identity(entry.nativeID)) }
-            return .file(try EditBaseReceipt(item: entry.item, version: version(entry.nativeID)))
+            return .file(try FileRevision(item: entry.item, version: version(entry.nativeID)))
         }
         let second = FolderMoveView(domain: otherDomain, folder: .root, move: move, proofs: proofs)
         var record = try prepare(views: [first, second])
@@ -1386,7 +1386,7 @@ final class FolderMoveTests: XCTestCase {
         let proofs = try move.entries.map { entry -> CatalogFolderMoveProof in
             if entry.kind == .folder { return .directory(item: entry.item, identity: try identity(entry.nativeID)) }
             if entry.item == base.item { return .file(base) }
-            return .file(try EditBaseReceipt(item: entry.item, version: version(entry.nativeID)))
+            return .file(try FileRevision(item: entry.item, version: version(entry.nativeID)))
         }
         return FolderMoveView(domain: domain, folder: .root, move: move, proofs: proofs)
     }
@@ -1419,8 +1419,8 @@ final class FolderMoveTests: XCTestCase {
                     nativeID: entry.nativeID + 1_000, fingerprint: fingerprint,
                     preservesIdentity: true, preservesContents: entry.kind == .file && !isChanged)
                 if isChanged {
-                    let receipt = try EditBaseReceipt(item: entry.item,
-                        version: version(entry.nativeID, digest: "b", modified: 3, changed: 4))
+                    let receipt = try FileRevision(item: entry.item,
+                        version: version(entry.nativeID, modified: 3, changed: 4))
                     return .changed(after, receipt: receipt)
                 }
                 return .preserved(after)
@@ -1463,17 +1463,15 @@ final class FolderMoveTests: XCTestCase {
                             mtimeNs: before.mtimeNs, ctimeNs: changedTime.map { Int64($0) * 1_000 } ?? before.ctimeNs),
                         preservesIdentity: true, preservesContents: false), identity: identity)
                 case .file(let receipt):
-                    let digest = contents[entry.name].map { String(repeating: String($0), count: 64) }
-                        ?? receipt.version.digest
-                    let version = try EditFileVersion(identity: receipt.version.identity, size: receipt.version.size,
-                        digest: digest, modifiedMicroseconds: modified[entry.name] ?? receipt.version.modifiedMicroseconds,
+                    let version = try RemoteFileVersion(identity: receipt.version.identity, size: receipt.version.size,
+                        modifiedMicroseconds: modified[entry.name] ?? (contents[entry.name] == nil ? receipt.version.modifiedMicroseconds : 3),
                         changedMicroseconds: changedTime ?? receipt.version.changedMicroseconds,
-                        attributes: receipt.version.attributes, security: receipt.version.security)
+                        attributes: receipt.version.attributes)
                     return .file(CatalogFolderMoveObservation(item: entry.item, path: path, kind: .file,
                         nativeID: before.nativeID, fingerprint: ContentFingerprint(size: version.size,
                             mtimeNs: Int64(version.modifiedMicroseconds) * 1_000,
                             ctimeNs: Int64(version.changedMicroseconds) * 1_000),
-                        preservesIdentity: true, preservesContents: version.hasSameContents(as: receipt.version)),
+                        preservesIdentity: true, preservesContents: version.hasSameDataVersion(as: receipt.version)),
                         version: version)
                 }
             }
@@ -1503,14 +1501,14 @@ final class FolderMoveTests: XCTestCase {
                                                        allowed: record.allowedCatalogStates(domain: domain))]
     }
 
-    private func identity(_ id: UInt64) throws -> EditFileIdentity {
-        try EditFileIdentity(fileID: id, birthMicroseconds: 100)
+    private func identity(_ id: UInt64) throws -> RemoteFileIdentity {
+        try RemoteFileIdentity(fileID: id, birthMicroseconds: 100)
     }
 
-    private func version(_ id: UInt64, digest: Character = "a", modified: UInt64 = 1,
-                         changed: UInt64 = 2) throws -> EditFileVersion {
-        try EditFileVersion(identity: identity(id), size: 10, digest: String(repeating: String(digest), count: 64),
-                            modifiedMicroseconds: modified, changedMicroseconds: changed, attributes: 32, security: Data([1]))
+    private func version(_ id: UInt64, modified: UInt64 = 1,
+                         changed: UInt64 = 2) throws -> RemoteFileVersion {
+        try RemoteFileVersion(identity: identity(id), size: 10,
+                            modifiedMicroseconds: modified, changedMicroseconds: changed, attributes: 32)
     }
 
     private func parents() throws -> [FileRenameParent] {
@@ -1609,7 +1607,7 @@ private final class FolderRemote: FolderMoveRemote {
         if changedParentBirthAfterMove {
             parents = try parents.map {
                 FileRenameParent(path: $0.path, name: $0.name,
-                    identity: try EditFileIdentity(fileID: $0.identity.fileID,
+                    identity: try RemoteFileIdentity(fileID: $0.identity.fileID,
                                                birthMicroseconds: $0.identity.birthMicroseconds + 1))
             }
         }

@@ -1,5 +1,9 @@
 # Stuck pending changes
 
+The [accepted SMB simplification](smb-simplification.md) supersedes this document's custom
+remote recovery and conflict-preservation requirements from 2026-11-04. Implementation and VM
+validation are in progress; earlier completed milestones remain historical evidence.
+
 Date: 2026-11-02. Decision status: accepted on 2026-11-02 with the recommendations below.
 The user asked for simple, effective methods. Parts 1–3 are implemented and pass a signed VM
 check ([results](results/2026-11-02-pending-changes-list.md)). Parts 4–5 are implemented for new

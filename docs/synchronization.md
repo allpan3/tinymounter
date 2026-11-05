@@ -1,5 +1,9 @@
 # Synchronization between File Provider locations and server volumes
 
+The [accepted SMB simplification](smb-simplification.md) supersedes this document's custom
+remote recovery and conflict-preservation requirements from 2026-11-04. Implementation and VM
+validation are in progress; earlier completed milestones remain historical evidence.
+
 Date: 2026-10-11. Decision status: proposed. The user wants this model settled before deciding on
 any guard against mounting the same folder both ways. Components follow
 [architecture.md](architecture.md); identity and change discovery there (§7) remain the baseline.

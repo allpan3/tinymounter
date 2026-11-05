@@ -174,12 +174,6 @@ final class SourceReaderService: NSObject, NSFileProviderServiceSource, NSXPCLis
                          UInt32(RENAME_EXCL)) == 0 else {
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
         }
-        if let version = receipt.contentVersion {
-            guard request.establishEditBase, version.hasPrefix("e1:"), version.utf8.count <= 128 else {
-                try? FileManager.default.removeItem(at: destination)
-                throw CocoaError(.fileReadCorruptFile)
-            }
-        }
         return (destination, receipt.metrics, receipt.contentVersion)
     }
 

@@ -360,40 +360,12 @@ final class LocationController {
         onChange?()
     }
 
-    func editRecords(_ record: LocationRecord) async throws -> [PendingEdit] {
-        guard let source = sources[record.domainID] else { throw LocationError.catalogClosed }
-        return try await Self.offMain { try source.editRecords() }
-    }
-
-    func blockedEditTargets(_ record: LocationRecord) async throws -> Set<UUID> {
-        guard let source = sources[record.domainID] else { throw LocationError.catalogClosed }
-        return try await Self.offMain { try source.blockedEditTargets() }
-    }
-
     func savedChangeBytes(_ record: LocationRecord) async throws -> Int64 {
         guard let source = sources[record.domainID] else { throw LocationError.catalogClosed }
         return try await Self.offMain { try source.savedChangeBytes() }
     }
 
-    func dismissEditNotice(_ record: LocationRecord, id: UUID) async throws {
-        guard let source = sources[record.domainID] else { throw LocationError.catalogClosed }
-        try await Self.offMain { try source.dismissEditNotice(id) }
-    }
-
-    func exportEdit(_ record: LocationRecord, id: UUID, destination: URL) async throws {
-        guard let source = sources[record.domainID] else { throw LocationError.catalogClosed }
-        try await Self.offMain { try source.exportEdit(id, destination: destination) }
-    }
-
-    /// macOS sends the stopped save again after the signal and receives the server's version.
-    func stopEdit(_ record: LocationRecord, id: UUID, destination: URL) async throws {
-        guard let source = sources[record.domainID] else { throw LocationError.catalogClosed }
-        try await Self.offMain { try source.stopEdit(id, destination: destination) }
-        await resumeCreates(record.domainID)
-    }
-
     func retryPending(_ record: LocationRecord) {
-        sources[record.domainID]?.retryEdits(recoverRetired: true)
         guard let source = sources[record.domainID] else { return }
         let shared = sources.values.filter { $0.editNamespace === source.editNamespace }
         for candidate in shared { candidate.retryRenames() }
@@ -569,7 +541,6 @@ final class LocationController {
         try await run(.removeDomain(record.domainID), registered: registeredDomains())
         try Catalog.delete(at: SharedContainer.catalogURL(domainID: record.domainID))
         try LocationSource.outbox(domainID: record.domainID).removeIfCompleted()
-        try LocationSource.editOutbox(domainID: record.domainID).removeIfCompleted()
         try LocationSource.renameOutbox().removeCompletedIntents(removedDomain: record.domainID)
         try LocationSource.deletionOutbox().removeSettled(domain: record.domainID)
         previousSource?.editNamespace.unregister(record.domainID)
@@ -621,7 +592,6 @@ final class LocationController {
         domains[record.domainID] = nil
         try Catalog.delete(at: SharedContainer.catalogURL(domainID: record.domainID))
         try LocationSource.outbox(domainID: record.domainID).removeForLocationRemoval()
-        try LocationSource.editOutbox(domainID: record.domainID).removeForLocationRemoval()
         try LocationSource.renameOutbox().removeCompletedIntents(removedDomain: record.domainID)
         try LocationSource.deletionOutbox().removeSettled(domain: record.domainID)
         previousSource?.editNamespace.unregister(record.domainID)
@@ -1061,9 +1031,6 @@ final class LocationController {
             guard try LocationSource.removalItems(domainID: id).blocking.isEmpty else { throw UploadError.pendingWrites }
             try Catalog.delete(at: SharedContainer.catalogURL(domainID: id))
             try LocationSource.outbox(domainID: id).removeForLocationRemoval()
-            try LocationSource.editOutbox(domainID: id).removeForLocationRemoval()
-            // Read proofs are a disposable cache; a leftover only costs space.
-            try? LocationSource.readProofCache(domainID: id).remove()
             try LocationSource.renameOutbox().removeCompletedIntents(removedDomain: id)
             try LocationSource.deletionOutbox().removeSettled(domain: id)
         case .deleteRecord(let id):
@@ -1144,7 +1111,6 @@ final class LocationController {
             }
         }
         try? source.configureWriteMode(record.activeWriteBookmark)
-        source.retryEdits()
         source.onChange { [weak self] in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
@@ -1434,7 +1400,6 @@ final class LocationController {
             """)
         for domainID in affected {
             sources[domainID]?.retryRenames()
-            sources[domainID]?.retryEdits()
             sources[domainID]?.retryDeletions()
             await signalResolved(domainID, failures)
         }

@@ -70,190 +70,53 @@ final class CatalogTests: XCTestCase {
         XCTAssertThrowsError(try Catalog.openWriter(at: url("catalog"), domainID: "domain-A"))
     }
 
-    func testStrongRevisionKeepsItemAndKeepRequestButExternalChangeInvalidatesIt() throws {
-        let catalog = try makeCatalog()
-        try reconcile(catalog, [file("data")])
-        let before = try child(catalog, "data")
-        try catalog.setKeep(ids: [before.id], value: true)
-        try catalog.setAllowsWriting(true)
-        let remote = try EditFileVersion(identity: EditFileIdentity(fileID: 17, birthMicroseconds: 18),
-                                         size: before.size, digest: String(repeating: "a", count: 64),
-                                         modifiedMicroseconds: 19, changedMicroseconds: 20,
-                                         attributes: 32, security: Data([1]))
-        let receipt = try EditBaseReceipt(item: before.id, version: remote)
-        try catalog.rememberEditBase(receipt, expectedVersion: before.contentVersion)
-        XCTAssertEqual(try child(catalog, "data").contentVersion, receipt.contentVersion)
-        XCTAssertTrue(try child(catalog, "data").keepRequested)
-        try reconcile(catalog, [file("data")])
-        XCTAssertEqual(try child(catalog, "data").contentVersion, receipt.contentVersion)
-        _ = try catalog.updateFingerprint(item: before.id,
-                                           fingerprint: ContentFingerprint(size: before.size + 1, mtimeNs: 88, ctimeNs: 99),
-                                           fileID: 17)
-        let changed = try child(catalog, "data")
-        XCTAssertNil(changed.editVersion)
-        XCTAssertTrue(changed.contentVersion.hasPrefix("f1:"))
-        XCTAssertEqual(changed.id, before.id)
-        XCTAssertTrue(changed.keepRequested)
-        XCTAssertThrowsError(try catalog.rememberEditBase(receipt, expectedVersion: before.contentVersion))
-    }
-
-    func testEditTargetRefusesReadOnlyAndDeletedBindingsEvenWhenTheNameReturns() throws {
+    func testSaveAcceptsChangedVersionUnlessConflictFailureWasRequested() throws {
         let catalog = try makeCatalog()
         try reconcile(catalog, [file("data")])
         try catalog.setAllowsWriting(true)
-        let original = try child(catalog, "data")
-        let input = directory.appending(path: "input")
-        try Data("pending contents".utf8).write(to: input)
-        let outbox = try EditOutbox(directory: directory.appending(path: "Edits"))
-        let edit = try outbox.prepare(item: original.id, parent: root, path: XCTUnwrap(RelativePath("data")),
-                                     baseVersion: original.contentVersion, failOnConflict: false,
-                                     contents: input, progress: Progress())
-        try catalog.validateEditTarget(edit)
-        try catalog.setAllowsWriting(false)
-        XCTAssertThrowsError(try catalog.validateEditTarget(edit))
-        try catalog.setAllowsWriting(true)
-        try catalog.validateEditTarget(edit)
-        try reconcile(catalog, [])
-        XCTAssertThrowsError(try catalog.validateEditTarget(edit))
-        try reconcile(catalog, [file("data")])
-        XCTAssertNotEqual(try child(catalog, "data").id, original.id)
-        XCTAssertThrowsError(try catalog.validateEditTarget(edit))
-        try outbox.validateContents(edit)
-    }
-
-    func testDeletedFileSaveCanBeRetainedAndExportedWithoutPublishingToReplacement() throws {
-        let catalog = try makeCatalog()
-        try reconcile(catalog, [folder("Docs")])
-        let parent = try child(catalog, "Docs")
-        try reconcile(catalog, [file("data")], in: parent.id)
-        let original = try child(catalog, "data", in: parent.id)
-        try catalog.setAllowsWriting(true)
-        try reconcile(catalog, [])
-        XCTAssertNil(try catalog.relativePath(of: original.id))
-        let retained = try catalog.editRetentionPath(item: original.id, parent: parent.id, name: "data")
-        XCTAssertEqual(retained.string, "Docs/data")
-        let input = directory.appending(path: "input"), exported = directory.appending(path: "exported")
-        let contents = Data("save racing recursive deletion".utf8)
-        try contents.write(to: input)
-        let outbox = try EditOutbox(directory: directory.appending(path: "Edits"))
-        let edit = try outbox.prepare(item: original.id, parent: parent.id, path: retained,
-            baseVersion: original.contentVersion, failOnConflict: false, contents: input, progress: Progress())
-        XCTAssertThrowsError(try catalog.validateEditTarget(edit))
-        try reconcile(catalog, [folder("Docs")])
-        let replacementParent = try child(catalog, "Docs")
-        try reconcile(catalog, [file("data")], in: replacementParent.id)
-        let replacement = try child(catalog, "data", in: replacementParent.id)
-        XCTAssertNotEqual(replacement.id, original.id)
-        XCTAssertThrowsError(try catalog.validateEditTarget(edit))
-        try outbox.export(edit, to: exported)
-        XCTAssertEqual(try Data(contentsOf: exported), contents)
-        XCTAssertEqual(try child(catalog, "data", in: replacementParent.id), replacement)
-    }
-
-    func testEditRetentionRequiresWriteAccessAndTheExactItemBinding() throws {
-        let catalog = try makeCatalog()
-        try reconcile(catalog, [file("data")])
         let row = try child(catalog, "data")
-        XCTAssertThrowsError(try catalog.editRetentionPath(item: row.id, parent: root, name: row.name))
-        try catalog.setAllowsWriting(true)
-        XCTAssertEqual(try catalog.editRetentionPath(item: row.id, parent: root, name: row.name).string, "data")
-        XCTAssertThrowsError(try catalog.editRetentionPath(item: row.id, parent: root, name: "DATA"))
-        XCTAssertThrowsError(try catalog.editRetentionPath(item: row.id, parent: "unknown", name: row.name))
-        XCTAssertThrowsError(try catalog.editRetentionPath(item: "unknown", parent: root, name: row.name))
-        XCTAssertThrowsError(try catalog.editRetentionPath(item: root, parent: root, name: "Movies"))
-    }
-
-    func testPublishedEditKeepsIdentityAndConflictCreatesSeparateItem() throws {
-        let catalog = try makeCatalog()
-        try reconcile(catalog, [file("data")])
-        let before = try child(catalog, "data")
-        try catalog.setKeep(ids: [before.id], value: true)
-        let input = directory.appending(path: "input")
-        try Data("new contents".utf8).write(to: input)
-        let outbox = try EditOutbox(directory: directory.appending(path: "Edits"))
-        var edit = try outbox.prepare(item: before.id, parent: root, path: XCTUnwrap(RelativePath("data")),
-                                      baseVersion: before.contentVersion, failOnConflict: false,
-                                      contents: input, progress: Progress())
-        let version = try EditFileVersion(identity: EditFileIdentity(fileID: 33, birthMicroseconds: 44),
-                                          size: edit.size, digest: edit.digest, modifiedMicroseconds: 55,
-                                          changedMicroseconds: 66, attributes: 32, security: Data([1]))
-        edit.stageIdentity = version.identity
-        edit.previous = version
-        edit.state = .published
-        edit.published = try EditBaseReceipt(item: before.id, version: version)
-        let fingerprint = ContentFingerprint(size: edit.size, mtimeNs: 55_000, ctimeNs: 66_000)
-        XCTAssertEqual(try catalog.commitEdit(edit, fingerprint: fingerprint, nativeID: 99), before.id)
-        let updated = try child(catalog, "data")
-        XCTAssertEqual(updated.row, before.row)
-        XCTAssertTrue(updated.keepRequested)
-        XCTAssertEqual(updated.contentVersion, edit.published?.contentVersion)
-        let anchor = try catalog.currentAnchor()
-        _ = try catalog.commitEdit(edit, fingerprint: fingerprint, nativeID: 99)
-        XCTAssertEqual(try catalog.currentAnchor(), anchor)
-        edit.conflict = true
-        edit.destination = "data conflict"
-        edit.published = try EditBaseReceipt(item: edit.id.uuidString, version: version)
-        XCTAssertEqual(try catalog.commitEdit(edit, fingerprint: fingerprint, nativeID: 101), edit.id.uuidString)
-        XCTAssertEqual(try child(catalog, "data"), updated)
-        XCTAssertFalse(try child(catalog, "data conflict").keepRequested)
-        XCTAssertEqual(try catalog.keepRequests().map(\.id), [before.id])
-        edit.destination = "data"
-        XCTAssertThrowsError(try catalog.commitEdit(edit, fingerprint: fingerprint, nativeID: 101))
-        XCTAssertEqual(try child(catalog, "data"), updated)
-    }
-
-    func testChangedStrongContentsAdvanceRevisionEvenWithIdenticalNativeFingerprint() throws {
-        let catalog = try makeCatalog()
-        try reconcile(catalog, [file("data")])
-        let row = try child(catalog, "data")
-        try catalog.setKeep(ids: [row.id], value: true)
-        try catalog.setAllowsWriting(true)
-        func receipt(_ digest: String) throws -> EditBaseReceipt {
-            try EditBaseReceipt(item: row.id, version: EditFileVersion(
-                identity: EditFileIdentity(fileID: 17, birthMicroseconds: 18), size: row.size,
-                digest: String(repeating: digest, count: 64), modifiedMicroseconds: 19,
-                changedMicroseconds: 20, attributes: 32, security: Data([1])))
+        func request(_ fail: Bool) throws -> EditRequest {
+            try EditRequest(item: row.id, parent: root, name: row.name, baseVersion: row.contentVersion,
+                            staging: UUID(), failOnConflict: fail)
         }
-        let old = try receipt("a"), fresh = try receipt("b")
-        try catalog.rememberEditBase(old, expectedVersion: row.contentVersion)
-        let fingerprint = ContentFingerprint(size: row.size, mtimeNs: row.mtimeNs, ctimeNs: row.ctimeNs)
-        try catalog.refreshEditBase(fresh, expectedVersion: old.contentVersion, fingerprint: fingerprint, nativeID: 17)
-        let updated = try child(catalog, "data")
-        XCTAssertEqual(updated.contentVersion, fresh.contentVersion)
-        XCTAssertEqual(updated.id, row.id)
-        XCTAssertTrue(updated.keepRequested)
-        XCTAssertThrowsError(try catalog.refreshEditBase(old, expectedVersion: old.contentVersion,
-                                                         fingerprint: fingerprint, nativeID: 17))
-        XCTAssertEqual(try child(catalog, "data").contentVersion, fresh.contentVersion)
+        try catalog.updateFingerprint(item: row.id, fingerprint: ContentFingerprint(size: 24, mtimeNs: 80, ctimeNs: 90),
+                                      fileID: 17)
+        XCTAssertEqual(try catalog.editTarget(request(false)).1.string, "data")
+        XCTAssertThrowsError(try catalog.editTarget(request(true))) {
+            XCTAssertEqual($0 as? UploadError, .editConflict)
+        }
     }
 
-    func testUploadedEditBaseReplacesListedTimesAndSurvivesFreshListing() throws {
+    func testSaveRefusesReadOnlyDeletedAndReplacedBindings() throws {
         let catalog = try makeCatalog()
-        try reconcile(catalog, [file("upload", fileID: 17)])
-        let listed = try child(catalog, "upload")
+        try reconcile(catalog, [file("data")])
+        let row = try child(catalog, "data")
+        let request = try EditRequest(item: row.id, parent: root, name: row.name, baseVersion: row.contentVersion,
+                                      staging: UUID(), failOnConflict: false)
+        XCTAssertThrowsError(try catalog.editTarget(request))
         try catalog.setAllowsWriting(true)
-        try catalog.setKeep(ids: [listed.id], value: true)
-        let version = try EditFileVersion(identity: EditFileIdentity(fileID: 17, birthMicroseconds: 18),
-                                         size: listed.size, digest: String(repeating: "a", count: 64),
-                                         modifiedMicroseconds: 19, changedMicroseconds: 20,
-                                         attributes: 32, security: Data([1]))
-        let receipt = try EditBaseReceipt(item: listed.id, version: version)
-        let fingerprint = ContentFingerprint(size: listed.size, mtimeNs: 19_000, ctimeNs: 20_000)
+        XCTAssertEqual(try catalog.editTarget(request).0.id, row.id)
+        try reconcile(catalog, [])
+        XCTAssertThrowsError(try catalog.editTarget(request))
+        try reconcile(catalog, [file("data")])
+        XCTAssertNotEqual(try child(catalog, "data").id, row.id)
+        XCTAssertThrowsError(try catalog.editTarget(request))
+    }
+
+    func testSaveUpdatesVersionAndPreservesIdentityAndKeep() throws {
+        let catalog = try makeCatalog()
+        try reconcile(catalog, [file("data")])
+        let before = try child(catalog, "data")
+        try catalog.setKeep(ids: [before.id], value: true)
+        let fingerprint = ContentFingerprint(size: 37, mtimeNs: 500, ctimeNs: 600)
+        try catalog.updateFingerprint(item: before.id, fingerprint: fingerprint, fileID: 17)
+        let after = try child(catalog, "data")
+        XCTAssertEqual(after.id, before.id)
+        XCTAssertTrue(after.keepRequested)
+        XCTAssertEqual(after.contentVersion, fingerprint.contentVersion)
         let anchor = try catalog.currentAnchor()
-        try catalog.refreshEditBase(receipt, expectedVersion: listed.contentVersion,
-                                    fingerprint: fingerprint, nativeID: 17)
-        try reconcile(catalog, [file("upload", mtime: 19_000, ctime: 20_000, fileID: 17)])
-        let current = try child(catalog, "upload")
-        XCTAssertEqual(current.id, listed.id)
-        XCTAssertEqual(current.contentVersion, receipt.contentVersion)
-        XCTAssertEqual(current.mtimeNs, fingerprint.mtimeNs)
-        XCTAssertEqual(current.ctimeNs, fingerprint.ctimeNs)
-        XCTAssertEqual(try catalog.remoteIdentity(current.id), 17)
-        XCTAssertTrue(current.keepRequested)
-        XCTAssertTrue(try catalog.changes(after: anchor, limit: 100).updated.contains { $0.id == listed.id })
-        XCTAssertThrowsError(try catalog.refreshEditBase(receipt, expectedVersion: listed.contentVersion,
-                                                        fingerprint: fingerprint, nativeID: 17))
-        XCTAssertEqual(try child(catalog, "upload"), current)
+        XCTAssertFalse(try catalog.updateFingerprint(item: before.id, fingerprint: fingerprint, fileID: 17))
+        XCTAssertEqual(try catalog.currentAnchor(), anchor)
     }
 
     func testInitialFolderNameKeepsIdentityChildrenAndPageOrder() throws {

@@ -9,6 +9,7 @@ it wrong.
 
 | Document | Covers | Edit it when |
 | --- | --- | --- |
+| [smb-simplification.md](smb-simplification.md) | Accepted ordinary SMB semantics, simplification scope and validation | this implementation or its evidence changes |
 | [architecture.md](architecture.md) | Product contract, decisions, components, phases and exit criteria, open decisions | the user makes a decision, or an owner, boundary or phase changes |
 | [roadmap.md](roadmap.md) | Accepted remaining milestones, completion criteria, dependencies and parallel worktree ownership | the forward scope, order or integration plan changes |
 | [benchmark-plan.md](benchmark-plan.md) | What must be proven, cache states, acceptance targets, failure matrix | a method changes, or the user agrees to a target change |

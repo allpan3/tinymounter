@@ -229,12 +229,9 @@ extension LocationSource {
                     }
                     return (rows, try catalog.deletionView(locationRoot: folder, items: items))
                 }
-                let edits = try Self.editOutbox(domainID: domainID)
                 let expectations = try rows.map { entry -> DeletionExpectation in
                     guard let full = folder.appending(entry.path) else { throw UploadError.unresolved }
-                    let receipt = try entry.row.kind == .file && entry.row.contentVersion.hasPrefix("e1:")
-                        ? edits.base(item: entry.row.id, contentVersion: entry.row.contentVersion) : nil
-                    return try DeletionExpectation(path: full, row: entry.row, nativeID: entry.nativeID, receipt: receipt)
+                    return try DeletionExpectation(path: full, row: entry.row, nativeID: entry.nativeID)
                 }
                 return (view, expectations)
             }

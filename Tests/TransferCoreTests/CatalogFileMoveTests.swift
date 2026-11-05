@@ -65,11 +65,10 @@ final class CatalogFileMoveTests: XCTestCase {
     func testVerifiedRevisionStaysVerifiedAndALegacyVersionStaysLegacy() throws {
         try catalog.setAllowsWriting(true)
         let b = try child(inbox.id, "b.txt")
-        let receipt = try EditBaseReceipt(item: b.id, version: EditFileVersion(
-            identity: EditFileIdentity(fileID: 12, birthMicroseconds: 34), size: 10,
-            digest: String(repeating: "a", count: 64), modifiedMicroseconds: 1, changedMicroseconds: 2,
-            attributes: 32, security: Data([1])))
-        try catalog.rememberEditBase(receipt, expectedVersion: b.contentVersion)
+        let receipt = try FileRevision(item: b.id, version: RemoteFileVersion(
+            identity: RemoteFileIdentity(fileID: 12, birthMicroseconds: 34), size: 10, modifiedMicroseconds: 1, changedMicroseconds: 2,
+            attributes: 32))
+        try catalog.rememberRevision(receipt, expectedVersion: b.contentVersion)
         try commit(move(XCTUnwrap(catalog.item(id: b.id)), to: archive.id), nativeID: 70)
         XCTAssertEqual(try catalog.item(id: b.id)?.contentVersion, receipt.contentVersion)
 

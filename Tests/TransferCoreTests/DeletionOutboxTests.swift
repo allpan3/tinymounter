@@ -101,7 +101,7 @@ final class DeletionOutboxTests: XCTestCase {
         let plan = try fixture.prepare().plan, initial = DeletionProgress()
         let item = try plan.item(at: 0, state: .prepared, directories: plan.directoryIdentities())
         let refreshed = try item.parents.map {
-            ItemDeletionParent(path: $0.path, name: $0.name, identity: try EditFileIdentity(
+            ItemDeletionParent(path: $0.path, name: $0.name, identity: try RemoteFileIdentity(
                 fileID: $0.identity.fileID, birthMicroseconds: $0.identity.birthMicroseconds + 1))
         }
         XCTAssertThrowsError(try fixture.outbox.advance(plan, from: initial,

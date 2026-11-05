@@ -53,10 +53,10 @@ public enum DeletionFailure: Equatable, Sendable {
 }
 
 public enum ItemDeletionEvidence: Codable, Equatable, Sendable {
-    case file(EditFileVersion)
-    case directory(EditFileIdentity)
+    case file(RemoteFileVersion)
+    case directory(RemoteFileIdentity)
 
-    public var identity: EditFileIdentity {
+    public var identity: RemoteFileIdentity {
         switch self {
         case .file(let version): version.identity
         case .directory(let identity): identity
@@ -76,9 +76,9 @@ public enum ItemDeletionEvidence: Codable, Equatable, Sendable {
         }
     }
 
-    func hasSameContents(as other: Self) -> Bool {
+    func hasSameDataVersion(as other: Self) -> Bool {
         switch (self, other) {
-        case let (.file(expected), .file(actual)): expected.hasSameContents(as: actual)
+        case let (.file(expected), .file(actual)): expected.hasSameDataVersion(as: actual)
         case let (.directory(expected), .directory(actual)): expected == actual
         default: false
         }
@@ -88,9 +88,9 @@ public enum ItemDeletionEvidence: Codable, Equatable, Sendable {
 public struct ItemDeletionParent: Codable, Equatable, Sendable {
     public let path: String
     public let name: String
-    public let identity: EditFileIdentity
+    public let identity: RemoteFileIdentity
 
-    public init(path: String, name: String, identity: EditFileIdentity) {
+    public init(path: String, name: String, identity: RemoteFileIdentity) {
         self.path = path
         self.name = name
         self.identity = identity
@@ -104,9 +104,9 @@ public struct ItemDeletionParent: Codable, Equatable, Sendable {
 
 public struct ItemDeletionEntry: Sendable {
     public let name: String
-    public let identity: EditFileIdentity
+    public let identity: RemoteFileIdentity
 
-    public init(name: String, identity: EditFileIdentity) {
+    public init(name: String, identity: RemoteFileIdentity) {
         self.name = name
         self.identity = identity
     }
@@ -246,7 +246,7 @@ public enum ItemDeletionTransaction {
         case .present(let actual):
             try actual.validate()
             guard actual.identity == record.selected.identity else { throw ItemDeletionError.replaced }
-            guard record.selected.hasSameContents(as: actual) else { throw ItemDeletionError.changed }
+            guard record.selected.hasSameDataVersion(as: actual) else { throw ItemDeletionError.changed }
             let entries = try remote.list(path: record.parentPath).validatedEntries()
             let matches = entries.filter { $0.identity == record.selected.identity }
             guard matches.count == 1, SMBName.same(matches[0].name, record.name) else {

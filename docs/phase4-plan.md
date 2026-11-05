@@ -1,5 +1,9 @@
 # Phase 4: write support
 
+The [accepted SMB simplification](smb-simplification.md) supersedes this document's custom
+remote recovery and conflict-preservation requirements from 2026-11-04. Implementation and VM
+validation are in progress; earlier completed milestones remain historical evidence.
+
 Date: 2026-10-23. Decision status: accepted. M18 starts phase 4 of
 [architecture §10](architecture.md#10-implementation-sequence-and-exit-criteria) with new files
 and folders, then adds editing and conflict handling in later milestones. The remaining phase 3

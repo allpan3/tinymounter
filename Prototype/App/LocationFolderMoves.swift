@@ -132,13 +132,10 @@ extension LocationSource {
     func requireFolderMovePathsSettled(_ paths: [RelativePath]) throws {
         try uploadLock.withLock {
             guard !mutationsSuspended else { throw UploadError.pendingWrites }
-            let uploads = try Self.outbox(domainID: domainID), edits = try Self.editOutbox(domainID: domainID)
-            let uploadRecords = try uploads.records(), editRecords = try edits.records()
-            guard try uploads.pendingCount == uploadRecords.filter(\.isPending).count,
-                  try edits.pendingCount == editRecords.filter(\.isPending).count else { throw UploadError.pendingWrites }
+            let uploads = try Self.outbox(domainID: domainID)
+            let uploadRecords = try uploads.records()
+            guard try uploads.pendingCount == uploadRecords.filter(\.isPending).count else { throw UploadError.pendingWrites }
             let local = uploadRecords.filter(\.isPending).flatMap { [$0.path] + [$0.initialName?.destination].compactMap { $0 } }
-                + editRecords.filter { $0.isPending || $0.completedStageRemoved == false || $0.completedBackupRemoved == false }
-                    .flatMap { [$0.path, $0.stagePath, $0.recoveryPath, $0.workPath, $0.destination] }
             for path in local {
                 guard let relative = RelativePath(path), let full = folder.appending(relative) else {
                     throw UploadError.unresolved
@@ -217,26 +214,8 @@ extension LocationSource {
                     try validateRenameParents(parentIDs, parents: parents, session: session)
                 }
             }
-            let proofs = try historicalFolderMoveProofs(move, fresh: remote.captureFolderMoveProofs(move: move, folder: folder))
+            let proofs = try remote.captureFolderMoveProofs(move: move, folder: folder)
             return FolderMoveView(domain: domainID, folder: folder, move: move, proofs: proofs)
-        }
-    }
-
-    /// A verified file keeps its recorded receipt; an f1 row keeps its version with fresh evidence.
-    private func historicalFolderMoveProofs(_ move: CatalogFolderMove,
-                                            fresh: [CatalogFolderMoveProof]) throws -> [CatalogFolderMoveProof] {
-        let edits = try Self.editOutbox(domainID: domainID)
-        let entries = Dictionary(uniqueKeysWithValues: move.entries.map { ($0.item, $0) })
-        return try fresh.map { proof in
-            guard case .file(let current) = proof, let entry = entries[proof.item],
-                  entry.contentVersion.hasPrefix("e1:") else { return proof }
-            guard let receipt = try edits.base(item: entry.item, contentVersion: entry.contentVersion),
-                  receipt.version.identity == current.version.identity,
-                  receipt.version.hasSameContents(as: current.version),
-                  receipt.version.modifiedMicroseconds == current.version.modifiedMicroseconds else {
-                throw SourceFailure.versionChanged
-            }
-            return .file(receipt)
         }
     }
 
@@ -333,7 +312,6 @@ extension LocationSource {
         for (view, source) in participants {
             let target = try record.latestTarget(domain: view.domain)
             // Receipts are durable before a catalog can hand their versions to File Provider.
-            try source.storeFolderMoveReceipts(target)
             guard states[view.domain] != target else { continue }
             if let recovery = record.recovery?.first(where: { $0.domain == view.domain }) {
                 try source.withCatalog {
@@ -345,20 +323,6 @@ extension LocationSource {
                     throw UploadError.unresolved
                 }
                 try source.withCatalog { try $0.settleFolderMove(view.move, settlement: settlement.settlement) }
-            }
-        }
-    }
-
-    private func storeFolderMoveReceipts(_ state: CatalogFolderMoveState) throws {
-        try uploadLock.withLock {
-            let edits = try Self.editOutbox(domainID: domainID)
-            for entry in state.entries where !entry.retired {
-                guard case .file(let receipt) = entry.proof, entry.contentVersion == receipt.contentVersion else { continue }
-                if let stored = try edits.base(item: receipt.item, contentVersion: receipt.contentVersion) {
-                    guard stored == receipt else { throw UploadError.unresolved }
-                } else {
-                    try edits.storeBase(receipt)
-                }
             }
         }
     }

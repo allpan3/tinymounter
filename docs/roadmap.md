@@ -1,5 +1,9 @@
 # Roadmap to everyday use
 
+The [accepted SMB simplification](smb-simplification.md) supersedes this document's custom
+remote recovery and conflict-preservation requirements from 2026-11-04. Implementation and VM
+validation are in progress; earlier completed milestones remain historical evidence.
+
 Date: 2026-10-29. Decision status: accepted. The user approved this roadmap, including permanent
 deletion without a tinymounter Trash, parallel agents/worktrees and the first disposable VM test
 session. Implementation follows the safety gates and dependencies below. Each physical-Mac

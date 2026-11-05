@@ -334,32 +334,19 @@ earlier settings, outboxes and catalogs aside in the containers. A location's wr
 authorizes supported changes, and an inactive grant is retained when Read only is
 enabled.
 
-Pending saves of a file keep their arrival order, and only the newest complete save publishes.
-The [ordering implementation](results/2026-10-29-pending-save-order.md) passes core checks and a
-signed interrupted-save update check. Retired-save cleanup and status reporting pass required
-VM checks; their signed checks remain. Retry Pending Changes attempts cleanup only with complete artifact evidence;
-uncertain data stays retained. A private stage or backup create that got no answer is sent
-again. It is exclusive, so it succeeds only while the name is free. An older save settles such
-a create with an exclusive create that the server deletes on close. When the name is taken, the
-app opens the occupant on the same connection with delete access and no sharing. It deletes the
-occupant only if it is a regular file of 0 bytes with one link, no named streams and the empty
-DACL that the private create sets, and then sends the create once more. Anything else keeps the
-save uncertain. A lost create that the server carries out after the save settled can still leave
-an empty private file. Stop Uploading for a save that never reached the server, or whose
-conflict copy is published, first writes a copy through a save panel. The app checks the copy
-against the save before it ends the save. macOS's next send of those contents gets the server's
-version, which replaces the local file. This is not verified in the VM yet. The pane reports
-local saved-copy bytes under the existing
-2 GiB free-space reserve and can dismiss resolved conflict notices without removing receipts.
-The 2026-10-30 completed-cleanup follow-up passes required VM checks; signed checks remain.
-Its cleaningUp state retains uncertain removals and keeps publication receipts.
+Saves use ordinary SMB writes in the [simplification branch](smb-simplification.md).
+File Provider owns pending local contents until the upload callback succeeds. TinyMounter
+sets the final size, flushes and closes the remote file before completing the callback; errors
+remain pending in macOS. Competing edits can be overwritten and failed writes can leave partial
+remote contents. There are no custom remote backups, recovery names or conflict copies.
+Signed VM checks of this new path are pending. Finish or export older pending changes with the
+older build before using Start Fresh; this branch does not migrate old recovery transactions.
 
-The catalog records departures from former parents for known file moves. The catalog API is
-preparation for M21; the provider does not yet admit cross-folder moves. A row keeps its f1
-version until a verified full handoff establishes an immutable receipt. The immutable enumeration
-key keeps folder-page cursors valid when initial naming changes the lookup key. Catalogs carry no
-schema version and no build migrates them: a catalog from a build with a different schema fails
-to open, and the location must be added again.
+The catalog records departures from former parents for known moves and preserves content
+versions when metadata indicates unchanged data. Reads check file metadata and transfer each
+requested range once. They do not establish edit receipts or retain content-hash proofs.
+The immutable enumeration key keeps folder-page cursors valid when names change. Catalogs
+carry no schema version; incompatible prototype state requires Start Fresh.
 
 **Remove.** In this order:
 

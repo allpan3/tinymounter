@@ -80,10 +80,8 @@ public struct SourceReadRequest: Codable, Equatable, Sendable {
     public let range: ByteRange
     /// A system or speculative fetch, which no user waits for; Pause Downloads stops these.
     public let background: Bool
-    public let establishEditBase: Bool
 
-    public init(id: UUID, item: String, version: String, range: ByteRange, background: Bool,
-                establishEditBase: Bool = false) throws {
+    public init(id: UUID, item: String, version: String, range: ByteRange, background: Bool) throws {
         guard ReaderMessage.isItemID(item), version.utf8.count <= Self.maxVersionBytes else {
             throw CocoaError(.fileReadCorruptFile)
         }
@@ -92,7 +90,6 @@ public struct SourceReadRequest: Codable, Equatable, Sendable {
         self.version = version
         self.range = range
         self.background = background
-        self.establishEditBase = establishEditBase
     }
 
     public init(from decoder: any Decoder) throws {
@@ -100,8 +97,7 @@ public struct SourceReadRequest: Codable, Equatable, Sendable {
         try self.init(id: container.decode(UUID.self, forKey: .id), item: container.decode(String.self, forKey: .item),
                       version: container.decode(String.self, forKey: .version),
                       range: container.decode(ByteRange.self, forKey: .range),
-                      background: container.decode(Bool.self, forKey: .background),
-                      establishEditBase: container.decodeIfPresent(Bool.self, forKey: .establishEditBase) ?? false)
+                      background: container.decode(Bool.self, forKey: .background))
     }
 }
 
@@ -327,11 +323,9 @@ public struct EditRequest: Codable, Sendable {
 
 public struct EditReceipt: Codable, Sendable {
     public let item: String
-    public let conflict: Bool
     public let contentVersion: String
-    public init(item: String, conflict: Bool, contentVersion: String) {
+    public init(item: String, contentVersion: String) {
         self.item = item
-        self.conflict = conflict
         self.contentVersion = contentVersion
     }
 }
