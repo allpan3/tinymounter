@@ -321,6 +321,12 @@ The build embeds no provisioning profile, because its entitlements need none on 
 Development certificate, which is valid for one year (in the VM, from 2026-10-11 to 2027-10-11).
 Build again with a new certificate before it expires: what an expired one does is untested.
 
+On the physical Mac, keep only `/Applications/TinyMounterPrototype.app` outside active signing
+or installation work. Unregister and remove temporary signing/transfer bundles after packaging
+or transfer, and remove the temporary rollback copy after verifying an installation. Do not
+retain app backups. Keep test logs and other evidence. Unregistering a loose `.app` bundle alone
+does not prevent macOS from discovering it again in Spotlight.
+
 **Update.** Quit tinymounter, build the new version, and open it. After Quit, the app stays
 stopped: only a crash makes the extension start it again. Keep the same team and bundle
 identifier, because the settings and catalogs are in containers named after them. While the
