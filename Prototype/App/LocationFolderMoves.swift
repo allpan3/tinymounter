@@ -51,7 +51,7 @@ extension LocationSource {
         guard case let (source, destination, affected)? = planned else { return CreateReceipt(item: request.item) }
         try drainFolderMove(affected, paths: [source, destination])
         let bookmark = try renameAccess()
-        let record = try withWriteSession(bookmark, progress: progress) { session, _ in
+        let record = try withWriteSession(bookmark, progress: progress) { session in
             var record = try withFolderMoveRemote(session: session, progress: progress) { remote in
                 var record = try admitFolderMove(request, source: source, destination: destination,
                                                  remote: remote, session: session)
@@ -83,7 +83,7 @@ extension LocationSource {
         try drainFolderMove(affected, paths: [source, destination])
         let bookmark = try renameAccess()
         let progress = Progress()
-        return try withWriteSession(bookmark, progress: progress) { session, _ in
+        return try withWriteSession(bookmark, progress: progress) { session in
             var current = record
             if current.state != .verified && current.state != .recovering {
                 try withFolderMoveRemote(session: session, progress: progress) { remote in

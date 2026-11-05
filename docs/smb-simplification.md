@@ -32,6 +32,13 @@ Each connection owns its requests and credentials; unrelated payload I/O can run
 Runtime concurrency checks remain pending. Reads and writes are capped at 1 MiB, the server
 maximum and available SMB credits. Measurements compare this with the former 64 KiB writes.
 
+The first signed mid-write interruption preserved the complete local file across app/provider
+restart. Automatic retry then stopped after a native location-folder lookup reported missing;
+the catalog item survived, and **Retry Pending Changes** uploaded the exact retained contents.
+Direct SMB mutations now validate the grant/mount without that redundant native folder lookup.
+Transport resets are classified as connection failures and returned as retryable provider errors.
+The updated signed interruption check is still required.
+
 ## Implementation order and evidence
 
 1. Remove custom save transactions, edit receipts, read proofs and their recovery interface.

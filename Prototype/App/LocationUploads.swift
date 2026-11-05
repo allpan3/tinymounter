@@ -152,12 +152,12 @@ extension LocationSource {
                try liveChild(of: request.parent, named: request.name) != nil { throw UploadError.collision }
             var record = try outbox.prepare(request, path: path, contents: contents, progress: progress, checkSpace: checkSpace)
             if record.state == .completed, let item = record.item { return CreateReceipt(item: item) }
-            try withWriteSession(bookmark, progress: progress) { session, root in
+            try withWriteSession(bookmark, progress: progress) { session in
                 if record.kind == .folder {
-                    try createFolder(&record, outbox: outbox, session: session, root: root, progress: progress)
+                    try createFolder(&record, outbox: outbox, session: session, progress: progress)
                 } else {
                     guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
-                    let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: root, progress: progress)
+                    let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: session.root, progress: progress)
                     try outbox.upload(&record, remote: remote, progress: progress)
                 }
             }
@@ -178,7 +178,7 @@ extension LocationSource {
     }
 
     func withWriteSession<Result>(_ bookmark: Data, progress: Progress? = nil,
-                                  _ body: (ShareSession, Int32) throws -> Result) throws -> Result {
+                                  _ body: (ShareSession) throws -> Result) throws -> Result {
         return try access.withSession { session, progressed in
             // Resolution waits while the server does not answer, so it counts toward the stall limit.
             var stale = false
@@ -190,8 +190,7 @@ extension LocationSource {
             defer { observation?.invalidate() }
             let mount = try ShareAccess.connectedShares().first { $0.path == ShareAccess.filePath(url) }
             guard mount?.identity == session.identity else { throw UploadError.readOnly }
-            let root = try session.locationRoot(folder)
-            return try session.identity.guarding(root: root) { try body(session, root) }
+            return try session.identity.guarding(root: session.root) { try body(session) }
         }
     }
 }

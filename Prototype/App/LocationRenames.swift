@@ -72,7 +72,7 @@ extension LocationSource {
         let sources = try editNamespace.affectedSources(source: path, destination: destination)
         for source in sources { try source.requireRenamePathsSettled(source: path, destination: destination) }
         for source in sources { try source.prepareRenameFolders(source: path, destination: destination) }
-        return try withWriteSession(bookmark, progress: progress) { session, _ in
+        return try withWriteSession(bookmark, progress: progress) { session in
             guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
             let remote = try SMBEdit(endpoint: endpoint, folder: .root, root: session.root, progress: progress)
             let parents = try remote.protectRenameParents(source: path.string, destination: destination.string)
@@ -283,7 +283,7 @@ extension LocationSource {
     private func finishRename(_ record: inout PendingFileRename, outbox: FileRenameOutbox, progress: Progress) throws {
         if record.state == .completed { return }
         let bookmark = try renameAccess()
-        try withWriteSession(bookmark, progress: progress) { session, _ in
+        try withWriteSession(bookmark, progress: progress) { session in
             guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
             let remote = try SMBEdit(endpoint: endpoint, folder: .root, root: session.root, progress: progress)
             try finishRename(&record, outbox: outbox, progress: progress, session: session, remote: remote)

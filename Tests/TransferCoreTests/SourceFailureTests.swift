@@ -11,7 +11,7 @@ final class SourceFailureTests: XCTestCase {
         // A nil expectation is unknown with the errno.
         let rows: [(condition: String, codes: [Int32], contexts: [SourceFailure.Context], expected: SourceFailure?)] = [
             ("timeout class", [ETIMEDOUT, ENOTCONN, ENETDOWN, ENETUNREACH, EHOSTDOWN, EHOSTUNREACH, ECONNRESET,
-                               ENXIO, ESTALE], everywhere, .serverUnreachable),
+                               ECONNREFUSED, EPIPE, ENXIO, ESTALE], everywhere, .serverUnreachable),
             ("EAUTH or ENEEDAUTH", [EAUTH, ENEEDAUTH], everywhere, .notAuthenticated),
             ("EPERM at the share or location root", [EPERM], [.shareRoot, .locationRoot], .notAuthenticated),
             ("EPERM on an item", [EPERM], [.listing, .fetch], .noPermission),

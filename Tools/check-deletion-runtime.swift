@@ -684,7 +684,8 @@ private final class M24Probe: @unchecked Sendable {
             path: "c03/Tree/replaced.txt", item: replaced.id, original: replaced.nativeID)
         try require(occupantBytes == payload("c03/Tree/replaced.txt"), "c03-occupant-bytes")
         var arrival: UInt64 = 0
-        try owner.withWriteSession(bookmark) { _, root in
+        try owner.withWriteSession(bookmark) { share in
+            let root = try share.locationRoot(owner.folder)
             ledger.enter("c03-native-arrival")
             arrival = try M24Native.identity(root, "c03/Tree/Arrival/new.txt", directory: false)
             try require(try M24Native.read(root, "c03/Tree/Arrival/new.txt", inode: arrival) == arrivalBytes,
@@ -793,8 +794,9 @@ private final class M24Probe: @unchecked Sendable {
             try awaitShareRecovery(label)
             let began = Date()
             do {
-                let bytes = try owner.withWriteSession(bookmark) { _, root in
-                    try M24Native.read(root, path, inode: expected)
+                let bytes = try owner.withWriteSession(bookmark) { share in
+                    let root = try share.locationRoot(owner.folder)
+                    return try M24Native.read(root, path, inode: expected)
                 }
                 ledger.operation(label, attempt: attempt, began: began, connections: 0, error: nil)
                 return (expected, bytes)
@@ -814,16 +816,16 @@ private final class M24Probe: @unchecked Sendable {
         ledger.enter("replaced-protected-move")
         try onLane("replaced-protected-move", connections: 1) { [self] in
             try owner.editNamespace.perform {
-                try owner.withWriteSession(bookmark) { share, locationRoot in
+                try owner.withWriteSession(bookmark) { share in
+                    let locationRoot = try share.locationRoot(owner.folder)
                     let remote = try connect("replaced-protected-move.connect", shareRoot: share.root)
                     _ = try remote.protectRenameParents(source: source, destination: destination)
                     try require(try remote.inspectRename(path: destination) == nil, "replacement-hold-absent")
                     guard let before = try remote.inspectRename(path: source) else {
                         throw M24Check(label: "replacement-original-missing")
                     }
-                    let digest = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
-                    try require(before.name == "x.txt" && before.version.digest == digest
-                        && before.version.size == Int64(bytes.count), "replacement-original-contents")
+                    try require(before.name == "x.txt" && before.version.size == Int64(bytes.count),
+                                "replacement-original-contents")
                     try require(try M24Native.read(locationRoot, path, inode: inode) == bytes,
                                 "replacement-original-native")
                     try remote.move(source: source, destination: destination)
@@ -839,7 +841,8 @@ private final class M24Probe: @unchecked Sendable {
         var occupant: UInt64 = 0
         ledger.enter("replaced-native-refresh")
         try awaitShareRecovery("replaced-native-refresh")
-        try owner.withWriteSession(bookmark) { share, locationRoot in
+        try owner.withWriteSession(bookmark) { share in
+            let locationRoot = try share.locationRoot(owner.folder)
             for parent in ["c02/Hold", "c02/Replaced"] {
                 let listing = try DirectoryListing.list(locationRoot: locationRoot,
                     relativePath: RelativePath(parent)!, expected: share.identity)
@@ -975,7 +978,7 @@ private final class M24Probe: @unchecked Sendable {
             let fired = M24Flag()
             var sessions = 0
             do {
-                try owner.withWriteSession(write) { share, _ in
+                try owner.withWriteSession(write) { share in
                     guard let address = ShareAddress(share.identity.mountFrom) else { throw UploadError.readOnly }
                     try RecursiveDeletionTransaction.run(&record, outbox: LocationSource.deletionOutbox(),
                                                          endpoint: address, owner: owner.domainID) { body in
@@ -1000,9 +1003,9 @@ private final class M24Probe: @unchecked Sendable {
         let folderID = try nativeID(owner, item: folder.id)
         let before = try viewRecords().map(\.id)
         let observed: String = try onLane(label, connections: 1) { [self] in
-            let expectation = try DeletionExpectation(path: path, row: folder, nativeID: folderID, receipt: nil)
+            let expectation = try DeletionExpectation(path: path, row: folder, nativeID: folderID)
             return try owner.editNamespace.perform {
-                try owner.withWriteSession(bookmark) { share, _ in
+                try owner.withWriteSession(bookmark) { share in
                     let remote = try connect(label + ".capture", shareRoot: share.root)
                     do {
                         let traversal = try remote.captureDeletionTraversal(of: path, recursive: true,
@@ -1155,7 +1158,7 @@ private final class M24Probe: @unchecked Sendable {
     private func mutate(_ label: String, _ body: (Int32) throws -> Void) throws {
         ledger.enter(label)
         try awaitShareRecovery(label)
-        try owner.withWriteSession(bookmark) { _, locationRoot in try body(locationRoot) }
+        try owner.withWriteSession(bookmark) { share in try body(share.locationRoot(owner.folder)) }
     }
 
     // Expected slow refusals can leave normal share-health recovery pending between probe steps.

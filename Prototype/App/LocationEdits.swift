@@ -16,6 +16,7 @@ extension LocationSource {
               reply: @escaping @Sendable (Result<EditReceipt, Error>) -> Void) {
         access.enqueue { [self] in
             started()
+            var phase = "catalog"
             let result = Result {
                 let (row, path, operation) = try editNamespace.perform {
                     try uploadLock.withLock {
@@ -28,12 +29,16 @@ extension LocationSource {
                 }
                 defer { editNamespace.endRead(operation) }
                 guard let bookmark = uploadLock.withLock({ writeBookmark }) else { throw UploadError.readOnly }
-                return try withWriteSession(bookmark, progress: progress) { session, root in
+                phase = "access"
+                return try withWriteSession(bookmark, progress: progress) { session in
                     guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
-                    let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: root, progress: progress)
+                    phase = "connect"
+                    let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: session.root, progress: progress)
                     let expected = request.failOnConflict
                         ? ContentFingerprint(size: row.size, mtimeNs: row.mtimeNs, ctimeNs: row.ctimeNs) : nil
+                    phase = "overwrite"
                     let written = try remote.overwrite(path: path.string, contents: contents, expected: expected)
+                    phase = "catalog-update"
                     return try withCatalog { catalog in
                         let (_, currentPath) = try catalog.editTarget(request, checkingVersion: false)
                         guard currentPath == path else { throw SourceFailure.versionChanged }
@@ -46,7 +51,7 @@ extension LocationSource {
             }
             let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
             if case .failure(let error) = result {
-                logger.error("edit request=\(request.id.uuidString, privacy: .public) failed \(logFields(error), privacy: .public)")
+                logger.error("edit request=\(request.id.uuidString, privacy: .public) phase=\(phase, privacy: .public) failed \(logFields(error), privacy: .public)")
             } else {
                 logger.info("edit request=\(request.id.uuidString, privacy: .public) completed")
             }

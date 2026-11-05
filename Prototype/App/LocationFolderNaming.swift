@@ -79,8 +79,8 @@ extension LocationSource {
                    let other = try catalog.liveChild(parent: request.parent, nameKey: NameKey(request.name)),
                    other.id != request.item { throw UploadError.collision }
             }
-            try withWriteSession(bookmark) { session, root in
-                let pin = openat(root, ".", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+            try withWriteSession(bookmark) { session in
+                let pin = openat(session.root, ".", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
                 guard pin >= 0 else { throw posixError("hold naming mount") }
                 defer { Darwin.close(pin) }
                 guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
@@ -113,7 +113,7 @@ extension LocationSource {
     }
 
     func createFolder(_ record: inout PendingUpload, outbox: UploadOutbox, session: ShareSession,
-                      root: Int32, progress: Progress) throws {
+                      progress: Progress) throws {
         guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
         let requestID = record.id
         try outbox.createFolder(&record, progress: progress) { path, identity, persist in

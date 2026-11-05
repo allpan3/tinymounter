@@ -325,7 +325,7 @@ static void transport_failures(void)
     static const enum delivery modes[] = {
         poll_failure, service_failure, timeout, reply_then_service_failure,
     };
-    static const int errors[] = {EBADF, EIO, ETIMEDOUT, EIO};
+    static const int errors[] = {EBADF, ECONNRESET, ETIMEDOUT, ECONNRESET};
     struct smb2_error_reply error_reply = {0};
     for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
         prepare();
@@ -407,7 +407,7 @@ static void file_writes(void)
            nterror_to_errno(response_status), response_status);
     expect(count == 99, "write space failure", "failure published count");
     const enum delivery modes[] = {service_failure, timeout, reply_then_service_failure};
-    const int errors[] = {EIO, ETIMEDOUT, EIO};
+    const int errors[] = {ECONNRESET, ETIMEDOUT, ECONNRESET};
     for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
         prepare();
         delivery = modes[i];
@@ -472,7 +472,7 @@ static void exclusive_uploads(void)
     result("upload collision", tm_edit_create(&client, "folder/new.txt", access, file),
            nterror_to_errno(response_status), response_status);
     const enum delivery modes[] = {service_failure, timeout, reply_then_service_failure};
-    const int errors[] = {EIO, ETIMEDOUT, EIO};
+    const int errors[] = {ECONNRESET, ETIMEDOUT, ECONNRESET};
     for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
         prepare();
         delivery = modes[i];
