@@ -64,12 +64,11 @@ The experimental check compares fresh contents with the backup before the first 
 It changes only the probe wrapper and deliberately does not supply product recovery. These
 are transaction/transport observations, not signed editor or File Provider acceptance.
 
-## Next implementation step
+## Follow-up implementation
 
-Add a fresh original-content check immediately before mutation, with regressions for a change
-during staging or backup. Route a detected change through the existing conflict-copy behavior,
-including failOnConflict and Retry, rather than leaving the save stuck. Verify that transition
-with the signed VM app before adoption. This narrows the race; it cannot exclude a direct write
+The user approved the [fresh check and conflict recovery](2026-11-04-save-recheck.md) on
+2026-11-04. It rechecks after staging and after backup verification, with failOnConflict and Retry
+coverage. Signed VM verification passes. This narrows the race; it cannot exclude a direct write
 that starts after the check or preserve every version written during copying.
 
 Closing that remaining window needs an update that excludes the competing write or preserves

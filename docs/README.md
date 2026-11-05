@@ -26,6 +26,8 @@ it wrong.
 
 ## Results logs
 
+- [Save recheck](results/2026-11-04-save-recheck.md). Fresh original-content checks route detected changes through conflict-copy recovery; the later copy window remains unresolved.
+
 - [Write confirmation and save races](results/2026-11-04-write-confirmation.md). The access picker drops its technical warning. Direct-writer VM probes reproduce lost or mixed contents during a save; a pre-mutation check catches earlier changes but leaves the copy window open.
 - [Pending rename recovery](results/2026-11-04-pending-rename-recovery.md). Settings lists system-only pending changes, preserves stale-base refusal reasons and guides Finder undo. Signed VM rename/move recovery, app restart and subsequent permanent deletion pass.
 

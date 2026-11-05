@@ -56,7 +56,7 @@ final class EditTransactionTests: XCTestCase {
 
     private func finish(_ record: inout PendingEdit) throws {
         try EditTransaction.publish(&record, outbox: outbox, remote: remote)
-        try outbox.complete(&record, item: record.item)
+        try outbox.complete(&record, item: XCTUnwrap(record.published).item)
         try EditTransaction.cleanup(&record, outbox: outbox, remote: remote)
     }
 
@@ -110,6 +110,198 @@ final class EditTransactionTests: XCTestCase {
         XCTAssertEqual(remote.files[edit.destination]?.digest, edit.digest)
         XCTAssertEqual(remote.updates, 0)
         XCTAssertEqual(edit.published?.item, edit.id.uuidString)
+    }
+
+    func testChangeDuringStagingPublishesConflictWithoutCreatingBackup() throws {
+        let competing = try Remote.version(identity: 1, size: 3, digest: String(repeating: "c", count: 64))
+        remote.afterStage = { [unowned self] in self.remote.files["file.txt"] = competing }
+        try finish(&edit)
+        XCTAssertTrue(edit.conflict)
+        XCTAssertEqual(remote.files[edit.path], competing)
+        XCTAssertEqual(remote.files[edit.destination]?.digest, edit.digest)
+        XCTAssertEqual(remote.backups, 0)
+        XCTAssertEqual(remote.updates, 0)
+        XCTAssertEqual(Set(remote.files.keys), [edit.path, edit.destination])
+        XCTAssertEqual(try outbox.pendingCount, 0)
+    }
+
+    func testChangeAfterBackupPublishesConflictAndCleansOnlyVerifiedBackup() throws {
+        let competing = try Remote.version(identity: 1, size: 3, digest: String(repeating: "c", count: 64))
+        remote.afterBackup = { [unowned self] in self.remote.files["file.txt"] = competing }
+        try finish(&edit)
+        XCTAssertTrue(edit.conflict)
+        XCTAssertEqual(remote.files[edit.path], competing)
+        XCTAssertEqual(remote.files[edit.destination]?.digest, edit.digest)
+        XCTAssertEqual(remote.updates, 0)
+        XCTAssertEqual(remote.moves, 1)
+        XCTAssertEqual(remote.removals, [edit.recoveryPath])
+        XCTAssertEqual(Set(remote.files.keys), [edit.path, edit.destination])
+        XCTAssertEqual(try outbox.pendingCount, 0)
+    }
+
+    func testFailOnConflictAfterBackupStaysRefusedAcrossRetry() throws {
+        var refused = try save("refuse this save", failOnConflict: true)
+        try outbox.discard(edit)
+        let old = try XCTUnwrap(remote.files[edit.path])
+        remote.afterBackup = { [unowned self] in
+            self.remote.files["file.txt"] = try Remote.version(identity: 1, size: 3,
+                                                                 digest: String(repeating: "c", count: 64))
+        }
+        XCTAssertThrowsError(try EditTransaction.publish(&refused, outbox: outbox, remote: remote)) {
+            XCTAssertEqual($0 as? UploadError, .editConflict)
+        }
+        XCTAssertTrue(refused.conflict)
+        XCTAssertEqual(refused.state, .backedUp)
+        remote.files[edit.path] = old
+        let before = remote.files
+        outbox = try EditOutbox(directory: directory.appending(path: "Outbox"))
+        refused = try stored(refused)
+        XCTAssertThrowsError(try EditTransaction.publish(&refused, outbox: outbox, remote: remote)) {
+            XCTAssertEqual($0 as? UploadError, .editConflict)
+        }
+        XCTAssertEqual(remote.files, before)
+        XCTAssertEqual(remote.moves, 0)
+        XCTAssertEqual(remote.updates, 0)
+        try outbox.validateContents(refused)
+    }
+
+    func testFailedFreshInspectionCanRetryAsConflictWithVerifiedBackup() throws {
+        remote.beforeInspect = { [unowned self] path in
+            if path == "file.txt" && self.remote.backups == 1 {
+                self.remote.beforeInspect = nil
+                throw UploadError.unresolved
+            }
+        }
+        XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))
+        XCTAssertEqual(try stored(edit).state, .backedUp)
+        let competing = try Remote.version(identity: 1, size: 3, digest: String(repeating: "c", count: 64))
+        remote.files[edit.path] = competing
+        outbox = try EditOutbox(directory: directory.appending(path: "Outbox"))
+        edit = try stored(edit)
+        try finish(&edit)
+        XCTAssertTrue(edit.conflict)
+        XCTAssertEqual(remote.files[edit.path], competing)
+        XCTAssertEqual(remote.updates, 0)
+        XCTAssertEqual(remote.backups, 1)
+        XCTAssertEqual(try outbox.pendingCount, 0)
+    }
+
+    func testLostBackupReplyWithChangedOriginalRecoversAsConflict() throws {
+        let competing = try Remote.version(identity: 1, size: 3, digest: String(repeating: "c", count: 64))
+        remote.afterBackup = { [unowned self] in self.remote.files["file.txt"] = competing }
+        remote.failure = .backupReply
+        XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))
+        XCTAssertEqual(edit.state, .creatingBackup)
+        XCTAssertNil(edit.backupVersion)
+        edit = try stored(edit)
+        try finish(&edit)
+        XCTAssertTrue(edit.conflict)
+        XCTAssertEqual(remote.files[edit.path], competing)
+        XCTAssertEqual(remote.updates, 0)
+        XCTAssertEqual(remote.backups, 1)
+        XCTAssertEqual(try outbox.pendingCount, 0)
+    }
+
+    func testPersistedConflictBeforeChoosingNameNeverResumesOriginalUpdate() throws {
+        remote.beforeInspect = { [unowned self] path in
+            if path == "file.txt" && self.remote.backups == 1 {
+                self.remote.beforeInspect = nil
+                throw UploadError.unresolved
+            }
+        }
+        XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))
+        edit.conflict = true
+        try outbox.save(edit)
+        let original = remote.files[edit.path]
+        outbox = try EditOutbox(directory: directory.appending(path: "Outbox"))
+        edit = try stored(edit)
+        try finish(&edit)
+        XCTAssertEqual(remote.files[edit.path], original)
+        XCTAssertNotEqual(edit.destination, edit.path)
+        XCTAssertEqual(remote.files[edit.destination]?.digest, edit.digest)
+        XCTAssertEqual(remote.updates, 0)
+        XCTAssertEqual(try outbox.pendingCount, 0)
+    }
+
+    func testLostConflictReplyAfterBackupPublishesOnlyOneCopyAcrossRetry() throws {
+        let competing = try Remote.version(identity: 1, size: 3, digest: String(repeating: "c", count: 64))
+        remote.afterBackup = { [unowned self] in self.remote.files["file.txt"] = competing }
+        remote.failure = .conflictReply
+        XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))
+        let destination = edit.destination
+        outbox = try EditOutbox(directory: directory.appending(path: "Outbox"))
+        edit = try stored(edit)
+        try finish(&edit)
+        XCTAssertEqual(edit.destination, destination)
+        XCTAssertEqual(remote.files[edit.path], competing)
+        XCTAssertEqual(Set(remote.files.keys), [edit.path, destination])
+        XCTAssertEqual(remote.updates, 0)
+        XCTAssertEqual(remote.moves, 1)
+        XCTAssertEqual(try outbox.pendingCount, 0)
+    }
+
+    func testMissingOriginalAtFreshCheckRetainsAllRecoveryData() throws {
+        remote.afterBackup = { [unowned self] in self.remote.files["file.txt"] = nil }
+        XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))
+        XCTAssertEqual(edit.state, .backedUp)
+        let before = remote.files
+        edit = try stored(edit)
+        XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))
+        XCTAssertEqual(remote.files, before)
+        XCTAssertEqual(remote.updates, 0)
+        XCTAssertEqual(remote.moves, 0)
+        XCTAssertFalse(edit.conflict)
+        try outbox.validateContents(edit)
+    }
+
+    func testChangedOriginalDoesNotAuthorizeCleaningPartialBackup() throws {
+        remote.failure = .partialBackup
+        XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))
+        remote.files[edit.path] = try Remote.version(identity: 1, size: 3, digest: String(repeating: "c", count: 64))
+        let before = remote.files
+        edit = try stored(edit)
+        XCTAssertThrowsError(try finish(&edit))
+        XCTAssertEqual(remote.files, before)
+        XCTAssertEqual(remote.updates, 0)
+        XCTAssertEqual(remote.removals, [])
+        XCTAssertFalse(edit.conflict)
+        try outbox.validateContents(edit)
+    }
+
+    func testChangedVerifiedBackupIsRetainedWhenOriginalAlsoChanges() throws {
+        remote.beforeInspect = { [unowned self] path in
+            if path == "file.txt" && self.remote.backups == 1 {
+                self.remote.beforeInspect = nil
+                throw UploadError.unresolved
+            }
+        }
+        XCTAssertThrowsError(try EditTransaction.publish(&edit, outbox: outbox, remote: remote))
+        let backup = try XCTUnwrap(remote.files[edit.recoveryPath])
+        remote.files[edit.recoveryPath] = try EditFileVersion(identity: backup.identity, size: backup.size,
+            digest: backup.digest, modifiedMicroseconds: backup.modifiedMicroseconds,
+            changedMicroseconds: backup.changedMicroseconds + 1, attributes: backup.attributes, security: Data([2]))
+        remote.files[edit.path] = try Remote.version(identity: 1, size: 3, digest: String(repeating: "c", count: 64))
+        let before = remote.files
+        edit = try stored(edit)
+        XCTAssertThrowsError(try finish(&edit))
+        XCTAssertEqual(remote.files, before)
+        XCTAssertEqual(remote.updates, 0)
+        XCTAssertEqual(remote.removals, [])
+        try outbox.validateContents(edit)
+    }
+
+    func testMetadataChangeAfterBackupDoesNotCreateContentConflict() throws {
+        remote.afterBackup = { [unowned self] in
+            let old = try XCTUnwrap(self.remote.files["file.txt"])
+            self.remote.files["file.txt"] = try EditFileVersion(identity: old.identity, size: old.size,
+                digest: old.digest, modifiedMicroseconds: old.modifiedMicroseconds,
+                changedMicroseconds: old.changedMicroseconds + 1, attributes: 0, security: Data([2]))
+        }
+        try finish(&edit)
+        XCTAssertFalse(edit.conflict)
+        XCTAssertEqual(remote.updates, 1)
+        XCTAssertEqual(remote.files[edit.path]?.digest, edit.digest)
+        XCTAssertEqual(try outbox.pendingCount, 0)
     }
 
     func testMissingOriginalRetainsLocalSaveAcrossRetryWithoutRemoteWrites() throws {
@@ -1314,6 +1506,9 @@ final class EditTransactionTests: XCTestCase {
         var leftoverReturns = false
         var failRemovalAt: String?
         var loseRemovalReplyAt: String?
+        var afterStage: (() throws -> Void)?
+        var afterBackup: (() throws -> Void)?
+        var beforeInspect: ((String) throws -> Void)?
         private var nextIdentity: UInt64 = 200
 
         init(original: EditFileVersion) {
@@ -1346,11 +1541,13 @@ final class EditTransactionTests: XCTestCase {
             let staged = try Self.version(identity: newIdentity(), size: Int64(data.count), digest: digest)
             files[path] = staged
             try created(staged.identity)
+            try afterStage?()
             return staged
         }
 
         func inspect(path: String, original: Bool) throws -> EditFileVersion? {
             inspections.append(path)
+            try beforeInspect?(path)
             return files[path]
         }
 
@@ -1369,6 +1566,7 @@ final class EditTransactionTests: XCTestCase {
             let backup = try Self.version(identity: newIdentity(), size: old.size, digest: old.digest)
             files[path] = backup
             try created(backup.identity)
+            try afterBackup?()
             if failure == .backupReply {
                 failure = nil
                 throw UploadError.unresolved

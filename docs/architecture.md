@@ -364,8 +364,9 @@ and first disposable VM test session. Each implementation still has to pass its 
   behavior. The current copy can overwrite an intervening direct write before final verification
   sees it. Rechecking the original immediately before mutation could narrow this window, but
   cannot close it. The [VM investigation](results/2026-11-04-write-confirmation.md#disposable-server-follow-up)
-  confirms lost pre-copy contents and mixed contents during copying. The next bounded fix is a
-  fresh check with existing conflict-copy recovery; it cannot close the copy window. No replacement,
+  confirms lost pre-copy contents and mixed contents during copying. On 2026-11-04 the user approved
+  the [fresh check with conflict-copy recovery](results/2026-11-04-save-recheck.md). Signed VM
+  verification passes; this check cannot close the copy window. No replacement,
   retention or server-component design is approved by the UI change.
 
 - **Single-client transport adopted 2026-11-04.** The user accepted the
