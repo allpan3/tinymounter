@@ -26,6 +26,7 @@ it wrong.
 
 ## Results logs
 
+- [Write confirmation and save races](results/2026-11-04-write-confirmation.md). The access picker drops its technical warning. Direct-writer VM probes reproduce lost or mixed contents during a save; a pre-mutation check catches earlier changes but leaves the copy window open.
 - [Pending rename recovery](results/2026-11-04-pending-rename-recovery.md). Settings lists system-only pending changes, preserves stale-base refusal reasons and guides Finder undo. Signed VM rename/move recovery, app restart and subsequent permanent deletion pass.
 
 - [Single-client adoption](results/2026-11-04-adoption.md). The user adopted the transport and accepted writable partial reads; normal builds enable folder organization and Delete Permanently…. Retry continues an interrupted permanent deletion; restoring the original name clears a refused rename. Same-steps VM recording and installation preflight.
