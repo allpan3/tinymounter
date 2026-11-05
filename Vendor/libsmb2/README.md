@@ -5,13 +5,9 @@ The core library and headers are LGPL-2.1-or-later. COPYING and LICENCE-LGPL-2.1
 the upstream terms. Copyright notices remain in each source file.
 
 TinyMounter builds a separate dynamic library and embeds it in Contents/Frameworks. It uses
-this library for exclusive folder creation, initial naming and M19's protected save transaction.
-On main, normal reads, file payload uploads and mount management remain native. The
-`single-smb-client-prototype` branch also uses it for all reads and uploads. M19 adds protected
-identity/content verification, private stage and backup permissions, server-side COPYCHUNK,
-exclusive renames, exact length, flush and cleanup of proved disposable copies. Verification
-also reads the quarantine stream that macOS can add to a private native upload stage; it does
-not write attached data on the user's original file.
+this library for listing, metadata, reads, uploads, ordinary overwrites and organization.
+macOS still owns mount management and credentials. Saves write the ordinary file, set its
+length, flush and close. NAS snapshots/backups own previous-version recovery.
 The checked-in source builds without network access. Release packaging must preserve the
 licence notices, source availability and the user's ability to rebuild and relink the library.
 Signed distribution remains a separate release gate.
@@ -33,8 +29,8 @@ Local changes:
   data, ciphertext and tag format. CBC authentication uses a 16 KiB scratch buffer; payload
   encryption/decryption remains in place. API failures stop the request before socket queuing;
   failed authentication clears the decrypted payload. Rejected requests retain their unsent
-  message IDs. Encrypted sends use the existing 16 MiB receive bound; native uploads are
-  unaffected. Encryption remains required. The original
+  message IDs. Encrypted sends use the existing 16 MiB receive bound. Encryption remains
+  required. The original
   portable implementation is compiled only for the offline reference test with
   `TINYMOUNTER_CCM_REFERENCE`. Tools/check-smb-ccm.c checks an RFC 3610 vector, portable
   equivalence, altered packets, input bounds, API failures and queue rejection. The public
@@ -46,3 +42,9 @@ Prototype/SMB/SMBRename.c is the app's restricted entry point. Authenticated con
 SMB encryption. It opens and checks directory handles, preserves ancestor paths against SMB
 deletion/rename while creating or naming, retains server identity and creation time, and sends a rename with
 replacement disabled. Only the app calls it, after enforcing the location's explicit write grant.
+
+The raw I/O adapter reads the vendored context's credit count and negotiated multi-credit
+flag to cap each read/write at the server maximum, available credits and 1 MiB. There is one
+request outstanding per connection. This uses the same bounds as the library's high-level
+pread/pwrite, while retaining decoded server status for error handling. The adapter and its
+tests must use the library's `HAVE_LIBKRB5` definition so the context layout matches.

@@ -367,7 +367,7 @@ final class SMBEdit: FileRenameRemote, UploadRemote {
               expected[3] == 1, expected[4] & 0x450 == 0 else {
             throw UploadError.unresolved
         }
-        var buffer = [UInt8](repeating: 0, count: 65_536)
+        var buffer = [UInt8](repeating: 0, count: 1 << 20)
         var offset = start
         while offset < input.snapshot.size {
             try cancellation()

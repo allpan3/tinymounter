@@ -28,17 +28,17 @@ if grep -E '\.swift:[0-9]+:[0-9]+: warning:' "$log"; then
 fi
 
 smb_products="$PWD/.build/xcode/Build/Products/Release"
-xcrun clang -std=gnu11 -Wall -Wextra -Werror -IVendor/libsmb2/include \
+xcrun clang -std=gnu11 -Wall -Wextra -Werror -DHAVE_LIBKRB5=1 -IVendor/libsmb2/include \
     Tools/check-set-info-encoding.c -L"$smb_products" -lTinyMounterSMB -Wl,-rpath,"$smb_products" \
     -o .build/check-set-info-encoding
 .build/check-set-info-encoding
 
-xcrun clang -std=gnu11 -Wall -Wextra -Werror -Wno-unused-parameter -IVendor/libsmb2/include \
+xcrun clang -std=gnu11 -Wall -Wextra -Werror -Wno-unused-parameter -DHAVE_LIBKRB5=1 -IVendor/libsmb2/include \
     Tools/check-edit-status.c -L"$smb_products" -lTinyMounterSMB -Wl,-rpath,"$smb_products" \
     -o .build/check-edit-status
 .build/check-edit-status
 
-xcrun clang -std=gnu11 -Wall -Wextra -Werror -Wno-unused-parameter -IVendor/libsmb2/include \
+xcrun clang -std=gnu11 -Wall -Wextra -Werror -Wno-unused-parameter -DHAVE_LIBKRB5=1 -IVendor/libsmb2/include \
     Tools/check-folder-create-status.c -L"$smb_products" -lTinyMounterSMB -Wl,-rpath,"$smb_products" \
     -framework CoreFoundation -framework GSS -o .build/check-folder-create-status
 .build/check-folder-create-status

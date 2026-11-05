@@ -29,7 +29,8 @@ honored if received; stop advertising that optional feature for the last-writer-
 
 The client serializes only libsmb2 context creation/destruction, whose context list is global.
 Each connection owns its requests and credentials; unrelated payload I/O can run concurrently.
-Runtime concurrency checks remain pending.
+Runtime concurrency checks remain pending. Reads and writes are capped at 1 MiB, the server
+maximum and available SMB credits. Measurements compare this with the former 64 KiB writes.
 
 ## Implementation order and evidence
 

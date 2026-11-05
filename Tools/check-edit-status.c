@@ -32,7 +32,9 @@ static struct smb2_pdu *fake_set_info(struct smb2_context *smb, struct smb2_set_
 static char sent_name[1100];
 static uint32_t sent_disposition, sent_access, sent_sharing, sent_options;
 static int inspect_write;
-static uint8_t sent_write[48], sent_payload[4096];
+static uint8_t sent_write[48], sent_payload[1024 * 1024];
+static uint32_t sent_length;
+static uint16_t sent_charge;
 
 // Real request encoders feed deterministic callbacks; no request reaches a socket.
 #define smb2_queue_pdu fake_queue
@@ -64,6 +66,10 @@ static void fake_queue(struct smb2_context *smb, struct smb2_pdu *pdu)
 {
     (void)smb;
     if (queued) abort();
+    if (pdu->header.command == SMB2_READ || pdu->header.command == SMB2_WRITE) {
+        memcpy(&sent_length, pdu->out.iov[1].buf + 4, sizeof(sent_length));
+        sent_charge = pdu->header.credit_charge;
+    }
     if (inspect_write) {
         if (pdu->out.niov < 3 || pdu->out.iov[1].len < sizeof(sent_write)
             || pdu->out.iov[2].len > sizeof(sent_payload)) abort();
@@ -170,6 +176,10 @@ static void prepare(void)
     client = (struct edit_client){.smb = smb2_init_context(),
                                 .ntstatus = SMB2_STATUS_OBJECT_NAME_NOT_FOUND};
     if (!client.smb) abort();
+    client.smb->dialect = SMB2_VERSION_0302;
+    client.smb->credits = 32;
+    client.smb->max_read_size = client.smb->max_write_size = 1024 * 1024;
+    client.smb->supports_multi_credit = 1;
     delivery = reply_ready;
     response_status = 0;
     response_data = NULL;
@@ -386,7 +396,7 @@ static void file_writes(void)
     response_data = NULL;
     result("missing write reply", tm_edit_write(&client, file, 0, buffer, 9, &count), EIO, 0);
     result("empty write request", tm_edit_write(&client, file, 0, buffer, 0, &count), EINVAL, 0);
-    result("large write request", tm_edit_write(&client, file, 0, buffer, 65537, &count), EINVAL, 0);
+    result("large write request", tm_edit_write(&client, file, 0, buffer, 1048577, &count), EINVAL, 0);
     result("overflowing write offset", tm_edit_write(&client, file, INT64_MAX, buffer, 1, &count), EINVAL, 0);
     result("invalid write offset", tm_edit_write(&client, file, UINT64_MAX, buffer, 1, &count), EINVAL, 0);
     result("missing write buffer", tm_edit_write(&client, file, 0, NULL, 1, &count), EINVAL, 0);
@@ -408,6 +418,39 @@ static void file_writes(void)
         expect(count == 99 && destroyed == 1 && !client.smb,
                "lost write reply", "uncertain write acknowledged or context retained");
     }
+}
+
+static void payload_limits(void)
+{
+    static uint8_t payload[1024 * 1024];
+    const struct { int credits, multi; uint32_t maximum, length, charge; } limits[] = {
+        {32, 1, 1048576, 1048576, 16}, {1, 1, 1048576, 65536, 1},
+        {32, 0, 1048576, 65536, 1}, {32, 1, 100000, 100000, 2},
+    };
+    for (size_t i = 0; i < sizeof(limits) / sizeof(limits[0]); i++) {
+        prepare();
+        client.smb->credits = limits[i].credits;
+        client.smb->supports_multi_credit = limits[i].multi;
+        client.smb->max_write_size = client.smb->max_read_size = limits[i].maximum;
+        struct smb2_write_reply written = {.count = limits[i].length};
+        response_data = &written;
+        result("bounded write", tm_edit_write(&client, file, 0, payload, sizeof(payload), &count), 0, 0);
+        expect(sent_length == limits[i].length && sent_charge == limits[i].charge && count == sent_length,
+               "bounded write", "negotiated size or credits exceeded");
+        struct smb2_read_reply read = {.data_length = limits[i].length};
+        response_data = &read;
+        result("bounded read", tm_edit_read(&client, file, 0, payload, sizeof(payload), &count), 0, 0);
+        expect(sent_length == limits[i].length && sent_charge == limits[i].charge && count == sent_length,
+               "bounded read", "negotiated size or credits exceeded");
+        read.data_length++;
+        count = 99;
+        result("oversized read reply", tm_edit_read(&client, file, 0, payload, sizeof(payload), &count), EIO, 0);
+        expect(count == 99, "oversized read reply", "failure published count");
+    }
+    prepare();
+    client.smb->credits = 0;
+    result("no write credits", tm_edit_write(&client, file, 0, payload, 1, &count), EIO, 0);
+    result("no read credits", tm_edit_read(&client, file, 0, payload, 1, &count), EIO, 0);
 }
 
 static void exclusive_uploads(void)
@@ -450,6 +493,7 @@ int main(void)
     transport_failures();
     close_attributes();
     file_writes();
+    payload_limits();
     composed_names();
     exclusive_uploads();
     if (client.smb) smb2_destroy_context(client.smb);
