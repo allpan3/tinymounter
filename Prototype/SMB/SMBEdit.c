@@ -11,6 +11,7 @@
 #include <smb2/smb2-errors.h>
 #include <smb2/libsmb2.h>
 #include <smb2/libsmb2-raw.h>
+#include "libsmb2-private.h"
 
 struct tm_edit_reply {
     int done, error;
@@ -315,8 +316,19 @@ static void read_done(struct smb2_context *smb, int status, void *data, void *co
 {
     struct tm_edit_reply *reply = context;
     done(smb, status, data, context);
-    if (!status && data) reply->count = ((struct smb2_read_reply *)data)->data_length;
-    else if (!status) reply->error = EIO;
+    if (status) return;
+    const struct smb2_read_reply *read = data;
+    if (!read || !read->data_length || read->data_length > reply->capacity) reply->error = EIO;
+    else reply->count = read->data_length;
+}
+
+static uint32_t payload_length(struct smb2_context *smb, uint32_t length, uint32_t maximum)
+{
+    // Raw requests need the same credit bound as libsmb2's high-level pread/pwrite.
+    if (smb->credits <= 0) return 0;
+    uint64_t available = smb->supports_multi_credit ? (uint64_t)smb->credits * 65536 : 65536;
+    if (length > maximum) length = maximum;
+    return length > available ? (uint32_t)available : length;
 }
 
 int tm_edit_read(void *opaque, uint8_t *file, uint64_t offset, uint8_t *buffer, uint32_t length,
@@ -326,14 +338,18 @@ int tm_edit_read(void *opaque, uint8_t *file, uint64_t offset, uint8_t *buffer, 
     client->ntstatus = 0;
     struct smb2_context *smb = client->smb;
     if (!smb) return EIO;
+    if (!file || !buffer || !count || !length || length > 1024 * 1024 || offset > INT64_MAX
+        || length > INT64_MAX - offset) return EINVAL;
+    length = payload_length(smb, length, smb2_get_max_read_size(smb));
+    if (!length) return EIO;
     struct smb2_read_request request = {0};
     request.offset = offset;
     request.length = length;
     request.buf = buffer;
     memcpy(request.file_id, file, SMB2_FD_SIZE);
-    struct tm_edit_reply reply = {0};
+    struct tm_edit_reply reply = {.capacity = length};
     int error = wait_reply(client, smb2_cmd_read_async(smb, &request, read_done, &reply), &reply);
-    *count = reply.count;
+    if (!error) *count = reply.count;
     return error;
 }
 
@@ -353,9 +369,10 @@ int tm_edit_write(void *opaque, uint8_t *file, uint64_t offset, const uint8_t *b
     struct edit_client *client = opaque;
     client->ntstatus = 0;
     if (!client->smb) return EIO;
-    // One credit also works when the server has not negotiated multi-credit writes.
-    if (!file || !buffer || !count || !length || length > 65536 || offset > INT64_MAX
+    if (!file || !buffer || !count || !length || length > 1024 * 1024 || offset > INT64_MAX
         || length > INT64_MAX - offset) return EINVAL;
+    length = payload_length(client->smb, length, smb2_get_max_write_size(client->smb));
+    if (!length) return EIO;
     struct smb2_write_request request = {.offset = offset, .length = length, .buf = buffer};
     memcpy(request.file_id, file, SMB2_FD_SIZE);
     struct tm_edit_reply reply = {.capacity = length};
