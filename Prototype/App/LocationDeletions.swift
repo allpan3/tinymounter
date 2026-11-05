@@ -159,7 +159,7 @@ extension LocationSource {
                                planned: [LocationSource], progress: Progress,
                                admitted: (PendingDeletion) -> Void) throws -> PendingDeletion {
         let bookmark = try renameAccess()
-        return try withWriteSession(bookmark, progress: progress) { share, _ in
+        return try withWriteSession(bookmark, progress: progress) { share in
             guard let endpoint = ShareAddress(share.identity.mountFrom) else { throw UploadError.readOnly }
             let outbox = try Self.deletionOutbox()
             if let replayed = try replayedDeletion(request, endpoint: endpoint, outbox: outbox) {
@@ -304,7 +304,7 @@ extension LocationSource {
             try editNamespace.requireSettled(excluding: id)
             return try renameAccess()
         }
-        try withWriteSession(bookmark, progress: progress) { share, _ in
+        try withWriteSession(bookmark, progress: progress) { share in
             guard let endpoint = ShareAddress(share.identity.mountFrom) else { throw UploadError.readOnly }
             try editNamespace.perform {
                 guard record.plan.endpoint.matches(endpoint),

@@ -499,7 +499,7 @@ private final class CancellationProbe: @unchecked Sendable {
                 return try source.renameAccess()
             }
             do {
-                try source.withWriteSession(write) { share, _ in
+                try source.withWriteSession(write) { share in
                     try RecursiveDeletionTransaction.run(&current, outbox: LocationSource.deletionOutbox(),
                         endpoint: endpoint, owner: identity.owner) { body in
                         let remote = try SMBEdit(endpoint: endpoint, folder: .root, root: share.root,

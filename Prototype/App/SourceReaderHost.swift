@@ -428,6 +428,13 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
         default:
             if DownloadSpace.isFull(error) { return CocoaError(.fileWriteOutOfSpace) as NSError }
             if error as? TransferError == .cancelled { return CocoaError(.userCancelled) as NSError }
+            switch SourceFailure.classify(error, context: .fetch) {
+            case .serverUnreachable, .notConnected:
+                return NSFileProviderError(.serverUnreachable) as NSError
+            case .notAuthenticated: return NSFileProviderError(.notAuthenticated) as NSError
+            case .noPermission, .pathRejected: return CocoaError(.fileWriteNoPermission) as NSError
+            default: break
+            }
             return NSFileProviderError(.cannotSynchronize) as NSError
         }
     }

@@ -77,7 +77,7 @@ static int wait_reply(struct edit_client *client, struct smb2_pdu *pdu, struct t
     while (!reply->done) {
         struct pollfd fd = {.fd = smb2_get_fd(client->smb), .events = smb2_which_events(client->smb)};
         if (poll(&fd, 1, 100) < 0 && errno != EINTR) { error = errno; break; }
-        if (smb2_service(client->smb, fd.revents) < 0) { error = EIO; break; }
+        if (smb2_service(client->smb, fd.revents) < 0) { error = ECONNRESET; break; }
         clock_gettime(CLOCK_MONOTONIC, &now);
         if (!reply->done && now.tv_sec - start.tv_sec >= 12) { error = ETIMEDOUT; break; }
     }
