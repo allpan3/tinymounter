@@ -7,7 +7,12 @@ backup verification. A detected change uses the existing conflict-copy behavior;
 the conflict decision. Signed VM checks pass for both change windows, crash recovery and repeated
 saves. All 674 tests and required VM checks pass, with two optional skips and no Swift warnings.
 VM transaction timing with warmed, unverified caches adds a median 0.96 s for a 64 MiB save
-(17.8%); the 1 MiB difference falls within variation. This change is not installed on the physical Mac.
+(17.8%); the 1 MiB difference falls within variation.
+[PR #31](https://github.com/allpan3/tinymounter/pull/31) passed CI and merged. The merged build is
+installed in Applications and launches cleanly on the physical Mac, with unchanged signing
+identity and entitlements and a verified backup of the earlier app. Preflight found no locations
+or pending items; no settings were reset. Physical-Mac file workflows and performance remain
+unverified.
 Direct writes after the final check remain unresolved. See the
 [save recheck](docs/results/2026-11-04-save-recheck.md).
 
