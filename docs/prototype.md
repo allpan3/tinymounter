@@ -480,6 +480,13 @@ Retry never overrides the stale base. An older generic error receives the specif
 Retry. The system list overlaps the app's transaction count and can be incomplete; Settings
 reports that limit. See [pending-change recovery](pending-changes-plan.md#6-show-changes-held-only-by-macos).
 
+The save transaction rechecks original contents after staging and after verifying the backup.
+A change detected before mutation uses the existing conflict copy, or remains refused when the
+caller sets failOnConflict. Retry retains a recorded conflict decision. Missing originals and
+partial or unverified backups stay pending. This does not protect direct writes after the final
+check. Signed VM conflict recovery and ordinary saves pass; see the
+[save recheck](results/2026-11-04-save-recheck.md).
+
 Normal and repeated TextEdit Save pass in the signed VM app, including a concurrent-edit
 conflict. The installed M19 build has a separate editing opt-in; M20 combines creation, editing
 and supported renaming under the confirmed write mode. Filename-only renaming uses the

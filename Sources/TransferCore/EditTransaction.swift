@@ -43,8 +43,17 @@ public enum EditTransaction {
         guard order.head?.id == record.id else { throw UploadError.unresolved }
         // Earlier generations resolve first: some may have reached the server; order(item:) needs it.
         guard order.predecessors.isEmpty, order.superseded.isEmpty else { throw UploadError.pendingWrites }
+        if record.conflict {
+            guard !record.failOnConflict else { throw UploadError.editConflict }
+            guard let stage = try remote.inspect(path: record.stagePath, original: false),
+                  stage.identity == record.stageIdentity, matchesEdit(stage, record) else {
+                throw UploadError.unresolved
+            }
+            try publishConflict(&record, outbox: outbox, remote: remote)
+            return
+        }
         // A missing original leaves the edit local; only recovery may restore our own moved object.
-        guard let original = try remote.inspect(path: record.path, original: true) else {
+        guard try remote.inspect(path: record.path, original: true) != nil else {
             throw UploadError.unresolved
         }
         // An unanswered stage create is sent again; it is exclusive, so a landed one makes it fail.
@@ -80,13 +89,23 @@ public enum EditTransaction {
             if record.state == .creatingStage { record.state = .staged }
             try outbox.save(record)
         }
+        guard let original = try remote.inspect(path: record.path, original: true) else {
+            throw UploadError.unresolved
+        }
         let base = try outbox.base(item: record.item, contentVersion: record.baseVersion)
         // The app's own earlier save on this base is the newer save's predecessor, not a conflict.
         let accepted = try [base?.version].compactMap { $0 } + outbox.ownPublications(before: record)
         guard accepted.contains(where: {
             original.hasSameContents(as: $0) && original.modifiedMicroseconds == $0.modifiedMicroseconds
         }) else {
-            guard record.state == .staged else { throw UploadError.unresolved }
+            if record.state != .staged {
+                guard [.creatingBackup, .backedUp].contains(record.state), let previous = record.previous,
+                      let identity = record.backupIdentity,
+                      let backup = try remote.inspect(path: record.recoveryPath, original: false),
+                      backup.identity == identity, backup.size == previous.size, backup.digest == previous.digest,
+                      record.backupVersion.map({ $0 == backup }) != false else { throw UploadError.unresolved }
+                record.backupVersion = backup
+            }
             try publishConflict(&record, outbox: outbox, remote: remote)
             return
         }
@@ -112,6 +131,15 @@ public enum EditTransaction {
         }
         record.state = .backedUp
         try outbox.save(record)
+        guard let current = try remote.inspect(path: record.path, original: true) else {
+            throw UploadError.unresolved
+        }
+        // A direct server writer can change contents despite the SMB sharing guard.
+        guard current.hasSameContents(as: original),
+              current.modifiedMicroseconds == original.modifiedMicroseconds else {
+            try publishConflict(&record, outbox: outbox, remote: remote)
+            return
+        }
         record.state = .movingOriginal
         try outbox.save(record)
         try remote.move(source: record.path, destination: record.workPath)
