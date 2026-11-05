@@ -331,7 +331,7 @@ locations, and add them again with the new build. If that isn't possible, the ne
 Start Fresh… in General when it can't read the settings. It removes every location with
 macOS's option to keep changes that did not upload, opens that folder in Finder, and moves the
 earlier settings, outboxes and catalogs aside in the containers. A location's write grant
-implies the SMB-only write confirmation, and an inactive grant is retained when Read only is
+authorizes supported changes, and an inactive grant is retained when Read only is
 enabled.
 
 Pending saves of a file keep their arrival order, and only the newest complete save publishes.
@@ -438,8 +438,7 @@ the existing catalog ID and diagnostic counts retained; the location remains rea
 [installation results](results/2026-10-25-keep-both.md#physical-mac-installation-2026-10-27).
 See the [results](results/2026-10-23-create-items.md). In the development UI, a location's Access
 section has one Read only toggle. It defaults off for a new location; a duplicate inherits
-the original's mode. Writable setup selects the same share root and confirms the SMB-only
-write requirements. The grant belongs to this location. Replacement, move, delete, packages and symbolic links remain unsupported. Editing and file renaming use the
+the original's mode. Writable setup asks for access to the same share root. The grant belongs to this location. Replacement, move, delete, packages and symbolic links remain unsupported. Editing and file renaming use the
 protected transactions described below.
 
 Finder's New Folder creates an untitled folder on the server, then sends a separate rename when

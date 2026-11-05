@@ -359,6 +359,13 @@ and first disposable VM test session. Each implementation still has to pass its 
 
 ## 11. Open decisions for the first experiment
 
+- **Direct-writer save races, investigation requested 2026-11-04.** Remove the SMB-only
+  eligibility warning from write setup. Investigate concurrent NAS edits as synchronization
+  behavior. The current copy can overwrite an intervening direct write before final verification
+  sees it. Rechecking the original immediately before mutation could narrow this window, but
+  cannot close it. The [focused investigation](results/2026-11-04-write-confirmation.md) defines
+  the next probes; no replacement, retention or server-component design is approved by this UI change.
+
 - **Single-client transport adopted 2026-11-04.** The user accepted the
   [candidate validation](results/2026-11-04-candidate-validation.md) including writable partial
   reads at a median paired ratio of 0.725; 0.90 stays the improvement goal. Normal builds enable
@@ -431,7 +438,8 @@ and first disposable VM test session. Each implementation still has to pass its 
   the original pathname, internal file rename/cleanup and the limited libsmb2 expansion.
   The approved VM probe passed mixed native/direct staging and competing SMB access checks,
   but server-local access bypassed protection. The user accepted an SMB-only writer boundary:
-  editing requires explicit confirmation that every writer accesses the folder through SMB.
+  the initial prototype required confirmation that every writer used SMB. On 2026-11-04 the
+  user removed this setup requirement; direct-writer save races remain unresolved.
   A different client transport does
   not fix server-local exclusion. Editor callbacks, metadata
   preservation and interrupted recovery were the next gates. The authenticated Apple SMB fixture

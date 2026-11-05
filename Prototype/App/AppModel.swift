@@ -600,8 +600,6 @@ final class AppModel {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.message = UIText.writeGrantMessage
-        panel.accessoryView = Self.wrappedText(UIText.writeRequirements)
-        panel.isAccessoryViewDisclosed = true
         panel.prompt = UIText.confirmWriteSetup
         if let path = controller.mountPath(grantID) { panel.directoryURL = URL(filePath: path) }
         guard await run(panel), let url = panel.url else { return nil }
@@ -612,17 +610,6 @@ final class AppModel {
         }), mount.identity.mountFrom == grant.mountFrom else { throw UploadError.readOnly }
         return try url.bookmarkData(options: [.withSecurityScope],
                                     includingResourceValuesForKeys: nil, relativeTo: nil)
-    }
-
-    /// NSOpenPanel doesn't wrap its message, so long text goes here to keep the panel on screen.
-    private static func wrappedText(_ text: String) -> NSView {
-        let label = NSTextField(wrappingLabelWithString: text)
-        let size = label.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: 480, height: 10_000))
-            ?? NSSize(width: 480, height: 120)
-        label.frame = NSRect(x: 20, y: 12, width: 480, height: ceil(size.height))
-        let view = NSView(frame: NSRect(x: 0, y: 0, width: 520, height: label.frame.height + 24))
-        view.addSubview(label)
-        return view
     }
 
     func editRecords(_ record: LocationRecord) async throws -> [PendingEdit] { try await controller.editRecords(record) }
