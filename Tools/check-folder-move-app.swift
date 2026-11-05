@@ -316,17 +316,16 @@ private final class Probe: @unchecked Sendable {
         try note(label, "refused-before-intent")
     }
 
-    private func readRequest(_ row: CatalogRow, base: Bool = false) throws -> SourceReadRequest {
+    private func readRequest(_ row: CatalogRow) throws -> SourceReadRequest {
         try SourceReadRequest(id: UUID(), item: row.id, version: row.contentVersion,
-            range: ByteRange(offset: 0, length: row.size, fileSize: row.size), background: false,
-            establishEditBase: base)
+            range: ByteRange(offset: 0, length: row.size, fileSize: row.size), background: false)
     }
 
-    private func transfer(_ source: LocationSource, _ row: CatalogRow, base: Bool = false,
+    private func transfer(_ source: LocationSource, _ row: CatalogRow,
                           gate: ReadGate? = nil) throws -> TransferOutput {
         let staging = directory.appending(path: "staging")
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
-        return try source.transfer(readRequest(row, base: base), progress: Progress(), stagingDirectory: staging,
+        return try source.transfer(readRequest(row), progress: Progress(), stagingDirectory: staging,
                                    checkSpace: gate.map { gate in { try gate.check($0) } })
     }
 
@@ -366,7 +365,7 @@ private final class Probe: @unchecked Sendable {
                                  row(source, prefix + "Tree/Nested/leaf.txt").id], value: true)
             for name in ["unchanged.txt", "changed.txt", "retired.txt"] {
                 let path = prefix + "Tree/" + name
-                try checkTransfer(transfer(source, row(source, path), base: true),
+                try checkTransfer(transfer(source, row(source, path)),
                                   expected: Data(("original-" + name + "\n").utf8))
             }
             let saved = try ["Tree", "Tree/unchanged.txt", "Tree/changed.txt",
@@ -375,7 +374,6 @@ private final class Probe: @unchecked Sendable {
                 }
             try require(saved.allSatisfy(\.keep) && saved.filter(\.requested).count == 2,
                         "independent-and-inherited-keeps-established")
-            try require(saved.filter { $0.version.hasPrefix("e1:") }.count == 3, "historical-bases-established")
             state.rows[source.domainID] = saved
         }
         state.request = try request(owner, "overlap/Tree", "overlap/Dest")
@@ -441,43 +439,21 @@ private final class Probe: @unchecked Sendable {
     }
 
     private func exclusions() throws {
-        for kind in ["upload", "save", "retained"] {
+        for kind in ["upload"] {
             let domain = UUID().uuidString
             state.auxiliaryDomains.append(domain)
             try saveState()
             let source = try makeSource(domain: domain, folder: root.appending("blocked-" + kind)!, fresh: true)
             defer { source.close(); access.editNamespace.unregister(domain) }
             try list(source, Catalog.rootItemID); try listPath(source, "Tree"); try listPath(source, "Dest")
-            let tree = try row(source, "Tree"), child = try row(source, "Tree/child.txt")
+            let tree = try row(source, "Tree")
             let contents = directory.appending(path: domain + "-pending.txt")
             try Data("pending-local-copy\n".utf8).write(to: contents, options: .withoutOverwriting)
-            if kind == "upload" {
-                let upload = try CreateRequest(template: UUID().uuidString, parent: tree.id, name: "new.txt",
-                                               kind: .file, staging: nil)
-                _ = try LocationSource.outbox(domainID: domain).prepare(upload, path: RelativePath("Tree/new.txt")!,
-                    contents: contents, progress: Progress())
-            } else {
-                let outbox = try LocationSource.editOutbox(domainID: domain)
-                var old = try outbox.prepare(item: child.id, parent: tree.id, path: RelativePath("Tree/child.txt")!,
-                    baseVersion: child.contentVersion, failOnConflict: true, contents: contents, progress: Progress())
-                if kind == "retained" {
-                    // Inject only a local checkpoint: no remote artifact was created by this fixture.
-                    old.state = .creatingStage
-                    try outbox.save(old)
-                    let newer = directory.appending(path: domain + "-newer.txt")
-                    try Data("newer-local-copy\n".utf8).write(to: newer, options: .withoutOverwriting)
-                    _ = try outbox.prepare(item: child.id, parent: tree.id, path: RelativePath("Tree/child.txt")!,
-                        baseVersion: child.contentVersion, failOnConflict: true, contents: newer, progress: Progress())
-                    try outbox.retainSuperseded(&old)
-                    try outbox.validateContents(old)
-                }
-            }
+            let upload = try CreateRequest(template: UUID().uuidString, parent: tree.id, name: "new.txt",
+                                           kind: .file, staging: nil)
+            _ = try LocationSource.outbox(domainID: domain).prepare(upload, path: RelativePath("Tree/new.txt")!,
+                contents: contents, progress: Progress())
             try refuse(source, request(source, "Tree", "Dest"), .pendingWrites, "pending-" + kind)
-            if kind != "upload" {
-                for edit in try LocationSource.editOutbox(domainID: domain).records() {
-                    try LocationSource.editOutbox(domainID: domain).validateContents(edit)
-                }
-            }
         }
     }
 
@@ -508,7 +484,7 @@ private final class Probe: @unchecked Sendable {
         try write(completed, "completed-intent.json")
         try note("recovery", "passed", details: ["run": runID.uuidString,
             "boundary": "fresh-app-process-after-injected-settings-failure",
-            "staleSaveCoverage": "retired-item-edit-refused; changed-read-refused; preserved-base-retained",
+            "staleSaveCoverage": "retired-item-edit-refused; changed-read-refused; preserved-version-unchanged",
             "unverified": "Finder,downloads,actual-crash,partial-one-view-commit,ambiguous-names,changed-and-preserved-save-publication"])
     }
 
@@ -530,10 +506,6 @@ private final class Probe: @unchecked Sendable {
                 let changed = recovering && saved.path.hasSuffix("/changed.txt")
                 try require(changed ? current.contentVersion != saved.version : current.contentVersion == saved.version,
                             "descendant-content-version")
-                if current.kind == .file && current.contentVersion.hasPrefix("e1:") {
-                    try require(try LocationSource.editOutbox(domainID: source.domainID)
-                        .base(item: current.id, contentVersion: current.contentVersion) != nil, "receipt-before-catalog-version")
-                }
             }
         }
     }
@@ -563,22 +535,17 @@ private final class Probe: @unchecked Sendable {
         } catch SourceFailure.versionChanged { }
         let current = try self.row(source, "overlap/Dest/Moved/unchanged.txt")
         try require(current.contentVersion == preserved.version, "preserved-base-version")
-        try require(try LocationSource.editOutbox(domainID: source.domainID)
-            .base(item: current.id, contentVersion: preserved.version) != nil, "preserved-save-base")
         let retiredRow = try source.withCatalog { try $0.item(id: retired.id)! }
         let contents = directory.appending(path: "retired-save.txt")
         try Data("must-not-publish\n".utf8).write(to: contents, options: .withoutOverwriting)
         let edit = try EditRequest(item: retired.id, parent: retiredRow.parentID!, name: retiredRow.name,
             baseVersion: retired.version, staging: UUID(), failOnConflict: true)
-        let before = try LocationSource.editOutbox(domainID: source.domainID).records()
         let reply = Reply<EditReceipt>()
-        source.edit(edit, contents: contents, progress: Progress(), started: {}, checkSpace: { _ in }) { reply.finish($0) }
+        source.edit(edit, contents: contents, progress: Progress(), started: {}) { reply.finish($0) }
         do {
             _ = try reply.get()
             throw ProbeFailure.check("retired-edit-accepted")
         } catch UploadError.readOnly { }
-        try require(try LocationSource.editOutbox(domainID: source.domainID).records() == before,
-                    "retired-edit-created-no-pending-copy")
     }
 
     private func moveRecord() throws -> PendingFolderMove {

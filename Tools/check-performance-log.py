@@ -85,6 +85,16 @@ class PerformanceLogTests(unittest.TestCase):
         self.assertEqual(summary["protectedReads"][0]["nativeMs"], -1)
         self.assertEqual(summary["protectedReads"][0]["phase"], "verify")
 
+    def testDirectReadsUseRequestIDAndSelectedApp(self):
+        message = f"direct_read request={self.first} phase=complete remote_bytes=16777216 total_ms=120.5"
+        callbacks = self.parse([self.fetch(self.first), self.event(message),
+                               self.event(message, app=Path("/Applications/Other.app")),
+                               self.event(message.replace(self.first, self.second))])
+        summary = performance.summarize_callbacks(callbacks, 0, float("inf"))
+        self.assertEqual(summary["directReads"], [dict(request=self.first, phase="complete",
+                                                       remoteBytes=16777216, totalMs=120.5)])
+        self.assertEqual(summary["protectedReads"], [])
+
     def testMalformedRecordAndOtherSampleAreExcluded(self):
         malformed = self.proof(self.first)
         malformed["eventMessage"] = malformed["eventMessage"].replace("verify_ms=30.000", "verify_ms=1.2.3")

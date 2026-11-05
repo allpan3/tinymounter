@@ -23,7 +23,7 @@ Settings hold from deletion-fault.json; see the M24 integration checklist.
 --enable-permanent-deletion enables the confirmed custom command with ordinary deletion disabled.
 --deletion-domain-checks observes domain versions and refuses every fixture deletion
 before app/server work. It requires --overlap-checks and --deletion-checks.
---editor-checks exports local hashes, pending uploads and verified edit outbox state
+--editor-checks exports local hashes, File Provider pending items
 for check-editor-state-* requests, including while the fixture is disconnected.
 check-editor-state-queue-* omits local URL resolution when an unsettled publication blocks it.
 check-editor-end-trace archives only this run's tracing pointer, preserving its locations and saves.
@@ -117,8 +117,13 @@ def main():
                 let digest = SHA256.hash(data: expected).map { String(format: "%02x", $0) }.joined()
                 let range = try ByteRange(offset: 0, length: metadata.fingerprint.size,
                     fileSize: metadata.fingerprint.size)
-                try M22FinderProbe.require(try remote.readRangeDigest(path: path, range: range) == digest,
-                    "fixture-marker")''' + helper[end:]
+                let stage = try SharedContainer.stagingDirectory()
+                let output = try remote.transfer(path: path, range: range, stagingDirectory: stage,
+                    progress: Progress())
+                guard let url = output.stagingURL else { throw CocoaError(.fileReadUnknown) }
+                defer { try? FileManager.default.removeItem(at: url) }
+                let actual = SHA256.hash(data: try Data(contentsOf: url)).map { String(format: "%02x", $0) }.joined()
+                try M22FinderProbe.require(actual == digest, "fixture-marker")''' + helper[end:]
     helper = replace(helper, 'let channel = try M22FinderProbe.directory(run)\n            while', '''let channel = try M22FinderProbe.directory(run)
             let panel = NSOpenPanel()
             panel.canChooseDirectories = true
@@ -228,8 +233,8 @@ def main():
     }
 
     struct Snapshot: Codable {''')
-        helper = replace(helper, '        let pendingEdits: Int\n',
-                         '        let pendingEdits: Int\n        let deletions: [Deletion]\n')
+        helper = replace(helper, '        let pendingItems: Int\n',
+                         '        let pendingItems: Int\n        let deletions: [Deletion]\n')
         helper = replace(helper, '        let snapshot = M22FinderProbe.Snapshot(config: config, label: label,',
             '''        let deletions = try await Self.offMain {
             try LocationSource.deletionOutbox().records().filter { operation in
@@ -241,8 +246,8 @@ def main():
             }
         }
         let snapshot = M22FinderProbe.Snapshot(config: config, label: label,''')
-        helper = replace(helper, '            editBases: bases, pendingEdits: pendingEdits)',
-                         '            editBases: bases, pendingEdits: pendingEdits, deletions: deletions)')
+        helper = replace(helper, '            pendingItems: pending.items.count)',
+                         '            pendingItems: pending.items.count, deletions: deletions)')
     if args.editor_checks:
         helper += "\n" + (root / "Tools/check-editor-state.swift").read_text()
         helper = replace(helper, '                    try M22FinderProbe.save(request, to: start)\n'

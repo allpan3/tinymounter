@@ -5,9 +5,8 @@ This tool prepares and audits the backing fixture only. It never builds, signs,
 installs, launches, mounts, changes the fixture after preparation, cleans up or
 changes server configuration. Use only macOS VM 1 with the approved loopback
 session SESSION below, its existing mount /Volumes/tinymounter-m19-edit-test,
-and the normal app closed. Run one process at a time: SMBEdit holds a
-process-wide client lock, and each helper phase opens its connections one after
-another.
+and the normal app closed. Run one helper process at a time to keep the fixture actor
+sequence deterministic.
 
 Build (parent): in an isolated archive of the integration commit, compile
 Tools/check-folder-move-gap.swift IN PLACE OF Prototype/App/TinyMounterApp.swift.

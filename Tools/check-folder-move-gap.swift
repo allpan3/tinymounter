@@ -356,7 +356,7 @@ private final class GapProbe: @unchecked Sendable {
             return
         }
         _ = try owner.keep([listed.id], value: true)
-        try establishBase(owner, tree + "/" + file, label: label + "-base")
+        try readFixture(owner, tree + "/" + file, label: label + "-base")
         let child = try catalogRow(owner, tree + "/" + file)
         try require(child.id == listed.id && child.keep && child.keepRequested, label + "-independent-keep")
         let saved = try snapshot(owner, [tree, tree + "/other.txt"])
@@ -759,17 +759,7 @@ private final class GapProbe: @unchecked Sendable {
         guard let found else { throw GapCheck(label: label + "-respelled-child-discovered") }
         try require(found.id != old.id && !found.deleted, label + "-new-discovery-id")
         try require(!found.keep && !found.keepRequested, label + "-keep-not-transferred")
-        let edits = try LocationSource.editOutbox(domainID: owner.domainID)
-        try require(found.contentVersion != old.contentVersion && !found.contentVersion.hasPrefix("e1:"),
-                    label + "-version-not-transferred")
-        try require(try edits.base(item: found.id, contentVersion: found.contentVersion) == nil,
-                    label + "-discovered-item-has-no-base")
-        try require(try edits.base(item: old.id, contentVersion: old.contentVersion)?.item == old.id,
-                    label + "-historical-base-keeps-old-binding")
-        do {
-            _ = try edits.base(item: found.id, contentVersion: old.contentVersion)
-            throw GapCheck(label: label + "-historical-base-accepted-for-new-id")
-        } catch UploadError.unresolved {}
+        try require(found.contentVersion != old.contentVersion, label + "-version-not-transferred")
     }
 
     private func requireSavedKeep(_ label: String, _ expected: String) throws {
@@ -781,16 +771,15 @@ private final class GapProbe: @unchecked Sendable {
         ledger.record(label, ["savedKeep": "admitted-spelling-under-destination"])
     }
 
-    private func establishBase(_ source: LocationSource, _ path: String, label: String) throws {
+    private func readFixture(_ source: LocationSource, _ path: String, label: String) throws {
         ledger.enter(label)
         let plain = try catalogRow(source, path)
-        try require(plain.kind == .file && plain.allowsWriting && !plain.contentVersion.hasPrefix("e1:"), label + "-plain")
+        try require(plain.kind == .file && plain.allowsWriting, label + "-plain")
         let staging = directory.appending(path: "staging")
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         let request = try SourceReadRequest(id: UUID(), item: plain.id, version: plain.contentVersion,
-            range: ByteRange(offset: 0, length: plain.size, fileSize: plain.size), background: false,
-            establishEditBase: true)
+            range: ByteRange(offset: 0, length: plain.size, fileSize: plain.size), background: false)
         var attempt = 1
         while true {
             try awaitRecovery(access, label, seconds: 30)
@@ -806,10 +795,9 @@ private final class GapProbe: @unchecked Sendable {
             Thread.sleep(forTimeInterval: 2)
             attempt += 1
         }
-        let based = try catalogRow(source, path)
-        try require(based.id == plain.id && based.contentVersion.hasPrefix("e1:"), label + "-e1")
-        try require(try LocationSource.editOutbox(domainID: source.domainID)
-            .base(item: based.id, contentVersion: based.contentVersion) != nil, label + "-receipt")
+        let current = try catalogRow(source, path)
+        try require(current.id == plain.id && current.contentVersion == plain.contentVersion,
+                    label + "-same-revision")
     }
 
     /// Namespace first, then one fresh protected client that disconnects before the namespace is released.

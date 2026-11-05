@@ -27,20 +27,12 @@ one matching full callback from the selected app's provider.
 Hashes are saved as they finish. The local APFS clone stays with the evidence; it can
 inherit the provider copy's immutable flag.
 
-The fetch and listing log (subsystem dev.tinymounter.prototype) is streamed for
-the run. Each provider sample records its callbacks: count, modes, bytes, and the
-callback time beyond the app's transfer time. In a writable location an initial full
-fetch uses protectedTransfer (FileProviderExtension.swift establishEditBase,
-ShareAccess.swift transfer), which adds an SMB connection and whole-file version
-proof, and later fetches of an e1 version take the same path. Current builds log
-protected_read with the opaque request ID, full/block verification, protected bytes,
-namespace wait and phase timings. Reports attach those records by request ID, not
-timestamp overlap. A negative phase time means that phase was not reached. Setup
-includes upload-lock/session access, connection, protected opens and receipt lookup;
-total also includes catalog lookup, receipt persistence and handle release. Earlier
-builds have no such records. With parallel=1, verification and native staging overlap;
-their phase durations must not be added. --access-mode remains declared by the parent; missing
-records do not establish read-only access. Never compare the modes unlabeled.
+The fetch and listing log (subsystem dev.tinymounter.prototype) is streamed for the run.
+Each provider sample records callback count, modes, bytes and time beyond app transfer.
+Current builds log direct_read with request ID, phase, remote bytes and total milliseconds.
+Reports correlate these records by request ID. The older protected_read parser remains for
+comparisons with historical transaction builds; its overlapping phase times must not be added.
+--access-mode is declared by the parent; missing records do not establish read-only access.
 
 HISTORY, context only and never a substitute for a baseline run: on this VM, full
 downloads exceeded 90% of matched native (2026-10-11 full-download and cache-states
@@ -134,6 +126,8 @@ LABELS = {
 FETCH_LINE = re.compile(
     r"mode=(\w+) kind=(\S+) .*?bytes=(\d+) queue_seconds=(\S+) callback_seconds=(\S+) transfer_seconds=(\S+)")
 REQUEST_ID = re.compile(r"\brequest=([0-9A-Fa-f-]{36})\b")
+DIRECT_READ = re.compile(
+    r"direct_read request=([0-9A-Fa-f-]{36}) phase=(\w+) remote_bytes=(\d+) total_ms=([\d.]+)")
 PROTECTED_READ = re.compile(
     r"protected_read request=([0-9A-Fa-f-]{36}) phase=(\w+) mode=(\w+) cache=(\w+) "
     r"edit_base=([01]) remote_bytes=(\d+) namespace_ms=([\d.]+) setup_ms=([-\d.]+) "
@@ -560,6 +554,7 @@ class Series:
 def parse_fetch_log(path, app):
     callbacks = []
     protected = {}
+    direct = {}
     for line in path.read_text(errors="replace").splitlines():
         try:
             event = json.loads(line)
@@ -569,6 +564,13 @@ def parse_fetch_log(path, app):
         message = event.get("eventMessage", "")
         process = event.get("processImagePath", "")
         if process.startswith(str(app) + "/Contents/MacOS/"):
+            match = DIRECT_READ.search(message)
+            if match:
+                try:
+                    record = dict(request=match[1], phase=match[2], remoteBytes=int(match[3]), totalMs=float(match[4]))
+                except ValueError:
+                    continue
+                direct.setdefault(match[1], []).append(record)
             match = PROTECTED_READ.search(message)
             if match:
                 try:
@@ -593,6 +595,7 @@ def parse_fetch_log(path, app):
             callbacks.append({"time": when, "request": request, "mode": "failed"})
     for callback in callbacks:
         callback["protectedReads"] = protected.get(callback["request"], [])
+        callback["directReads"] = direct.get(callback["request"], [])
     return callbacks
 
 
@@ -605,6 +608,7 @@ def summarize_callbacks(callbacks, start, end):
             "callbackSeconds": sum(item["callback"] for item in done),
             "appTransferSeconds": sum(item["transfer"] for item in done),
             "protectedReads": [read for item in inside for read in item.get("protectedReads", [])],
+            "directReads": [read for item in inside for read in item.get("directReads", [])],
             "beyondTransferSeconds": sum(item["callback"] - item["transfer"] for item in done)}
 
 
