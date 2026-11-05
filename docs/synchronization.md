@@ -1,8 +1,8 @@
 # Synchronization between File Provider locations and server volumes
 
-The [accepted SMB simplification](smb-simplification.md) supersedes this document's custom
-remote recovery and conflict-preservation requirements from 2026-11-04. Implementation and VM
-validation are in progress; earlier completed milestones remain historical evidence.
+The [accepted SMB simplification](smb-simplification.md) replaces custom remote recovery and
+content proofs. Implementation and signed VM checks are complete; read-performance targets
+remain unmet. Earlier dated milestones remain historical evidence.
 
 Date: 2026-10-11. Decision status: proposed. The user wants this model settled before deciding on
 any guard against mounting the same folder both ways. Components follow
@@ -92,35 +92,23 @@ limit is stated, not hidden: plain SMB has no immutable revisions to compare.
 follows the NAS. Open decision: delete the local copy outright, or keep it for a while in a "Removed
 from NAS" holding area. The holding area is safer but costs disk space and adds a concept.
 
-## 6. Writes, later
+## 6. Writes
 
-Writes through a File Provider location are a later phase
-([architecture §8](architecture.md#8-writes-and-offline-editing-later)). The same model extends to
-them:
+Existing-file saves follow [ordinary SMB semantics](smb-simplification.md). The app writes the
+current file, sets its length, flushes and closes before confirming success. A competing edit can
+be overwritten, and an interruption can leave a partial server file. NAS snapshots/backups own
+previous-version recovery; TinyMounter creates no remote conflict or recovery copies.
 
-- Every local change goes into a durable outbox with its **base fingerprint**.
-- Before committing an edit, the uploader must validate the base and use a safe conditional
-  publication operation. A `stat` followed by ordinary `rename` is not atomic compare-and-swap
-  and is insufficient. The accepted [M18 plan](phase4-plan.md) starts with new files and folders,
-  without replacing existing items. Its [native publication gate](results/2026-10-23-upload-publication.md)
-  failed on the VM SMB fixture. M18 subsequently implemented exclusive creation with the
-  user's accepted partial visibility of new uploads. Existing-file editing has an accepted
-  [M19 design](phase4-plan.md#m19-online-editing) with an accepted SMB-only writer boundary
-  after the exclusion [gate](results/2026-10-27-edit-publication.md). That replacement route
-  subsequently failed concurrent metadata preservation. A
-  [Mac-only revision](phase4-plan.md#revised-mac-only-save-proposal) was approved on 2026-10-28;
-  its [CLI protocol gate](results/2026-10-28-same-object-save.md) passed on the disposable Samba
-  fixture. Signed checks of editor saves, conflicts, recovery retention and local export pass.
-  Partial work stays unresolved. The fixture is removed and original settings are verified.
-  M18 does not authorize partial overwrites.
-- If the NAS fingerprint differs from the base, the edit becomes a conflict copy, for example
-  `Report (conflict, Mac, 2026-10-12 14.03).docx`. Both versions survive.
-- Delete-versus-edit: the [M26 offline scope](roadmap.md#m26-offline-editing), accepted on
-  2026-10-29, retains the edit for explicit recovery/export without recreating the old pathname.
-  The single-client candidate also applies this policy to connected saves whose original is
-  absent before publication starts. Deliberate offline editing is not yet an implemented guarantee.
-- Writes through a server volume need nothing: they're already on the NAS. To a File Provider
-  location they're one more remote change, handled as in section 5.
+File Provider retains pending local contents and retries failed uploads. The signed VM checks
+cover offline saves and a mid-write interruption across app/provider restart. A missing remote
+target remains an error; an edit does not recreate it. These observations do not establish every
+editor's offline behavior or survival across a full OS restart.
+
+New-file uploads still use exclusive creation and a local pending record to distinguish a retry
+from an unrelated destination. Renames and deletions retain local operation records to reconcile
+stable item IDs across catalogs and interrupted acknowledgments. They inspect remote metadata,
+not whole-file content hashes. Writes through a server volume appear as remote changes under
+section 5.
 
 ## 7. Folders and multiple views
 
@@ -184,10 +172,9 @@ Phase 3 extends that subset with verified offline status, folder keeps and chang
   scheduling policies, not the latency targets proposed in section 4. See the
   [M15 plan](phase3-plan.md#m15-discover-nas-changes-while-the-app-runs) and
   [signed VM results](results/2026-10-19-nas-change-discovery.md).
-- **Writes:** M18 adds new files/folders and receipt-backed initial folder naming. M19 adds
-  content editing with complete pending copies, verified base receipts and
-  conflict copies. Signed VM checks preserve item IDs, keep requests and an independent download.
-  Uncertain partial work remains pending and exportable. General remote rename
+- **Writes:** M18 adds new files/folders and receipt-backed initial folder naming. Existing-file
+  saves now use ordinary overwrites with File Provider retaining pending contents, as described
+  in section 6. General remote rename
   matching and local FSEvents integration remain unimplemented. An externally renamed item is
   still a delete plus a create; its keep request does not follow.
 
@@ -203,7 +190,7 @@ of NAS freshness. The broader latency targets in section 4 remain proposed.
 - A pinned file deleted on the NAS: delete the local copy, or keep it in a holding area?
 - A pinned file that changed remotely: can the user open the old local copy while the update is
   pending offline, clearly labelled?
-- Conflict-copy naming, for the later write phase.
+- Broader editor/offline compatibility under ordinary overwrite semantics.
 - Overlapping File Provider locations: warn or block.
 - A scratch folder on the NAS for these tests: which path, and permission to write there.
 

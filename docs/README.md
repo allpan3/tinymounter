@@ -27,6 +27,8 @@ it wrong.
 
 ## Results logs
 
+- [SMB simplification](results/2026-11-05-smb-simplification.md). Ordinary saves replace remote recovery and content proofs. Interrupted uploads retry automatically; matched VM save/read measurements record the remaining read-performance gap.
+
 - [Spotlight cleanup](results/2026-11-05-spotlight-cleanup.md). Removed leftover app bundles and stale registrations on the physical Mac; signing and installation cleanup now prevents retained runnable copies.
 
 - [Save recheck](results/2026-11-04-save-recheck.md). Fresh original-content checks route detected changes through conflict-copy recovery; the later copy window remains unresolved.

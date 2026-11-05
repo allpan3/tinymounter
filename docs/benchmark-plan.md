@@ -56,22 +56,15 @@ runner. Extend those tools only for missing observations; do not build another b
 | Partial read and seek | Same 3 GiB file; 512 MiB sequential POSIX reads from fresh extents, plus seeks that overlap observed read-ahead; matched native ranges; five throughput rounds; first-byte latency, fetched/requested bytes, returned extents and full-download fallback |
 | Fully local read | Same completely downloaded 2 GiB file and local APFS clone; hydration disabled, hashes verified, `F_NOCACHE`, no cache flush; five alternating-order rounds; fetch callbacks and SMB counters |
 | Finder organization | Create and initially name a folder, rename/move an ordinary file and populated folder, then relist both parents; record callback-to-visible completion, collisions, IDs, downloaded bytes, keeps and an untouched neighbor |
-| Save and recovery | Repeated TextEdit saves, reconnect retry and one interrupted publication; verify the final server hash and retained recoverable content, IDs, keeps and accurate pending status |
+| Saves and retry | Repeated TextEdit saves, reconnect retry and one interrupted write; verify the final server hash, retained pending local contents, IDs, keeps and accurate status |
 
 Run workflow cases only through supported or explicitly gated candidate capabilities on the
 disposable fixture. Record unavailable actions instead of counting adapter checks as Finder
 success. Add permanent deletion to the organization case once its provider/UI gate passes.
 These workflow checks complement throughput samples; they are not statistical latency claims.
 
-In writable locations, measure cache misses both before an edit base exists and after a full
-download establishes one. Evict the test copy, then read fresh 1 MiB ranges far enough apart
-to avoid read-ahead hits. Record protected verification separately from native payload time:
-native SMB session counters do not include the direct verification connection.
-Native-payload builds emit request-correlated `protected_read` diagnostics for the verification mode,
-protected bytes, namespace wait and phase durations. The existing runner retains these records
-alongside callbacks and listings. Missing diagnostics do not prove a read avoided verification;
-negative durations mean execution did not reach that phase. Use these observations to separate
-full verification from a cache hit delayed by a listing before changing lock behavior.
+Writable and read-only locations share the same metadata-checked read path. Record network
+bytes and provider materialization separately; a local cache hit is not an SMB throughput sample.
 
 The separate single-client VM prototype emits `direct_read` with request ID, payload bytes,
 completion phase and total time. Native SMB session counters do not count those reads. Its
@@ -91,88 +84,28 @@ against the earlier build from unresolved original targets, including sequential
 local APFS parity and media latency. This set does not replace the larger acceptance fixtures,
 20-seek p95 requirement or physical-Mac validation below, and it changes no target or denominator.
 
-### Edited-file verification follow-up
+### Ordinary SMB follow-up
 
-The coordinator runs this in the disposable VM fixture after `Tools/run-checks.sh`, a signed
-Release installation and the correctness cases below. Use the
-[read design](architecture.md#edited-file-read-verification) and retain the November 1 build as
-the matched baseline. The candidate persists a bounded block proof and overlaps complete
-server verification with native staging. No speedup or gate pass is claimed before these runs.
+Use the existing release benchmark and provider helper in the VM. Compare full downloads,
+512 MiB fresh partial ranges and fully local reads against the same VM's native controls.
+Use five alternating-order pairs; verify hashes outside timing and record provider allocation,
+returned extents, callback time and `direct_read` bytes. The 2026-11-05 save comparison uses
+`Tools/check-smb-saves.py` and the production Swift overwrite path at 1 and 64 MiB. Connection
+setup is reported separately from write/size/flush/close; neither is editor Save latency.
 
-Use the existing private setup files and measurement runner. Build `transfer-bench` in Release
-and `Tools/check-performance-regression.swift` in the VM, then run the following for each build
-and each read-only/writable location. `SETUP`, `APP`, `LABEL`, `COMMIT` and `RESULTS` stand for
-the coordinator's private values; do not publish fixture paths.
+Writable and read-only locations now use the same metadata-checked read path. No edit-base,
+block-proof or whole-file-verification warmup is needed. After a save, evict only clean test
+contents before measuring network reads. Native session counters exclude the direct SMB client;
+use request diagnostics or independent server counters for its traffic.
 
-```sh
-python3 -I Tools/check-performance-regression.py preflight --setup SETUP --app APP
-python3 -I Tools/check-performance-regression.py run --setup SETUP --app APP \
-  --build-label LABEL --build-commit COMMIT --access-mode writable --rounds 5 \
-  --partial-start 67108864 --partial-length 536870912 --partial-gap 67108864 \
-  --results-dir RESULTS
-python3 -I Tools/check-performance-regression.py compare BASELINE_RESULTS CANDIDATE_RESULTS
-python3 Tools/run-native-series.py NATIVE_FULL --bytes 2147483648 --rounds 5 --results-dir NATIVE_RESULTS
-```
+Correctness cases include ordinary competing writes, shorter/empty saves, offline retention,
+mid-write disconnection, app/provider restart and automatic retry. Verify complete local bytes
+before retry and exact remote bytes afterwards. Partial remote contents are an accepted failed-write
+outcome. Do not count a queued callback or local Save as successful server completion.
 
-Keep the same 2 GiB full fixture and 3 GiB partial fixture, alternating native/provider order.
-The runner covers full downloads, 512 MiB fresh partial slots and fully local/APFS controls.
-Run the native sink/staging series beside each build's series; retain all samples and compare
-each build with its contemporaneous native control. The read-only run substitutes
-`--access-mode read-only`. Evict only through Finder and verify zero allocation plus the
-dataless flag before each full arm. Do not run builds or profiling during timing.
-
-When shell access to a File Provider location is unavailable, the same Swift helper can run
-inside a sandboxed test app with user-selected read access. `--choose-file` uses an Open panel
-for one coordinated full download; `--choose-range OFFSET LENGTH` reads that selected range
-with 1 MiB POSIX reads and `F_NOCACHE`. Selection precedes timing. Both modes report allocation
-and dataless state before/after, then checksum the requested bytes outside timing with hydration
-disabled. The result contains no paths. Select only the disposable fixture through the panel;
-this grants one file and does not grant the shell access to a provider domain or app container.
-
-Reuse the private `verified-read-20261101/run-series.py` driver, which calls the existing
-runner, for these separate 2 GiB `e1` seek series. Each has five alternating-order native/provider
-pairs, 1 MiB POSIX reads at fresh offsets 256 MiB apart, and unchanged 16 MiB provider extents:
-
-1. Complete an edit, verify publication, evict, then seek without a full provider download.
-   The first miss should use `mode=blocks cache=disk`; later misses should use `cache=hit`.
-2. Repeat after app restart, then after an actual unmount/remount. Retain the proof cache.
-   The first miss should still check only intersecting blocks, with fresh protected handles.
-3. Clear both memory and disk proof in the isolated helper, then repeat. The first miss must
-   use full fallback; later misses must use block checks. Also replace the one cached item
-   with another, and test a malformed cache. These are explicit slow-path controls.
-4. Repeat cached seeks while a different location on the same share lists a large directory.
-   Record namespace wait separately. This implementation retains serialization and does not
-   claim to remove listing outliers. Include two simultaneous readers and an overlapping
-   read-ahead/seek cancellation using the existing runner's callback collection.
-
-Run five full-download pairs both with a retained proof and after clearing it. Expect
-`mode=full parallel=1`, exactly 2 GiB of protected payload per complete verification, native
-ingress of at least 2 GiB and one full provider callback. Retained proof avoids block-table
-reconstruction, not the whole-server check. `verify_ms` and `native_ms` overlap when
-`parallel=1`; never sum them. Compare reader wall time, callback time, native time, checksum
-time and total CPU/RSS. Retain the first sample. Increased CPU or wire contention can defeat
-the intended overlap; report a regression instead of assuming parallelism is faster.
-
-For every remote sample, verify allocation growth, range/full hashes outside timing, callback
-mode and bytes, and native session RX. Record direct verification bytes separately because
-native SMB counters exclude that connection. A 16 MiB aligned block-proof hit should read
-16 MiB of protected payload, not 2 GiB. State server/native/local cache states as unknown
-unless independently established. Fully local controls must have no fetch callback or payload
-ingress. Keep the existing 90% throughput target and 20-seek player p95 gate unchanged.
-
-Before accepting the performance result, use the signed diagnostic helper to force an old
-`e1` request against a changed size, identity, birth time, metadata/security and an in-place
-changed block with preserved size/timestamps. Test identical-byte replacement separately.
-After restart/remount, prove that the request used persisted evidence. Force a stale native
-range against current protected bytes, and a competing SMB write/rename between verification
-and staging. Each attempt must fail or return exactly the requested revision; no mismatched
-range may be handed off. An out-of-range change is detected when accessed or on full verification.
-Cancel during native I/O, server verification and the local checksum; disconnect during both
-overlapping branches. Require one terminal reply, no orphan stage, no proof publication on
-failure, and successful subsequent reads. After requests end, competing opens must succeed,
-showing that no protected handle leaked. Repeat save/recovery and supported Finder organization
-from the fixed regression set; capture added post-save hashing time. Also exercise a file
-above the 64 GiB proof limit through the full-verification path when a suitable fixture exists.
+The historical proof-cache experiments remain in the dated results. They are not requirements
+for the simplified implementation. All cache-state and physical-Mac qualifications above still
+apply; this change does not relax throughput targets.
 
 ## 4. Factor the data path
 
@@ -256,8 +189,8 @@ Perform disruptive cases only against an isolated fixture/share and within an ag
 | Finder, QSpace, Quick Look, QuickTime, VLC/IINA, POSIX, coordinated read | Distinct callback and playback behavior recorded |
 
 Use a separate controlled actor for competing remote changes. The accepted write milestones add
-crash-after-commit, duplicate callback, concurrent external writes, conflict retention, offline
-safe-save, quota, rename/delete races and outbox preservation. Run these only on the disposable
+crash-after-commit, duplicate callback, concurrent overwrites, offline
+retention/retry, quota, rename/delete races and pending local content preservation. Run these only on the disposable
 fixture and through capabilities whose safety gates have passed.
 
 ## 8. What to build first

@@ -15,8 +15,8 @@ h2{font-size:15px;margin:0 0 10px}.checks{display:grid;grid-template-columns:rep
 .foot{font-size:12px;color:var(--dim);margin:14px 0 0}a{color:var(--blue);text-underline-offset:3px}
 @media(max-width:520px){.flow{grid-template-columns:1fr 20px 1fr;gap:7px}.flow .arrow:nth-child(4){display:none}.node{padding:16px}.checks{grid-template-columns:1fr}.check p{margin-bottom:4px}.detail{min-height:0}.target{gap:12px}.lead{font-size:18px}}
 </style></head><body><main>
-<p class="lead">Start with File Provider locations. Prove the SMB data path first.</p>
-<p class="intro">macOS 27 · SMB2/3 · Debian-based UGREEN NAS · Offline reading first</p>
+<p class="lead">File Provider caches local files; the app reads and writes over SMB.</p>
+<p class="intro">macOS 27 · SMB2/3 · Direct SMB transport · NAS snapshots own previous versions</p>
 <div class="modes" aria-label="Explore the data paths">
 <button type="button" data-mode="first" aria-pressed="true">First read</button>
 <button type="button" data-mode="download" aria-pressed="false">Full download</button>
@@ -30,17 +30,17 @@ h2{font-size:15px;margin:0 0 10px}.checks{display:grid;grid-template-columns:rep
 <h2>The experiment that separates the costs</h2>
 <div class="checks">
 <div class="check"><strong>1 · Native SMB baseline</strong><p>Read the same file through Finder’s SMB client. Record security settings and each cache state.</p></div>
-<div class="check"><strong>2 · Add File Provider</strong><p>Keep the native SMB transport. Measure local staging, provider overhead, and video seeks.</p></div>
-<div class="check"><strong>3 · Compare direct SMB</strong><p>Try a pipelined asynchronous client. Select the transport on speed and reliable operation.</p></div>
+<div class="check"><strong>2 · Add File Provider</strong><p>Measure direct SMB payload transfer, local staging and File Provider materialization separately.</p></div>
+<div class="check"><strong>3 · Compare direct SMB</strong><p>The adopted client uses independent connections and bounded requests. Compare with native SMB.</p></div>
 </div>
 <div class="target"><div class="number">90%</div><div><strong>Proposed target: File Provider throughput relative to native SMB</strong><p>About 171 MB/s with a cold NAS cache or 252 MB/s with a hot NAS cache, using your reported baselines. These are targets, not measured results.</p></div></div>
 <p class="foot">Apple supports <a href="https://developer.apple.com/documentation/fileprovider/nsfileproviderpartialcontentfetching" target="_blank" rel="noopener noreferrer">partial-content fetching</a>, but coordinated reads can still request the whole file. Test each video player. No reviewed source establishes a fixed 10–80 MB/s ceiling.</p>
 </main><script>
 const scenarios={
-first:{nodes:[['Network disk','Remote bytes over SMB'],['Main app reader','Native SMB reads into shared staging'],['File Provider / APFS','Extension hands off missing ranges; macOS retains content'],['Your application','Reads resume as requested data arrives']],detail:'The approved prototype keeps the main app running for downloads and connects it to the extension through a restricted File Provider service. Full downloads exceed 90% in both verified NAS cache states on this VM. Seek-first read-ahead keeps seeks near 0.25 s; sequential range reads reach about a third of native, below target. Finder opens always download the whole file first; a player’s own Open can stream.'},
+first:{nodes:[['Network disk','Remote bytes over SMB'],['Main app reader','Direct SMB reads into shared staging'],['File Provider / APFS','Extension hands off missing ranges; macOS retains content'],['Your application','Reads resume as requested data arrives']],detail:'The app owns remote I/O and connects to the extension through a restricted File Provider service. Reads transfer requested ranges with metadata checks. Saves use ordinary overwrites; macOS retains pending local contents on failure. Performance depends on cache state and workload; consult the dated results before comparing rates.'},
 download:{nodes:[['Download intent','Request the entire file'],['Main app reader','Stream SMB bytes into one staging file with bounded memory'],['File Provider / APFS','Hand off complete content and wait for materialization'],['Offline readiness','Verify completion; retain content when pinned']],detail:'Opening content and downloading it have different priorities. A full download favors throughput; opening or seeking favors needed ranges. Coordinated opens can also force full downloads. The existing full callback handles this separately from the 16 MiB partial-fetch preference. A scheduled request is not proof of completion.'},
 cached:{nodes:[['Local APFS','Already downloaded bytes'],['macOS filesystem','Ordinary local file reads'],['Your application','No network transfer for cached content'],['Retention policy','Pin files that must stay available offline']],detail:'A fully materialized file is read from local storage. This can exceed network speed. An unpinned download may later be evicted, so a repeated-read benchmark must distinguish local cache hits from SMB transfers.'},
-offline:{nodes:[['Keep Downloaded','Full download completed'],['Local APFS','Pinned content retained'],['Your application','Read files without the network disk'],['Reconnect','Reconcile remote changes']],detail:'Offline reading works for complete retained files. A few cached ranges of a video do not make the whole video available offline. Later, offline editing will add queued uploads and conflict preservation.'},
+offline:{nodes:[['Keep Downloaded','Full download completed'],['Local APFS','Pinned content retained'],['Your application','Read files without the network disk'],['Reconnect','Reconcile remote changes']],detail:'Offline reading works for complete retained files. A few cached ranges of a video do not make the whole video available offline. File Provider retains pending local edits for upload when the server returns. A competing server edit may be overwritten; NAS snapshots own previous versions.'},
 native:{nodes:[['Connection rules','Login, wake, and network changes'],['Mount manager','Probe the server; safely connect or recover'],['Apple SMB client','Normal native network volume'],['Network disk','Files still require connectivity']],detail:'The later server volume mode mounts an ordinary macOS SMB volume automatically. Preserve healthy sessions when interfaces change; do not force-unmount open files. This mode does not provide a persistent offline replica.'}
 };
 function show(mode){

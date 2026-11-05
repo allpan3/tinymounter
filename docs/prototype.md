@@ -28,7 +28,7 @@ and Remove recovered without affecting a second location's kept copy. Provider o
 both configurations, including across relaunch. No production code changed. See the
 [location lifecycle results](results/2026-10-22-location-lifecycle.md) for limits.
 
-## Implemented and checked
+## Initial implementation and checks
 
 - A dependency-free Swift package with `transfer-bench` and a reusable transfer engine.
 - Source files opened read-only, using bounded `pread` calls; optional local staging uses exclusive creation and `pwrite` at the source offsets.
@@ -345,7 +345,8 @@ File Provider owns pending local contents until the upload callback succeeds. Ti
 sets the final size, flushes and closes the remote file before completing the callback; errors
 remain pending in macOS. Competing edits can be overwritten and failed writes can leave partial
 remote contents. There are no custom remote backups, recovery names or conflict copies.
-Signed VM checks of this new path are pending. Finish or export older pending changes with the
+Signed VM saves, competing-write overwrite, shorter/empty writes and interrupted-upload retry
+across app/provider restart pass; see the [results](results/2026-11-05-smb-simplification.md). Finish or export older pending changes with the
 older build before using Start Fresh; this branch does not migrate old recovery transactions.
 
 The catalog records departures from former parents for known moves and preserves content
@@ -431,90 +432,49 @@ the existing catalog ID and diagnostic counts retained; the location remains rea
 [installation results](results/2026-10-25-keep-both.md#physical-mac-installation-2026-10-27).
 See the [results](results/2026-10-23-create-items.md). In the development UI, a location's Access
 section has one Read only toggle. It defaults off for a new location; a duplicate inherits
-the original's mode. Writable setup asks for access to the same share root. The grant belongs to this location. Replacement, move, delete, packages and symbolic links remain unsupported. Editing and file renaming use the
-protected transactions described below.
+the original's mode. Writable setup asks for access to the same share root. The grant belongs to this location. Ordinary file/folder organization and the confirmed
+Delete Permanently… command are enabled. Finder Replace, ordinary deletion, packages and
+symbolic links remain outside the verified capability set.
 
 Finder's New Folder creates an untitled folder on the server, then sends a separate rename when
 the user types a name. The app's restricted SMB client now creates and names that folder using
 its retained server identity and creation time. A folder's initial name must precede child
 creation; child requests first finish any already pending parent naming. Copying a folder that
-already has its final name works, including its children. New-file uploads and reads stay native.
+already has its final name works, including its children. New-file uploads and reads use the direct SMB client.
 Finder's Keep Both needs rename capability to select an alternative name before creation.
-Enabled locations advertise it. M20 also handles Rename for verified ordinary files in the
-same folder; unverified files and existing folders still refuse it. Definite server
+Enabled locations advertise it. The later organization milestones handle ordinary file and folder rename/move with metadata-based admission. Definite server
 collisions return the existing item through Apple's collision-error factory. All 232 tests and
 required checks passed, and the final signed VM app passed repeated file collisions with matching
 bytes. Finder offered no Keep Both action for the tested folder collision. The fixture is
 removed and sharing is restored. See the [results](results/2026-10-25-keep-both.md).
 
-The app records the request before local staging, then saves immutable pending bytes before
-exclusive remote creation. A replay can restage matching system input after a staging interruption.
-The system admits one content upload and one metadata upload per domain at a time. Other devices can
-see the new file during upload. It is not acknowledged until its remote identity and complete
-content are verified. The verified editing base records metadata from the protected open file;
-the mount's cached directory timestamps can still predate the completed upload. An interrupted
-upload with an unacknowledged create is tried again only with another exclusive create;
-an item at the name keeps it pending. In the single-client prototype, an acknowledged partial
-file can resume after exact identity and complete prefix verification under exclusive SMB
-sharing. Only missing bytes are appended; existing bytes are never overwritten. The
-source cannot change while a write is pending. The location can be removed when its only pending
-items never reached the server; macOS keeps them on this Mac. Settings lists each new item that
-is not on the server yet, with the reason for its last failure since the app started, and offers
-Stop Uploading when nothing reached the server. A failed creation reports `cannotSynchronize`,
-so macOS stops sending it until Retry Pending Changes or a share recovery signals it again
-([plan](pending-changes-plan.md)). Completed receipts deduplicate system replay and are removed with a
-finished location. Pending records and content stay in private app storage; the extension sends authenticated create and initial-name requests.
-See the accepted [phase 4 plan](phase4-plan.md).
+New-file creation records the request before local staging and retains a complete local payload.
+Other clients may see partial new contents during upload. Acknowledgment requires the expected
+identity, final size, flush and close. An unacknowledged create retries only with exclusive
+creation; an existing name keeps the outcome unresolved. An acknowledged partial file restarts
+its complete upload after checking the recorded identity. Local payload integrity checks remain;
+there is no remote full-file readback. Settings lists pending new items and offers Stop Uploading
+only when nothing reached the server. macOS keeps those local items on removal. See the
+[pending-change plan](pending-changes-plan.md).
 
 Settings also lists changes held by macOS, including refused renames with no app transaction.
 Show in Finder selects the local item. A stale-base refusal shows the last known server path;
 restore that name and folder in Finder to undo it, then make a fresh request if needed.
 Retry never overrides the stale base. An older generic error receives the specific reason on
 Retry. The system list overlaps the app's transaction count and can be incomplete; Settings
-reports that limit. See [pending-change recovery](pending-changes-plan.md#6-show-changes-held-only-by-macos).
+reports that limit. See [pending-change recovery](pending-changes-plan.md#retry-and-status).
 
-The save transaction rechecks original contents after staging and after verifying the backup.
-A change detected before mutation uses the existing conflict copy, or remains refused when the
-caller sets failOnConflict. Retry retains a recorded conflict decision. Missing originals and
-partial or unverified backups stay pending. This does not protect direct writes after the final
-check. Signed VM conflict recovery and ordinary saves pass; see the
-[save recheck](results/2026-11-04-save-recheck.md).
+Existing-file saves use the ordinary overwrite path described in section 5. The signed VM
+checks cover repeated saves, competing server edits, shorter/empty files, offline retention and
+automatic retry after a mid-write interruption and app/provider restart. No custom recovery
+copies or edit bases remain. Reads and writes use at most 1 MiB per request, capped by server
+limits and available credits; short replies advance only by the confirmed byte count.
 
-Normal and repeated TextEdit Save pass in the signed VM app, including a concurrent-edit
-conflict. The installed M19 build has a separate editing opt-in; M20 combines creation, editing
-and supported renaming under the confirmed write mode. Filename-only renaming uses the
-app-owned protected transaction. Rename intents retain every affected catalog ID and block lifecycle
-changes and reconciliation until publication is resolved. Directory enumeration verifies the
-actual stored spelling, including case-only changes.
-Interrupted local staging remains visible. New uploads establish a verified editing base, and
-changed strong revisions advance even when native timestamps are unchanged.
-Stage, backup and published-file verification uses the server's close-response timestamps,
-then reopens and checks identity, content and metadata before accepting that version. A missing
-close response or a mismatch retains recovery data. This handles servers that finalize write
-timestamps on close without accepting unexplained timestamp changes during cleanup.
-Private save stages upload through their existing SMB handle with exclusive sharing protection.
-Writes use at most 64 KiB per request; short acknowledgements advance only by the confirmed count.
-A lost reply leaves the save pending. This avoids native pathname opens after server file-ID reuse.
-Signed VM checks pass for repeated stage uploads, sharing exclusion and interruption. Native
-confirmation after publication can still fail until Retry; the Mac update remains withheld.
-Pending edits retain bounded original attributes separately, because macOS can change metadata
-when a sandboxed app copies the file. Export restores user attributes while macOS controls the
-new local file's access and quarantine attributes.
-TextEdit's encoding attribute, last-used date and explicit modification date are not uploaded.
-Metadata-only retries return those fields as unsupported through File Provider's documented
-contract, preserving their local values without claiming remote synchronization.
-The verified M19 build is installed on the physical Mac. Background launch checks retain the
-location and catalog counts; physical-Mac saves and downloaded-byte comparisons remain unverified.
-See the [installation results](results/2026-10-28-same-object-save.md#physical-mac-installation-2026-10-28).
-M19's replacement design failed its
-concurrent metadata-preservation gate. The user reaffirmed Mac-only operation; a
-[revised save design](phase4-plan.md#revised-mac-only-save-proposal) was approved on 2026-10-28
-and passed its [CLI protocol gate](results/2026-10-28-same-object-save.md) on the disposable
-Samba fixture. Signed interruption checks retain complete versions, and the normal export panel
-recovers pending content. Item IDs, keep requests and an independent download survive. Partial
-work stays unresolved, and fixture connection delays can defer retries. The fixture, temporary
-dependencies and task windows are cleaned up. See the same results log for the exact coverage
-and limits. No server component is required.
+Rename intents retain affected catalog IDs and settle each view after the server operation.
+Directory enumeration verifies stored spelling, including case-only changes. Metadata indicates
+whether contents changed; it is not a full-content proof. TextEdit's encoding attribute, last-used
+date and explicit modification date are not uploaded. Metadata-only retries return unsupported
+fields through File Provider's documented contract without claiming remote synchronization.
 
 ## Name spelling over SMB
 
@@ -534,26 +494,12 @@ new file or folder can still be created next to it, as through Finder's own moun
 cover these comparisons. Folder moves compare literal server names with the composed path
 the client sends. A complete protected listing can therefore retire a binding whose server
 spelling changed to NFD, while still accepting NFD catalog names for NFC server names.
-Signed Samba/ext4 checks verify selected accented uploads and saves,
-and 20 repeated saves with stage file-ID reuse. November 3 probes reproduce stale native names
-after direct rename and quarantine writes recreating a deleted stage after file-ID reuse.
-The separate single-client branch now uses direct SMB for remote listings, metadata, reads and
-uploads, with fresh catalog state. Required VM checks, 20 signed saves, Unicode content, upload
-acknowledgment and a fresh read-only 2 GiB download pass. Conflict and interrupted-save recovery
-preserve complete contents. Retired saves no longer block unrelated listings and mutations.
-Interrupted new uploads retain a complete local copy beside the partial server item. Automatic
-continuation of a proven partial upload passes signed VM checks, including refusal of a changed
-prefix or replaced identity. Five coordinated read-only full downloads exceed the native staging
-median with verified empty Linux file cache. Partial reads reach about 49% of native, below the
-90% target. Finder copying and Keep Both now pass. Recovery export refuses network destinations;
-arbitrary external native-mount writes remain outside that evidence. The physical
-Mac still runs the earlier transport. See the
-[runtime results and accepted staging change](results/2026-11-02-samba-names-and-uploads.md).
-
-Recovery export now defaults to Desktop and requires a local filesystem. The destination is
-checked before exclusive creation, and checked again through the open file before copying.
-Network destinations are refused before creation. Existing files are not replaced.
-Signed VM checks confirm complete Desktop export and refusal of the disposable network destination.
+The earlier Unicode and file-ID-reuse probes led to the adopted direct SMB transport. Their
+historical save/recovery behavior is recorded in the
+[transport investigation](results/2026-11-02-samba-names-and-uploads.md). Current save semantics,
+validation and read-performance limits are in the
+[simplification results](results/2026-11-05-smb-simplification.md). The physical Mac still has the
+pre-simplification build; this branch has only been installed in the VM.
 
 Read-only regular files advertise the File Provider write capability but retain read-only
 POSIX permissions, read-only parent folders and both provider/app mutation guards. On the

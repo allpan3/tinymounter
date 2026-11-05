@@ -1,6 +1,7 @@
 # Simpler SMB operations
 
-Date: 2026-11-04. Decision status: accepted. Implementation and VM validation are in progress.
+Date: 2026-11-05. Decision status: accepted on 2026-11-04. Implemented and validated in the VM;
+read-performance targets remain unmet. See the [results](results/2026-11-05-smb-simplification.md).
 
 TinyMounter follows ordinary SMB file-operation semantics. The user explicitly replaced the
 earlier custom recovery requirement and delegated implementation of this audit. NAS snapshots
@@ -29,24 +30,41 @@ honored if received; stop advertising that optional feature for the last-writer-
 
 The client serializes only libsmb2 context creation/destruction, whose context list is global.
 Each connection owns its requests and credentials; unrelated payload I/O can run concurrently.
-Runtime concurrency checks remain pending. Reads and writes are capped at 1 MiB, the server
-maximum and available SMB credits. Measurements compare this with the former 64 KiB writes.
+Four simultaneous clients completed 40 reads, and 10 wrong-account attempts were refused.
+Reads and writes are capped at 1 MiB, the server maximum and available SMB credits. Measurements compare this with the former 64 KiB writes.
 
 The first signed mid-write interruption preserved the complete local file across app/provider
 restart. Automatic retry then stopped after a native location-folder lookup reported missing;
 the catalog item survived, and **Retry Pending Changes** uploaded the exact retained contents.
 Direct SMB mutations now validate the grant/mount without that redundant native folder lookup.
 Transport resets are classified as connection failures and returned as retryable provider errors.
-The updated signed interruption check is still required.
+The updated signed test passed: partial remote contents, complete local retention, then automatic
+retry after app/provider restart with an exact server hash match.
 
-## Implementation order and evidence
+## Audit decisions
 
-1. Remove custom save transactions, edit receipts, read proofs and their recovery interface.
-2. Remove content hashing from organization/deletion and narrow coordination around transfers.
-3. Measure the remaining transport costs; change request sizing or connection handling only
-   where the implementation and measurements justify it.
-4. Run required VM checks and signed workflows, then compare saves and reads with the VM's
-   native SMB control. Record setup, cache state, samples and unverified cases in a results log.
+| Area | Change or retained requirement |
+| --- | --- |
+| Existing-file saves | Removed remote stage/backup/work files, original rechecks, conflict copies, edit outbox and recovery UI. One ordinary overwrite completes after size, flush and close. |
+| Reads | Removed whole-file and block proofs. Requested bytes are transferred once; metadata, exact range and cancellation checks remain. |
+| Transport | Removed the connection-lifetime global mutex and unused recovery APIs. Context-list mutations alone are serialized. Requests use up to 1 MiB within server/credit limits. |
+| Error/retry | Broken transport returns a retryable connection error. Removed redundant native location-folder opens from direct mutations. |
+| New uploads | Removed one redundant local hash pass and the duplicate pre-write metadata query. Retained exclusive creation, identity records and local payload integrity so an ambiguous retry cannot replace an unrelated file. |
+| File organization | Removed payload hashing. Retained short operation records and multi-catalog settlement to preserve item IDs, keeps and callback replay. |
+| Folder organization | Still inspects descendant metadata and can scale with the cataloged subtree. A root-only rename with lazy reconciliation would need a different identity/overlapping-view settlement design; deleting these checks alone would make cached identities unreliable. No constant-time claim. |
+| Permanent deletion | Retained bounded traversal, admitted identities, cancellation and per-item settlement. Partial tree deletion is reported accurately. No custom Trash or retained remote payload. |
+| Scheduling | Independent SMB connections can run concurrently. The per-share mutation lane still orders saves/creates with namespace and lifecycle changes; removing it needs operation-specific admission/drain work. No blind switch to unbounded concurrent writers. |
+| Local storage/lifecycle | File Provider retains failed edits. New-item outbox bytes and the staging reserve remain; removal preserves dirty user data. No migration of older prototype save transactions. |
+
+Ordinary Finder deletion, Replace, combined rename/content saves and broader document metadata
+remain disabled or unsupported pending their callback checks. This audit changes save semantics;
+it does not claim native descriptor locking or complete native-SMB feature parity.
+
+## Evidence
+
+The implementation, required checks, signed runtime cases and matched VM measurements are
+recorded in the [November 5 results](results/2026-11-05-smb-simplification.md). Save transport
+cost is substantially lower; full and partial reads still miss the 90% target in these runs.
 
 The earlier 64 MiB save experiment measured 6.357 s for the rechecked transaction and 0.347 s
 for native overwrite plus fsync (medians, five alternating pairs, warmed unverified caches,
