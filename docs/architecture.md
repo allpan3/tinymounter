@@ -363,8 +363,10 @@ and first disposable VM test session. Each implementation still has to pass its 
   eligibility warning from write setup. Investigate concurrent NAS edits as synchronization
   behavior. The current copy can overwrite an intervening direct write before final verification
   sees it. Rechecking the original immediately before mutation could narrow this window, but
-  cannot close it. The [focused investigation](results/2026-11-04-write-confirmation.md) defines
-  the next probes; no replacement, retention or server-component design is approved by this UI change.
+  cannot close it. The [VM investigation](results/2026-11-04-write-confirmation.md#disposable-server-follow-up)
+  confirms lost pre-copy contents and mixed contents during copying. The next bounded fix is a
+  fresh check with existing conflict-copy recovery; it cannot close the copy window. No replacement,
+  retention or server-component design is approved by the UI change.
 
 - **Single-client transport adopted 2026-11-04.** The user accepted the
   [candidate validation](results/2026-11-04-candidate-validation.md) including writable partial

@@ -4,8 +4,11 @@ A macOS app that brings a network disk, such as a NAS, into Apple's file system:
 
 Write confirmation, 2026-11-04: the picker now asks only for write access. The user removed
 its SMB-only warning and technical details. Direct-writer save races remain an engineering
-follow-up ([investigation](docs/results/2026-11-04-write-confirmation.md)). This UI change is
-not installed on the physical Mac.
+follow-up ([investigation](docs/results/2026-11-04-write-confirmation.md)). PRs #28 and #29 are
+merged and passed CI. The merged build is installed in Applications and launches cleanly on
+the physical Mac, with the same signing identity and entitlements and a backup of the earlier
+app. Preflight found no locations or pending items; the saved share connection remains. No
+settings were reset. Physical-Mac file workflows remain unverified.
 
 Pending recovery, 2026-11-04: Settings now shows renames and moves held by macOS without an app
 transaction, with the refusal reason, Show in Finder and instructions to restore the server name
