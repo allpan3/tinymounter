@@ -6,8 +6,6 @@ extension M22FinderProbe {
         let connected: Bool
         let rows: [Row]
         let local: [Local]
-        let edits: [PendingEdit]
-        let verifiedPayloads: [UUID]
         let pending: [[String: String]]
         let pendingSetCapped: Bool
     }
@@ -53,18 +51,6 @@ extension LocationController {
                     "unverified:" + failure.domain + ":" + String(failure.code)))
             }
         }
-        let (edits, verified) = try await Self.offMain {
-            try source.uploadLock.readForStatus {
-                let outbox = try LocationSource.editOutbox(domainID: config.domain)
-                let records = try outbox.records()
-                var verified: [UUID] = []
-                for edit in records where edit.isPending {
-                    try outbox.validateContents(edit)
-                    verified.append(edit.id)
-                }
-                return (records, verified)
-            }
-        }
         let enumerator = manager.enumeratorForPendingItems()
         defer { enumerator.invalidate() }
         let observer = EditorPendingObserver()
@@ -74,7 +60,7 @@ extension LocationController {
                                    "editor-catalog-changed-during-snapshot")
         let snapshot = M22FinderProbe.EditorState(config: config,
             date: ISO8601DateFormatter().string(from: .now), connected: source.access.mountPath() != nil,
-            rows: rows, local: local, edits: edits, verifiedPayloads: verified,
+            rows: rows, local: local,
             pending: observer.items, pendingSetCapped: enumerator.isMaximumSizeReached)
         try M22FinderProbe.save(snapshot,
             to: M22FinderProbe.directory(config.run).appending(path: label + ".json"))

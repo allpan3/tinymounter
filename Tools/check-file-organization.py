@@ -52,12 +52,19 @@ def load_production(path):
         "list": ([pointer, data, C.c_int, data, C.c_uint32, C.POINTER(C.c_uint32), C.POINTER(C.c_int)], C.c_int),
         "read": ([pointer, data, C.c_uint64, data, C.c_uint32, C.POINTER(C.c_uint32)], C.c_int),
         "rename": ([pointer, data, C.c_char_p], C.c_int),
-        "metadata": ([pointer, data, C.c_int, data, C.c_uint32, C.POINTER(C.c_uint32)], C.c_int),
     }
     for name, (arguments, result) in declarations.items():
         function = getattr(library, "tm_edit_" + name)
         function.argtypes, function.restype = arguments, result
     return library
+
+
+def probe_metadata(client, path, security):
+    handle = client.open(path, 0x20080, sharing=7)
+    try:
+        return client.metadata(handle, security)
+    finally:
+        client.close(handle)
 
 
 def split(path):
@@ -95,7 +102,7 @@ def parse_entries(data):
 
 
 class Direct:
-    """SMBEdit's calls. One per process: tm_edit_connect holds a process-wide lock until disconnect."""
+    """SMBEdit's calls, with one independent context per connection."""
 
     def __init__(self, library, top):
         self.library, self.top, self.handles, self.held, self.evidence = library, top, [], {}, {}
@@ -169,12 +176,6 @@ class Direct:
 
     def rename(self, handle, destination):
         self.call("production rename", self.library.tm_edit_rename, handle, self.path(destination))
-
-    def metadata(self, handle, security):
-        buffer, count = (C.c_ubyte * 65536)(), C.c_uint32()
-        self.call("production metadata", self.library.tm_edit_metadata, handle, 7 if security else 0,
-                  buffer, len(buffer), C.byref(count))
-        return bytes(buffer[:count.value])
 
     def entries(self, folder):
         found, restart = [], 1
@@ -429,7 +430,7 @@ def move_case(case, fixture):
     b.close(handle)
     before = a.info(guard)
     case.require("complete_contents_before", a.read(guard) == CONTENTS)
-    security, streams = a.metadata(guard, True), a.metadata(guard, False)
+    security, streams = probe_metadata(b, source, True), probe_metadata(b, source, False)
     case.require("live_permission_change_observed", in_place.dacl(security) == in_place.dacl(changed))
     staged = native(root / source)
 
@@ -440,13 +441,13 @@ def move_case(case, fixture):
         "file_mtime": after[5] != before[5], "file_ctime": after[6] != before[6],
         "source_parent_mtime": parent_after["source"][5] != parent_before["source"][5],
         "destination_parent_mtime": parent_after["destination"][5] != parent_before["destination"][5]})
-    case.observe("stream_information_unchanged", a.metadata(guard, False) == streams)
+    case.observe("stream_information_unchanged", probe_metadata(b, destination, False) == streams)
     case.require("same_object_after_move", after[:2] == identity and after[3] == 1)
     case.require("exact_destination_spelling", a.stored_name(dst, identity) == split(destination)[1])
     case.require("absent_from_source_parent", not a.matches(src, identity)
                  and all(name_key(entry["name"]) != name_key(split(source)[1]) for entry in a.entries(src)))
     case.require("complete_contents_after", a.read(guard) == CONTENTS)
-    case.require("permissions_preserved", in_place.dacl(a.metadata(guard, True)) == in_place.dacl(security))
+    case.require("permissions_preserved", in_place.dacl(probe_metadata(b, destination, True)) == in_place.dacl(security))
     stream = b.stream(destination)
     case.require("attached_stream_preserved", b.read(stream) == in_place.STREAM_CONTENTS)
     b.close(stream)

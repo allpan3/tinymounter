@@ -476,9 +476,9 @@ private final class M24Probe: @unchecked Sendable {
     private func refusePhase() throws {
         ledger.enter("owner-listing")
         for path in Self.ownerFolders { try list(owner, path, allowSkipped: path == "c02/Symlinked") }
-        try establishBase(owner, "c01/Tree/a.txt", label: "c01-base")
-        try establishBase(owner, "c02/Changed/x.txt", label: "c02-changed-base")
-        // After the bases, so this view's fingerprints follow anything the protected reads changed.
+        try readFixture(owner, "c01/Tree/a.txt", label: "c01-base")
+        try readFixture(owner, "c02/Changed/x.txt", label: "c02-changed-base")
+        // List after reads, which can change server metadata.
         ledger.enter("overlap-listing")
         for path in Self.overlapFolders { try list(overlap, path) }
         let nested = try catalogRow(overlap, "Tree/Nested")
@@ -1105,16 +1105,15 @@ private final class M24Probe: @unchecked Sendable {
         try require(allowSkipped || receipt.skipped == 0, "listing-has-skipped-entries")
     }
 
-    private func establishBase(_ source: LocationSource, _ path: String, label: String) throws {
+    private func readFixture(_ source: LocationSource, _ path: String, label: String) throws {
         ledger.enter(label)
         let plain = try catalogRow(source, path)
-        try require(plain.kind == .file && plain.allowsWriting && !plain.contentVersion.hasPrefix("e1:"), label + "-plain")
+        try require(plain.kind == .file && plain.allowsWriting, label + "-plain")
         let staging = directory.appending(path: "staging")
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         let request = try SourceReadRequest(id: UUID(), item: plain.id, version: plain.contentVersion,
-            range: ByteRange(offset: 0, length: plain.size, fileSize: plain.size), background: false,
-            establishEditBase: true)
+            range: ByteRange(offset: 0, length: plain.size, fileSize: plain.size), background: false)
         var attempt = 1
         while true {
             try awaitShareRecovery(label)
@@ -1130,10 +1129,9 @@ private final class M24Probe: @unchecked Sendable {
             Thread.sleep(forTimeInterval: 2)
             attempt += 1
         }
-        let based = try catalogRow(source, path)
-        try require(based.id == plain.id && based.contentVersion.hasPrefix("e1:"), label + "-e1")
-        try require(try LocationSource.editOutbox(domainID: source.domainID)
-            .base(item: based.id, contentVersion: based.contentVersion) != nil, label + "-receipt")
+        let current = try catalogRow(source, path)
+        try require(current.id == plain.id && current.contentVersion == plain.contentVersion,
+                    label + "-same-revision")
     }
 
     private func refuse(_ label: String, _ request: DeletionRequest, recursive: Bool, connections: Int,
