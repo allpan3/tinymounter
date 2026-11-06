@@ -2,13 +2,15 @@
 
 A macOS app that brings a network disk, such as a NAS, into Apple's file system: browse it from Finder or another file manager such as QSpace, download on demand, and keep selected files available offline. Finder is the first file manager and SMB the first protocol it will support. A later mode will mount server volumes, the ordinary macOS SMB mounts, automatically.
 
-0.1.1 release candidate, 2026-11-06: share selection retains write permission, and Add connects a
+TinyMounter 0.1.1, 2026-11-06: share selection retains write permission, and Add connects a
 saved share automatically when needed. Setup no longer offers the unavailable Server volume
 mode. Signed VM checks pass for permission reuse, relaunch,
 existing locations, Read only and connection failure. Required checks pass (520 tests, one
 optional skip, no Swift warnings). The signed DMG passed VM package inspection and retains
-the installed app identity. VM Finder windows and completed release-build products were cleaned
-up; older editor apps and desktop fixtures remain. Not released or installed on the physical Mac.
+the installed app identity. PR #34 passed CI and merged; the DMG and matching source are published.
+The physical Mac now runs 0.1.1 with its existing location and catalog retained, unchanged
+entitlements and verified signatures. No temporary app copies remain. VM test apps and Finder
+windows are closed; obsolete release-build products were removed and test evidence retained.
 See the [setup checks and Finder visibility limits](docs/results/2026-11-06-share-access.md).
 
 TinyMounter 0.1.0, 2026-11-06: the personal-use package targets Apple silicon and macOS 27,

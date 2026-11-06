@@ -2,7 +2,7 @@
 
 Date: 2026-11-06. Decision status: accepted. Initial share selection now retains read and write
 permission. Add connects a disconnected saved share before creating the location. These changes
-are for the next version; the installed 0.1.0 app and original NAS were not changed.
+were validated in the VM before release; those checks left the installed app and original NAS unchanged.
 
 Read sessions still use a read-only bookmark. Each location's Read only control gates mutations.
 An optional share-level write bookmark preserves existing settings without a reset. Earlier
@@ -75,8 +75,14 @@ the installed 0.1.0 app, including its bundle identity and App Group. The DMG wa
 inspection; no production-identity app was launched in the VM. Loose host signing and packaging
 bundles were removed. Raw evidence and matched frames are in `results/release-0.1.1/`.
 
-Publication and the physical-Mac update remain pending CI and merge. The original NAS was not
-modified. The Finder visibility limits above still apply.
+PR #34 passed CI on its final revision and merged. The 0.1.1 DMG and matching source were
+published; both downloaded assets matched their local packages byte for byte. After the user
+confirmed no pending changes, the physical-Mac app was updated without resetting settings.
+Launch reconciliation retained one location, catalog and domain with no unknown domain or
+failed sequence. Signatures pass; app/provider entitlements are unchanged. LaunchServices and
+PlugInKit contain only the installed app and provider, with no temporary app copies retained.
+The original NAS was not modified. Physical-Mac file workflows remain unverified, and the
+Finder visibility limits above still apply.
 
 ## VM cleanup
 
@@ -87,6 +93,7 @@ reported 814 GiB available. These are guest filesystem readings, not host disk r
 performance measurements; cache state is not applicable.
 
 Logs, recordings, signed archives, app containers, pending files and the active CI workspace
-were preserved. Older desktop fixtures and editor apps remain; automatic approval review blocked
-editor shutdown pending explicit confirmation. The remaining cleanup is part of the release
-handoff. Removal details are in the VM's `results/vm-cleanup-20261106/`.
+were preserved. After explicit approval, TextEdit, Preview, Xcode and the remaining test app
+quit normally without discarding documents. The final check found none of those apps running
+and zero Finder windows. Older desktop fixtures remain preserved. Removal details and the final
+check are in the VM's `results/vm-cleanup-20261106/`.
