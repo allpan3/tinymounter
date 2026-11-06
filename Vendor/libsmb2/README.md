@@ -10,7 +10,8 @@ macOS still owns mount management and credentials. Saves write the ordinary file
 length, flush and close. NAS snapshots/backups own previous-version recovery.
 The checked-in source builds without network access. Release packaging must preserve the
 licence notices, source availability and the user's ability to rebuild and relink the library.
-Signed distribution remains a separate release gate.
+The 0.1.0 personal-use package includes these notices and a matching complete source archive.
+See [rebuilding and replacing the library](../../docs/release.md#rebuild-and-replace-the-library).
 
 Local changes:
 

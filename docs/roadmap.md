@@ -24,8 +24,9 @@ compatibility claim or an estimate of delivery time.
 
 Complete the integrated VM checks for ordinary Finder operations, Preview/Xcode saves,
 offline edits across a full OS restart, low-space refusal and OS cache eviction. Address defects
-found in those workflows. The user will provide physical-Mac daily-use feedback; agent-run
-physical-Mac workflow acceptance is not a prerequisite for this personal-use version.
+found in those workflows. On November 6 the user accepted shipping for personal use while
+leaving system-wide pressure eviction for future validation. The user will provide physical-Mac
+daily-use feedback; agent-run physical-Mac workflow acceptance is not a prerequisite for this personal-use version.
 
 Prepare version 0.1.0 with the visible app name TinyMounter, removing Prototype. Present simple
 logo drafts after functional work; the user chooses the logo before it is adopted. The user selected
@@ -43,8 +44,8 @@ Current checklist, 2026-11-06 (the dated results supersede older status notes be
 | M23 saves/retry | Ordinary overwrite, competing edits, shorter/empty saves, system pending items and automatic interrupted-upload retry | Broader compatibility and physical-Mac acceptance; old export/conflict recovery is removed |
 | M24 deletion | Ordinary Finder permanent deletion, confirmed Delete Permanently… and interrupted-operation Retry | No recoverable Trash; NAS backups own deleted contents |
 | M25 editor saves | Simplified saves cover TextEdit, Preview and Xcode; file Replace and combined rename/content callbacks pass signed checks | Packages and folder Replace remain outside scope |
-| M26 offline saves | Signed VM offline retention, full OS restart and automatic retry; low-space refusal retains edits | Repeat system-wide pressure eviction when approved; broader formats remain unverified |
-| M27/M28 acceptance and release | Integrated renamed VM candidate; required checks pass | Logo approval and packaging; system-wide pressure check needs approval. User handles physical-Mac daily-use feedback |
+| M26 offline saves | Signed VM offline retention, full OS restart and automatic retry; low-space refusal retains edits | System-wide pressure eviction deferred from 0.1.0 on November 6; broader formats remain unverified |
+| M27/M28 acceptance and release | Integrated renamed VM candidate; required checks pass | Release packaging and publication. Logo approved; system-wide pressure testing deferred. User handles physical-Mac daily-use feedback |
 
 Evidence: [editor saves](results/2026-11-03-editor-replacement.md),
 [candidate validation](results/2026-11-04-candidate-validation.md),

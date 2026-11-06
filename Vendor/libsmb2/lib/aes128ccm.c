@@ -1,3 +1,4 @@
+/* Modified for TinyMounter, 2026-10-31; see ../README.md. */
 /* -*-  mode:c; tab-width:8; c-basic-offset:8; indent-tabs-mode:nil;  -*- */
 /*
    Copyright (C) 2019 by Ronnie Sahlberg <ronniesahlberg@gmail.com>
