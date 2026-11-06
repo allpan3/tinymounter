@@ -58,3 +58,22 @@ saved share, draft, window size and steps: view the location, select Servers, re
 [Before](../media/setup-flow/before.gif) · [After](../media/setup-flow/after.gif).
 Raw evidence is in `results/share-access-ui-20261106/`. No location was added and no server
 content changed in this UI follow-up. The temporary test app was removed after inspection.
+
+## 0.1.1 release candidate
+
+Version 0.1.1, build 4 passed the required VM checks (520 tests, one optional skip, no Swift
+warnings). The signed isolated app repeated setup using the same saved share and empty test
+folder as 0.1.0: Select Again, Open the root, return to the draft, Add. Version 0.1.0 displayed
+another write-access picker; 0.1.1 added the writable location directly.
+[Before](../media/setup-add/before.gif) · [After](../media/setup-add/after.gif).
+The test location, empty server folder and temporary app were removed afterward.
+
+The release DMG uses macOS 27's `diskutil image create from`. A read-only VM mount verified
+strict/deep app signatures, app/provider version 0.1.1 and build 4, the Applications shortcut,
+four-line Read Me and separate licences/source instructions. Both binaries' entitlements match
+the installed 0.1.0 app, including its bundle identity and App Group. The DMG was ejected after
+inspection; no production-identity app was launched in the VM. Loose host signing and packaging
+bundles were removed. Raw evidence and matched frames are in `results/release-0.1.1/`.
+
+Publication and the physical-Mac update remain pending CI and merge. The original NAS was not
+modified. The Finder visibility limits above still apply.
