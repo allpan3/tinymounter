@@ -13,7 +13,7 @@ Tools/check-deletion-runtime.swift IN PLACE OF Prototype/App/TinyMounterApp.swif
 Keep every other app source, the bundle identity, entitlements and sandbox. No
 installation, provider registration or File Provider domain is needed. Launch the
 signed executable directly, as the fixture user:
-  ARCHIVE/TinyMounterPrototype.app/Contents/MacOS/TinyMounterPrototype \
+  ARCHIVE/TinyMounter.app/Contents/MacOS/TinyMounter \
     --m24-recursive PHASE RUN 3A9DE695-8327-4D86-B393-2520E71A75D8
 That location must be the existing writable one whose write bookmark is the share
 root. The helper only reads the original Settings. It keeps private Settings,

@@ -30,7 +30,7 @@ Run Python as root in the VM, with these arguments for every action:
    to the parent; this script does none of them.
 3. Run each phase below once, in order, as the fixture user, with a 560 s parent
    process timeout:
-     ARCHIVE/TinyMounterPrototype.app/Contents/MacOS/TinyMounterPrototype \
+     ARCHIVE/TinyMounter.app/Contents/MacOS/TinyMounter \
        --m24-cancellation PHASE RUN 3A9DE695-8327-4D86-B393-2520E71A75D8
 4. After each process exits, copy only PHASE-report.json from the container's
    Application Support/tinymounter/M24Cancellation/RUN/ to

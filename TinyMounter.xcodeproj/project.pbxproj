@@ -818,7 +818,7 @@
 		"681C948D238C526E9E3424E0" = {
 			"isa" = "PBXFileReference";
 			"explicitFileType" = "wrapper.application";
-			"path" = "TinyMounterPrototype.app";
+			"path" = "TinyMounter.app";
 			"sourceTree" = "BUILT_PRODUCTS_DIR";
 		};
 		"9B5EA5B470B5FDC806AA1095" = {
@@ -1505,7 +1505,7 @@
 		"B00CCDD09424E369308D67FA" = {
 			"isa" = "XCBuildConfiguration";
 			"buildSettings" = {
-				"PRODUCT_NAME" = "TinyMounterPrototype";
+				"PRODUCT_NAME" = "TinyMounter";
 				"PRODUCT_BUNDLE_IDENTIFIER" = "$(TINYMOUNTER_BUNDLE_ID)";
 				"INFOPLIST_FILE" = "Prototype/Config/App-Info.plist";
 				"CODE_SIGN_ENTITLEMENTS" = "Prototype/Config/App.entitlements";
@@ -1524,7 +1524,7 @@
 		"1B104479E55E37CF8A63CBDF" = {
 			"isa" = "XCBuildConfiguration";
 			"buildSettings" = {
-				"PRODUCT_NAME" = "TinyMounterPrototype";
+				"PRODUCT_NAME" = "TinyMounter";
 				"PRODUCT_BUNDLE_IDENTIFIER" = "$(TINYMOUNTER_BUNDLE_ID)";
 				"INFOPLIST_FILE" = "Prototype/Config/App-Info.plist";
 				"CODE_SIGN_ENTITLEMENTS" = "Prototype/Config/App.entitlements";
@@ -1942,8 +1942,8 @@
 		};
 		"C1E9827DB735CA9BAA54A540" = {
 			"isa" = "PBXNativeTarget";
-			"name" = "TinyMounterPrototype";
-			"productName" = "TinyMounterPrototype";
+			"name" = "TinyMounter";
+			"productName" = "TinyMounter";
 			"productType" = "com.apple.product-type.application";
 			"productReference" = "681C948D238C526E9E3424E0";
 			"buildConfigurationList" = "7BCEE9A04133D8A2FED7D4D3";

@@ -65,7 +65,7 @@ that fails too, send a `git bundle` of the new commits with VMPal's file transfe
 it. Raw `results/` and the `.local/` helpers stay in the VM. CI has its own clone in
 `~/ci/tinymounter`; don't work in it.
 
-On the physical Mac, keep only `/Applications/TinyMounterPrototype.app` outside active signing
+On the physical Mac, keep only `/Applications/TinyMounter.app` outside active signing
 or installation work. Unregister and remove temporary signing/transfer bundles after packaging
 or transfer, and remove the temporary rollback copy after verifying an installation. Do not
 retain app backups. Keep test logs and other evidence; loose `.app` copies can reappear in
@@ -157,7 +157,7 @@ request ([CONTRIBUTING.md](CONTRIBUTING.md#pull-requests)). It checks that:
 - `swift test` passes.
 - `swift build -c release && python3 Tools/verify-benchmark.py` passes.
 - The unsigned app build succeeds with no Swift warnings:
-  `xcodebuild -project TinyMounter.xcodeproj -scheme TinyMounterPrototype -configuration Release -derivedDataPath .build/xcode CODE_SIGNING_ALLOWED=NO build`
+  `xcodebuild -project TinyMounter.xcodeproj -scheme TinyMounter -configuration Release -derivedDataPath .build/xcode CODE_SIGNING_ALLOWED=NO build`
 - The SMB SET_INFO encoder preserves file handles and encodes rename destinations correctly,
   checked against the built library without a network connection.
 

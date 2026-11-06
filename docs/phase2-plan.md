@@ -159,7 +159,7 @@ moved criterion 7 to phase 6, and criterion 8 to phase 3, whose tests need a wri
 
 | Process | Owns | Never |
 | --- | --- | --- |
-| `TinyMounterPrototype.app`, sandboxed app with a Dock icon and a menu bar item | settings, share grants, mount sessions, all share I/O (list, stat, read), every catalog write, domain add and remove, staging files, relisting, notifications, UI | writes to the share, mounts, logs names |
+| `TinyMounter.app`, sandboxed app with a Dock icon and a menu bar item | settings, share grants, mount sessions, all share I/O (list, stat, read), every catalog write, domain add and remove, staging files, relisting, notifications, UI | writes to the share, mounts, logs names |
 | `TinyMounterProvider.appex`, one process per domain | File Provider callbacks, catalog reads, staging handoff, per-item read-ahead, Finder actions | opens the share, writes or creates a catalog |
 | `fileproviderd` | replica, materialization, Finder integration | — |
 
