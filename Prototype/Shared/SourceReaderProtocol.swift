@@ -32,8 +32,7 @@ import FileProvider
 
 enum SourceReaderBridge {
     static let folderOrganizationEnabled = true
-    // Finder Replace sends the same delete callback before it saves the incoming file.
-    static let deletionEnabled = false
+    static let deletionEnabled = true
     static let permanentDeletionEnabled = true
     /// Only an enabled route admits a deletion record, so Retry may continue its recorded request.
     static var deletionResumeEnabled: Bool { deletionEnabled || permanentDeletionEnabled }

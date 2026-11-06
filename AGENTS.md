@@ -65,8 +65,8 @@ that fails too, send a `git bundle` of the new commits with VMPal's file transfe
 it. Raw `results/` and the `.local/` helpers stay in the VM. CI has its own clone in
 `~/ci/tinymounter`; don't work in it.
 
-On the physical Mac, keep only `/Applications/TinyMounter.app` outside active signing
-or installation work. Unregister and remove temporary signing/transfer bundles after packaging
+On the physical Mac, keep only the installed app outside active signing or installation work:
+`/Applications/TinyMounter.app`, or the earlier `TinyMounterPrototype.app` until its replacement. Unregister and remove temporary signing/transfer bundles after packaging
 or transfer, and remove the temporary rollback copy after verifying an installation. Do not
 retain app backups. Keep test logs and other evidence; loose `.app` copies can reappear in
 Spotlight even after LaunchServices unregisters them.

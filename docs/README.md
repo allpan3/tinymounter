@@ -27,6 +27,8 @@ it wrong.
 
 ## Results logs
 
+- [Personal-use 0.1.0 acceptance](results/2026-11-06-personal-use-acceptance.md). App naming, restart retention, editor saves, low-space refusal, Finder deletion/Replace and combined saves; native reconnection and pressure-test limits.
+
 - [SMB simplification](results/2026-11-05-smb-simplification.md). Ordinary saves replace remote recovery and content proofs. Interrupted uploads retry automatically; matched VM save/read measurements record the remaining read-performance gap.
 
 - [Spotlight cleanup](results/2026-11-05-spotlight-cleanup.md). Removed leftover app bundles and stale registrations on the physical Mac; signing and installation cleanup now prevents retained runnable copies.
