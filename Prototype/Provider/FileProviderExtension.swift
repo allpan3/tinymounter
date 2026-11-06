@@ -600,25 +600,45 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             var staged: URL?
             defer { if let staged { try? FileManager.default.removeItem(at: staged) } }
             do {
-                guard let row = try catalog.read({ try $0.item(id: item.itemIdentifier.rawValue) }) else {
-                    throw CocoaError(.fileReadUnknown)
-                }
-                guard row.allowsWriting, row.name.utf8.elementsEqual(item.filename.utf8),
-                      row.parentID == item.parentItemIdentifier.rawValue,
+                guard !progress.isCancelled else { throw TransferError.cancelled }
+                var row = try catalog.liveRow(item.itemIdentifier.rawValue)
+                let changesName = !row.name.utf8.elementsEqual(item.filename.utf8)
+                let changesParent = row.parentID != item.parentItemIdentifier.rawValue
+                guard row.allowsWriting, row.kind == .file,
+                      !changesName || changedFields.contains(.filename),
+                      !changesParent || changedFields.contains(.parentItemIdentifier),
                       item.contentType?.conforms(to: .package) != true else {
                     throw CocoaError(.fileWriteNoPermission)
                 }
                 let base = String(data: baseVersion.contentVersion, encoding: .utf8) ?? "unproven"
+                if options.contains(.failOnConflict), row.contentVersion != base {
+                    throw NSFileProviderError(.localVersionConflictingWithServer)
+                }
                 let id = UUID(), target = try SharedContainer.uploadInbox(id)
                 let input = try ReadOnlyFile(url: contents, allowMaterialization: true)
                 guard Int128(try DownloadSpace.available(at: target.deletingLastPathComponent()))
                     >= Int128(DownloadSpace.reserveBytes) + Int128(input.snapshot.size) else {
                     throw CocoaError(.fileWriteOutOfSpace)
                 }
-                try FileManager.default.copyItem(at: contents, to: target)
                 staged = target
+                try FileManager.default.copyItem(at: contents, to: target)
                 // File Provider delivers syncable attributes separately from the content snapshot.
                 try Staging.retainExtendedAttributes(attributes, at: target)
+                guard !progress.isCancelled else { throw TransferError.cancelled }
+                if changesName || changesParent {
+                    let rename = try FileRenameRequest(item: row.id, parent: item.parentItemIdentifier.rawValue,
+                        name: item.filename, contentVersion: row.contentVersion, metadataVersion: row.metadataVersion,
+                        changesName: changedFields.contains(.filename),
+                        changesParent: changedFields.contains(.parentItemIdentifier))
+                    let renamed = try sourceReader.renameFile(rename, progress: progress)
+                    guard renamed.item == row.id else { throw NSFileProviderError(.cannotSynchronize) }
+                    row = try catalog.liveRow(row.id)
+                }
+                guard !progress.isCancelled else { throw TransferError.cancelled }
+                guard row.name.utf8.elementsEqual(item.filename.utf8),
+                      row.parentID == item.parentItemIdentifier.rawValue else {
+                    throw NSFileProviderError(.cannotSynchronize)
+                }
                 let message = try EditRequest(item: row.id, parent: item.parentItemIdentifier.rawValue,
                                                name: item.filename, baseVersion: base, staging: id,
                                                failOnConflict: options.contains(.failOnConflict))
@@ -628,7 +648,8 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 completion(CatalogItem(current), changedFields.subtracting([.contents, .filename, .parentItemIdentifier]),
                            current.contentVersion != receipt.contentVersion, nil)
             } catch {
-                completion(nil, [], false, providerError(error))
+                completion(nil, [], false,
+                           mutationError(error, parent: item.parentItemIdentifier.rawValue, name: item.filename))
             }
         }
         return progress
