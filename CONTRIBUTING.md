@@ -77,6 +77,9 @@ declined if the feature isn't worth its weight. Docs-only changes and obvious fi
 
 ## Changelog and releases
 
+- Package future macOS downloads as a DMG. Keep the included Read Me very short: only the
+  essential install and first-open steps, with an exact signing command if signing is actually
+  required. Keep detailed validation, build instructions and dependency notices separate.
 - **No hand-maintained `CHANGELOG.md`.** The changelog is the list of merged PR titles, so release
   notes can be generated from merged PRs, for example with GitHub's generated release notes. That
   only works if PR titles are written for users.
