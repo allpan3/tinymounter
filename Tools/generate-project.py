@@ -85,7 +85,7 @@ base_config = ref(config_path, "text.xcconfig")
 config_refs = [base_config] + [ref("Prototype/Config/" + path, "text.plist.xml") for path in
     ["App-Info.plist", "Provider-Info.plist", "App.entitlements", "Provider.entitlements"]]
 app_product = add("app-product", "PBXFileReference", explicitFileType="wrapper.application",
-                  path="TinyMounterPrototype.app", sourceTree="BUILT_PRODUCTS_DIR")
+                  path="TinyMounter.app", sourceTree="BUILT_PRODUCTS_DIR")
 extension_product = add("extension-product", "PBXFileReference", explicitFileType="wrapper.app-extension",
                         path="TinyMounterProvider.appex", sourceTree="BUILT_PRODUCTS_DIR")
 smb_product = add("smb-product", "PBXFileReference", explicitFileType="compiled.mach-o.dylib",
@@ -158,7 +158,7 @@ add("smb-target", "PBXNativeTarget", name="TinyMounterSMB", productName="TinyMou
     productType="com.apple.product-type.library.dynamic", productReference=smb_product,
     buildConfigurationList=smb_configs, buildPhases=[source_phase("smb", smb_paths)],
     buildRules=[], dependencies=[])
-app_configs = configs("app", dict(PRODUCT_NAME="TinyMounterPrototype", PRODUCT_BUNDLE_IDENTIFIER="$(TINYMOUNTER_BUNDLE_ID)",
+app_configs = configs("app", dict(PRODUCT_NAME="TinyMounter", PRODUCT_BUNDLE_IDENTIFIER="$(TINYMOUNTER_BUNDLE_ID)",
     INFOPLIST_FILE="Prototype/Config/App-Info.plist", CODE_SIGN_ENTITLEMENTS="Prototype/Config/App.entitlements",
     SWIFT_OBJC_BRIDGING_HEADER="Prototype/SMB/SMBRename.h",
     LD_RUNPATH_SEARCH_PATHS=["$(inherited)", "@executable_path/../Frameworks"]))
@@ -166,7 +166,7 @@ provider_configs = configs("provider", dict(PRODUCT_NAME="TinyMounterProvider", 
     INFOPLIST_FILE="Prototype/Config/Provider-Info.plist", CODE_SIGN_ENTITLEMENTS="Prototype/Config/Provider.entitlements",
     APPLICATION_EXTENSION_API_ONLY="YES", SKIP_INSTALL="YES",
     LD_RUNPATH_SEARCH_PATHS=["$(inherited)", "@executable_path/../Frameworks", "@executable_path/../../../../Frameworks"]))
-app_key = add("app-target", "PBXNativeTarget", name="TinyMounterPrototype", productName="TinyMounterPrototype",
+app_key = add("app-target", "PBXNativeTarget", name="TinyMounter", productName="TinyMounter",
     productType="com.apple.product-type.application", productReference=app_product, buildConfigurationList=app_configs,
     buildPhases=[source_phase("app", core_paths + app_paths), smb_link_phase, embed_phase, smb_embed_phase, notice_phase],
     buildRules=[], dependencies=[dependency, smb_dependency])
@@ -199,15 +199,15 @@ project = dict(archiveVersion=1, classes={}, objectVersion=56, objects=objects, 
 (project_dir / "project.pbxproj").write_text("// !$*UTF8*$!\n" + render(project) + "\n")
 scheme_dir = project_dir / "xcshareddata/xcschemes"
 scheme_dir.mkdir(parents=True, exist_ok=True)
-(scheme_dir / "TinyMounterPrototype.xcscheme").write_text(f'''<?xml version="1.0" encoding="UTF-8"?>
+(scheme_dir / "TinyMounter.xcscheme").write_text(f'''<?xml version="1.0" encoding="UTF-8"?>
 <Scheme LastUpgradeVersion="2700" version="1.3">
  <BuildAction parallelizeBuildables="YES" buildImplicitDependencies="YES"><BuildActionEntries>
   <BuildActionEntry buildForTesting="YES" buildForRunning="YES" buildForProfiling="YES" buildForArchiving="YES" buildForAnalyzing="YES">
-   <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="{app_key}" BuildableName="TinyMounterPrototype.app" BlueprintName="TinyMounterPrototype" ReferencedContainer="container:TinyMounter.xcodeproj"/>
+   <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="{app_key}" BuildableName="TinyMounter.app" BlueprintName="TinyMounter" ReferencedContainer="container:TinyMounter.xcodeproj"/>
   </BuildActionEntry>
  </BuildActionEntries></BuildAction>
  <LaunchAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.IDEFoundation.Launcher.LLDB" launchStyle="0" useCustomWorkingDirectory="NO" ignoresPersistentStateOnLaunch="NO" debugDocumentVersioning="YES" allowLocationSimulation="YES">
-  <BuildableProductRunnable runnableDebuggingMode="0"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="{app_key}" BuildableName="TinyMounterPrototype.app" BlueprintName="TinyMounterPrototype" ReferencedContainer="container:TinyMounter.xcodeproj"/></BuildableProductRunnable>
+  <BuildableProductRunnable runnableDebuggingMode="0"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="{app_key}" BuildableName="TinyMounter.app" BlueprintName="TinyMounter" ReferencedContainer="container:TinyMounter.xcodeproj"/></BuildableProductRunnable>
  </LaunchAction>
  <ProfileAction buildConfiguration="Release" shouldUseLaunchSchemeArgsEnv="YES" useCustomWorkingDirectory="NO" debugDocumentVersioning="YES"/>
  <AnalyzeAction buildConfiguration="Debug"/>

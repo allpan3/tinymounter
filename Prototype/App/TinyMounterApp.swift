@@ -4,7 +4,7 @@ import SwiftUI
 
 /// Plan §8: a Dock icon, the menu bar item and the Settings window.
 @main
-struct TinyMounterPrototypeApp: App {
+struct TinyMounterApp: App {
     @NSApplicationDelegateAdaptor private var delegate: AppDelegate
     @AppStorage(MenuBarSettings.showKey) private var showMenuBar = true
 

@@ -20,7 +20,7 @@ xcrun swiftc Prototype/Shared/ProviderDomainVersion.swift Tools/check-deletion-e
 
 log=$(mktemp)
 trap 'rm -f "$log"' EXIT
-xcodebuild -project TinyMounter.xcodeproj -scheme TinyMounterPrototype -configuration Release \
+xcodebuild -project TinyMounter.xcodeproj -scheme TinyMounter -configuration Release \
     -derivedDataPath .build/xcode CODE_SIGNING_ALLOWED=NO build 2>&1 | tee "$log"
 if grep -E '\.swift:[0-9]+:[0-9]+: warning:' "$log"; then
     echo "The app build has Swift warnings." >&2

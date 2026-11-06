@@ -108,7 +108,7 @@ Apple's paid Developer Program is [US$99 per membership year](https://developer.
 
 **VM sign-in resolved:** Xcode now loads the Personal Team and has successfully created a development certificate. Earlier failures included DNS and AVP guest identity errors; see the [sign-in diagnostic notes](results/2026-10-10-xcode-signin.md). The exact cause of recovery is not isolated. Signed build/provisioning and local extension loading have now succeeded; see the separate runtime report.
 
-Build and run the `TinyMounterPrototype` scheme with normal development signing. The app has the
+Build and run the `TinyMounter` scheme with normal development signing. The app has the
 phase 2 interface of [ui-design.md](ui-design.md): a Settings window (⌘,) with the locations in
 its sidebar, and a menu bar item with Pause Downloads. With no locations, or with the menu bar
 item hidden, the window opens at launch. Closing it keeps the app running; the Dock icon or the
@@ -142,7 +142,7 @@ reuse of a visible Finder mount. The update is installed and launches on the phy
 connection checks there remain.
 
 **File Provider approval.** If macOS disables the File Provider, the location shows
-"File Provider is off." and Open System Settings…. In Extensions, open TinyMounterPrototype
+"File Provider is off." and Open System Settings…. In Extensions, open TinyMounter
 and turn on File Provider. The location's status updates when the system reports the change;
 the user does not need to remove the location or restart the app. The
 [approval checks](results/2026-10-18-file-provider-approval.md) verified recovery on the physical
@@ -230,7 +230,7 @@ Both targets include local-network and Network Volumes usage descriptions and th
 The unsigned compile check, which does not install or run the extension, is:
 
 ```sh
-xcodebuild -project TinyMounter.xcodeproj -scheme TinyMounterPrototype -configuration Release -derivedDataPath .build/xcode CODE_SIGNING_ALLOWED=NO build
+xcodebuild -project TinyMounter.xcodeproj -scheme TinyMounter -configuration Release -derivedDataPath .build/xcode CODE_SIGNING_ALLOWED=NO build
 ```
 
 `Tools/generate-project.py` reproducibly creates the checked-in two-target project using only Python's standard library. If changing target/source structure, update the generator too; regenerating replaces manual project/scheme edits. Signing team and identifier settings can live in the shared xcconfig.
@@ -321,7 +321,11 @@ The build embeds no provisioning profile, because its entitlements need none on 
 Development certificate, which is valid for one year (in the VM, from 2026-10-11 to 2027-10-11).
 Build again with a new certificate before it expires: what an expired one does is untested.
 
-On the physical Mac, keep only `/Applications/TinyMounterPrototype.app` outside active signing
+Version 0.1.0 builds as `TinyMounter.app`; the target and scheme are `TinyMounter`.
+The rename keeps the bundle identifiers, App Group and sandbox entitlements. When replacing an
+earlier installation, unregister and remove `TinyMounterPrototype.app` after verifying the new app.
+
+On the physical Mac, keep only `/Applications/TinyMounter.app` outside active signing
 or installation work. Unregister and remove temporary signing/transfer bundles after packaging
 or transfer, and remove the temporary rollback copy after verifying an installation. Do not
 retain app backups. Keep test logs and other evidence. Unregistering a loose `.app` bundle alone
@@ -364,7 +368,7 @@ carry no schema version; incompatible prototype state requires Start Fresh.
    remaining test mounts in Other Connected Shares.
 3. In General, turn off **Open at login**.
 4. Click **Quit tinymounter** in the menu bar item.
-5. Delete `TinyMounterPrototype.app`.
+5. Delete `TinyMounter.app`.
 6. Optionally, delete its data: `~/Library/Containers/<bundle ID>` and
    `~/Library/Containers/<bundle ID>.provider`, and
    `~/Library/Group Containers/<team>.<bundle ID>`. They hold the share grant, the settings and the

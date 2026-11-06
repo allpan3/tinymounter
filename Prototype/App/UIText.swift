@@ -3,7 +3,7 @@ import Foundation
 
 /// All UI text, in ASD-STE100 (docs/ui-design.md §8), so the STE checker reads one file.
 enum UIText {
-    static let appName = "tinymounter"
+    static let appName = "TinyMounter"
 
     // Sidebar
     static let locations = "Locations"
@@ -286,7 +286,7 @@ enum UIText {
     static let folderNotOnShare = "This folder is not on the share."
     static let catalogUnavailable = "tinymounter cannot read the data for this location. Remove the location. Then add it again."
     static let turnedOff = "File Provider is off."
-    static let enableFileProvider = "In Extensions, open TinyMounterPrototype. Then turn on File Provider."
+    static let enableFileProvider = "In Extensions, open TinyMounter. Then turn on File Provider."
     static let openSystemSettings = "Open System Settings…"
     static let problem = "Problem"
 
