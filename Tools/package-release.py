@@ -3,6 +3,7 @@
 import argparse
 from pathlib import Path
 import plistlib
+import re
 import shutil
 import subprocess
 import tempfile
@@ -19,8 +20,8 @@ def main():
     app = args.app.resolve()
     info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
     version = info["CFBundleShortVersionString"]
-    if app.name != "TinyMounter.app" or version != "0.1.0":
-        parser.error("expected the TinyMounter 0.1.0 app")
+    if app.name != "TinyMounter.app" or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
+        parser.error("expected TinyMounter.app with a release version")
     binary = app / "Contents/MacOS" / info["CFBundleExecutable"]
     arch = subprocess.check_output(["lipo", "-archs", str(binary)], text=True).strip()
     if arch != "arm64":
@@ -28,7 +29,7 @@ def main():
     subprocess.run(["codesign", "--verify", "--deep", "--strict", str(app)], check=True)
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
-    archive = output / f"TinyMounter-{version}-macOS-arm64.zip"
+    archive = output / f"TinyMounter-{version}-macOS-arm64.dmg"
     if archive.exists():
         parser.error("output archive already exists")
     with tempfile.TemporaryDirectory(prefix="package-", dir=output) as temporary:
@@ -37,17 +38,26 @@ def main():
         staged_app = package / app.name
         try:
             subprocess.run(["ditto", str(app), str(staged_app)], check=True)
+            (package / "Applications").symlink_to("/Applications")
+            (package / "Read Me.txt").write_text(
+                "Quit TinyMounter after pending uploads finish.\n"
+                "Drag TinyMounter to Applications, replacing the old app, then eject this disk.\n"
+                "Open TinyMounter from Applications. If blocked, use System Settings > Privacy & Security > Open Anyway.\n"
+                "The app is already signed. No Terminal signing command is needed.\n")
+            notices = package / "Licences and Source"
+            notices.mkdir()
             for source, name in [
-                (ROOT / "docs/release.md", "Read Me.md"),
+                (ROOT / "docs/release.md", "Build and Release Notes.md"),
                 (ROOT / "LICENSE", "LICENSE.txt"),
                 (ROOT / "Vendor/libsmb2/LICENCE-LGPL-2.1.txt", "libsmb2-LICENSE.txt"),
                 (ROOT / "Vendor/libsmb2/README.md", "libsmb2-NOTICES.md"),
             ]:
-                shutil.copyfile(source, package / name)
-            notice = package / "libsmb2-NOTICES.md"
-            notice.write_text(notice.read_text().replace("../../docs/release.md", "Read%20Me.md"))
+                shutil.copyfile(source, notices / name)
+            notice = notices / "libsmb2-NOTICES.md"
+            notice.write_text(notice.read_text().replace("../../docs/release.md", "Build%20and%20Release%20Notes.md"))
             subprocess.run(["codesign", "--verify", "--deep", "--strict", str(staged_app)], check=True)
-            subprocess.run(["ditto", "-c", "-k", "--sequesterRsrc", "--keepParent",
+            subprocess.run(["diskutil", "image", "create", "from", "--volumeName",
+                            f"TinyMounter {version}", "--format", "UDZO",
                             str(package), str(archive)], check=True)
         except BaseException:
             archive.unlink(missing_ok=True)

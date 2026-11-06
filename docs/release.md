@@ -1,23 +1,24 @@
-# Install TinyMounter 0.1.0
+# Install TinyMounter 0.1.1
 
-This first release is for personal use on **Apple silicon with macOS 27 or later**.
+This release is for personal use on **Apple silicon with macOS 27 or later**.
 It uses development signing, without Apple notarization. Intel Macs and older macOS versions
 are not supported by this package. Download it while signed in to the private GitHub repository:
 
-[TinyMounter 0.1.0](https://github.com/allpan3/tinymounter/releases/tag/v0.1.0)
+[TinyMounter 0.1.1](https://github.com/allpan3/tinymounter/releases/tag/v0.1.1)
 
 ## Install or update
 
-1. Download `TinyMounter-0.1.0-macOS-arm64.zip` and open it.
+1. Download `TinyMounter-0.1.1-macOS-arm64.dmg` and open it.
 2. If TinyMounter is running, let pending uploads finish, then quit it from its menu.
-3. Drag `TinyMounter.app` to Applications, replacing the existing app. Remove an older
-   `TinyMounterPrototype.app` if it remains there. Keep only one installed copy.
+3. Drag `TinyMounter.app` to Applications, replacing the existing app, then eject the DMG.
+   Keep only one installed copy. The app is already signed; no Terminal signing command is needed.
 4. Open TinyMounter from Applications. If macOS blocks it because Apple cannot verify it,
    use **System Settings → Privacy & Security → Open Anyway**, confirm Open Anyway again,
    and authenticate with your Mac administrator account if asked.
    Do not turn off Gatekeeper or change system security settings.
 5. If macOS asks, enable TinyMounter under **General → Login Items & Extensions → File Providers**.
-   Add your server, connect to its SMB share, and choose a location in TinyMounter.
+   Add your server and select its share once. Choose a folder and click Add; TinyMounter
+   connects automatically when needed.
 
 The update retains the installed app's signing identity, bundle identifiers, App Group and
 sandbox entitlements. It does not migrate or clear settings. If an older experimental setup
@@ -51,8 +52,8 @@ Known limits for this release:
 ## Source and licences
 
 TinyMounter's own code is MIT licensed. The separate `libTinyMounterSMB.dylib` contains modified
-libsmb2 6.3 under LGPL-2.1-or-later. The archive includes both licences and the library notices;
-the app also includes the library's licence. The release supplies `TinyMounter-0.1.0-source.tar.gz`,
+libsmb2 6.3 under LGPL-2.1-or-later. The DMG includes both licences and the library notices separately from its short Read Me;
+the app also includes the library's licence. The release supplies `TinyMounter-0.1.1-source.tar.gz`,
 with the complete matching app/library source, modifications and build scripts. This permits
 rebuilding the app with a modified library; no signing key is required from the publisher.
 
@@ -81,6 +82,6 @@ in `AGENTS.md`. `Tools/package-release.py` packages a signed app; create the mat
 archive with:
 
 ```sh
-git archive --format=tar.gz --prefix=TinyMounter-0.1.0/ \
-  --output=TinyMounter-0.1.0-source.tar.gz v0.1.0
+git archive --format=tar.gz --prefix=TinyMounter-0.1.1/ \
+  --output=TinyMounter-0.1.1-source.tar.gz v0.1.1
 ```

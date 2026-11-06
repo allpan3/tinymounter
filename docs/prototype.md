@@ -447,7 +447,8 @@ the existing catalog ID and diagnostic counts retained; the location remains rea
 [installation results](results/2026-10-25-keep-both.md#physical-mac-installation-2026-10-27).
 See the [results](results/2026-10-23-create-items.md). In the development UI, a location's Access
 section has one Read only toggle. It defaults off for a new location; a duplicate inherits
-the original's mode. Writable setup asks for access to the same share root. The grant belongs to this location. Ordinary file/folder organization and the confirmed
+the original's mode. Writable setup reuses the share's retained permission. Earlier settings without
+that permission ask once for the share root and retain it for subsequent locations. Ordinary file/folder organization and the confirmed
 Delete Permanently… command are enabled, along with ordinary Finder deletion and file Replace.
 Packages, folder Replace and symbolic links remain outside the verified capability set.
 
