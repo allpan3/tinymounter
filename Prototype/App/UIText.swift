@@ -225,7 +225,7 @@ enum UIText {
     static func pendingMove(from: String, to: String) -> String { "Move \(from) to \(to)" }
     static let conflictSaved = "Saved as a conflict copy"
     static let dismissEditNotice = "Dismiss Notice"
-    static let writeGrantMessage = "Select the root of this share to confirm write access."
+    static let writeGrantMessage = "Select this share once to allow changes. TinyMounter will remember this permission for its locations."
     static let pendingUploadHint = "Keep this location and its source until the changes finish. Pending content stays on this Mac. An interrupted change may need recovery."
     static let uploadAccessError = "Select this share again. Read only cannot be enabled while changes are pending."
     static func pendingUploads(_ count: Int) -> String { "Pending changes: \(count)" }
@@ -379,7 +379,7 @@ enum UIText {
     static func cannotDo(_ code: String) -> String { "tinymounter cannot do this (\(code))." }
 
     // Panels
-    static let selectShareMessage = "Click Open to give tinymounter access to this share."
+    static let selectShareMessage = "Click Open to give TinyMounter access to this share. Use Read only in a location to prevent changes."
     static let selectFolderMessage = "Select a folder in the share."
 
     // Servers

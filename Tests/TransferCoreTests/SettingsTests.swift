@@ -196,6 +196,49 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(enabled.activeWriteBookmark, Data([4]))
     }
 
+    func testShareWritePermissionSurvivesRelaunchWithoutEnablingLocations() throws {
+        let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "account@fixture")))
+        let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), writeBookmark: Data([2]),
+                                mountFrom: "//account@fixture/share",
+                                address: try XCTUnwrap(ShareAddress("//account@fixture/share")))
+        let location = LocationRecord(name: "Read", grantID: grant.id, folder: .root)
+        let settings = AppSettings(servers: [server], shares: [grant], locations: [location])
+        let url = directory.appending(path: "Settings.json")
+        try settings.save(to: url)
+        let restored = try AppSettings.load(from: url)
+        XCTAssertEqual(restored, settings)
+        XCTAssertEqual(restored.writeBookmark(for: grant.id), Data([2]))
+        XCTAssertTrue(restored.locations[0].readOnly)
+        XCTAssertNil(restored.locations[0].activeWriteBookmark)
+        XCTAssertEqual(try mode(url), 0o600)
+    }
+
+    func testEarlierSettingsReuseOnlyTheSameGrantsLocationPermission() throws {
+        let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "fixture")))
+        let grants = try ["//account@fixture/share", "//other@fixture/share", "//account@fixture/other"].map {
+            ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: $0,
+                        address: try XCTUnwrap(ShareAddress($0)))
+        }
+        let readOnly = LocationRecord(name: "Read", grantID: grants[0].id, folder: .root)
+        var previouslyWritable = LocationRecord(name: "Retained", grantID: grants[0].id, folder: .root)
+        previouslyWritable.writeBookmark = Data([4])
+        let settings = AppSettings(servers: [server], shares: grants, locations: [readOnly, previouslyWritable])
+        let data = try JSONEncoder().encode(settings)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let shares = try XCTUnwrap(json["shares"] as? [[String: Any]])
+        XCTAssertTrue(shares.allSatisfy { $0["writeBookmark"] == nil })
+        var restored = try JSONDecoder().decode(AppSettings.self, from: data)
+        XCTAssertEqual(restored, settings)
+        XCTAssertEqual(restored.writeBookmark(for: grants[0].id), Data([4]))
+        XCTAssertNil(restored.writeBookmark(for: grants[1].id))
+        XCTAssertNil(restored.writeBookmark(for: grants[2].id))
+        XCTAssertTrue(restored.locations.allSatisfy { $0.activeWriteBookmark == nil })
+        restored.shares[0].writeBookmark = Data([5])
+        XCTAssertEqual(restored.writeBookmark(for: grants[0].id), Data([5]))
+        restored.shares.removeFirst()
+        XCTAssertNil(restored.writeBookmark(for: grants[0].id))
+    }
+
     func testNormalizedFolderTrimsSlashesAndRejectsInvalidComponents() {
         for (text, folder) in [("", ""), ("/", ""), ("///", ""), ("/Movies/", "Movies"), ("Movies/2024", "Movies/2024"),
                                ("//Movies/2024//", "Movies/2024"), ("/\u{301}a/", "\u{301}a"), (" a ", " a ")] {

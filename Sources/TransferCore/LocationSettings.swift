@@ -68,6 +68,13 @@ public struct AppSettings: Codable, Equatable, Sendable {
         return locations.contains { grants.contains($0.grantID) }
     }
 
+    public func writeBookmark(for grantID: UUID) -> Data? {
+        guard let grant = shares.first(where: { $0.id == grantID }) else { return nil }
+        return grant.writeBookmark ?? locations.first(where: {
+            $0.grantID == grantID && $0.writeBookmark != nil
+        })?.writeBookmark
+    }
+
     public mutating func removeServer(_ id: UUID) throws {
         guard !serverIsUsed(id) else { throw SettingsError.serverInUse }
         shares.removeAll { $0.serverID == id }
@@ -116,15 +123,19 @@ public struct ServerGrant: Codable, Equatable, Sendable {
     public var serverID: UUID
     /// App-scoped, with `.withSecurityScope` and `.securityScopeAllowOnlyReadAccess`.
     public var bookmark: Data
+    /// Retained permission; each location still controls whether writes are enabled.
+    public var writeBookmark: Data?
     /// `f_mntfromname`, "//account@host/share".
     public let mountFrom: String
     /// From `NSURLVolumeURLForRemountingKey`.
     public let host: String, account: String, share: String
 
-    public init(id: UUID = UUID(), serverID: UUID, bookmark: Data, mountFrom: String, address: ShareAddress) {
+    public init(id: UUID = UUID(), serverID: UUID, bookmark: Data, writeBookmark: Data? = nil,
+                mountFrom: String, address: ShareAddress) {
         self.id = id
         self.serverID = serverID
         self.bookmark = bookmark
+        self.writeBookmark = writeBookmark
         self.mountFrom = mountFrom
         host = address.host
         account = address.account

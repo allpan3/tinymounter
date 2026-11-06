@@ -238,6 +238,7 @@ final class LocationController {
         try store.update { settings in
             if let index = settings.shares.firstIndex(where: { $0.mountFrom == grant.mountFrom }) {
                 settings.shares[index].bookmark = grant.bookmark
+                settings.shares[index].writeBookmark = grant.writeBookmark
                 settings.shares[index].serverID = grant.serverID
                 saved = settings.shares[index].id
             } else {
@@ -251,6 +252,16 @@ final class LocationController {
         }
         onChange?()
         return saved
+    }
+
+    func saveWriteGrant(_ bookmark: Data, grantID: UUID) throws {
+        try store.update { settings in
+            guard let index = settings.shares.firstIndex(where: { $0.id == grantID }) else {
+                throw UploadError.readOnly
+            }
+            settings.shares[index].writeBookmark = bookmark
+        }
+        onChange?()
     }
 
     func saveServer(_ address: ServerAddress) throws -> UUID {

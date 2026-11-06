@@ -433,6 +433,9 @@ final class AppModel {
         Task {
             defer { busy.remove(draftID) }
             do {
+                if controller.mountPath(grantID) == nil {
+                    guard let grant = grant(grantID), await connectShare(grant) else { return }
+                }
                 var bookmark: Data?
                 if !draft.readOnly {
                     guard let granted = try await writeGrant(grantID: grantID) else { return }
@@ -583,7 +586,7 @@ final class AppModel {
             do {
                 var bookmark = record.writeBookmark
                 if !readOnly {
-                    guard let granted = try await writeGrant(grantID: record.grantID, existing: bookmark) else { return }
+                    guard let granted = try await writeGrant(grantID: record.grantID) else { return }
                     bookmark = granted
                 }
                 try await controller.setWriteMode(id, readOnly: readOnly, bookmark: bookmark)
@@ -591,24 +594,28 @@ final class AppModel {
         }
     }
 
-    private func writeGrant(grantID: UUID, existing: Data? = nil) async throws -> Data? {
+    private func writeGrant(grantID: UUID) async throws -> Data? {
         guard let grant = grant(grantID) else { throw UploadError.readOnly }
-        if let existing { return existing }
+        if let bookmark = store.settings?.writeBookmark(for: grantID) { return bookmark }
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
+        panel.canCreateDirectories = false
         panel.allowsMultipleSelection = false
+        panel.resolvesAliases = false
         panel.message = UIText.writeGrantMessage
         panel.prompt = UIText.confirmWriteSetup
-        if let path = controller.mountPath(grantID) { panel.directoryURL = URL(filePath: path) }
+        panel.directoryURL = URL(filePath: controller.mountPath(grantID) ?? "/Volumes", directoryHint: .isDirectory)
         guard await run(panel), let url = panel.url else { return nil }
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         guard let mount = try ShareAccess.connectedShares().first(where: {
             $0.path == ShareAccess.filePath(url)
         }), mount.identity.mountFrom == grant.mountFrom else { throw UploadError.readOnly }
-        return try url.bookmarkData(options: [.withSecurityScope],
-                                    includingResourceValuesForKeys: nil, relativeTo: nil)
+        let bookmark = try url.bookmarkData(options: [.withSecurityScope],
+                                            includingResourceValuesForKeys: nil, relativeTo: nil)
+        try controller.saveWriteGrant(bookmark, grantID: grantID)
+        return bookmark
     }
 
     func savedChangeBytes(_ record: LocationRecord) async throws -> Int64 { try await controller.savedChangeBytes(record) }
@@ -956,17 +963,24 @@ final class AppModel {
     }
 
     func connect(_ grant: ServerGrant) {
-        guard !connectionBusy else { return }
-        guard let url = URL(string: "smb:" + grant.mountFrom) else { return show(UIText.addressRejected) }
-        connectionBusy = true
-        Task {
-            defer { connectionBusy = false; refreshMounts() }
-            let (status, _) = await ShareAccess.mount(url)
-            if status != 0 && status != EEXIST, let message = Self.mountMessage(status, host: grant.host) {
-                show(message)
-            }
-            controller.shareMounted(grant.id)
+        Task { _ = await connectShare(grant) }
+    }
+
+    private func connectShare(_ grant: ServerGrant) async -> Bool {
+        guard !connectionBusy else { return false }
+        guard let url = URL(string: "smb:" + grant.mountFrom) else {
+            show(UIText.addressRejected)
+            return false
         }
+        connectionBusy = true
+        defer { connectionBusy = false; refreshMounts() }
+        let (status, _) = await ShareAccess.mount(url)
+        guard status == 0 || status == EEXIST else {
+            if let message = Self.mountMessage(status, host: grant.host) { show(message) }
+            return false
+        }
+        controller.shareMounted(grant.id)
+        return true
     }
 
     func disconnect(_ grant: ServerGrant) {
