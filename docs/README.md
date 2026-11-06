@@ -27,6 +27,7 @@ it wrong.
 
 ## Results logs
 
+- [Selected app and menu icons](results/2026-11-06-icons.md). Required checks and signed VM icon inspection pass; physical-Mac installation remains.
 - [Personal-use 0.1.0 acceptance](results/2026-11-06-personal-use-acceptance.md). App naming, restart retention, editor saves, low-space refusal, Finder deletion/Replace and combined saves; native reconnection and pressure-test limits.
 
 - [SMB simplification](results/2026-11-05-smb-simplification.md). Ordinary saves replace remote recovery and content proofs. Interrupted uploads retry automatically; matched VM save/read measurements record the remaining read-performance gap.

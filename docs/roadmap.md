@@ -28,7 +28,8 @@ found in those workflows. The user will provide physical-Mac daily-use feedback;
 physical-Mac workflow acceptance is not a prerequisite for this personal-use version.
 
 Prepare version 0.1.0 with the visible app name TinyMounter, removing Prototype. Present simple
-logo drafts after functional work; the user chooses the logo before it is adopted. An automatic
+logo drafts after functional work; the user chooses the logo before it is adopted. The user selected
+the drive-and-network TM design on November 6, without the wordmark below it. An automatic
 updater is optional and deferred. Public distribution, notarization, a dedicated uninstaller,
 an accessibility audit and broad OS/NAS compatibility are outside this personal-use milestone.
 Keep dependency notices and obligations intact; licensing our own code does not relicense

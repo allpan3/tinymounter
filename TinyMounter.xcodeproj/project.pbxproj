@@ -1013,6 +1013,20 @@
 			);
 			"sourceTree" = "<group>";
 		};
+		"80CCFFE5FBA0FC3FCC37A3AD" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "folder.assetcatalog";
+			"path" = "Prototype/Assets.xcassets";
+			"sourceTree" = "<group>";
+		};
+		"6E7C9B6564D6C311867A687B" = {
+			"isa" = "PBXGroup";
+			"name" = "Resources";
+			"children" = (
+				"80CCFFE5FBA0FC3FCC37A3AD",
+			);
+			"sourceTree" = "<group>";
+		};
 		"19F479106CE8C3BA8C106518" = {
 			"isa" = "PBXGroup";
 			"children" = (
@@ -1021,6 +1035,7 @@
 				"80AE64A9F70FB6AEC1ED42B1",
 				"CBF887C65A294E9D9E07A6CA",
 				"679F4E5B46EF53E000AB57E7",
+				"6E7C9B6564D6C311867A687B",
 				"0A3E27B8CA818264D75C8D81",
 			);
 			"sourceTree" = "<group>";
@@ -1122,12 +1137,17 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "ECA08CE09744092C23196FCA";
 		};
+		"87C56CF165B4DAF887A57513" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "80CCFFE5FBA0FC3FCC37A3AD";
+		};
 		"F9187E824FE171A6F0EFAE28" = {
 			"isa" = "PBXResourcesBuildPhase";
 			"buildActionMask" = 2147483647;
 			"files" = (
 				"E2072433D7A0654ED45963AA",
 				"528C7A687E3A0F171E8BE800",
+				"87C56CF165B4DAF887A57513",
 			);
 			"runOnlyForDeploymentPostprocessing" = 0;
 		};
@@ -1507,6 +1527,7 @@
 			"buildSettings" = {
 				"PRODUCT_NAME" = "TinyMounter";
 				"PRODUCT_BUNDLE_IDENTIFIER" = "$(TINYMOUNTER_BUNDLE_ID)";
+				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"INFOPLIST_FILE" = "Prototype/Config/App-Info.plist";
 				"CODE_SIGN_ENTITLEMENTS" = "Prototype/Config/App.entitlements";
 				"SWIFT_OBJC_BRIDGING_HEADER" = "Prototype/SMB/SMBRename.h";
@@ -1526,6 +1547,7 @@
 			"buildSettings" = {
 				"PRODUCT_NAME" = "TinyMounter";
 				"PRODUCT_BUNDLE_IDENTIFIER" = "$(TINYMOUNTER_BUNDLE_ID)";
+				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"INFOPLIST_FILE" = "Prototype/Config/App-Info.plist";
 				"CODE_SIGN_ENTITLEMENTS" = "Prototype/Config/App.entitlements";
 				"SWIFT_OBJC_BRIDGING_HEADER" = "Prototype/SMB/SMBRename.h";

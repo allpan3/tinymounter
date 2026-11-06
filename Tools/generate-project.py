@@ -95,6 +95,8 @@ groups = []
 for name, paths in [("Shared", core_paths), ("App", app_paths), ("Provider", provider_paths), ("SMB", smb_paths)]:
     groups.append(add(name + "-group", "PBXGroup", name=name, children=[files[p] for p in paths], sourceTree="<group>"))
 groups.append(add("config-group", "PBXGroup", name="Configuration", children=config_refs, sourceTree="<group>"))
+assets = ref("Prototype/Assets.xcassets", "folder.assetcatalog")
+groups.append(add("assets-group", "PBXGroup", name="Resources", children=[assets], sourceTree="<group>"))
 main_group = add("main-group", "PBXGroup", children=groups + [products], sourceTree="<group>")
 
 
@@ -146,7 +148,8 @@ smb_notice = ref("Vendor/libsmb2/README.md", "net.daringfireball.markdown")
 license_builds = [add("notice:" + path, "PBXBuildFile", fileRef=reference) for path, reference in
                   [("license", smb_license), ("notice", smb_notice)]]
 notice_phase = add("app-resources", "PBXResourcesBuildPhase", buildActionMask=2147483647,
-                   files=license_builds, runOnlyForDeploymentPostprocessing=0)
+                   files=license_builds + [add("app-assets", "PBXBuildFile", fileRef=assets)],
+                   runOnlyForDeploymentPostprocessing=0)
 smb_configs = configs("smb", dict(PRODUCT_NAME="TinyMounterSMB", EXECUTABLE_PREFIX="lib", SKIP_INSTALL="YES",
     MACH_O_TYPE="mh_dylib", LD_DYLIB_INSTALL_NAME="@rpath/libTinyMounterSMB.dylib",
     GCC_C_LANGUAGE_STANDARD="gnu11", GCC_PREPROCESSOR_DEFINITIONS=["$(inherited)", "HAVE_CONFIG_H=1",
@@ -159,6 +162,7 @@ add("smb-target", "PBXNativeTarget", name="TinyMounterSMB", productName="TinyMou
     buildConfigurationList=smb_configs, buildPhases=[source_phase("smb", smb_paths)],
     buildRules=[], dependencies=[])
 app_configs = configs("app", dict(PRODUCT_NAME="TinyMounter", PRODUCT_BUNDLE_IDENTIFIER="$(TINYMOUNTER_BUNDLE_ID)",
+    ASSETCATALOG_COMPILER_APPICON_NAME="AppIcon",
     INFOPLIST_FILE="Prototype/Config/App-Info.plist", CODE_SIGN_ENTITLEMENTS="Prototype/Config/App.entitlements",
     SWIFT_OBJC_BRIDGING_HEADER="Prototype/SMB/SMBRename.h",
     LD_RUNPATH_SEARCH_PATHS=["$(inherited)", "@executable_path/../Frameworks"]))

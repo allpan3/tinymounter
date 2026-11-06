@@ -245,12 +245,11 @@ final class AppModel {
         }
     }
 
-    /// SF Symbols has no drive with a download badge, so downloads show an arrow.
-    var menuSymbol: String {
+    var menuImageName: String {
         let all = records.map(state)
-        if all.contains(where: \.isProblem) { return "externaldrive.badge.exclamationmark" }
-        if all.contains(where: { if case .connected(.some) = $0 { true } else { false } }) { return "arrow.down.circle" }
-        return "externaldrive"
+        if all.contains(where: \.isProblem) { return "MenuBarProblem" }
+        if all.contains(where: { if case .connected(.some) = $0 { true } else { false } }) { return "MenuBarDownloading" }
+        return "MenuBarDrive"
     }
 
     func shareStatus(_ grant: ServerGrant) -> String {

@@ -184,8 +184,9 @@ the first location on a server.
 
 ## 5. Menu bar item
 
-The icon is a drive symbol. It shows a small badge during transfers and a warning badge when there
-is a problem. The menu shows:
+The icon is a monochrome outline of the selected drive-and-network logo, without the TM.
+An arrow inside the drive indicates downloads; an exclamation mark indicates a problem.
+Problem status takes precedence. macOS supplies the light/dark menu-bar tint. The menu shows:
 
 - one line per location, with its state, and a progress bar for active transfers;
 - Open Locations Folder (⌘O) and Pause Downloads. Pause stops Keep Downloaded downloads and
