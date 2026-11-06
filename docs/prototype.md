@@ -124,15 +124,25 @@ uses macOS's login dialog and share selector. The app never sees the password.
 
 Then `NSOpenPanel` opens on the selected share, and the user clicks Open. The app accepts only a
 mounted smbfs volume root with `MNT_LOCAL` clear whose address has an account and no password.
-It saves a read-only, security-scoped app-scoped bookmark and the mount's `f_mntfromname` in
+It saves read-only and read-write security-scoped app-scoped bookmarks and the mount's `f_mntfromname` in
 `Application Support/tinymounter/Settings.json` in the app container, mode 0600. It never saves
 these in the App Group. Only the app has `com.apple.security.files.bookmarks.app-scope` and
-`files.user-selected.read-write`; ordinary share bookmarks remain deliberately read-only. Select Again… replaces the bookmark and keeps the grant ID.
+`files.user-selected.read-write`. Read sessions use the read-only bookmark. Writable locations
+reuse the share's write permission, so Add does not ask for the same root again. Each location's
+Read only control still gates mutations. Select Again… replaces both bookmarks and keeps the
+grant ID. Earlier settings can reuse a location's retained write permission for the same grant;
+if none exists, enabling writes asks once and saves the permission for that share.
 
-Connect mounts a share's saved address. Disconnect ejects that connection, including one selected
+Add connects a saved share when needed before checking the folder and creating the location.
+Cancelling or failing that connection leaves the draft intact. Connect also mounts a share's
+saved address. Disconnect ejects that connection, including one selected
 from Finder. Remove ejects the server's associated connections before deleting its entry. A busy
 share keeps its entry and shows an error; no eject is forced. Other Connected Shares shows mounts
 without a saved grant, with Use Share and Disconnect, so a hidden mount remains manageable.
+New mounts request `MNT_DONTBROWSE`, which hides the volume from normal Finder browsing;
+it does not hide the NAS from Network or prevent access through `/Volumes`. Reusing a visible
+mount does not change its flags. This native mount supports credentials, permissions and
+directory notifications; the app's SMB client transfers File Provider contents.
 
 The original grant and connection flow was verified in [M3](results/2026-10-12-share-grant.md) and
 [M12](results/2026-10-18-connect-in-app.md). The

@@ -275,6 +275,7 @@ struct ServerRecord: Codable {
 struct ServerGrant: Codable {
   let id: UUID; var serverID: UUID
   var bookmark: Data    // app-scoped, .withSecurityScope + .securityScopeAllowOnlyReadAccess
+  var writeBookmark: Data? // retained at share selection, used only by writable locations
   let mountFrom: String // f_mntfromname, "//account@host/share"
   let host: String, account: String, share: String  // from NSURLVolumeURLForRemountingKey
 }
@@ -285,7 +286,7 @@ struct LocationRecord: Codable {
   var retiredDomainID: String?  // Apply in progress: the old domain still to remove
   var removing = false
   var pendingKeeps: [KeepPath] = []  // saved path and kind, from the share root, not found yet
-  var writeBookmark: Data?      // per-location write grant, given with the SMB-only confirmation
+  var writeBookmark: Data?      // permission copied from the selected share
   var readOnly = true           // retains an inactive writeBookmark
 }
 struct SavedKeepList: Codable {

@@ -560,8 +560,7 @@ final class ShareAccess: @unchecked Sendable {
         if let request { lock.withLock { mountRequest = request } }
     }
 
-    /// M12: the mount is hidden from Finder, which then shows only the locations. With `showsUI`,
-    /// macOS asks for a missing password or share itself, so the app never sees either.
+    // Request a non-browsable mount; macOS can reuse an already visible connection.
     @discardableResult
     private static func mount(_ url: URL, showsUI: Bool, queue: DispatchQueue,
                               done: @escaping @Sendable (Int32, [String]) -> Void) -> AsyncRequestID? {
@@ -748,7 +747,10 @@ final class ShareAccess: @unchecked Sendable {
         guard let address = ShareAddress(mount.identity.mountFrom) else { throw ShareGrantError.addressRejected }
         let bookmark = try url.bookmarkData(options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess],
                                             includingResourceValuesForKeys: nil, relativeTo: nil)
-        return ServerGrant(serverID: serverID, bookmark: bookmark, mountFrom: mount.identity.mountFrom, address: address)
+        let writeBookmark = try url.bookmarkData(options: [.withSecurityScope],
+                                                 includingResourceValuesForKeys: nil, relativeTo: nil)
+        return ServerGrant(serverID: serverID, bookmark: bookmark, writeBookmark: writeBookmark,
+                           mountFrom: mount.identity.mountFrom, address: address)
     }
 
     /// Without a trailing slash, as in `f_mntonname`.

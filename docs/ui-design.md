@@ -290,15 +290,19 @@ items that never reached the server no longer prevent removal, because macOS kee
 ## Unified write mode, accepted 2026-10-29
 
 M20 replaces separate creation and editing controls with one Read only toggle. It defaults off
-for a new location; a duplicate retains the original's mode. Writable setup obtains the macOS
-share grant once. All supported write operations use that mode, including M20 file renaming. Unsupported operations
+for a new location; a duplicate retains the original's mode. Initial share selection retains the
+macOS read and write permissions for reuse by its locations. All supported write operations use
+that mode, including M20 file renaming. Unsupported operations
 remain unavailable. Do not add another feature switch.
 
-The write-access picker asks only for permission to change the selected share. On 2026-11-04,
-the user removed the SMB-only warning and technical details from this flow. Concurrent edits
+Add connects a saved share when needed, then reuses its permission without another picker.
+Cancelling or failing the connection leaves the draft intact. Enabling writes also reuses permission.
+Earlier settings reuse an existing location's write permission for the same grant, or ask once
+if none exists. On 2026-11-04, the user removed the SMB-only warning and technical details from
+this flow. Concurrent edits
 are a synchronization concern; setup must not ask users to certify how every other app accesses
 the NAS. The [follow-up](results/2026-11-04-write-confirmation.md) records the remaining save race.
 
 Once confirmed, enabling Read only blocks new remote changes but retains the grant for later
-reuse. Refuse that change while writes are pending. Changing the source needs a fresh scoped
-grant and confirmation. The unified control and retained authorization pass signed VM checks.
+reuse. Refuse that change while writes are pending. Changing the source uses only the target
+share's permission, with the existing account and mount checks on every mutation.

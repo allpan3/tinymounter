@@ -23,8 +23,9 @@ exclusive creation replaces the earlier temporary-sibling publication design.
 ## First milestone: create files and folders
 
 M18 lets the user create a folder or copy a new file into a File Provider location in Finder.
-Existing locations stay read-only. The user must explicitly enable changes for a location and
-select its share again to grant write access. Passwords still belong to macOS and Keychain.
+Existing locations stay read-only. The location's Read only control gates changes, using the
+permission retained at initial share selection. Earlier settings without write permission ask
+once when writes are enabled. Passwords still belong to macOS and Keychain.
 The first implementation and all destructive checks use disposable VM data, not the user's NAS.
 
 Limit the first milestone to creating ordinary files and folders, including the initial naming
