@@ -35,7 +35,8 @@ struct MenuBarLabel: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Image(systemName: model.menuSymbol)
+        Image(model.menuImageName)
+            .renderingMode(.template)
             .accessibilityLabel(UIText.appName)
             .onAppear { model.openSettings = { openWindow(id: SettingsWindow.id) } }
     }
