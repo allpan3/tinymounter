@@ -136,8 +136,8 @@ Separate latency-sensitive metadata from bulk reads; pool authenticated sessions
 The user adopted `libsmb2-6.3` for remote listing, metadata, reads and writes on 2026-11-04.
 The app embeds a separate dynamic library and uses public GSS APIs for cached credentials.
 Native mounts retain scoped grants, lifecycle checks and directory change hints. Authenticated
-mutations require encryption. The library source and licence are in `Vendor/libsmb2`; distribution
-still needs the release licence/relinking review.
+mutations require encryption. The library source and licence are in `Vendor/libsmb2`; the
+personal-use release includes the complete source, notices and [rebuilding instructions](release.md#rebuild-and-replace-the-library).
 
 The [simplification audit](smb-simplification.md) removes full-content proofs and remote save
 transactions. Each operation owns its connection and credentials. A small lock protects only

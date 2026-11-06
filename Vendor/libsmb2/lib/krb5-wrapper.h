@@ -1,3 +1,4 @@
+/* Modified for TinyMounter, 2026-10-23; see ../README.md. */
 /* -*-  mode:c; tab-width:8; c-basic-offset:8; indent-tabs-mode:nil;  -*- */
 #ifndef _KRB5_WRAPPER_H_
 #define _KRB5_WRAPPER_H_

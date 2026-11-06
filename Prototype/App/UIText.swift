@@ -466,7 +466,7 @@ enum UIText {
     static func availableSize(_ bytes: Int64) -> String { "\(size(bytes)) available" }
 
     // About
-    static let version = "Version 0.1 (prototype)"
+    static let version = "Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown")"
     static let diagnostics = "Diagnostics"
     static let diagnosticsDescription = "This report helps to find problems. It does not include file names, paths, or passwords."
     static let copy = "Copy"
