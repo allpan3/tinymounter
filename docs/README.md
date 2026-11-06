@@ -27,6 +27,8 @@ it wrong.
 
 ## Results logs
 
+- [0.1.0 release verification](results/2026-11-06-release.md). Signed packaging, quarantine approval, Finder installation and before/after recordings.
+
 - [Selected app and menu icons](results/2026-11-06-icons.md). Required checks and signed VM icon inspection pass; physical-Mac installation remains.
 - [Personal-use 0.1.0 acceptance](results/2026-11-06-personal-use-acceptance.md). App naming, restart retention, editor saves, low-space refusal, Finder deletion/Replace and combined saves; native reconnection and pressure-test limits.
 

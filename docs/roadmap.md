@@ -45,7 +45,7 @@ Current checklist, 2026-11-06 (the dated results supersede older status notes be
 | M24 deletion | Ordinary Finder permanent deletion, confirmed Delete Permanently… and interrupted-operation Retry | No recoverable Trash; NAS backups own deleted contents |
 | M25 editor saves | Simplified saves cover TextEdit, Preview and Xcode; file Replace and combined rename/content callbacks pass signed checks | Packages and folder Replace remain outside scope |
 | M26 offline saves | Signed VM offline retention, full OS restart and automatic retry; low-space refusal retains edits | System-wide pressure eviction deferred from 0.1.0 on November 6; broader formats remain unverified |
-| M27/M28 acceptance and release | Integrated renamed VM candidate; required checks pass | Release packaging and publication. Logo approved; system-wide pressure testing deferred. User handles physical-Mac daily-use feedback |
+| M27/M28 acceptance and release | Integrated renamed VM candidate, approved icons, signed package and matching source; required checks pass | User handles physical-Mac daily-use feedback. System-wide pressure testing is deferred |
 
 Evidence: [editor saves](results/2026-11-03-editor-replacement.md),
 [candidate validation](results/2026-11-04-candidate-validation.md),

@@ -78,4 +78,9 @@ Keep the sandbox and matching app/provider identity checks intact.
 
 For this project's development environment, run app builds and checks in the VM as described
 in `AGENTS.md`. `Tools/package-release.py` packages a signed app; create the matching source
-archive with `git archive --format=tar.gz --prefix=TinyMounter-0.1.0/ v0.1.0`.
+archive with:
+
+```sh
+git archive --format=tar.gz --prefix=TinyMounter-0.1.0/ \
+  --output=TinyMounter-0.1.0-source.tar.gz v0.1.0
+```
