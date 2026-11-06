@@ -56,8 +56,9 @@ retry after app/provider restart with an exact server hash match.
 | Scheduling | Independent SMB connections can run concurrently. The per-share mutation lane still orders saves/creates with namespace and lifecycle changes; removing it needs operation-specific admission/drain work. No blind switch to unbounded concurrent writers. |
 | Local storage/lifecycle | File Provider retains failed edits. New-item outbox bytes and the staging reserve remain; removal preserves dirty user data. No migration of older prototype save transactions. |
 
-Ordinary Finder deletion, Replace, combined rename/content saves and broader document metadata
-remain disabled or unsupported pending their callback checks. This audit changes save semantics;
+The November 6 follow-up enables ordinary Finder deletion, file Replace and combined
+rename/content saves after signed callback checks. Broader document metadata remains unsupported.
+This audit changes save semantics;
 it does not claim native descriptor locking or complete native-SMB feature parity.
 
 ## Evidence

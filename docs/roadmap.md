@@ -34,16 +34,16 @@ an accessibility audit and broad OS/NAS compatibility are outside this personal-
 Keep dependency notices and obligations intact; licensing our own code does not relicense
 dependencies. Publication remains a separate action. Existing performance gaps remain recorded.
 
-Current checklist, 2026-11-05 (the dated results supersede older status notes below):
+Current checklist, 2026-11-06 (the dated results supersede older status notes below):
 
 | Scope | Implemented and signed-VM verified | Remaining |
 | --- | --- | --- |
 | M21/M22 organization | Ordinary files and folders; preserved IDs, downloads and keeps; interruption recovery; visible recovery for refused renames/moves | Broader NAS and physical-Mac acceptance |
 | M23 saves/retry | Ordinary overwrite, competing edits, shorter/empty saves, system pending items and automatic interrupted-upload retry | Broader compatibility and physical-Mac acceptance; old export/conflict recovery is removed |
-| M24 deletion | Confirmed Delete Permanently… and interrupted-operation Retry | Ordinary Finder deletion stays refused because its callbacks cannot distinguish Replace |
-| M25 editor saves | Earlier transaction builds covered TextEdit, Preview and Xcode; the simplified path covers TextEdit and ordinary file writes | Repeat broader editor coverage; Finder Replace and combined rename/content callbacks remain disabled |
-| M26 offline saves | Signed VM offline retention and automatic retry across app/provider restart | Broader formats, OS restart and pressure checks with the simplified implementation |
-| M27/M28 acceptance and release | Integrated VM candidate; merged build installed and launched on the physical Mac | Physical-Mac daily workflows, broader NAS compatibility and release packaging/licensing remain unverified |
+| M24 deletion | Ordinary Finder permanent deletion, confirmed Delete Permanently… and interrupted-operation Retry | No recoverable Trash; NAS backups own deleted contents |
+| M25 editor saves | Simplified saves cover TextEdit, Preview and Xcode; file Replace and combined rename/content callbacks pass signed checks | Packages and folder Replace remain outside scope |
+| M26 offline saves | Signed VM offline retention, full OS restart and automatic retry; low-space refusal retains edits | Repeat system-wide pressure eviction when approved; broader formats remain unverified |
+| M27/M28 acceptance and release | Integrated renamed VM candidate; required checks pass | Logo approval and packaging; system-wide pressure check needs approval. User handles physical-Mac daily-use feedback |
 
 Evidence: [editor saves](results/2026-11-03-editor-replacement.md),
 [candidate validation](results/2026-11-04-candidate-validation.md),
@@ -147,13 +147,14 @@ Finder's file Replace. Installed app/format coverage belongs in the results, not
 all editors work. Packages and folder Replace remain outside this milestone.
 
 Replacement follows ordinary SMB overwrite behavior; previous-version preservation belongs to NAS snapshots.
-An unrelated same-name create, a reimport, or a delete followed by a create is not proof of an
-authorized replacement transaction. If File Provider does not provide a supported way to bind
-that intent and base, stop at that gate and present the limitation. Do not use M18's partial
-visibility of new uploads to justify destroying an existing destination first.
+Finder's ordinary delete/create sequence is accepted for file Replace. The old destination may
+be deleted before the incoming upload finishes; there is no atomicity or previous-version
+retention guarantee. New-file creation remains exclusive, including reimports and retries, so
+an unrelated create cannot silently overwrite another file.
 
-Preserve destination access permissions and concurrent metadata. Define which incoming document
-attributes each supported save can synchronize; unsupported tags, streams or combined operations
+Content-only saves preserve destination access permissions and concurrent metadata. Finder's
+delete/create Replace creates a new server object. Define which incoming document
+attributes each supported save can synchronize; unsupported tags or streams
 must remain explicit. M19's existing preservation checks are not evidence that arbitrary incoming
 metadata can safely replace current server metadata. Broader standalone Finder tag/lock syncing
 needs a later merge policy and is not included here.

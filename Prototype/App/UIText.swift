@@ -26,6 +26,9 @@ enum UIText {
     static let confirmWriteSetup = "Confirm Write Access"
     static var writeModeHint: String {
         let base = "Read only prevents changes to files on the server. Turn it off to create items, edit files, and rename or move ordinary files within this location."
+        if SourceReaderBridge.deletionEnabled {
+            return base + " Deletion permanently removes items from the server. Finder Replace can remove the old file before the new upload finishes. TinyMounter cannot restore deleted or replaced contents."
+        }
         if SourceReaderBridge.permanentDeletionEnabled {
             return base + " To delete one file or folder, right-click it in Finder and choose Delete Permanently…. This removes it from the server and cannot be undone. Finder Replace remains unavailable."
         }
