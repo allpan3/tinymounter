@@ -20,6 +20,20 @@ compatibility claim or an estimate of delivery time.
 
 ## Milestones and dependencies
 
+### Personal-use 0.1.0 scope, accepted 2026-11-06
+
+Complete the integrated VM checks for ordinary Finder operations, Preview/Xcode saves,
+offline edits across a full OS restart, low-space refusal and OS cache eviction. Address defects
+found in those workflows. The user will provide physical-Mac daily-use feedback; agent-run
+physical-Mac workflow acceptance is not a prerequisite for this personal-use version.
+
+Prepare version 0.1.0 with the visible app name TinyMounter, removing Prototype. Present simple
+logo drafts after functional work; the user chooses the logo before it is adopted. An automatic
+updater is optional and deferred. Public distribution, notarization, a dedicated uninstaller,
+an accessibility audit and broad OS/NAS compatibility are outside this personal-use milestone.
+Keep dependency notices and obligations intact; licensing our own code does not relicense
+dependencies. Publication remains a separate action. Existing performance gaps remain recorded.
+
 Current checklist, 2026-11-05 (the dated results supersede older status notes below):
 
 | Scope | Implemented and signed-VM verified | Remaining |
