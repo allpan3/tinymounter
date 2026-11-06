@@ -3,7 +3,8 @@
 A macOS app that brings a network disk, such as a NAS, into Apple's file system: browse it from Finder or another file manager such as QSpace, download on demand, and keep selected files available offline. Finder is the first file manager and SMB the first protocol it will support. A later mode will mount server volumes, the ordinary macOS SMB mounts, automatically.
 
 Next-version setup, 2026-11-06: share selection retains write permission, and Add connects a
-saved share automatically when needed. Signed VM checks pass for permission reuse, relaunch,
+saved share automatically when needed. Setup no longer offers the unavailable Server volume
+mode. Signed VM checks pass for permission reuse, relaunch,
 existing locations, Read only and connection failure. Required checks pass (520 tests, one
 optional skip, no Swift warnings). Not released or installed on the physical Mac.
 See the [setup checks and Finder visibility limits](docs/results/2026-11-06-share-access.md).

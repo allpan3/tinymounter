@@ -15,6 +15,11 @@ M16 adds Not sufficient space, a free-space instruction and automatic kept-downl
 verified in the signed VM on 2026-10-22 ([results](results/2026-10-21-disk-space-protection.md)).
 Interactive mockup: [ui-mockup.html](ui-mockup.html).
 
+Current setup, 2026-11-06: File Provider is the only implemented location mode. The app no
+longer shows the unavailable Server volume choice described in the original design and mockup
+below. Add connects automatically and reuses the share's saved permission; manual connection
+controls remain in Servers. See the [setup checks](results/2026-11-06-share-access.md).
+
 ## 1. Principles
 
 - **Finder is the main interface.** Users browse, open, download and keep files offline in Finder

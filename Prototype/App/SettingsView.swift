@@ -143,7 +143,6 @@ private struct LocationPane: View {
             }
             if let record { header(record) }
             sourceSection
-            connectionSection
             writeSection(record: record, draft: draft)
             if let record {
                 keepSection(record)
@@ -203,7 +202,7 @@ private struct LocationPane: View {
     }
 
     private var sourceSection: some View {
-        Section(UIText.source) {
+        Section {
             Picker(UIText.server, selection: serverBinding) {
                 if model.serverID(id) == nil { Text(UIText.noServer).tag(String?.none) }
                 ForEach(model.servers) { Text(UIText.serverAddress($0)).tag(Optional($0.id.uuidString)) }
@@ -240,26 +239,11 @@ private struct LocationPane: View {
             TextField(UIText.name, text: binding(model.nameText, model.setName))
                 .focused($focus, equals: .name)
                 .onSubmit(submit)
+        } header: {
+            Text(UIText.source)
+        } footer: {
+            Text(UIText.locationFinderHint).foregroundStyle(.secondary)
         }
-    }
-
-    private var connectionSection: some View {
-        Section(UIText.connectionMode) {
-            Picker(UIText.connectionMode, selection: .constant(0)) {
-                mode(UIText.fileProvider, UIText.fileProviderDescription).tag(0)
-                mode(UIText.serverVolume, UIText.serverVolumeDescription).tag(1).disabled(true)
-            }
-            .pickerStyle(.radioGroup)
-            .labelsHidden()
-        }
-    }
-
-    private func mode(_ title: String, _ description: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-            Text(description).font(.caption).foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 2)
     }
 
     private func keepSection(_ record: LocationRecord) -> some View {
