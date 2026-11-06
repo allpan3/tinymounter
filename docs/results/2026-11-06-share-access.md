@@ -77,3 +77,16 @@ bundles were removed. Raw evidence and matched frames are in `results/release-0.
 
 Publication and the physical-Mac update remain pending CI and merge. The original NAS was not
 modified. The Finder visibility limits above still apply.
+
+## VM cleanup
+
+After release testing on 2026-11-06, closed all 13 Finder windows and the remaining visible test
+settings window. Removed generated products and compiler caches from seven completed release
+and acceptance builds; `du` reported 0.85 GiB allocated before removal. The VM's data volume then
+reported 814 GiB available. These are guest filesystem readings, not host disk reclamation or
+performance measurements; cache state is not applicable.
+
+Logs, recordings, signed archives, app containers, pending files and the active CI workspace
+were preserved. Older desktop fixtures and editor apps remain; automatic approval review blocked
+editor shutdown pending explicit confirmation. The remaining cleanup is part of the release
+handoff. Removal details are in the VM's `results/vm-cleanup-20261106/`.
