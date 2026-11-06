@@ -44,3 +44,17 @@ Raw logs, upload/read evidence and illustrative Add recordings are private under
 `results/share-access-20261106/`. The recordings use different initial location states and are
 not the matched recordings required for a UI PR. Test locations and the new remote subtree were
 removed after validation. Temporary host signing bundles were removed immediately after packaging.
+
+## Setup wording follow-up
+
+The location form now shows only the implemented File Provider path. The unavailable Server
+volume radio option and its Connection Mode section were removed. The Servers pane explains
+that Add connects automatically and that Disconnect takes locations offline while retaining
+downloaded files. It still warns that an existing Finder connection is also disconnected.
+
+Required VM checks passed again (520 tests, one optional skip, no Swift warnings). The signed
+app displayed the shorter form and updated server instructions. Matched recordings use the same
+saved share, draft, window size and steps: view the location, select Servers, return to the draft.
+[Before](../media/setup-flow/before.gif) · [After](../media/setup-flow/after.gif).
+Raw evidence is in `results/share-access-ui-20261106/`. No location was added and no server
+content changed in this UI follow-up. The temporary test app was removed after inspection.

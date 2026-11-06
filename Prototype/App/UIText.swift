@@ -245,17 +245,7 @@ enum UIText {
     static let connect = "Connect"
     static let disconnect = "Disconnect"
     static let noShare = "No share"
-    static let connectionMode = "Connection Mode"
-    static let fileProvider = "File Provider"
-    static let fileProviderDescription = """
-        Finder shows the files below Locations. A file downloads when you open it. \
-        You can keep files on this Mac for offline use.
-        """
-    static let serverVolume = "Server volume"
-    static let serverVolumeDescription = """
-        macOS connects to the share, the same as Connect to Server in Finder. Files open directly from the \
-        server. You cannot use it offline. Not available in this version.
-        """
+    static let locationFinderHint = "Finder shows this location under Locations. Files download when you open them."
     static let keepDownloaded = "Keep Downloaded"
     static let requested = "Requested"
     static let availableOffline = "Available offline"
@@ -414,8 +404,8 @@ enum UIText {
         tinymounter cannot remove this server. Its entry has been kept. Close files that are open on its \
         shares. Then try again.
         """
-    static let serverSetupHint = "To show files in Finder, add a location under Locations."
-    static let disconnectHint = "Disconnect ejects the share from this Mac, including its connection in Finder."
+    static let serverSetupHint = "Add a location to use these files in Finder. Add connects to the share automatically."
+    static let disconnectHint = "Disconnect takes this share's locations offline and ejects any Finder connection to it. Downloaded files remain available."
 
     // General
     static let openAtLogin = "Open at login"
