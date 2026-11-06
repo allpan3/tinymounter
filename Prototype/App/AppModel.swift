@@ -1194,6 +1194,7 @@ final class AppModel {
         let problem: String? = switch controller.problem {
         case .settingsUnreadable?: UIText.settingsUnreadable
         case .domainsUnreadable?: UIText.domainsUnreadable
+        case .providerTranslocated?: UIText.providerTranslocated
         case nil: settings == nil ? UIText.settingsUnreadable : nil
         }
         update(\.problem, problem)

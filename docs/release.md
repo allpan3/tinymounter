@@ -13,7 +13,8 @@ are not supported by this package. Download it while signed in to the private Gi
 3. Drag `TinyMounter.app` to Applications, replacing the existing app. Remove an older
    `TinyMounterPrototype.app` if it remains there. Keep only one installed copy.
 4. Open TinyMounter from Applications. If macOS blocks it because Apple cannot verify it,
-   use **System Settings → Privacy & Security → Open Anyway**, then confirm Open.
+   use **System Settings → Privacy & Security → Open Anyway**, confirm Open Anyway again,
+   and authenticate with your Mac administrator account if asked.
    Do not turn off Gatekeeper or change system security settings.
 5. If macOS asks, enable TinyMounter under **General → Login Items & Extensions → File Providers**.
    Add your server, connect to its SMB share, and choose a location in TinyMounter.
@@ -21,6 +22,10 @@ are not supported by this package. Download it while signed in to the private Gi
 The update retains the installed app's signing identity, bundle identifiers, App Group and
 sandbox entitlements. It does not migrate or clear settings. If an older experimental setup
 is rejected, finish or export pending files before using Start Fresh and adding locations again.
+
+Use Finder for the move into Applications before opening the app. Launching a quarantined copy
+from a temporary location can prevent macOS from enabling its File Provider; TinyMounter reports
+this with instructions to quit, move it through Finder, and reopen the installed copy.
 
 The development certificate expires on October 19, 2027. A newly signed release will be needed
 before then. This is not a Developer ID distribution build; other Macs have not been qualified.

@@ -12,6 +12,7 @@ final class LocationController {
         /// Launch reconciliation stopped: nothing is added or removed.
         case settingsUnreadable
         case domainsUnreadable
+        case providerTranslocated
     }
 
     struct Diagnostics: Equatable {
@@ -167,7 +168,10 @@ final class LocationController {
             registered = try await registeredDomains()
             catalogs = try SharedContainer.catalogDomainIDs()
         } catch {
-            problem = .domainsUnreadable
+            let failure = error as NSError
+            problem = failure.domain == NSFileProviderErrorDomain
+                && failure.code == NSFileProviderError.providerTranslocated.rawValue
+                ? .providerTranslocated : .domainsUnreadable
             Self.catalogLog.error("launch_reconciliation stopped \(logFields(error), privacy: .public)")
             onChange?()
             return
