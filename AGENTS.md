@@ -65,6 +65,12 @@ that fails too, send a `git bundle` of the new commits with VMPal's file transfe
 it. Raw `results/` and the `.local/` helpers stay in the VM. CI has its own clone in
 `~/ci/tinymounter`; don't work in it.
 
+After VM testing, close the windows you opened and quit unused test apps without discarding
+unsaved documents. Check active jobs before cleanup. Remove obsolete build products, duplicate
+transfer archives and disposable fixture copies; retain logs, recordings, pending files and
+anything an active test or CI job uses. Check free space before and after substantial runs and
+report any cleanup left for the release handoff. Leave the VM desktop usable.
+
 On the physical Mac, keep only the installed app outside active signing or installation work:
 `/Applications/TinyMounter.app`, or the earlier `TinyMounterPrototype.app` until its replacement. Unregister and remove temporary signing/transfer bundles after packaging
 or transfer, and remove the temporary rollback copy after verifying an installation. Do not

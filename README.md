@@ -7,7 +7,8 @@ saved share automatically when needed. Setup no longer offers the unavailable Se
 mode. Signed VM checks pass for permission reuse, relaunch,
 existing locations, Read only and connection failure. Required checks pass (520 tests, one
 optional skip, no Swift warnings). The signed DMG passed VM package inspection and retains
-the installed app identity. Not released or installed on the physical Mac.
+the installed app identity. VM Finder windows and completed release-build products were cleaned
+up; older editor apps and desktop fixtures remain. Not released or installed on the physical Mac.
 See the [setup checks and Finder visibility limits](docs/results/2026-11-06-share-access.md).
 
 TinyMounter 0.1.0, 2026-11-06: the personal-use package targets Apple silicon and macOS 27,
