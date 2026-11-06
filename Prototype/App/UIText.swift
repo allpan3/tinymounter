@@ -360,6 +360,7 @@ enum UIText {
         upload are kept in a folder that opens in Finder.
         """
     static let domainsUnreadable = "tinymounter cannot read its locations from macOS. Quit tinymounter. Then open it again."
+    static let providerTranslocated = "Quit TinyMounter. Use Finder to drag the app into Applications, then open it from there. macOS cannot enable its File Provider from this temporary location."
     static let wrongFolderPath = "This folder path is not correct. Type a path in the share."
     static let wrongName = "This name is not correct. Type a different name."
     static let notVolumeRoot = "This folder is not a share. Select the share, not a folder in it."
