@@ -8,7 +8,7 @@ Date: 2026-10-19. Decision status: production architecture proposed; the user se
 
 ## 1. Product contract
 
-The first useful milestone is a file-system location backed by the user's SMB share, tested first in Finder. Users can browse, open, stream supported media, download files, and select **Keep Downloaded** for reliable offline reading. The NAS remains the source of truth. No NAS agent, cloud relay, tinymounter account, kernel extension, or FUSE installation is required.
+The first useful milestone is a file-system location backed by the user's SMB share, tested first in Finder. Users can browse, open, stream supported media, download files, and select **Keep Downloaded** for reliable offline reading. The NAS remains the source of truth. No NAS agent, cloud relay, TinyMounter account, kernel extension, or FUSE installation is required.
 
 The user selected offline reading first. This plan recommends making the initial provider entirely read-only, including while online, to validate the central performance proposition before implementing uploads. Users can copy a file out to edit locally. On 2026-10-18 the user moved writes ahead of release hardening (§10). Online editing is not a trivial intermediate step: a local save can race with loss of connectivity, so it also needs durable pending-write handling.
 
@@ -68,7 +68,7 @@ For the read-only milestone, advertise only applicable read/enumeration capabili
 
 **Per-user background component**, if needed, owns long-lived change watches and later automount. Registration and actual lifecycle must be tested. The File Provider process can be suspended or restarted, so perpetual sockets in the extension are not a sufficient background-refresh strategy. Driio's release notes report this exact lifecycle issue [D2]. A background watcher is an optimization: on-demand fetch and reconnect reconciliation must work without it.
 
-**Native bridge worker**, only if that transport ships, owns tinymounter's internal SMB mounts and potentially blocking POSIX I/O. It hands over file descriptors or writes into an authorized staging file rather than serializing large `Data` objects across XPC. Each share gets bounded isolation so an unreachable mount cannot starve all domains.
+**Native bridge worker**, only if that transport ships, owns TinyMounter's internal SMB mounts and potentially blocking POSIX I/O. It hands over file descriptors or writes into an authorized staging file rather than serializing large `Data` objects across XPC. Each share gets bounded isolation so an unreachable mount cannot starve all domains.
 
 Proposed source layout once implementation begins:
 
@@ -193,7 +193,7 @@ Minimum database records:
 
 Use directory listing metadata to avoid a separate `stat` for every child where possible. Persist complete listing generations; a failed or partial listing must **never** be interpreted as deletion of missing children. Permission denied and server unreachable are not `noSuchItem`—that error can cause local removal [A2].
 
-File Provider sync anchors are ordered cursors over tinymounter's durable change log, not wall-clock timestamps or SMB notification sequence numbers. Commit item changes and log entries atomically. Advance an anchor only through changes actually delivered, including tombstones. Expired anchors trigger a supported full resynchronization. Test pagination with interleaved additions, renames, and large deletion batches.
+File Provider sync anchors are ordered cursors over TinyMounter's durable change log, not wall-clock timestamps or SMB notification sequence numbers. Commit item changes and log entries atomically. Advance an anchor only through changes actually delivered, including tombstones. Expired anchors trigger a supported full resynchronization. Test pagination with interleaved additions, renames, and large deletion batches.
 
 Watch active/materialized directories with SMB `CHANGE_NOTIFY` where supported; reconcile on wake/reconnect, on access when stale, and periodically with backoff. Notifications are invalidation hints, not a durable history of everything that happened offline. Fall back if a server accepts watches but never delivers them. Do not recursively poll millions of files at a fixed short interval or rely on local FSEvents to discover every remote SMB change. Pinned trees get bounded scheduled scans. M15 uses public Dispatch vnode sources on the native SMB mount [C1, C2], with at most 64 watches per session. It monitors listed materialized and kept folders, and parents of kept files. Periodic reconciliation covers missed events. A successful listing is due again after 60 s; one automatic listing runs at a time with a one-second gap, so larger sets take longer. Failures back off to at most 240 s. Wake requests refresh, and launch/recovery reconciliation and per-fetch fingerprint checks remain. It never walks unvisited unkept trees. See the [phase 3 plan](phase3-plan.md#m15-discover-nas-changes-while-the-app-runs) and [signed VM results](results/2026-10-19-nas-change-discovery.md).
 

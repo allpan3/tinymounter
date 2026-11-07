@@ -33,11 +33,11 @@ The user's decisions:
    mount, through the app-owned reader and the restricted File Provider service. The extension
    can't read network volumes itself: Network Volumes privacy denies it [V].
 2. **Connection, for phase 2 only.** The user connects the share in Finder. Then the user selects
-   the mounted share root once in tinymounter's Servers pane (`NSOpenPanel`). A location is a
-   saved server grant, a share and a folder path in it. tinymounter stores no passwords; macOS
+   the mounted share root once in TinyMounter's Servers pane (`NSOpenPanel`). A location is a
+   saved server grant, a share and a folder path in it. TinyMounter stores no passwords; macOS
    keeps them. This stands in for "Keychain" in the phase 2 definition. After the transport
-   decision, tinymounter's own Keychain-based connection replaces it. Since M12, the user types
-   the address in tinymounter instead of connecting in Finder
+   decision, TinyMounter's own Keychain-based connection replaces it. Since M12, the user types
+   the address in TinyMounter instead of connecting in Finder
    ([phase 3 §4](phase3-plan.md#4-connect-in-the-app-m12)).
 3. **Keep Downloaded is a request.** Finder gets Keep Downloaded and Allow Removal. The location
    pane listed requests as "Requested" in phase 2. Since M13, it verifies local availability
@@ -135,7 +135,7 @@ moved criterion 7 to phase 6, and criterion 8 to phase 3, whose tests need a wri
    and full downloads match native checksums.
 3. No memory growth: app and extension RSS after the third identical soak cycle stay within 10% of
    after the first (decision 7).
-4. No leaked mounts: the smbfs mount count does not change, and tinymounter never mounts.
+4. No leaked mounts: the smbfs mount count does not change, and TinyMounter never mounts.
 5. No leaked staging: 0 stage files in `ReaderStaging` and in the extension's temporary
    directory at idle, also after the crash tests.
 6. No tombstones caused by failures. No names, paths, hosts or accounts in logs.
@@ -633,7 +633,7 @@ only, as today.
 | Reader not connected (app quit or starting) | listed folders from the catalog; fetches wait only within the initial 5 s connection window, otherwise `serverUnreachable` | — |
 | No matching mount in the mount table | `serverUnreachable` at once, with no I/O | "Connect to the share with Connect to Server in Finder." (new) |
 | ENOENT or ENOTDIR at the share root; a share or location root whose `fstatfs` fails or no longer matches (`notConnected`) | `serverUnreachable`; the share stays not connected until a new mount, and no probe runs | as the row above |
-| ETIMEDOUT, ENOTCONN, ENETDOWN, ENETUNREACH, EHOSTDOWN, EHOSTUNREACH, ECONNRESET, ENXIO, ESTALE; an operation with no progress for 15 s; bookmark resolution fails while the mount is present (offline in phase 1: Cocoa 257 after about 30 s [V]) | `serverUnreachable`; the share becomes unresponsive | "tinymounter cannot connect to <host>. Make sure that <host> is on. Make sure that this Mac is on the same network." (approved) |
+| ETIMEDOUT, ENOTCONN, ENETDOWN, ENETUNREACH, EHOSTDOWN, EHOSTUNREACH, ECONNRESET, ENXIO, ESTALE; an operation with no progress for 15 s; bookmark resolution fails while the mount is present (offline in phase 1: Cocoa 257 after about 30 s [V]) | `serverUnreachable`; the share becomes unresponsive | "TinyMounter cannot connect to <host>. Make sure that <host> is on. Make sure that this Mac is on the same network." (approved) |
 | First listing still running at 5 s | `serverUnreachable`; the app signals when it finishes | — |
 | No grant; `startAccessing` false; EPERM at the share or location root; EAUTH or ENEEDAUTH | `notAuthenticated`; the session ends, and until the grant's mounts change or the share is selected again, requests fail at once and no probe runs | "Select the share again in Servers." (new) |
 | EACCES or EPERM on an item | `fileReadNoPermission`; a listed folder uses the catalog | — |
@@ -643,7 +643,7 @@ only, as today.
 | Version changed | `versionNoLongerAvailable` | — |
 | Tombstone | `noSuchItem`, the only case | — |
 | Unknown ID | `CocoaError(.fileReadUnknown)` (transient) | — |
-| Catalog missing, unreadable, damaged (counters or root row), or of another schema or domain | `serverUnreachable`; never re-created | "tinymounter cannot read the data for this location. Remove the location. Then add it again." (new) |
+| Catalog missing, unreadable, damaged (counters or root row), or of another schema or domain | `serverUnreachable`; never re-created | "TinyMounter cannot read the data for this location. Remove the location. Then add it again." (new) |
 | Folder with over 100,000 entries | `CocoaError(.fileReadUnknown)`; nothing written | — |
 | A name that the listing lacked still exists (`listingIncomplete`) | listed folders from the catalog; otherwise `CocoaError(.fileReadUnknown)` (transient); nothing written | — |
 | Malformed page token or anchor | `pageExpired` or `syncAnchorExpired` | — |
@@ -652,7 +652,7 @@ only, as today.
 
 **Unresponsive share.** A blocked kernel SMB call can't be cancelled [V]. `ShareHealth` marks the
 share unresponsive when a lane operation or a transfer makes no progress for 15 s, or a call fails
-with a timeout-class errno. A call of tinymounter's own SMB client, which times out each request
+with a timeout-class errno. A call of TinyMounter's own SMB client, which times out each request
 itself, has 60 s, so a slow connection setup is not a stall (added 2026-11-02). A listing makes
 progress with each `getattrlistbulk` batch, and a
 confirmation (listing step 6) with each `fstatat`. Otherwise a large folder or a large removal would
@@ -815,7 +815,7 @@ transfer badge) and a warning badge on a problem. One line per location with its
 downloaded" while it downloads, from `globalProgress(for: .downloading)` on the domain's manager
 [V, M7]. A menu-style `MenuBarExtra` shows only menu items, so there is no progress bar; one would
 need an `NSStatusItem` with a custom item view. Then Pause Downloads or Resume Downloads,
-Settings… and Quit tinymounter.
+Settings… and Quit TinyMounter.
 
 **Finder actions**, in `Provider-Info.plist` under `NSExtension` ›
 `NSExtensionFileProviderActions` (key names [D]):
@@ -836,7 +836,7 @@ policy, except while paused; other items use lazy policies. `performAction` send
 Reused from the mockup: the sidebar and pane labels, "Not added", "Connected", "Full share",
 "Select…", "Not on the server", the File Provider and Server volume descriptions, the Add-bar and
 Apply texts, "Remove this location from this Mac. The files on the server do not change.", "Not
-available in this version.", "Quit tinymounter" with its warning, and "Version 0.1 (prototype)".
+available in this version.", "Quit TinyMounter" with its warning, and "Version 0.1 (prototype)".
 New strings, to check with the STE checker and by hand: "Add Share…", "Select Again…", "Select
 the share that you connected in Finder.", the new status texts in section 7, "Requested", "To
 keep a file or folder downloaded, right-click it in Finder. Then click Keep Downloaded.", "Save the Keep
@@ -856,7 +856,7 @@ the reworded usage descriptions. Status text names the grant's host, never a fix
 | M7 | Settings window, menu bar and notifications | Does the phase 2 UI replace the harness, with saved keep lists, progress and notifications? | M6 |
 | M8 | Storage pane and folder completion | Are the space totals right, and does Remove Downloads keep kept files? | M7 |
 | M9 | Exit validation | Do exit criteria 1 to 6 hold, with evidence, after crashes and with a share that stops responding? | M8 |
-| M10 | Daily use on the physical Mac | Does an update keep the locations, and what removes tinymounter cleanly? How long does the signature last? Do criteria 1 to 6 hold on the physical Mac? | M9; the user, for the physical Mac |
+| M10 | Daily use on the physical Mac | Does an update keep the locations, and what removes TinyMounter cleanly? How long does the signature last? Do criteria 1 to 6 hold on the physical Mac? | M9; the user, for the physical Mac |
 
 Reads are unavailable between M4 and M5, so M4 and M5 land together. Every milestone ends with
 the AGENTS.md checks, the docs it made wrong fixed, and its results in writing.
@@ -1012,7 +1012,7 @@ same listing. The cause remains under investigation in the
 | First-listing wait in the extension | 5 s |
 | Background relist when a listed folder is enumerated again | listing older than 60 s |
 | Relisting at launch and reconnect | materialized folders only, one at a time |
-| Operation or transfer stall that marks a share unresponsive | 15 s; 60 s during a call of tinymounter's own SMB client |
+| Operation or transfer stall that marks a share unresponsive | 15 s; 60 s during a call of TinyMounter's own SMB client |
 | Probe interval while unresponsive; mount-table poll | 5 s; 10 s |
 | Entries per folder | at most 100,000 |
 | Pending listings per session | 16 |

@@ -22,7 +22,7 @@ enum UIText {
 
     static let connectionMode = "Connection Mode"
     static let fileProvider = "File Provider"
-    static let serverVolume = "Server volume (SMB)"
+    static let serverVolume = "Server Volume"
     static let nativeVolumeHint = "Opens the whole share directly in Finder. Files stay on the server and are unavailable offline. Access follows the server's permissions."
     static let modeSwitchHint = "To switch modes, remove this share's existing locations first."
     static let shareModeConflict = "This share already uses another mode, or already has a server volume. Remove its existing locations before adding a different mode."
@@ -45,7 +45,7 @@ enum UIText {
         guard SourceReaderBridge.deletionEnabled else {
             return base + " Folder moves, deleting and replacing items remain unavailable."
         }
-        return base + " Deletion permanently removes files and folders from the server. tinymounter cannot restore deleted items."
+        return base + " Deletion permanently removes files and folders from the server. TinyMounter cannot restore deleted items."
     }
     static let exportEdit = "Export Local Copy…"
     static let localRecoveryDestination = "Choose a folder on this Mac for the recovery copy."
@@ -60,16 +60,16 @@ enum UIText {
     static func stopUploadingMessage(_ kind: CatalogRow.Kind) -> String {
         kind == .folder ? """
             The folder and its contents stay on this Mac and are not uploaded. If you change the folder or put an \
-            item in it, tinymounter tries to upload the folder again.
+            item in it, TinyMounter tries to upload the folder again.
             """
-            : "The file stays on this Mac and is not uploaded. If you change the file, tinymounter tries to upload it again."
+            : "The file stays on this Mac and is not uploaded. If you change the file, TinyMounter tries to upload it again."
     }
-    static let stopRefused = "tinymounter cannot stop this item, because the server can have it. Use Retry Pending Changes to check the server."
+    static let stopRefused = "TinyMounter cannot stop this item, because the server can have it. Use Retry Pending Changes to check the server."
     static let stopEditMessage = """
-        Save a copy of the changes that did not upload. tinymounter then stops the upload and updates \
+        Save a copy of the changes that did not upload. TinyMounter then stops the upload and updates \
         this location to match the server. If the file was deleted, it is removed from this location.
         """
-    static let stopEditRefused = "tinymounter did not stop the upload. The local save is retained."
+    static let stopEditRefused = "TinyMounter did not stop the upload. The local save is retained."
     /// The default name of a stopped save's copy, such as "Report (not uploaded 2026-11-02).txt".
     static func stoppedEditName(_ path: String, date: Date) -> String {
         let name = URL(fileURLWithPath: path)
@@ -81,7 +81,7 @@ enum UIText {
     }
     static func editPending(_ path: String) -> String { "Edited file: \(path)" }
     static func deletionPending(_ path: String) -> String { "Permanent deletion: \(path)" }
-    static let deletionEffect = "Deletion permanently removes items from the server and its locations. tinymounter cannot restore deleted items."
+    static let deletionEffect = "Deletion permanently removes items from the server and its locations. TinyMounter cannot restore deleted items."
     static let deletionWaiting = "Waiting to continue deletion"
     static let deletionActive = "Deletion in progress"
     static let deletionSettlement = "Waiting to update the locations"
@@ -114,19 +114,19 @@ enum UIText {
         case .replaced: "Another item is now at this name."
         case .moved: "The item moved on the server."
         case .parentChanged: "A parent folder changed on the server."
-        case .unsupported: "tinymounter cannot delete this type of item or this folder."
+        case .unsupported: "TinyMounter cannot delete this type of item or this folder."
         case .sharingViolation: "Another program has this item open. Close it before a new deletion request."
         case .accessDenied: "The server does not give permission to delete this item."
         case .cannotDelete: "The server refused to delete this item."
         case .directoryNotEmpty: "The folder still contains items."
-        case .unconfirmed: "tinymounter cannot confirm the deletion result."
+        case .unconfirmed: "TinyMounter cannot confirm the deletion result."
         case .connection: "There is no connection to the server."
         case .authentication: "The server did not accept the sign-in."
         case .pendingChanges, .busy: "Other changes on this share must finish first."
-        case .readOnly: "tinymounter has no write access for this deletion."
+        case .readOnly: "TinyMounter has no write access for this deletion."
         case .cancelled, .stopped: "Deletion was stopped."
         case .storage: "There is not sufficient space on this Mac."
-        case .unknown: "tinymounter could not finish the deletion. Retry to check the recorded request."
+        case .unknown: "TinyMounter could not finish the deletion. Retry to check the recorded request."
         }
     }
     static func deletionItemStatus(_ item: DeletionItemProgress) -> String {
@@ -169,10 +169,10 @@ enum UIText {
         if let upload = error as? UploadError {
             switch upload {
             case .pendingWrites: return "Other changes on this share must finish first."
-            case .readOnly: return "tinymounter has no write access to this share."
+            case .readOnly: return "TinyMounter has no write access to this share."
             case .collision: return "An item with this name is already on the server."
-            case .unresolved: return "tinymounter cannot confirm the result on the server."
-            case .invalidRequest: return "tinymounter cannot create this item in this folder."
+            case .unresolved: return "TinyMounter cannot confirm the result on the server."
+            case .invalidRequest: return "TinyMounter cannot create this item in this folder."
             case .editConflict: return "The item changed on the server."
             case .excluded: return "The upload was stopped."
             }
@@ -265,13 +265,13 @@ enum UIText {
     static let notOnServer = "Not on the server"
     static let keepHint = "To keep a file or folder downloaded, right-click it in Finder. Then click Keep Downloaded."
     static let draftKeepHint = """
-        tinymounter downloads these items after you click Add. If an item is not in the folder, tinymounter \
+        TinyMounter downloads these items after you click Add. If an item is not in the folder, TinyMounter \
         shows “Not on the server”.
         """
     static let removeLocationDescription = "Remove this location from this Mac. The files on the server do not change."
     static let draftBar = "Finder does not show this location until you click Add."
     static let applyBar = """
-        If you change the source or the connection mode, tinymounter removes the downloaded copies of this \
+        If you change the source or the connection mode, TinyMounter removes the downloaded copies of this \
         location. The files on the server do not change.
         """
     static let add = "Add"
@@ -284,21 +284,21 @@ enum UIText {
     static let connected = "Connected"
     static let notConnected = "Not connected"
     static let removalNotComplete = "The removal is not complete."
-    static let connectInLocation = "Open this location in tinymounter Settings. Then click Connect."
+    static let connectInLocation = "Open this location in TinyMounter Settings. Then click Connect."
     static let selectShareAgain = "Select the share again. Click Select Again… in the location."
     static let folderNotOnShare = "This folder is not on the share."
-    static let catalogUnavailable = "tinymounter cannot read the data for this location. Remove the location. Then add it again."
+    static let catalogUnavailable = "TinyMounter cannot read the data for this location. Remove the location. Then add it again."
     static let turnedOff = "File Provider is off."
     static let enableFileProvider = "In Extensions, open TinyMounter. Then turn on File Provider."
     static let openSystemSettings = "Open System Settings…"
     static let problem = "Problem"
 
     static func cannotConnect(_ host: String) -> String {
-        "tinymounter cannot connect to \(host). Make sure that \(host) is on. Make sure that this Mac is on the same network."
+        "TinyMounter cannot connect to \(host). Make sure that \(host) is on. Make sure that this Mac is on the same network."
     }
 
     static func cannotDisconnect(_ share: String) -> String {
-        "tinymounter cannot disconnect “\(share)”. Close the files that are open on it. Then try again."
+        "TinyMounter cannot disconnect “\(share)”. Close the files that are open on it. Then try again."
     }
 
     static func downloaded(_ fraction: Double) -> String {
@@ -314,14 +314,14 @@ enum UIText {
     // Confirmations
     static func removeTitle(_ name: String) -> String { "Remove “\(name)” from this Mac?" }
     static let removeMessage = """
-        The files on the server do not change. tinymounter removes the downloaded copies of this location \
+        The files on the server do not change. TinyMounter removes the downloaded copies of this location \
         from this Mac.
         """
     static func removeStops(_ items: [String]) -> String {
-        "These items did not upload. macOS keeps them on this Mac in a folder. tinymounter shows the folder in "
+        "These items did not upload. macOS keeps them on this Mac in a folder. TinyMounter shows the folder in "
             + "Finder after the removal.\n" + list(items)
     }
-    static func removeBlockedTitle(_ name: String) -> String { "tinymounter cannot remove “\(name)” now" }
+    static func removeBlockedTitle(_ name: String) -> String { "TinyMounter cannot remove “\(name)” now" }
     static func removeBlockedMessage(_ items: [String]) -> String {
         "These changes can be on the server. Review their recovery actions in Settings. Then remove the location "
             + "again.\n" + list(items)
@@ -339,7 +339,7 @@ enum UIText {
     }
     static func downloadMessage(_ name: String) -> String {
         """
-        tinymounter found items of the saved Keep Downloaded list in “\(name)”. They are in folders that you \
+        TinyMounter found items of the saved Keep Downloaded list in “\(name)”. They are in folders that you \
         did not open in Finder. They download only when you open these folders.
         """
     }
@@ -348,34 +348,34 @@ enum UIText {
 
     // Errors
     static let settingsUnreadable = """
-        tinymounter cannot read its settings file. You cannot add or change a location. If an earlier \
+        TinyMounter cannot read its settings file. You cannot add or change a location. If an earlier \
         version made the file, click Start Fresh in General.
         """
     static let startFresh = "Start Fresh"
     static let startFreshMenu = "Start Fresh…"
     static let startFreshTitle = "Remove all locations and start fresh?"
     static let startFreshMessage = """
-        tinymounter cannot read the data of an earlier version. Start Fresh removes all locations from \
+        TinyMounter cannot read the data of an earlier version. Start Fresh removes all locations from \
         this Mac. Then you add them again. The files on the server do not change. Changes that did not \
         upload are kept in a folder that opens in Finder.
         """
-    static let domainsUnreadable = "tinymounter cannot read its locations from macOS. Quit tinymounter. Then open it again."
+    static let domainsUnreadable = "TinyMounter cannot read its locations from macOS. Quit TinyMounter. Then open it again."
     static let providerTranslocated = "Quit TinyMounter. Use Finder to drag the app into Applications, then open it from there. macOS cannot enable its File Provider from this temporary location."
     static let wrongFolderPath = "This folder path is not correct. Type a path in the share."
     static let wrongName = "This name is not correct. Type a different name."
     static let notVolumeRoot = "This folder is not a share. Select the share, not a folder in it."
     static let notSMBShare = "This volume is not an SMB share. To add a share, click Add Share…."
-    static let addressRejected = "tinymounter cannot use the address of this share."
+    static let addressRejected = "TinyMounter cannot use the address of this share."
     static let otherShare = "This is a different share. To add it, click Add Share…."
     static let otherAccount = "This share is connected through another account. To use this account, eject the other connection. Then click Add Share… again."
     static let wrongAddress = "This address is not correct. Type an address such as smb://server/share."
     static func passwordNotAccepted(_ host: String) -> String {
         "\(host) did not accept the password. Type the password again."
     }
-    static let tooManyItems = "This folder has more than 100,000 items. tinymounter cannot show it."
+    static let tooManyItems = "This folder has more than 100,000 items. TinyMounter cannot show it."
     static let cannotShow = "Finder cannot show this location."
     static let shareInUse = "A location uses this share. Remove the location first."
-    static func cannotDo(_ code: String) -> String { "tinymounter cannot do this (\(code))." }
+    static func cannotDo(_ code: String) -> String { "TinyMounter cannot do this (\(code))." }
 
     // Panels
     static let selectShareMessage = "Click Open to give TinyMounter access to this share. Use Read only in a location to prevent changes."
@@ -387,7 +387,7 @@ enum UIText {
     static let selectShareAgainShort = "Select the share again."
     static func accountAndShare(_ account: String, _ share: String) -> String { "\(account) · \(share)" }
     static let serversDescription = """
-        tinymounter can use these shares. To add a share, add a location and select the share there.
+        TinyMounter can use these shares. To add a share, add a location and select the share there.
         """
     static let noServers = "No shares. To add a share, add a location."
     static let noShares = "No shares"
@@ -397,7 +397,7 @@ enum UIText {
     static let forgetUsedHelp = "A location uses this share. Remove the location first."
     static func forgetShareTitle(_ share: String) -> String { "Forget the share \(share)?" }
     static let forgetShareMessage = """
-        tinymounter disconnects the share and forgets its access. The files on the server do not change. \
+        TinyMounter disconnects the share and forgets its access. The files on the server do not change. \
         To use the share again, add a location and select the share.
         """
     static let useShare = "Use Share"
@@ -409,7 +409,7 @@ enum UIText {
     static let chooseShareDescription = """
         These shares are already connected on this Mac. To use one, select it and click Use Share. \
         To connect another share, click Connect Another Share. macOS asks for the password if necessary. \
-        Select “Remember this password in my keychain”, so that tinymounter can connect again.
+        Select “Remember this password in my keychain”, so that TinyMounter can connect again.
         """
     static func chooseShareTitle(_ host: String) -> String { "Choose a share for \(host)." }
     static func mountedShare(_ address: ShareAddress) -> String {
@@ -418,14 +418,14 @@ enum UIText {
     static func serverAddress(_ server: ServerRecord) -> String {
         server.account.map { "\($0)@\(server.host)" } ?? server.host
     }
-    static let cannotRemoveServer = "tinymounter cannot forget this server. Try again."
+    static let cannotRemoveServer = "TinyMounter cannot forget this server. Try again."
 
     // General
     static let openAtLogin = "Open at login"
-    static let openAtLoginApproval = "Allow tinymounter in System Settings › General › Login Items & Extensions."
+    static let openAtLoginApproval = "Allow TinyMounter in System Settings › General › Login Items & Extensions."
     static let showInMenuBar = "Show in menu bar"
     static let menuBarDescription = """
-        The menu bar item keeps tinymounter open. tinymounter must be open to read data that is not downloaded.
+        The menu bar item keeps TinyMounter open. TinyMounter must be open to read data that is not downloaded.
         """
     static let notifications = "Notifications"
     static let notificationsDescription = "Show a notification when a share disconnects or a download cannot start."
@@ -435,26 +435,26 @@ enum UIText {
     static let total = "Total"
     static let storageDescription = """
         This includes the kept files. When disk space is low, macOS removes the downloaded files that you do \
-        not keep. Remove Downloads removes them immediately. tinymounter leaves 2 GiB free for macOS. \
+        not keep. Remove Downloads removes them immediately. TinyMounter leaves 2 GiB free for macOS. \
         A download can need extra temporary space.
         """
     static let removeDownloadsMenu = "Remove Downloads…"
     static let removeDownloads = "Remove Downloads"
-    static let cannotRemoveDownloads = "tinymounter cannot remove the downloads of this location."
+    static let cannotRemoveDownloads = "TinyMounter cannot remove the downloads of this location."
 
     static func removeDownloadsTitle(_ name: String) -> String { "Remove the downloads of “\(name)”?" }
 
     static func removeDownloadsMessage(files: Int, bytes: Int64) -> String {
         let count = files == 1 ? "1 file" : "\(files) files"
         return """
-            tinymounter removes the downloaded copies of \(count) (\(size(bytes))) that you do not keep. Kept files \
+            TinyMounter removes the downloaded copies of \(count) (\(size(bytes))) that you do not keep. Kept files \
             stay on this Mac. The files on the server do not change.
             """
     }
 
     static func downloadsStayed(_ files: Int) -> String {
         let (count, them) = files == 1 ? ("1 downloaded file", "it") : ("\(files) downloaded files", "them")
-        return "tinymounter cannot remove \(count). If an app uses \(them), close the app. Then try again."
+        return "TinyMounter cannot remove \(count). If an app uses \(them), close the app. Then try again."
     }
 
     static func size(_ bytes: Int64) -> String {
@@ -478,18 +478,18 @@ enum UIText {
     // Menu bar
     static let pauseDownloads = "Pause Downloads"
     static let resumeDownloads = "Resume Downloads"
-    static let quit = "Quit tinymounter"
+    static let quit = "Quit TinyMounter"
     static let noLocations = "No locations"
-    static let pauseFailed = "tinymounter cannot stop background downloads for one or more locations."
-    static let resumeFailed = "tinymounter cannot start background downloads again for one or more locations."
+    static let pauseFailed = "TinyMounter cannot stop background downloads for one or more locations."
+    static let resumeFailed = "TinyMounter cannot start background downloads again for one or more locations."
 
     // Quit
     static let quitTitle = "Downloads are in progress."
-    static let quitMessage = "Files that are not downloaded cannot open until tinymounter starts again."
+    static let quitMessage = "Files that are not downloaded cannot open until TinyMounter starts again."
 
     // Notifications
     static func shareDisconnected(_ share: String) -> String { "“\(share)” is not connected" }
-    static func cannotConnectTitle(_ host: String) -> String { "tinymounter cannot connect to \(host)" }
+    static func cannotConnectTitle(_ host: String) -> String { "TinyMounter cannot connect to \(host)" }
     static let downloadFailedTitle = "A file cannot download"
     static func onSameNetwork(_ host: String) -> String {
         "Make sure that \(host) is on. Make sure that this Mac is on the same network."

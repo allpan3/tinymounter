@@ -396,10 +396,10 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         switch failure.code {
         case NSFileProviderError.cannotSynchronize.rawValue:
             description = "Deletion could not finish."
-            suggestion = "Open tinymounter to check pending changes, then try again."
+            suggestion = "Open TinyMounter to check pending changes, then try again."
         case NSFileProviderError.deletionRejected.rawValue:
             description = "This item cannot be deleted safely."
-            suggestion = "It may have changed or be in use. Select it again after checking pending changes in tinymounter."
+            suggestion = "It may have changed or be in use. Select it again after checking pending changes in TinyMounter."
         default: return failure
         }
         return NSError(domain: failure.domain, code: failure.code,

@@ -1,4 +1,4 @@
-# tinymounter documentation
+# TinyMounter documentation
 
 Start with [`AGENTS.md`](../AGENTS.md). It's the short version, and it links here for anything that
 needs more than a line.

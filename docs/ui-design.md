@@ -15,7 +15,7 @@ M16 adds Not sufficient space, a free-space instruction and automatic kept-downl
 verified in the signed VM on 2026-10-22 ([results](results/2026-10-21-disk-space-protection.md)).
 Interactive mockup: [ui-mockup.html](ui-mockup.html).
 
-Current setup, 2026-11-07: Add offers File Provider or Server volume (SMB). A native volume
+Current setup, 2026-11-07: Add offers File Provider or Server Volume. A native volume
 covers the whole share, uses its server permissions and has no Read only or Keep Downloaded
 control. Remove the share's existing locations before switching modes, including locations
 saved under another account. Add connects automatically; saved native volumes also have
@@ -49,7 +49,7 @@ Settings › Sidebar, and Apple's Mac User Guide.
 | Item | What macOS shows | UI term | Replaces |
 | --- | --- | --- | --- |
 | A location that our File Provider extension serves | System Settings › General › Login Items & Extensions: "File Providers", with "File provider extensions allow you to see local files and remote storage files in one view in Finder." Finder Settings › Sidebar › Locations: "Cloud Storage". Developer docs: replicated File Provider extension, domain. | **File Provider** | "Integrated" |
-| A share that the macOS SMB client mounts | Finder: Go › "Connect to Server…", "server volume", the sidebar group "Connected servers", "Eject". The Mac User Guide: "volumes or shared folders on the server". | **Server volume** | "Native SMB" |
+| A share that the macOS SMB client mounts | Finder: Go › "Connect to Server…", "server volume", the sidebar group "Connected servers", "Eject". The Mac User Guide: "volumes or shared folders on the server". | **Server Volume** | "Native SMB" |
 | The choice between the two, per location | none | **Connection Mode** | "Appears as", "View" |
 | One folder with an alias to each location | Finder: "alias", "Make Alias" | **Locations folder** | "Shortcuts folder" |
 | A kept file with a full, current copy | Finder: Download Now, Remove Download, Keep Downloaded | **Available offline** | "Offline-ready" |
@@ -114,7 +114,7 @@ Selecting a location shows one grouped form with all of its settings:
    the Keep Downloaded list. A saved list comes back when the user adds a location on the same share
    that contains those items. If the location has new items that never reached the
    server, the confirmation lists them: macOS keeps them on this Mac in a folder, which
-   tinymounter shows in Finder after the removal. Changes that can be on the server prevent the
+   TinyMounter shows in Finder after the removal. Changes that can be on the server prevent the
    removal, and a dialog names them.
 
 The pending-changes list includes saves held by macOS and offers Retry Pending Changes and
@@ -177,7 +177,7 @@ the first location on a server.
   free" for kept downloads, and Remove Downloads for downloads that the user does not keep.
   M16 uses a fixed 2 GiB reserve and explains temporary download space; the reserve control
   remains planned.
-- **Servers:** the shares that tinymounter has access to, grouped by server, in a grouped form.
+- **Servers:** the shares that TinyMounter has access to, grouped by server, in a grouped form.
   Each share row shows the account and share, the locations that use it, and its connection
   state. Servers adds nothing: the location form adds servers and shares (section 4.1). The
   access to a share stays saved after its last location is removed, so adding it again does not
@@ -201,8 +201,8 @@ Problem status takes precedence. macOS supplies the light/dark menu-bar tint. Th
 - one line per location, with its state, and a progress bar for active transfers;
 - Open Locations Folder (⌘O) and Pause Downloads. Pause stops Keep Downloaded downloads and
   read-ahead; a file that the user opens still downloads;
-- Settings… and Quit tinymounter. Quit warns during downloads, and says that files that are not
-  downloaded cannot open until tinymounter starts again.
+- Settings… and Quit TinyMounter. Quit warns during downloads, and says that files that are not
+  downloaded cannot open until TinyMounter starts again.
 
 ## 6. Finder
 
@@ -233,7 +233,7 @@ Problem status takes precedence. macOS supplies the light/dark menu-bar tint. Th
 
 File Provider locations are under `~/Library/CloudStorage`, and server volumes are under
 `/Volumes`. The **Locations folder**, `~/tinymounter` by default, puts them in one place.
-tinymounter keeps one Finder alias per location there, in either connection mode. The user can add
+TinyMounter keeps one Finder alias per location there, in either connection mode. The user can add
 their own subfolders and aliases. The app changes only the aliases that it made, and repairs them
 if the path of a location changes.
 
@@ -265,7 +265,7 @@ or choices of technical nouns. Those were checked by hand.
 
 | Before | After |
 | --- | --- |
-| Can't reach home-nas. Check that the NAS is on and this Mac is on the same network. | tinymounter cannot connect to home-nas. Make sure that home-nas is on. Make sure that this Mac is on the same network. |
+| Can't reach home-nas. Check that the NAS is on and this Mac is on the same network. | TinyMounter cannot connect to home-nas. Make sure that home-nas is on. Make sure that this Mac is on the same network. |
 | Sign-in needed for home-nas. | home-nas did not accept the password. Type the password again. |
 | Not enough space to keep "Photos" downloaded. 12 GB more needed. | There is not sufficient disk space to keep "Photos" downloaded. Make 12 GB more space available on this Mac. |
 | Downloading 42% · about 3 min left | 42% downloaded · 3 minutes remaining |
@@ -281,7 +281,7 @@ forms. Check Reduce Transparency and Increase Contrast.
 ## 10. Open decisions
 
 - **Locations folder.** On or off by default, and its name and place. Alternatives to "Locations
-  folder": "tinymounter folder", or "Aliases folder".
+  folder": "TinyMounter folder", or "Aliases folder".
 - **A settings file for experiments.** Export and import of locations as a text file, to add many
   test locations with a script.
 - Whether Settings opens at first launch, or only the menu bar item.
