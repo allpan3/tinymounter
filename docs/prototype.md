@@ -116,9 +116,10 @@ menu bar item opens it again. Nothing migrates from phase 1: remove
 the fixture domains with the phase 1 build before the first run (D3). A domain without a catalog
 fails every request with `serverUnreachable` and never reports an item as deleted.
 
-**Servers and share grants.** Add Server… saves an SMB server address without mounting a share.
-Choose Add Share… in the location's Share menu or beside the saved server. The app offers SMB
-shares already connected on this Mac, including hidden shares. Selecting a connection at another
+**Servers and share grants.** Shares are added only through a location. Add Server… in the
+location's Server menu saves the address and continues to the share. Add Share… in the Share
+menu adds another share on a saved server. The app offers SMB shares already connected on this
+Mac, including hidden shares. Selecting a connection at another
 address asks for confirmation before associating it with this server. Connect Another Share…
 uses macOS's login dialog and share selector. The app never sees the password.
 
@@ -133,12 +134,13 @@ Read only control still gates mutations. Select Again… replaces both bookmarks
 grant ID. Earlier settings can reuse a location's retained write permission for the same grant;
 if none exists, enabling writes asks once and saves the permission for that share.
 
-Add connects a saved share when needed before checking the folder and creating the location.
-Cancelling or failing that connection leaves the draft intact. Connect also mounts a share's
-saved address. Disconnect ejects that connection, including one selected
-from Finder. Remove ejects the server's associated connections before deleting its entry. A busy
-share keeps its entry and shows an error; no eject is forced. Other Connected Shares shows mounts
-without a saved grant, with Use Share and Disconnect, so a hidden mount remains manageable.
+Add and Select… connect a saved share when needed. Cancelling or failing that connection leaves
+the draft intact. A share grant stays saved after its last location is removed, so adding the
+share again does not ask for it. A location that is not connected shows Connect, and one whose
+grant no longer resolves shows Select Again…. Server volumes also have Disconnect, which ejects
+the volume. Servers lists the saved shares by server and the locations that use each one. Forget
+ejects an unused share before deleting its grant, and also deletes a server that has no other
+shares. A busy share keeps its entry and shows an error; no eject is forced.
 New File Provider support mounts request `MNT_DONTBROWSE`, which hides the volume from normal Finder browsing;
 it does not hide the NAS from Network or prevent access through `/Volumes`. Reusing a visible
 mount does not change its flags. This native mount supports credentials, permissions and
@@ -257,8 +259,8 @@ xcodebuild -project TinyMounter.xcodeproj -scheme TinyMounter -configuration Rel
 ## 3. First runtime validation
 
 1. Remove the phase 1 fixture domains first (D3). Then build, sign and launch the app. Click
-   **Add Server…** in the Server menu and save the address. In Share, click **Add Share…**,
-   select an existing connection or connect another share, then click Open in the panel.
+   **Add Server…** in the Server menu and type the address. Select an existing connection or
+   connect another share, then click Open in the panel.
 2. Type a folder and a name, click **Add**, then **Show in Finder**. Browse the root and
    two levels down. The listing log gives each folder's entry count, skipped names and times.
 3. Read a range of a file at least two levels deep through its CloudStorage path, then the same
@@ -382,9 +384,8 @@ carry no schema version; incompatible prototype state requires Start Fresh.
 
 1. In Settings, click **Remove Location…** for each location. This removes it from Finder with its
    downloaded copies. The files on the share don't change.
-2. In Servers, select each server and click `−`. Remove ejects its associated shares before
-   forgetting the server. If an eject fails, close open files and try again. Disconnect any
-   remaining test mounts in Other Connected Shares.
+2. In Servers, click **Forget** for each share. Forget ejects the share before it deletes the
+   saved access. If an eject fails, close open files and try again.
 3. In General, turn off **Open at login**.
 4. Click **Quit tinymounter** in the menu bar item.
 5. Delete `TinyMounter.app`.
@@ -408,7 +409,7 @@ the removal.
   cannot prevent other processes from filling the disk, and OS eviction under pressure remains
   unverified. If the retry file cannot be saved, an unsaved request is lost on app relaunch.
 
-- One macOS mount grant per share, and locations that are folders on it. The app asks macOS to mount the address that the user types, with macOS's own dialogs, and hides the mount from Finder's sidebar, so that Finder shows only the locations (M12). When macOS drops a share that has locations, the app asks macOS to mount it again with the password that the user saved in the Keychain; after an eject, it waits until the share is mounted again, or until the user clicks Connect in Servers (M11, M12). The user can't eject a hidden share in Finder, so Servers has Disconnect. New locations default to writable setup with a scoped grant and safety confirmation. Existing read-only locations stay read-only. Supported writes are new files/folders, ordinary content saves, file/folder rename and move, permanent deletion and Finder file Replace.
+- One macOS mount grant per share, and locations that are folders on it. The app asks macOS to mount the address that the user types, with macOS's own dialogs, and hides the mount from Finder's sidebar, so that Finder shows only the locations (M12). When macOS drops a share that has locations, the app asks macOS to mount it again with the password that the user saved in the Keychain; after an eject, it waits until the share is mounted again, or until the user clicks Connect in the location (M11, M12). File Provider locations have no Disconnect; Forget in Servers ejects an unused hidden share. New locations default to writable setup with a scoped grant and safety confirmation. Existing read-only locations stay read-only. Supported writes are new files/folders, ordinary content saves, file/folder rename and move, permanent deletion and Finder file Replace.
 - Keep Downloaded is a request for a file or folder, not proof of a download (phase 2 decision 3). M14 adds recursive folder requests, verified in the signed VM app ([results](results/2026-10-19-folder-keeps.md)). The system eagerly enumerates kept folders, and newly listed descendants inherit retention. Allow Removal cancels a request while preserving independent child requests. A folder is Available offline only if every descendant folder has an unskipped complete listing and is materialized, and every file passes the local-copy check. The system downloads an independently kept file only when its parent folder is materialized: a kept file in a folder that the system never enumerated waits until the folder is enumerated. Evicting a kept file fails; evicting its folder evicts it, and the system downloads it again at once. The location pane shows Requested, Update in progress or Available offline. It signals the working set and waits for macOS to apply provider changes, then reads fresh local metadata and rechecks catalog versions. Available offline requires current content with matching catalog size and modification date; this covers the source version last observed by the app, not live NAS freshness. The wait covers the location. Before waiting, the app rechecks previously synchronized content versions against fresh local metadata and materialization, so unrelated downloads do not reset their status. New or changed versions still need the wait; folder status uses current membership and listing completeness. Provider disablement or replacement clears remembered verification ([status-refresh results](results/2026-10-19-keep-status-refresh.md)). Signed VM checks passed, including source edits that preserved size/date ([results](results/2026-10-19-offline-versions.md)). Remove Location can save them, and a later location on the same share takes the ones inside its folder; for independently kept files outside a folder request, the app asks whether to download them now if their parent folders are not materialized (M7).
 - Pause Downloads sets `paused` in every catalog. Kept files then report `.downloadLazily`, kept folders use lazy namespace policy, and read-ahead stops. The extension cancels its running system and speculative fetches and refuses those that start while paused. A background fetch that is still waiting for the first reader connection is cancelled when the reader connects. Files that apps open, and Finder's Download Now, still download. Resume and each app launch clear Pause. Changes run one at a time, in order. A failed change shows a message, and while a catalog may still be paused, the menu bar item offers Resume Downloads. While paused, the user can also remove a kept file's download; Resume downloads it again. Whether kept files stay on disk while paused when the system needs the space is untested.
 - NAS changes in listed materialized and kept folders are discovered while the app runs. M15 uses at most 64 native SMB directory watches per mount session plus periodic reconciliation, due 60 s after a successful listing. One automatic listing runs at a time, with a one-second gap and failure backoff, so this is not a fixed latency guarantee. Unvisited unkept trees are not scanned. Launch, wake, recovery and access checks also refresh listings. A downloaded copy can stay stale between refreshes. A NAS rename is a delete plus a create, and its keep request does not follow. Signed isolated VM checks passed. The signed M15 update is installed and running on the physical Mac with the existing location retained; the user confirmed live changes work there ([results](results/2026-10-19-nas-change-discovery.md)).

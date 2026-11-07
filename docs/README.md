@@ -27,6 +27,8 @@ it wrong.
 
 ## Results logs
 
+- [One add flow and a simpler Servers pane](results/2026-11-07-servers-redesign.md). Shares added only in locations, retained access, Forget and the first-time flow.
+
 - [Native SMB server volumes](results/2026-11-07-native-server-volumes.md). One mode per share, native Finder operations, safe removal and reconnect.
 
 - [Finder folder Replace](results/2026-11-06-folder-replace.md). Native SMB comparison, pending-upload retention and automatic retry after a watcher timeout.

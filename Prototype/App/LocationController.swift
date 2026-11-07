@@ -288,6 +288,17 @@ final class LocationController {
         onChange?()
     }
 
+    /// Forgets an unused share: it disconnects the share first and keeps the entry if that fails.
+    func removeShare(_ id: UUID) async throws {
+        guard let settings = store.settings else { throw SettingsError.invalidServer }
+        guard !settings.shareIsUsed(id) else { throw SettingsError.shareInUse }
+        try await disconnect(id, reason: "share_removed")
+        try store.update { try $0.removeShare(id) }
+        shares[id] = nil
+        shareStates[id] = nil
+        onChange?()
+    }
+
     func disconnect(_ id: UUID, reason: String = "disconnect") async throws {
         guard let grant = store.settings?.shares.first(where: { $0.id == id }) else { return }
         let access = share(for: grant)

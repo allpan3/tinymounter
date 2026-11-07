@@ -504,6 +504,26 @@ final class SettingsTests: XCTestCase {
         XCTAssertTrue(settings.shares.isEmpty)
     }
 
+    func testForgettingAShareKeepsUsedSharesAndDropsAnEmptyServer() throws {
+        let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "nas.local")))
+        let used = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//account@nas.local/Media",
+                               address: try XCTUnwrap(ShareAddress("//account@nas.local/Media")))
+        let unused = ServerGrant(serverID: server.id, bookmark: Data([2]), mountFrom: "//account@nas.local/Backup",
+                                 address: try XCTUnwrap(ShareAddress("//account@nas.local/Backup")))
+        let volume = ServerVolumeRecord(grantID: used.id)
+        var settings = AppSettings(servers: [server], shares: [used, unused], serverVolumes: [volume])
+        XCTAssertThrowsError(try settings.removeShare(used.id)) {
+            XCTAssertEqual($0 as? SettingsError, .shareInUse)
+        }
+        try settings.removeShare(unused.id)
+        XCTAssertEqual(settings.shares, [used])
+        XCTAssertEqual(settings.servers, [server])
+        settings.serverVolumes.removeAll()
+        try settings.removeShare(used.id)
+        XCTAssertTrue(settings.shares.isEmpty)
+        XCTAssertTrue(settings.servers.isEmpty)
+    }
+
     func testASeparateShareWithoutItsServerIsRejected() throws {
         let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "nas.local")))
         let address = try XCTUnwrap(ShareAddress("//account@nas.local/Media"))

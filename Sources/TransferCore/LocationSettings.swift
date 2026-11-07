@@ -5,6 +5,7 @@ public enum SettingsError: Error, Equatable, Sendable {
     case invalidServer
     case serverInUse
     case shareModeConflict
+    case shareInUse
 }
 
 /// Never in the App Group: grants and saved paths are private.
@@ -75,6 +76,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
             || serverVolumes.contains { grants.contains($0.grantID) }
     }
 
+    public func shareIsUsed(_ id: UUID) -> Bool {
+        locations.contains { $0.grantID == id } || serverVolumes.contains { $0.grantID == id }
+    }
+
     private func validateServerVolumes() throws {
         var used: Set<UUID> = []
         for volume in serverVolumes {
@@ -108,6 +113,14 @@ public struct AppSettings: Codable, Equatable, Sendable {
         guard !serverIsUsed(id) else { throw SettingsError.serverInUse }
         shares.removeAll { $0.serverID == id }
         servers.removeAll { $0.id == id }
+    }
+
+    /// Forgets an unused share grant. A server without other shares goes with it.
+    public mutating func removeShare(_ id: UUID) throws {
+        guard !shareIsUsed(id) else { throw SettingsError.shareInUse }
+        guard let serverID = shares.first(where: { $0.id == id })?.serverID else { return }
+        shares.removeAll { $0.id == id }
+        if !shares.contains(where: { $0.serverID == serverID }) { servers.removeAll { $0.id == serverID } }
     }
 
 }
