@@ -130,7 +130,7 @@ final class ShareSession: @unchecked Sendable {
         let deadline = DispatchTime.now() + .seconds(10)
         var closed = true
         for group in closing where group.wait(timeout: deadline) != .success { closed = false }
-        guard closed else { throw UploadError.pendingWrites }
+        guard closed else { throw NamespaceDrainError.timedOut }
     }
 
     fileprivate func isListed(in mounts: [MountEntry]) -> Bool {

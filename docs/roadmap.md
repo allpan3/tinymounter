@@ -43,7 +43,7 @@ Current checklist, 2026-11-06 (the dated results supersede older status notes be
 | M21/M22 organization | Ordinary files and folders; preserved IDs, downloads and keeps; interruption recovery; visible recovery for refused renames/moves | Broader NAS and physical-Mac acceptance |
 | M23 saves/retry | Ordinary overwrite, competing edits, shorter/empty saves, system pending items and automatic interrupted-upload retry | Broader compatibility and physical-Mac acceptance; old export/conflict recovery is removed |
 | M24 deletion | Ordinary Finder permanent deletion, confirmed Delete Permanently… and interrupted-operation Retry | No recoverable Trash; NAS backups own deleted contents |
-| M25 editor saves | Simplified saves cover TextEdit, Preview and Xcode; file Replace and combined rename/content callbacks pass signed checks | Packages and folder Replace remain outside scope |
+| M25 editor saves | Simplified saves cover TextEdit, Preview and Xcode; file/folder Replace and combined rename/content callbacks pass signed checks | Packages and Finder Merge remain outside scope |
 | M26 offline saves | Signed VM offline retention, full OS restart and automatic retry; low-space refusal retains edits | System-wide pressure eviction deferred from 0.1.0 on November 6; broader formats remain unverified |
 | M27/M28 acceptance and release | Integrated renamed VM candidate, approved icons, signed package and matching source; required checks pass | User handles physical-Mac daily-use feedback. System-wide pressure testing is deferred |
 
@@ -146,7 +146,7 @@ Observe callback sequences before enabling new combinations. Cover TextEdit, Pre
 document files and an available code editor; additional app installation needs its own approval.
 Include repeated Save, Save As, temporary/lock-file cleanup, rename plus content changes and
 Finder's file Replace. Installed app/format coverage belongs in the results, not a claim that
-all editors work. Packages and folder Replace remain outside this milestone.
+all editors work. Ordinary folder Replace now passes the [November 6 follow-up](results/2026-11-06-folder-replace.md). Packages and Finder Merge remain outside this milestone.
 
 Replacement follows ordinary SMB overwrite behavior; previous-version preservation belongs to NAS snapshots.
 Finder's ordinary delete/create sequence is accepted for file Replace. The old destination may

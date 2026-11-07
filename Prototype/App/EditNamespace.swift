@@ -1,5 +1,9 @@
 import Foundation
 
+enum NamespaceDrainError: Error {
+    case timedOut
+}
+
 /// Coordinates namespace changes across locations that share an SMB source.
 final class EditNamespace: @unchecked Sendable {
     private static let registryLock = NSLock()
@@ -150,7 +154,7 @@ final class EditNamespace: @unchecked Sendable {
         let deadline = Date.now.addingTimeInterval(Double(timeout.components.seconds))
         try reads.withLock {
             while activeReads.values.contains(where: { path in paths.contains { Self.contains($0, path) } }) {
-                guard reads.wait(until: deadline) else { throw UploadError.pendingWrites }
+                guard reads.wait(until: deadline) else { throw NamespaceDrainError.timedOut }
             }
         }
     }

@@ -45,8 +45,9 @@ Known limits for this release:
 - Repeated outages once hung Apple's SMB authentication service; Finder also could not reconnect.
   Pending upload data survived, but that trial needed VM intervention to restore the native mount.
 - List a destination folder online before moving files into it offline.
-- Folder Replace and package editing are outside the tested scope. Read-performance targets
-  remain unmet. Daily-use feedback on the physical Mac is the next acceptance step.
+- The published 0.1.1 predates the [Folder Replace follow-up](results/2026-11-06-folder-replace.md)
+  and its automatic-retry fix. Package editing and Finder Merge remain unverified.
+  Read-performance targets remain unmet. Daily-use feedback on the physical Mac is the next acceptance step.
 - There is no automatic updater. Install later releases by replacing the app after uploads finish.
 
 ## Source and licences
