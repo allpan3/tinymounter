@@ -10,7 +10,7 @@ session. Implementation follows the safety gates and dependencies below. Each ph
 installation needs the user's separate approval.
 
 The goal is ordinary document work in Finder: create, open, save, organize and delete files,
-then edit downloaded files while offline. Tinymounter remains a Mac app using an existing SMB
+then edit downloaded files while offline. TinyMounter remains a Mac app using an existing SMB
 server. No server component is required. One Read only control governs all supported writes.
 
 This is the forward plan. [Architecture §10](architecture.md#10-implementation-sequence-and-exit-criteria)
@@ -19,6 +19,22 @@ what actually passed. A completed milestone needs its own evidence; a roadmap en
 compatibility claim or an estimate of delivery time.
 
 ## Milestones and dependencies
+
+### App-owned SMB login for File Provider locations, planned for 0.2.0
+
+Decided by the user on 2026-11-07 after the physical-Mac test. File Provider locations still
+need a hidden macOS mount for the login, folder watches and the share-access grant. Finder
+hides it, but QSpace Pro lists it as a second entry; Mountain Duck and Driio show only their
+locations because they mount nothing. 0.2.0 removes that mount: TinyMounter keeps the
+password in its own Keychain item, connects with its own SMB client, and discovers NAS changes
+without the mount. The share-access panel goes away. Server Volume mode keeps its mount.
+This reverses "macOS owns passwords" and needs a VM validation plan before implementation.
+
+### One add flow and a simpler Servers pane, accepted 2026-11-07
+
+Shares are added only in a location; Servers lists the saved shares and forgets unused ones.
+See the [results](results/2026-11-07-servers-redesign.md). It is installed on the physical Mac
+as a test build, not as a release.
 
 ### Native server volumes, accepted 2026-11-07
 

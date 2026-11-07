@@ -136,7 +136,9 @@ Separate latency-sensitive metadata from bulk reads; pool authenticated sessions
 
 The user adopted `libsmb2-6.3` for remote listing, metadata, reads and writes on 2026-11-04.
 The app embeds a separate dynamic library and uses public GSS APIs for cached credentials.
-Native mounts retain scoped grants, lifecycle checks and directory change hints. Authenticated
+Native mounts retain scoped grants, lifecycle checks and directory change hints. On 2026-11-07 the user
+decided to remove this mount for File Provider locations in 0.2.0, because third-party file
+managers list it ([roadmap](roadmap.md)). Authenticated
 mutations require encryption. The library source and licence are in `Vendor/libsmb2`; the
 personal-use release includes the complete source, notices and [rebuilding instructions](release.md#rebuild-and-replace-the-library).
 
@@ -172,7 +174,7 @@ Use `NSFileProviderContentPolicy.downloadEagerlyAndKeepDownloaded` for pins. On 
 
 Folder pinning has a byte/item budget, free-space reserve, progress, and cancellation. M16 implements a shared 2 GiB local reserve with conservative staging/handoff reservations and retry after space returns. The reserve is an admission policy; other processes can still consume local space. Configurable folder budgets remain planned. Never label a budget-limited or failed tree fully available offline. Retain complete already-downloaded files during a network outage. A sparse file's apparent logical size does not prove offline availability. Remote changes and partial materialization need version-aware invalidation, not unconditional removal of every local copy on reconnect.
 
-The OS owns the main content cache. Tinymounter owns temporary transfer files and their crash cleanup, metadata, and pin policy. Cache limits are best-effort controls over evictable content, not a promise of an exact private cache size. Never edit the OS's internal File Provider database or cache directories directly.
+The OS owns the main content cache. TinyMounter owns temporary transfer files and their crash cleanup, metadata, and pin policy. Cache limits are best-effort controls over evictable content, not a promise of an exact private cache size. Never edit the OS's internal File Provider database or cache directories directly.
 
 Disconnecting, disabling refresh, removing a connection, and deleting remote files are different operations. Domain removal must preserve downloaded files or pending data according to the documented removal mode and the user's explicit intent; it must not be used as routine repair [A5]. The read-only release exposes no remote deletion operation.
 
@@ -270,7 +272,7 @@ Credentials remain in macOS Keychain. `NWPathMonitor` reporting a usable path do
 the server is reachable [N1–N3]; mount results determine success. Trusted-network, VPN and wired
 preference policies remain future work.
 
-An Ethernet/Wi-Fi change is not a reason to forcibly unmount every open file. Apple's SMB Multichannel can supply redundancy and choose interfaces when supported [N2]. Let healthy native sessions recover; remount when needed and safe. Tinymounter cannot promise seamless migration of every existing file descriptor across every path change. Do not globally rewrite `nsmb.conf` to implement a per-connection preference.
+An Ethernet/Wi-Fi change is not a reason to forcibly unmount every open file. Apple's SMB Multichannel can supply redundancy and choose interfaces when supported [N2]. Let healthy native sessions recover; remount when needed and safe. TinyMounter cannot promise seamless migration of every existing file descriptor across every path change. Do not globally rewrite `nsmb.conf` to implement a per-connection preference.
 
 ## 10. Implementation sequence and exit criteria
 
