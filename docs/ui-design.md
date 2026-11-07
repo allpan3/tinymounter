@@ -19,7 +19,9 @@ Current setup, 2026-11-07: Add offers File Provider or Server volume (SMB). A na
 covers the whole share, uses its server permissions and has no Read only or Keep Downloaded
 control. Remove the share's existing locations before switching modes, including locations
 saved under another account. Add connects automatically; saved native volumes also have
-Show in Finder, Connect/Disconnect and Remove controls. The original mockup below is historical.
+Show in Finder, Connect/Disconnect and Remove controls. On 2026-11-07 the user also accepted one
+add flow: shares are added only in a location, and Servers only lists them (section 4.3). The
+original mockup below is historical.
 
 ## 1. Principles
 
@@ -137,8 +139,9 @@ confirmation says that this removes the downloaded copies of the location from t
 the files on the server do not change. To try a different source and keep this location, use
 Duplicate instead.
 
-**Server** lists saved servers. Add Server… saves the address without requiring a share.
-**Share** lists the server's saved share grants and Add Share…. The app offers existing SMB
+**Server** lists saved servers. Add Server… saves the address and continues to the share.
+**Share** lists the server's saved share grants and Add Share…. This is the only place to add a
+share. Select… connects the share first if necessary. The app offers existing SMB
 connections before asking macOS to connect another share. A connection at a different address
 needs explicit confirmation. macOS owns login and Keychain dialogs; the app never sees a password.
 Bonjour discovery remains unimplemented.
@@ -174,15 +177,16 @@ the first location on a server.
   free" for kept downloads, and Remove Downloads for downloads that the user does not keep.
   M16 uses a fixed 2 GiB reserve and explains temporary download space; the reserve control
   remains planned.
-- **Servers:** one row per server: address, account, Keychain password, connection state, SMB
-  dialect and signing. Edit… changes the account or password for all locations on that server.
-  The M12 follow-up saves server addresses independently of share grants. Add Server… asks for
-  the address, and Add Share… selects an existing connection or lets macOS connect another share.
-  macOS asks for the password and keeps it in the Keychain. Each share has Connect or Disconnect,
-  and Select Again…. Disconnect ejects the connection from this Mac. Remove ejects all associated
-  shares before forgetting the server, and keeps the entry if an eject fails. Other Connected
-  Shares lists mounts without a saved grant, including hidden mounts, with Use Share and
-  Disconnect. A server used by a location cannot be removed.
+- **Servers:** the shares that tinymounter has access to, grouped by server, in a grouped form.
+  Each share row shows the account and share, the locations that use it, and its connection
+  state. Servers adds nothing: the location form adds servers and shares (section 4.1). The
+  access to a share stays saved after its last location is removed, so adding it again does not
+  ask again. Forget ejects an unused share and deletes its access; it is unavailable while a
+  location uses the share, and it keeps the entry if the eject fails. A server without other
+  shares goes with its last share. Select Again… shows only when the access no longer resolves.
+  Connection problems also show in the location's header, with Connect or Select Again….
+  File Provider locations have no Disconnect: the app reconnects them automatically. Server
+  volumes keep Connect and Disconnect in their own pane.
   Native volumes reuse reconnect after launch, wake and network changes. An intentional eject
   holds reconnect for the current app session. Network selection policies remain future scope.
 - **About:** version, acknowledgements, and Export Diagnostics. The export does not include file

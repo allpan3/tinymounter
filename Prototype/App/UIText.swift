@@ -284,8 +284,8 @@ enum UIText {
     static let connected = "Connected"
     static let notConnected = "Not connected"
     static let removalNotComplete = "The removal is not complete."
-    static let connectInServers = "Open Servers in tinymounter Settings. Then click Connect."
-    static let selectShareAgain = "Select the share again in Servers."
+    static let connectInLocation = "Open this location in tinymounter Settings. Then click Connect."
+    static let selectShareAgain = "Select the share again. Click Select Again… in the location."
     static let folderNotOnShare = "This folder is not on the share."
     static let catalogUnavailable = "tinymounter cannot read the data for this location. Remove the location. Then add it again."
     static let turnedOff = "File Provider is off."
@@ -367,15 +367,14 @@ enum UIText {
     static let notSMBShare = "This volume is not an SMB share. To add a share, click Add Share…."
     static let addressRejected = "tinymounter cannot use the address of this share."
     static let otherShare = "This is a different share. To add it, click Add Share…."
-    static let otherAccount = "This share is connected through another account. To use this account, disconnect the share in Servers. Then click Add Share… again."
-    static let shareNotMounted = "The share is not connected. In Servers, click Connect. Then click Select… again."
+    static let otherAccount = "This share is connected through another account. To use this account, eject the other connection. Then click Add Share… again."
     static let wrongAddress = "This address is not correct. Type an address such as smb://server/share."
     static func passwordNotAccepted(_ host: String) -> String {
         "\(host) did not accept the password. Type the password again."
     }
     static let tooManyItems = "This folder has more than 100,000 items. tinymounter cannot show it."
     static let cannotShow = "Finder cannot show this location."
-    static let serverInUse = "A location uses this server. Remove the location first."
+    static let shareInUse = "A location uses this share. Remove the location first."
     static func cannotDo(_ code: String) -> String { "tinymounter cannot do this (\(code))." }
 
     // Panels
@@ -387,13 +386,24 @@ enum UIText {
     static let notResponding = "Cannot connect"
     static let selectShareAgainShort = "Select the share again."
     static func accountAndShare(_ account: String, _ share: String) -> String { "\(account) · \(share)" }
-    static let noServers = "To add a server, click Add Server…."
-    static let noSelectedShares = "No shares selected."
-    static let otherConnectedShares = "Other Connected Shares"
+    static let serversDescription = """
+        tinymounter can use these shares. To add a share, add a location and select the share there.
+        """
+    static let noServers = "No shares. To add a share, add a location."
+    static let noShares = "No shares"
+    static func usedBy(_ names: [String]) -> String { "Used by " + names.joined(separator: ", ") }
+    static let notUsed = "Not used"
+    static let forget = "Forget"
+    static let forgetUsedHelp = "A location uses this share. Remove the location first."
+    static func forgetShareTitle(_ share: String) -> String { "Forget the share \(share)?" }
+    static let forgetShareMessage = """
+        tinymounter disconnects the share and forgets its access. The files on the server do not change. \
+        To use the share again, add a location and select the share.
+        """
     static let useShare = "Use Share"
     static let useOtherAddressTitle = "Use the connection at this other address?"
     static func useOtherAddress(_ address: ShareAddress, server: String) -> String {
-        "Use \(address.host) / \(address.share), connected as \(address.account), with \(server)? Disconnect and Remove eject this connection from this Mac."
+        "Use \(address.host) / \(address.share), connected as \(address.account), with \(server)? Forget in Servers ejects this connection from this Mac."
     }
     static let connectAnotherShare = "Connect Another Share…"
     static let chooseShareDescription = """
@@ -408,14 +418,7 @@ enum UIText {
     static func serverAddress(_ server: ServerRecord) -> String {
         server.account.map { "\($0)@\(server.host)" } ?? server.host
     }
-    static let removeServerTitle = "Disconnect this server's shares and remove the server?"
-    static let removeServerMessage = "The files on the server do not change. Other apps lose access to these connections."
-    static let cannotRemoveServer = """
-        tinymounter cannot remove this server. Its entry has been kept. Close files that are open on its \
-        shares. Then try again.
-        """
-    static let serverSetupHint = "Add a location to use these files in Finder. Add connects to the share automatically."
-    static let disconnectHint = "Disconnect takes this share's locations offline and ejects any Finder connection to it. Downloaded files remain available."
+    static let cannotRemoveServer = "tinymounter cannot forget this server. Try again."
 
     // General
     static let openAtLogin = "Open at login"

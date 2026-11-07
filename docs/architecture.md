@@ -47,8 +47,9 @@ The dated experiments below record the earlier native-transport design and its m
 **Saved connections, accepted and implemented on 2026-10-18.** Server addresses and share grants
 are separate records. The app owns read-only grants; macOS owns passwords and SMB mounts. An
 existing connection can be associated with a saved server by explicit selection, with confirmation
-for another address. Disconnect ejects that OS volume. Remove ejects all associated connections
-before deleting the server; failure retains the records. Keep Downloaded lists hold typed file
+for another address. Since 2026-11-07, shares are added only through a location, and grants stay
+saved after their last location is removed. Servers lists them; Forget ejects an unused share
+before deleting its grant, and failure retains the records. Keep Downloaded lists hold typed file
 and folder requests ([M14 results](results/2026-10-19-folder-keeps.md)). The
 [connection-management results](results/2026-10-18-connection-management.md) record VM checks and
 physical-Mac limits.
