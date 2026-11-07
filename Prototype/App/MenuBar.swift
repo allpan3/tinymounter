@@ -13,9 +13,14 @@ struct MenuBarContent: View {
 
     var body: some View {
         if let problem = model.problem { Text(problem) }
-        if model.records.isEmpty { Text(UIText.noLocations) }
+        if !model.hasLocations { Text(UIText.noLocations) }
         ForEach(model.records, id: \.id) { record in
             Text(UIText.joined(record.name, model.shortStatus(record)))
+        }
+        ForEach(model.serverVolumes) { volume in
+            Button(UIText.joined(model.volumeName(volume), model.volumeStatus(volume))) {
+                model.showInFinder(volume.id)
+            }
         }
         Divider()
         Button(model.paused ? UIText.resumeDownloads : UIText.pauseDownloads, action: model.togglePause)

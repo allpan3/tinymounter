@@ -22,6 +22,7 @@ final class AppModel {
         var folder: String
         var name: String
         var readOnly = false
+        var mode: LocationMode = .fileProvider
         /// The name follows the folder until the user types one.
         var nameEdited = false
         /// The location that it copies, or nil for New Location.
@@ -81,11 +82,13 @@ final class AppModel {
 
     enum Entry: Identifiable {
         case record(LocationRecord)
+        case serverVolume(ServerVolumeRecord, String)
         case draft(Draft)
 
         var id: UUID {
             switch self {
             case .record(let record): record.id
+            case .serverVolume(let volume, _): volume.id
             case .draft(let draft): draft.id
             }
         }
@@ -93,6 +96,7 @@ final class AppModel {
         var name: String {
             switch self {
             case .record(let record): record.name
+            case .serverVolume(_, let name): name
             case .draft(let draft): draft.name
             }
         }
@@ -112,6 +116,7 @@ final class AppModel {
     /// Folder completion for the entry whose Folder field has focus.
     private(set) var folderSuggestions: [String] = []
     private(set) var records: [LocationRecord] = []
+    private(set) var serverVolumes: [ServerVolumeRecord] = []
     private(set) var servers: [ServerRecord] = []
     private(set) var shares: [ServerGrant] = []
     private(set) var connectedShares: [ShareAccess.ConnectedShare] = []
@@ -161,11 +166,7 @@ final class AppModel {
             await self?.confirmPermanentDeletion(selection, progress: progress) ?? false
         }
         refresh()
-        if records.isEmpty {
-            newLocation()
-        } else {
-            selection = .location(records[0].id)
-        }
+        if let first = entries.first { selection = .location(first.id) } else { newLocation() }
         refreshMounts()
         let center = NSWorkspace.shared.notificationCenter
         mountObservers = [
@@ -179,7 +180,7 @@ final class AppModel {
         Task { await controller.launch() }
     }
 
-    var hasLocations: Bool { !records.isEmpty }
+    var hasLocations: Bool { !records.isEmpty || !serverVolumes.isEmpty }
 
     /// Records and drafts in order: each draft below the location that it copies.
     var entries: [Entry] {
@@ -188,6 +189,7 @@ final class AppModel {
             list.append(.record(record))
             list += drafts.filter { $0.original == record.id }.map(Entry.draft)
         }
+        list += serverVolumes.map { .serverVolume($0, volumeName($0)) }
         list += drafts.filter { draft in !records.contains { $0.id == draft.original } }.map(Entry.draft)
         let search = searchText.trimmingCharacters(in: .whitespaces)
         return search.isEmpty ? list : list.filter { $0.name.localizedStandardContains(search) }
@@ -247,7 +249,8 @@ final class AppModel {
 
     var menuImageName: String {
         let all = records.map(state)
-        if all.contains(where: \.isProblem) { return "MenuBarProblem" }
+        if all.contains(where: \.isProblem)
+            || serverVolumes.contains(where: { shareStates[$0.grantID] != .connected }) { return "MenuBarProblem" }
         if all.contains(where: { if case .connected(.some) = $0 { true } else { false } }) { return "MenuBarDownloading" }
         return "MenuBarDrive"
     }
@@ -272,7 +275,7 @@ final class AppModel {
 
     func grantID(_ id: UUID) -> UUID? {
         if let draft = draft(id) { return draft.grantID }
-        return edits[id]?.grantID ?? record(id)?.grantID
+        return edits[id]?.grantID ?? record(id)?.grantID ?? serverVolume(id)?.grantID
     }
 
     func folderText(_ id: UUID) -> String {
@@ -425,6 +428,9 @@ final class AppModel {
     func add(_ draftID: UUID) {
         guard !connectionBusy, let draft = draft(draftID), !busy.contains(draftID) else { return }
         guard let grantID = draft.grantID else { return }
+        do { try store.settings?.requireMode(draft.mode, for: grantID) }
+        catch { return show(error, grantID: grantID) }
+        if draft.mode == .serverVolume { return addServerVolume(draft) }
         guard let folder = LocationRecord.normalizedFolder(draft.folder) else { return show(UIText.wrongFolderPath) }
         let typed = draft.name.trimmingCharacters(in: .whitespaces)
         let name = typed.isEmpty ? defaultName(grantID: grantID, folder: draft.folder) : typed
@@ -528,6 +534,7 @@ final class AppModel {
     }
 
     func confirmRemove(_ recordID: UUID) {
+        if let volume = serverVolume(recordID) { return confirmRemoveServerVolume(volume) }
         guard let record = record(recordID), !busy.contains(recordID) else { return }
         Task {
             // Unreadable records leave the decision to the removal, which checks them again.
@@ -694,6 +701,7 @@ final class AppModel {
     func pendingUploads(_ record: LocationRecord) async throws -> Int { try await controller.pendingUploads(record) }
 
     func showInFinder(_ recordID: UUID) {
+        if let volume = serverVolume(recordID) { return showServerVolume(volume) }
         guard let record = record(recordID), let manager = controller.manager(for: record) else {
             return show(UIText.cannotShow)
         }
@@ -706,6 +714,64 @@ final class AppModel {
             } catch {
                 show(UIText.cannotShow)
             }
+        }
+    }
+
+    func serverVolume(_ id: UUID) -> ServerVolumeRecord? { serverVolumes.first { $0.id == id } }
+
+    func volumeName(_ volume: ServerVolumeRecord) -> String { grant(volume.grantID)?.share ?? UIText.serverVolume }
+
+    func volumeStatus(_ volume: ServerVolumeRecord) -> String {
+        grant(volume.grantID).map(shareStatus) ?? UIText.notConnected
+    }
+
+    func setMode(_ id: UUID, _ mode: LocationMode) {
+        guard let index = drafts.firstIndex(where: { $0.id == id }) else { return }
+        drafts[index].mode = mode
+        if mode == .serverVolume {
+            drafts[index].folder = ""
+            followFolder(index)
+        }
+    }
+
+    private func addServerVolume(_ draft: Draft) {
+        guard busy.isEmpty, let grant = grant(draft.grantID) else { return }
+        busy.insert(draft.id)
+        Task {
+            defer { busy.remove(draft.id) }
+            guard await connectShare(grant, native: true) else { return }
+            do { try controller.addServerVolume(id: draft.id, grantID: grant.id) }
+            catch { show(error, grantID: grant.id) }
+        }
+    }
+
+    private func showServerVolume(_ volume: ServerVolumeRecord) {
+        guard !connectionBusy, let grant = grant(volume.grantID) else { return }
+        Task {
+            guard await connectShare(grant) else { return }
+            guard let path = controller.mountPath(grant.id),
+                  NSWorkspace.shared.open(URL(filePath: path, directoryHint: .isDirectory)) else {
+                return show(UIText.cannotShow)
+            }
+        }
+    }
+
+    private func confirmRemoveServerVolume(_ volume: ServerVolumeRecord) {
+        guard !connectionBusy, !busy.contains(volume.id) else { return }
+        let alert = NSAlert()
+        alert.messageText = UIText.removeLocationMenu
+        alert.informativeText = UIText.removeServerVolumeHint
+        alert.addButton(withTitle: UIText.removeLocation).hasDestructiveAction = true
+        alert.addButton(withTitle: UIText.cancel)
+        Task {
+            guard await present(alert) == .alertFirstButtonReturn else { return }
+            busy.insert(volume.id)
+            connectionBusy = true
+            defer { busy.remove(volume.id); connectionBusy = false; refreshMounts() }
+            do {
+                try await controller.removeServerVolume(volume.id)
+                selection = entries.first.map { .location($0.id) } ?? .general
+            } catch { show(error, grantID: volume.grantID) }
         }
     }
 
@@ -966,7 +1032,7 @@ final class AppModel {
         Task { _ = await connectShare(grant) }
     }
 
-    private func connectShare(_ grant: ServerGrant) async -> Bool {
+    private func connectShare(_ grant: ServerGrant, native: Bool? = nil) async -> Bool {
         guard !connectionBusy else { return false }
         guard let url = URL(string: "smb:" + grant.mountFrom) else {
             show(UIText.addressRejected)
@@ -974,9 +1040,31 @@ final class AppModel {
         }
         connectionBusy = true
         defer { connectionBusy = false; refreshMounts() }
-        let (status, _) = await ShareAccess.mount(url)
+        let visible = native ?? serverVolumes.contains { $0.grantID == grant.id }
+        if visible {
+            do {
+                let mounts = try ShareAccess.connectedShares().filter { $0.identity.mountFrom == grant.mountFrom }
+                if mounts.contains(where: { !$0.isHidden }) {
+                    controller.shareMounted(grant.id)
+                    return true
+                }
+                for mount in mounts where mount.isHidden {
+                    try await ShareAccess.unmount(mount, reason: "server_volume_visibility")
+                }
+            } catch {
+                controller.shareMounted(grant.id)
+                show(UIText.cannotDisconnect(grant.share))
+                return false
+            }
+        }
+        let (status, _) = await ShareAccess.mount(url, browsable: visible)
         guard status == 0 || status == EEXIST else {
             if let message = Self.mountMessage(status, host: grant.host) { show(message) }
+            return false
+        }
+        guard let mounted = try? ShareAccess.connectedShares(),
+              mounted.contains(where: { $0.identity.mountFrom == grant.mountFrom && (!visible || !$0.isHidden) }) else {
+            show(visible ? UIText.nativeMountUnavailable : UIText.selectShareAgain)
             return false
         }
         controller.shareMounted(grant.id)
@@ -1078,9 +1166,12 @@ final class AppModel {
     func isServerUsed(_ id: UUID) -> Bool {
         let grants = Set(shares.filter { $0.serverID == id }.map(\.id))
         return records.contains { grants.contains($0.grantID) }
+            || serverVolumes.contains { grants.contains($0.grantID) }
     }
 
-    private func isGrantUsed(_ id: UUID) -> Bool { records.contains { $0.grantID == id } }
+    private func isGrantUsed(_ id: UUID) -> Bool {
+        records.contains { $0.grantID == id } || serverVolumes.contains { $0.grantID == id }
+    }
 
     var otherConnectedShares: [ShareAccess.ConnectedShare] {
         let saved = Set(shares.map(\.mountFrom))
@@ -1201,6 +1292,7 @@ final class AppModel {
     private func refresh() {
         let settings = store.settings
         update(\.records, settings?.locations ?? [])
+        update(\.serverVolumes, settings?.serverVolumes ?? [])
         update(\.servers, settings?.servers ?? [])
         update(\.shares, settings?.shares ?? [])
         update(\.paused, controller.paused)
@@ -1216,7 +1308,7 @@ final class AppModel {
         update(\.notOnServer, controller.notOnServer)
         update(\.shareStates, Dictionary(uniqueKeysWithValues: shares.map { ($0.id, controller.shareState($0.id)) }))
         update(\.states, Dictionary(uniqueKeysWithValues: records.map { ($0.id, computeState($0)) }))
-        let ids = Set(records.map(\.id))
+        let ids = Set(records.map(\.id) + serverVolumes.map(\.id))
         if edits.keys.contains(where: { !ids.contains($0) }) { edits = edits.filter { ids.contains($0.key) } }
         if drafts.contains(where: { ids.contains($0.id) }) { drafts.removeAll { ids.contains($0.id) } }
     }
@@ -1317,6 +1409,9 @@ final class AppModel {
     }
 
     private static func message(for error: Error, host: String?) -> String {
+        if error as? SettingsError == .shareModeConflict { return UIText.shareModeConflict }
+        if (error as NSError).domain == NSCocoaErrorDomain,
+           (error as NSError).code == NSFileManagerUnmountBusyError { return UIText.volumeBusy }
         if let error = error as? UploadError {
             return error == .pendingWrites ? UIText.pendingUploadHint : UIText.uploadAccessError
         }

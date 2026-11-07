@@ -165,6 +165,7 @@ final class ShareAccess: @unchecked Sendable {
     private static let unmountWait: Duration = .seconds(60)
     private var connecting = false
     private var remount = RemountPolicy()
+    private var browsable = false
     private var mountRequest: AsyncRequestID?
     private let network = NWPathMonitor()
     private var stateHandler: (@Sendable (ShareHealth.State) -> Void)?
@@ -323,7 +324,8 @@ final class ShareAccess: @unchecked Sendable {
     }
 
     /// Phase 3 plan §1: only a share that a location uses is mounted again.
-    func setRemountWanted(_ wanted: Bool) {
+    func setRemountWanted(_ wanted: Bool, browsable: Bool = false) {
+        lock.withLock { self.browsable = browsable }
         let changed = lock.withLock {
             defer { remount.wanted = wanted }
             return remount.wanted != wanted
@@ -554,20 +556,20 @@ final class ShareAccess: @unchecked Sendable {
             return
         }
         Self.logger.info("share=\(self.grantID.uuidString, privacy: .public) remount_started")
-        let request = Self.mount(url, showsUI: false, queue: monitor) { [weak self] status, _ in
+        let request = Self.mount(url, showsUI: false, browsable: lock.withLock { browsable }, queue: monitor) { [weak self] status, _ in
             self?.mountFinished(status: status, started: started)
         }
         if let request { lock.withLock { mountRequest = request } }
     }
 
-    // Request a non-browsable mount; macOS can reuse an already visible connection.
+    // macOS can reuse an existing mount without changing its visibility flags.
     @discardableResult
-    private static func mount(_ url: URL, showsUI: Bool, queue: DispatchQueue,
+    private static func mount(_ url: URL, showsUI: Bool, browsable: Bool, queue: DispatchQueue,
                               done: @escaping @Sendable (Int32, [String]) -> Void) -> AsyncRequestID? {
         let openOptions = NSMutableDictionary()
         if !showsUI { openOptions["UIOption"] = "NoUI" }
         let mountOptions = NSMutableDictionary()
-        mountOptions[kNetFSMountFlagsKey] = MNT_DONTBROWSE
+        mountOptions[kNetFSMountFlagsKey] = browsable ? 0 : MNT_DONTBROWSE
         var request: AsyncRequestID?
         let status = NetFSMountURLAsync(url as CFURL, nil, nil, nil, openOptions, mountOptions, &request, queue) {
             status, _, points in done(status, (points as? [String]) ?? [])
@@ -580,10 +582,10 @@ final class ShareAccess: @unchecked Sendable {
     }
 
     /// Add Share… and Connect: the status, and the mount points if macOS mounted the share.
-    static func mount(_ url: URL) async -> (status: Int32, paths: [String]) {
+    static func mount(_ url: URL, browsable: Bool = false) async -> (status: Int32, paths: [String]) {
         let started = ContinuousClock.now
         let (status, paths) = await withCheckedContinuation { continuation in
-            mount(url, showsUI: true, queue: .global(qos: .userInitiated)) { continuation.resume(returning: ($0, $1)) }
+            mount(url, showsUI: true, browsable: browsable, queue: .global(qos: .userInitiated)) { continuation.resume(returning: ($0, $1)) }
         }
         let ms = started.duration(to: .now) / .milliseconds(1)
         logger.info("share_mount status=\(status) mountpoints=\(paths.count) ms=\(ms, format: .fixed(precision: 1))")

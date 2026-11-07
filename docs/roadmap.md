@@ -20,6 +20,30 @@ compatibility claim or an estimate of delivery time.
 
 ## Milestones and dependencies
 
+### Native server volumes, accepted 2026-11-07
+
+The user prioritized native SMB mode before further release packaging. Folder Replace is merged
+in PR #35; the physical Mac and published DMG remain on 0.1.1.
+
+The user accepted one mode per share, switching only after its existing locations are removed.
+The implemented Add form offers Server volume alongside File Provider. Server volume
+uses the macOS SMB filesystem directly, appears as a normal Finder server volume, and has no
+TinyMounter download cache or Keep Downloaded control. Reuse the existing connection lifecycle:
+connect during Add, recover on launch/wake/network return, and respect an intentional eject.
+Do not force an unmount of files in use. Native access follows server and mount permissions;
+the File Provider location's Read only setting does not restrict another native view.
+
+Enforce one mode per share across saved accounts. Native volumes have separate settings and no
+File Provider domain or catalog. Adding one must not expose a share with existing provider locations.
+The existing `nobrowse` behavior is already in 0.1.1; it does not hide the server under Network
+or convert an existing visible mount. The user's extra Finder entry remains unidentified.
+
+Signed VM checks pass for native Finder access without a File Provider domain, same-share moves,
+relaunch/reconnect, intentional eject, busy-volume refusal and the selected coexistence policy.
+Required checks pass with 522 tests and one optional skip. See the
+[native-mode results](results/2026-11-07-native-server-volumes.md). Release packaging and physical
+installation remain separate; continue prioritizing features.
+
 ### Personal-use 0.1.0 scope, accepted 2026-11-06
 
 Complete the integrated VM checks for ordinary Finder operations, Preview/Xcode saves,

@@ -15,10 +15,11 @@ M16 adds Not sufficient space, a free-space instruction and automatic kept-downl
 verified in the signed VM on 2026-10-22 ([results](results/2026-10-21-disk-space-protection.md)).
 Interactive mockup: [ui-mockup.html](ui-mockup.html).
 
-Current setup, 2026-11-06: File Provider is the only implemented location mode. The app no
-longer shows the unavailable Server volume choice described in the original design and mockup
-below. Add connects automatically and reuses the share's saved permission; manual connection
-controls remain in Servers. See the [setup checks](results/2026-11-06-share-access.md).
+Current setup, 2026-11-07: Add offers File Provider or Server volume (SMB). A native volume
+covers the whole share, uses its server permissions and has no Read only or Keep Downloaded
+control. Remove the share's existing locations before switching modes, including locations
+saved under another account. Add connects automatically; saved native volumes also have
+Show in Finder, Connect/Disconnect and Remove controls. The original mockup below is historical.
 
 ## 1. Principles
 
@@ -97,8 +98,8 @@ Selecting a location shows one grouped form with all of its settings:
    "File Provider is off.", instructions to enable it, and Open System Settings… instead.
 2. **Source.** Server, Share, Folder and Name. The user types a folder path, with completion, or
    clicks Select… to browse. An empty path means the full share.
-3. **Connection Mode.** File Provider, or Server volume. Server volume shows "Not available in this
-   version" until that phase.
+3. **Connection Mode.** Choose File Provider or Server volume when adding a location. Native
+   volumes use the whole share and its actual name; their Folder and Name fields are omitted.
 4. **Keep Downloaded** (File Provider only). Each kept file or folder, with its state: Available
    offline, 42% downloaded, Update in progress, or Not sufficient space. Add with `+`, remove with
    `−`. Keeping a folder keeps all items in it, recursively.
@@ -182,8 +183,8 @@ the first location on a server.
   shares before forgetting the server, and keeps the entry if an eject fails. Other Connected
   Shares lists mounts without a saved grant, including hidden mounts, with Use Share and
   Disconnect. A server used by a location cannot be removed.
-  Later, for server volumes: connect again after sleep and network changes, and which networks to
-  use.
+  Native volumes reuse reconnect after launch, wake and network changes. An intentional eject
+  holds reconnect for the current app session. Network selection policies remain future scope.
 - **About:** version, acknowledgements, and Export Diagnostics. The export does not include file
   names, paths or passwords.
 

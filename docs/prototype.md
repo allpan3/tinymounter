@@ -139,10 +139,19 @@ saved address. Disconnect ejects that connection, including one selected
 from Finder. Remove ejects the server's associated connections before deleting its entry. A busy
 share keeps its entry and shows an error; no eject is forced. Other Connected Shares shows mounts
 without a saved grant, with Use Share and Disconnect, so a hidden mount remains manageable.
-New mounts request `MNT_DONTBROWSE`, which hides the volume from normal Finder browsing;
+New File Provider support mounts request `MNT_DONTBROWSE`, which hides the volume from normal Finder browsing;
 it does not hide the NAS from Network or prevent access through `/Volumes`. Reusing a visible
 mount does not change its flags. This native mount supports credentials, permissions and
 directory notifications; the app's SMB client transfers File Provider contents.
+
+Server volume (SMB) is a separate whole-share location mode. It requests a browsable mount and
+opens that mount in Finder, with no File Provider catalog, download cache or Read only control.
+Add safely disconnects a reused hidden mount before mounting visibly; busy mounts refuse the
+change. Native volumes reuse launch/wake/network reconnect and respect intentional eject for
+the current app session. Remove disconnects before forgetting the volume and retains the entry
+if the volume is busy. A share cannot have both modes, even through different saved accounts;
+remove its existing locations before switching. Server aliases are not resolved to detect that
+two differently named servers might be the same machine.
 
 The original grant and connection flow was verified in [M3](results/2026-10-12-share-grant.md) and
 [M12](results/2026-10-18-connect-in-app.md). The

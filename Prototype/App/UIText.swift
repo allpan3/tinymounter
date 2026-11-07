@@ -20,6 +20,16 @@ enum UIText {
     static let removeLocationMenu = "Remove Location…"
     static let settingsMenu = "Settings…"
 
+    static let connectionMode = "Connection Mode"
+    static let fileProvider = "File Provider"
+    static let serverVolume = "Server volume (SMB)"
+    static let nativeVolumeHint = "Opens the whole share directly in Finder. Files stay on the server and are unavailable offline. Access follows the server's permissions."
+    static let modeSwitchHint = "To switch modes, remove this share's existing locations first."
+    static let shareModeConflict = "This share already uses another mode, or already has a server volume. Remove its existing locations before adding a different mode."
+    static let nativeMountUnavailable = "macOS reused a hidden connection. Disconnect this share in Servers, then try again."
+    static let volumeBusy = "This server volume is in use. Close its open files and windows, then try again. The location has not been removed."
+    static let removeServerVolumeHint = "Disconnect this server volume and stop reconnecting it automatically. Files on the server do not change. Close files that are open on the share first."
+
     // Location pane
     static let access = "Access"
     static let readOnly = "Read only"
