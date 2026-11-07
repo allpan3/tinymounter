@@ -27,6 +27,8 @@ it wrong.
 
 ## Results logs
 
+- [Finder folder Replace](results/2026-11-06-folder-replace.md). Native SMB comparison, pending-upload retention and automatic retry after a watcher timeout.
+
 - [Share access and automatic connection](results/2026-11-06-share-access.md). Retained permission, existing settings, Add reconnect, read-only checks and Finder visibility limits.
 
 - [0.1.0 release verification](results/2026-11-06-release.md). Signed packaging, quarantine approval, Finder installation and before/after recordings.

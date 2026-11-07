@@ -450,7 +450,9 @@ section has one Read only toggle. It defaults off for a new location; a duplicat
 the original's mode. Writable setup reuses the share's retained permission. Earlier settings without
 that permission ask once for the share root and retain it for subsequent locations. Ordinary file/folder organization and the confirmed
 Delete Permanently… command are enabled, along with ordinary Finder deletion and file Replace.
-Packages, folder Replace and symbolic links remain outside the verified capability set.
+Ordinary folder Replace passes the [November 6 checks](results/2026-11-06-folder-replace.md),
+including automatic retry after a directory-watcher timeout. Packages, Finder Merge and symbolic
+links remain outside the verified capability set.
 
 Finder's New Folder creates an untitled folder on the server, then sends a separate rename when
 the user types a name. The app's restricted SMB client now creates and names that folder using

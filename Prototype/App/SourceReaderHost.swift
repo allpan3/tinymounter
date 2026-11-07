@@ -389,6 +389,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
     }
 
     private static func deletionError(_ error: Error) -> NSError {
+        if error is NamespaceDrainError { return CocoaError(.xpcConnectionReplyInvalid) as NSError }
         // Refusal restores the reconciled survivor without confirming its recorded deletion outcome.
         if error as? ItemDeletionError == .unconfirmedSurvivor {
             return NSFileProviderError(.deletionRejected) as NSError
@@ -411,6 +412,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
     }
 
     private static func mutationError(_ error: Error) -> NSError {
+        if error is NamespaceDrainError { return CocoaError(.xpcConnectionReplyInvalid) as NSError }
         if let failure = error as? FolderMutationFailure {
             switch failure.code {
             case EAUTH: return NSFileProviderError(.notAuthenticated) as NSError
