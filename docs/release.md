@@ -1,14 +1,14 @@
-# Install TinyMounter 0.1.1
+# Install TinyMounter 0.1.2
 
 This release is for personal use on **Apple silicon with macOS 27 or later**.
 It uses development signing, without Apple notarization. Intel Macs and older macOS versions
 are not supported by this package. Download it while signed in to the private GitHub repository:
 
-[TinyMounter 0.1.1](https://github.com/allpan3/tinymounter/releases/tag/v0.1.1)
+[TinyMounter 0.1.2](https://github.com/allpan3/tinymounter/releases/tag/v0.1.2)
 
 ## Install or update
 
-1. Download `TinyMounter-0.1.1-macOS-arm64.dmg` and open it.
+1. Download `TinyMounter-0.1.2-macOS-arm64.dmg` and open it.
 2. If TinyMounter is running, let pending uploads finish, then quit it from its menu.
 3. Drag `TinyMounter.app` to Applications, replacing the existing app, then eject the DMG.
    Keep only one installed copy. The app is already signed; no Terminal signing command is needed.
@@ -17,8 +17,8 @@ are not supported by this package. Download it while signed in to the private Gi
    and authenticate with your Mac administrator account if asked.
    Do not turn off Gatekeeper or change system security settings.
 5. If macOS asks, enable TinyMounter under **General → Login Items & Extensions → File Providers**.
-   Add your server and select its share once. Choose a folder and click Add; TinyMounter
-   connects automatically when needed.
+   In the new location, choose Add Server… in the Server menu, then select the share once.
+   Choose a folder and click Add; TinyMounter connects automatically when needed.
 
 The update retains the installed app's signing identity, bundle identifiers, App Group and
 sandbox entitlements. It does not migrate or clear settings. If an older experimental setup
@@ -45,9 +45,8 @@ Known limits for this release:
 - Repeated outages once hung Apple's SMB authentication service; Finder also could not reconnect.
   Pending upload data survived, but that trial needed VM intervention to restore the native mount.
 - List a destination folder online before moving files into it offline.
-- The published 0.1.1 predates the [Folder Replace follow-up](results/2026-11-06-folder-replace.md)
-  and its automatic-retry fix. Package editing and Finder Merge remain unverified.
-  Read-performance targets remain unmet. Daily-use feedback on the physical Mac is the next acceptance step.
+- Package editing and Finder Merge remain unverified. Read-performance targets remain unmet.
+  Daily-use feedback on the physical Mac is the next acceptance step.
 - File Provider locations use a hidden SMB mount. Finder hides it, but some file managers,
   such as QSpace Pro, list it as a separate volume. 0.2.0 plans to remove this mount.
 - There is no automatic updater. Install later releases by replacing the app after uploads finish.
@@ -56,7 +55,7 @@ Known limits for this release:
 
 TinyMounter's own code is MIT licensed. The separate `libTinyMounterSMB.dylib` contains modified
 libsmb2 6.3 under LGPL-2.1-or-later. The DMG includes both licences and the library notices separately from its short Read Me;
-the app also includes the library's licence. The release supplies `TinyMounter-0.1.1-source.tar.gz`,
+the app also includes the library's licence. The release supplies `TinyMounter-0.1.2-source.tar.gz`,
 with the complete matching app/library source, modifications and build scripts. This permits
 rebuilding the app with a modified library; no signing key is required from the publisher.
 
@@ -85,6 +84,6 @@ in `AGENTS.md`. `Tools/package-release.py` packages a signed app; create the mat
 archive with:
 
 ```sh
-git archive --format=tar.gz --prefix=TinyMounter-0.1.1/ \
-  --output=TinyMounter-0.1.1-source.tar.gz v0.1.1
+git archive --format=tar.gz --prefix=TinyMounter-0.1.2/ \
+  --output=TinyMounter-0.1.2-source.tar.gz v0.1.2
 ```

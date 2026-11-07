@@ -55,4 +55,13 @@ but QSpace Pro listed it as a volume; see the [0.2.0 plan](../roadmap.md).
 Not verified: Select Again…, which needs access that no longer resolves, and the progress
 indicator during a slow eject.
 
+## Recordings
+
+Matched recordings start from empty settings with the same signed test identity, window and
+Samba share: add the server and share, add a full-share location, then open Servers. Before,
+built from the commit preceding this redesign, needs Servers, + and Add Share… first, then the
+location. After starts in the location. The server address is covered in both.
+[Before](../media/servers-redesign/before.gif) · [After](../media/servers-redesign/after.gif).
+The location and share were removed afterwards and the test app was uninstalled.
+
 Local evidence: `results/servers-redesign-20261107/`.
