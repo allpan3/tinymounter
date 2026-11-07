@@ -4,6 +4,7 @@ import Foundation
 public enum SettingsError: Error, Equatable, Sendable {
     case invalidServer
     case serverInUse
+    case shareModeConflict
 }
 
 /// Never in the App Group: grants and saved paths are private.
@@ -12,13 +13,15 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var shares: [ServerGrant]
     public var locations: [LocationRecord]
     public var savedKeeps: [SavedKeepList]
+    public var serverVolumes: [ServerVolumeRecord]
 
     public init(servers: [ServerRecord] = [], shares: [ServerGrant] = [], locations: [LocationRecord] = [],
-                savedKeeps: [SavedKeepList] = []) {
+                savedKeeps: [SavedKeepList] = [], serverVolumes: [ServerVolumeRecord] = []) {
         self.servers = servers
         self.shares = shares
         self.locations = locations
         self.savedKeeps = savedKeeps
+        self.serverVolumes = serverVolumes
     }
 
     public init(from decoder: Decoder) throws {
@@ -27,9 +30,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
         shares = try container.decode([ServerGrant].self, forKey: .shares)
         locations = try container.decode([LocationRecord].self, forKey: .locations)
         savedKeeps = try container.decode([SavedKeepList].self, forKey: .savedKeeps)
+        serverVolumes = try container.decodeIfPresent([ServerVolumeRecord].self, forKey: .serverVolumes) ?? []
         guard shares.allSatisfy({ share in servers.contains { $0.id == share.serverID } }) else {
             throw SettingsError.invalidServer
         }
+        try validateServerVolumes()
     }
 
     /// A missing file is a first launch. Every other failure throws and is never empty settings.
@@ -41,6 +46,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
 
     /// Replaces the file with one rename. The new file is 0600 from its creation.
     public func save(to url: URL) throws {
+        try validateServerVolumes()
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
         let data = try encoder.encode(self)
@@ -66,6 +72,29 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public func serverIsUsed(_ id: UUID) -> Bool {
         let grants = Set(shares.filter { $0.serverID == id }.map(\.id))
         return locations.contains { grants.contains($0.grantID) }
+            || serverVolumes.contains { grants.contains($0.grantID) }
+    }
+
+    private func validateServerVolumes() throws {
+        var used: Set<UUID> = []
+        for volume in serverVolumes {
+            guard let grant = shares.first(where: { $0.id == volume.grantID }),
+                  used.insert(volume.id).inserted else { throw SettingsError.invalidServer }
+            let related = Set(shares.filter { $0.isSameShare(host: grant.host, share: grant.share) }.map(\.id))
+            guard !locations.contains(where: { related.contains($0.grantID) }),
+                  serverVolumes.filter({ related.contains($0.grantID) }).count == 1 else {
+                throw SettingsError.shareModeConflict
+            }
+        }
+    }
+
+    public func requireMode(_ mode: LocationMode, for grantID: UUID) throws {
+        guard let grant = shares.first(where: { $0.id == grantID }) else { throw SettingsError.invalidServer }
+        let related = Set(shares.filter { $0.isSameShare(host: grant.host, share: grant.share) }.map(\.id))
+        guard !serverVolumes.contains(where: { related.contains($0.grantID) }),
+              mode == .fileProvider || !locations.contains(where: { related.contains($0.grantID) }) else {
+            throw SettingsError.shareModeConflict
+        }
     }
 
     public func writeBookmark(for grantID: UUID) -> Data? {
@@ -81,6 +110,20 @@ public struct AppSettings: Codable, Equatable, Sendable {
         servers.removeAll { $0.id == id }
     }
 
+}
+
+public enum LocationMode: String, CaseIterable, Sendable {
+    case fileProvider, serverVolume
+}
+
+public struct ServerVolumeRecord: Codable, Equatable, Identifiable, Sendable {
+    public let id: UUID
+    public let grantID: UUID
+
+    public init(id: UUID = UUID(), grantID: UUID) {
+        self.id = id
+        self.grantID = grantID
+    }
 }
 
 public struct ServerRecord: Codable, Equatable, Identifiable, Sendable {

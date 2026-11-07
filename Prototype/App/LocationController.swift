@@ -201,6 +201,9 @@ final class LocationController {
             domains=\(registered.count) unknown_domains=\(plan.unknownDomains.count) failed_sequences=\(failed)
             """)
         openSources()
+        for volume in settings.serverVolumes {
+            if let grant = settings.shares.first(where: { $0.id == volume.grantID }) { share(for: grant).checkNow() }
+        }
         await refreshDomains()
         // Posted only after a first domains() call, such as refreshDomains made.
         domainObserver = NotificationCenter.default.addObserver(forName: .fileProviderDomainDidChange, object: nil,
@@ -308,6 +311,25 @@ final class LocationController {
         return share(for: grant).mountPath()
     }
 
+    func addServerVolume(id: UUID, grantID: UUID) throws {
+        guard isReady else { throw LocationError.catalogClosed }
+        try store.update { settings in
+            try settings.requireMode(.serverVolume, for: grantID)
+            settings.serverVolumes.append(ServerVolumeRecord(id: id, grantID: grantID))
+        }
+        if let grant = store.settings?.shares.first(where: { $0.id == grantID }) { share(for: grant).checkNow() }
+        onChange?()
+    }
+
+    func removeServerVolume(_ id: UUID) async throws {
+        guard let volume = store.settings?.serverVolumes.first(where: { $0.id == id }) else { return }
+        shares[volume.grantID]?.setRemountWanted(false, browsable: true)
+        defer { updateRemountWanted() }
+        try await disconnect(volume.grantID, reason: "location_removed")
+        try store.update { $0.serverVolumes.removeAll { $0.id == id } }
+        onChange?()
+    }
+
     /// Plan §7: create the catalog, list the root into it, save the record, then add the domain.
     /// The record takes the saved Keep Downloaded paths inside its folder (plan §4). A copy goes
     /// below its original (design §4.2).
@@ -316,6 +338,7 @@ final class LocationController {
         guard isReady, let settings = store.settings, let grant = settings.shares.first(where: { $0.id == grantID }) else {
             throw CocoaError(.fileReadUnknown)
         }
+        try settings.requireMode(.fileProvider, for: grantID)
         var record = LocationRecord(id: id, name: LocationRecord.uniqueName(name, among: settings.locations.map(\.name)),
                                     grantID: grantID, folder: folder)
         record.writeBookmark = writeBookmark
@@ -324,6 +347,7 @@ final class LocationController {
         let source = try await makeListedSource(record, folder: folder, grant: grant)
         do {
             try store.update { settings in
+                try settings.requireMode(.fileProvider, for: grantID)
                 // Another Add or a rename can take the name during the root listing.
                 record.name = LocationRecord.uniqueName(name, among: settings.locations.map(\.name))
                 record.pendingKeeps = settings.takeSavedKeeps(host: grant.host, share: grant.share, inside: folder)
@@ -515,6 +539,7 @@ final class LocationController {
               let grant = settings.shares.first(where: { $0.id == grantID }) else {
             throw CocoaError(.fileReadUnknown)
         }
+        try settings.requireMode(.fileProvider, for: grantID)
         let previousSource = sources[record.domainID]
         if let previousSource { try await Self.offMain { try previousSource.suspendMutations() } }
         else if try LocationSource.pendingWrites(domainID: record.domainID) > 0 { throw UploadError.pendingWrites }
@@ -533,6 +558,7 @@ final class LocationController {
         let source = try await makeListedSource(updated, folder: folder, grant: grant)
         do {
             try store.update { settings in
+                try settings.requireMode(.fileProvider, for: grantID)
                 guard let index = settings.locations.firstIndex(where: { $0.id == recordID }) else { return }
                 if let oldGrant {
                     settings.saveKeeps(kept.filter { !moving.contains($0) }, host: oldGrant.host, share: oldGrant.share)
@@ -1347,14 +1373,17 @@ final class LocationController {
         }
         shares[grant.id] = share
         shareStates[grant.id] = share.state
-        share.setRemountWanted(store.settings?.locations.contains { $0.grantID == grantID } == true)
+        let native = store.settings?.serverVolumes.contains { $0.grantID == grantID } == true
+        share.setRemountWanted(native || store.settings?.locations.contains { $0.grantID == grantID } == true,
+                               browsable: native)
         return share
     }
 
     /// Phase 3 plan §1: the app mounts again only a share that a location uses.
     private func updateRemountWanted() {
-        let used = Set(store.settings?.locations.map(\.grantID) ?? [])
-        for (id, share) in shares { share.setRemountWanted(used.contains(id)) }
+        let native = Set(store.settings?.serverVolumes.map(\.grantID) ?? [])
+        let used = Set(store.settings?.locations.map(\.grantID) ?? []).union(native)
+        for (id, share) in shares { share.setRemountWanted(used.contains(id), browsable: native.contains(id)) }
     }
 
     private func shareChanged(_ grantID: UUID, _ state: ShareHealth.State) {

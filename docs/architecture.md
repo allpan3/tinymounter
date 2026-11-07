@@ -14,14 +14,14 @@ The user selected offline reading first. This plan recommends making the initial
 
 Initial validation targets macOS 27 and the user's UGREEN hardware running Debian with 64 GB RAM. The [cache-controlled experiment](results/2026-10-11-cache-states.md) verified Samba 4.17.12-Debian, ext4 on LVM over linear md storage, and SMB3.1.1 with AES-128-GMAC signing and encryption off. Broader OS support and other NAS implementations come after feasibility. The core range API exists from macOS 12.3 and content policies from macOS 13; recursive namespace pinning has a macOS 27 API [A1–A4].
 
-Two explicit modes will eventually share the same connection setup:
+Two explicit modes share the same connection setup:
 
 | Mode | User-visible storage | Offline behavior | Delivery |
 | --- | --- | --- | --- |
 | File Provider location | OS-managed location, normally under `~/Library/CloudStorage` | Materialized local files; selected files/folders pinned | First |
-| Server volume | Normal macOS SMB volume | Requires server connectivity; kernel caching is not a durable offline replica | Later |
+| Server volume | Normal macOS SMB volume | Requires server connectivity; kernel caching is not a durable offline replica | Signed VM checks passed; not released |
 
-The modes have different paths and semantics. Do not silently change a File Provider location into a server volume when the network changes. Do not offer simultaneous writable views as the default.
+The modes have different paths and semantics. Do not silently change a File Provider location into a server volume when the network changes. Use one mode per server/share across saved accounts. Remove existing locations before switching modes. Native volumes have no File Provider domain or catalog; server permissions govern writes.
 
 ## 2. Architecture decisions
 
@@ -42,7 +42,7 @@ The dated experiments below record the earlier native-transport design and its m
 
 ## 3. Components and ownership
 
-**TinyMounter.app** owns connection setup through macOS's login dialog, domain registration, pin controls, connection status, diagnostics, and later the native-mount policy UI. One File Provider domain represents a particular share/subfolder and authenticated account. Domain identity is stable across app restarts and reconnections.
+**TinyMounter.app** owns connection setup through macOS's login dialog, domain registration, pin controls, connection status, diagnostics, and native-volume connection controls. One File Provider domain represents a particular share/subfolder and authenticated account. Domain identity is stable across app restarts and reconnections.
 
 **Saved connections, accepted and implemented on 2026-10-18.** Server addresses and share grants
 are separate records. The app owns read-only grants; macOS owns passwords and SMB mounts. An
@@ -255,13 +255,19 @@ the earlier requirement to preserve both complete remote versions has been withd
 See [replacement observations](results/2026-11-03-editor-replacement.md) and
 [command results](results/2026-11-03-permanent-command.md).
 
-## 9. Future server volume mode
+## 9. Server volume mode
 
-Use public `NetFSMountURLAsync`/cancellation and mount inspection. Run at **user login and wake** through a registered per-user component; pre-login boot mounting is separate future scope. Store no plaintext credentials in shell commands or launch configuration.
+The implemented mode uses public `NetFSMountURLAsync` and the existing share health and
+remount policy. It mounts visibly during Add and reconnects on app launch, wake and network
+return. Open at Login uses the existing app setting; pre-login mounting is future scope.
+Native volumes have separate saved records and create no provider domains or catalogs.
 
-Maintain a per-share state machine: `disabled → waitingForPolicy → probing → mounting → mounted → recovering/backoff`, with distinct authentication-required and permission-required states. Network callbacks trigger debounced reevaluation, followed by DNS resolution and an actual SMB connection probe. `NWPathMonitor` reporting a usable path is not proof that a NAS is reachable [N1–N3].
-
-Rules can later include trusted network, VPN reachability, wired preference, and manual override. Preserve a user's intentional eject instead of immediately remounting. Avoid duplicate mount attempts, back off with jitter, and recover after sleep, login, DNS/address changes, and server reboot.
+Remount attempts back off after network failures. Authentication failures stop until conditions
+change or the user connects again. An intentional eject holds reconnect during the current app
+session. A safe unmount must succeed before removal forgets the record; no force option is used.
+Credentials remain in macOS Keychain. `NWPathMonitor` reporting a usable path does not prove that
+the server is reachable [N1–N3]; mount results determine success. Trusted-network, VPN and wired
+preference policies remain future work.
 
 An Ethernet/Wi-Fi change is not a reason to forcibly unmount every open file. Apple's SMB Multichannel can supply redundancy and choose interfaces when supported [N2]. Let healthy native sessions recover; remount when needed and safe. Tinymounter cannot promise seamless migration of every existing file descriptor across every path change. Do not globally rewrite `nsmb.conf` to implement a per-connection preference.
 
@@ -349,8 +355,8 @@ and first disposable VM test session. Each implementation still has to pass its 
 - Current competitor app versions and exact scripts/files used for the reported rates.
 - Whether native bridge permissions/lifecycle are acceptable and whether direct SMB matches its speed. The approved app-owned reader resolves the immediate NAS access gate. Full downloads now exceed 90% in both verified NAS cache conditions. [Tracing](results/2026-10-11-provider-delay.md) places most recurring range-read delay after callback completion, waiting for a macOS database batch flush. Bounded read-ahead is now implemented and reaches 59.7% of native for long sequential reads; neither shipping readiness nor an unavoidable OS ceiling is established. The local cached-read gap to ordinary APFS also needs investigation.
 - Which further players and opening routes use partial reads on macOS 27, and what coherence guarantee the server can support. The measured VM Finder launch routes downloaded the whole file first; the physical-Mac routes remain unrecorded.
-- **Instant playback from Finder.** The user proposes keeping folders used mainly for playback on server volumes, with Finder aliases bringing File Provider locations and server volumes together for navigation; the [interface](ui-design.md), accepted for prototyping, keeps them in a Locations folder. A Finder alias test passed for both kinds of target. Server volume mode stays a later phase, by the user's decision. A server volume covers a whole share, so a server-volume "folder" means a mounted share plus an alias into it.
-- **Synchronization between views.** Proposed in [synchronization.md](synchronization.md). The user wants this model settled before any overlap guard. It covers changes made through a server volume or another device while a File Provider location holds metadata or downloaded copies, and later two-sided writes.
+- **Instant playback from Finder.** The user proposes keeping folders used mainly for playback on server volumes, with Finder aliases bringing File Provider locations and server volumes together for navigation; the [interface](ui-design.md), accepted for prototyping, keeps them in a Locations folder. A Finder alias test passed for both kinds of target. On November 7 the user prioritized native server volumes and accepted one mode per share. A server volume covers a whole share, so a server-volume "folder" means a mounted share plus an alias into it.
+- **Synchronization between views.** Proposed in [synchronization.md](synchronization.md). The November 7 decision excludes mixed TinyMounter modes on one share; external writers still require change discovery. It covers changes made through a server volume or another device while a File Provider location holds metadata or downloaded copies, and later two-sided writes.
 - **Read-ahead tuning.** Seeks come first, as the user asked. On October 15, under the user's authorization, the window became one 16 MiB chunk after the [comparison](results/2026-10-15-read-ahead-window.md): 0/11 stress failures against 5/5 at 128 MiB, the same IINA playback and seeks, and 45.2% of native for sequential partial reads. Throughput-first settings reached 59.7% on October 11 but let seeks wait. Repeat on the physical Mac; the system race is avoided in these trials, not proven gone. The November 4 single-client prefetch passes the read-only partial-read target and the seek p95 target in both views, but writable partial reads stay at about 0.73 of native.
 - **Failed-folder recovery.** Supported directory materialization restored children but left Finder’s error banner. No complete automatic recovery is verified. A notification explaining Try Again is proposed only; adding it or submitting an Apple Feedback report requires the user’s approval.
 - Product deployment floor and distribution signing. The current macOS 27 experiment now runs with the configured Personal Team and a team-prefixed macOS App Group; production signing/lifecycle remains undecided.

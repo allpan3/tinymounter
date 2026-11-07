@@ -14,6 +14,52 @@ final class SettingsTests: XCTestCase {
         try? FileManager.default.removeItem(at: directory)
     }
 
+    func testServerVolumeExcludesProviderLocationsAcrossAccounts() throws {
+        let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "smb://fixture")))
+        let first = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//one@fixture/Share",
+                                address: try XCTUnwrap(ShareAddress("//one@fixture/Share")))
+        let second = ServerGrant(serverID: server.id, bookmark: Data([2]), mountFrom: "//two@FIXTURE/share",
+                                 address: try XCTUnwrap(ShareAddress("//two@FIXTURE/share")))
+        let other = ServerGrant(serverID: server.id, bookmark: Data([3]), mountFrom: "//one@fixture/other",
+                                address: try XCTUnwrap(ShareAddress("//one@fixture/other")))
+        var location = LocationRecord(name: "Provider", grantID: first.id, folder: .root)
+        location.removing = true
+        var settings = AppSettings(servers: [server], shares: [first, second, other], locations: [location])
+        XCTAssertThrowsError(try settings.requireMode(.serverVolume, for: second.id)) {
+            XCTAssertEqual($0 as? SettingsError, .shareModeConflict)
+        }
+        XCTAssertNoThrow(try settings.requireMode(.fileProvider, for: second.id))
+        XCTAssertNoThrow(try settings.requireMode(.serverVolume, for: other.id))
+        settings.locations.removeAll()
+        XCTAssertNoThrow(try settings.requireMode(.serverVolume, for: second.id))
+        settings.serverVolumes = [ServerVolumeRecord(grantID: second.id)]
+        XCTAssertThrowsError(try settings.requireMode(.fileProvider, for: first.id))
+        XCTAssertThrowsError(try settings.requireMode(.serverVolume, for: first.id))
+        XCTAssertTrue(settings.serverIsUsed(server.id))
+        XCTAssertThrowsError(try settings.removeServer(server.id))
+        let url = directory.appending(path: "Settings.json")
+        try settings.save(to: url)
+        XCTAssertEqual(try AppSettings.load(from: url), settings)
+        settings.serverVolumes.removeAll()
+        XCTAssertNoThrow(try settings.requireMode(.fileProvider, for: first.id))
+    }
+
+    func testServerVolumeSettingsRejectConflictingOrMissingGrants() throws {
+        let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "smb://fixture")))
+        let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//one@fixture/share",
+                                address: try XCTUnwrap(ShareAddress("//one@fixture/share")))
+        let volume = ServerVolumeRecord(grantID: grant.id)
+        let location = LocationRecord(name: "Provider", grantID: grant.id, folder: .root)
+        for settings in [
+            AppSettings(servers: [server], serverVolumes: [volume]),
+            AppSettings(servers: [server], shares: [grant], locations: [location], serverVolumes: [volume]),
+            AppSettings(servers: [server], shares: [grant], serverVolumes: [volume, ServerVolumeRecord(grantID: grant.id)])
+        ] {
+            XCTAssertThrowsError(try settings.save(to: directory.appending(path: "Settings.json")))
+            XCTAssertThrowsError(try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(settings)))
+        }
+    }
+
     func testDeletionRemovesOnlyConfirmedTypedKeepsOnTheSameShare() throws {
         let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "smb://fixture")))
         let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//account@fixture/share",

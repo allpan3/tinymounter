@@ -27,6 +27,8 @@ it wrong.
 
 ## Results logs
 
+- [Native SMB server volumes](results/2026-11-07-native-server-volumes.md). One mode per share, native Finder operations, safe removal and reconnect.
+
 - [Finder folder Replace](results/2026-11-06-folder-replace.md). Native SMB comparison, pending-upload retention and automatic retry after a watcher timeout.
 
 - [Share access and automatic connection](results/2026-11-06-share-access.md). Retained permission, existing settings, Add reconnect, read-only checks and Finder visibility limits.

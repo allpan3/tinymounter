@@ -82,6 +82,9 @@ private struct Sidebar: View {
         case .record(let record):
             Label(record.name, systemImage: model.symbol(record))
                 .accessibilityLabel("\(record.name), \(model.shortStatus(record))")
+        case .serverVolume(let volume, let name):
+            Label(name, systemImage: "externaldrive.connected.to.line.below")
+                .accessibilityLabel("\(name), \(model.volumeStatus(volume))")
         case .draft(let draft):
             HStack {
                 Label(draft.name, systemImage: "circle.dashed")
@@ -96,7 +99,7 @@ private struct Sidebar: View {
     private func menu(_ entry: AppModel.Entry) -> some View {
         let isDraft = if case .draft = entry { true } else { false }
         Button(UIText.showInFinder) { model.showInFinder(entry.id) }.disabled(isDraft)
-        Button(UIText.duplicate) { model.duplicate(entry.id) }.disabled(isDraft)
+        Button(UIText.duplicate) { model.duplicate(entry.id) }.disabled(model.record(entry.id) == nil)
         Divider()
         Button(isDraft ? UIText.cancel : UIText.removeLocationMenu) {
             if isDraft { model.cancel(entry.id) } else { model.confirmRemove(entry.id) }
@@ -117,6 +120,8 @@ private struct LocationPane: View {
             if let record = model.record(id) {
                 form(record: record, draft: nil)
                     .task(id: model.keepKey(record)) { await model.reloadKeeps(record.id) }
+            } else if let volume = model.serverVolume(id) {
+                serverVolumeForm(volume)
             } else if let draft = model.draft(id) {
                 form(record: nil, draft: draft)
             }
@@ -142,8 +147,18 @@ private struct LocationPane: View {
                 Section { Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
             }
             if let record { header(record) }
+            if let draft {
+                Section {
+                    Picker(UIText.connectionMode, selection: Binding(
+                        get: { draft.mode }, set: { model.setMode(id, $0) }
+                    )) {
+                        Text(UIText.fileProvider).tag(LocationMode.fileProvider)
+                        Text(UIText.serverVolume).tag(LocationMode.serverVolume)
+                    }
+                } footer: { Text(UIText.modeSwitchHint) }
+            }
             sourceSection
-            writeSection(record: record, draft: draft)
+            if draft?.mode != .serverVolume { writeSection(record: record, draft: draft) }
             if let record {
                 keepSection(record)
                 Section {
@@ -152,13 +167,38 @@ private struct LocationPane: View {
                 } footer: {
                     Text(UIText.removeLocationDescription).foregroundStyle(.secondary)
                 }
-            } else if let draft {
+            } else if let draft, draft.mode == .fileProvider {
                 draftKeepSection(draft)
             }
         }
         .formStyle(.grouped)
         .disabled(model.busy.contains(id) || !model.isReady || model.connectionBusy)
         .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar(record: record) }
+    }
+
+    private func serverVolumeForm(_ volume: ServerVolumeRecord) -> some View {
+        Form {
+            Section {
+                LabeledContent(UIText.name, value: model.volumeName(volume))
+                LabeledContent(UIText.connectionMode, value: UIText.serverVolume)
+                if let grant = model.grant(volume.grantID) {
+                    LabeledContent(UIText.server, value: grant.host)
+                    LabeledContent(UIText.share, value: UIText.accountAndShare(grant.account, grant.share))
+                    Text(model.volumeStatus(volume)).foregroundStyle(.secondary)
+                    Button(UIText.showInFinder) { model.showInFinder(volume.id) }
+                    if model.controller.mountPath(grant.id) != nil {
+                        Button(UIText.disconnect) { model.disconnect(grant) }
+                    } else {
+                        Button(UIText.connect) { model.connect(grant) }
+                    }
+                }
+            } footer: { Text(UIText.nativeVolumeHint) }
+            Section {
+                Button(UIText.removeLocationMenu, role: .destructive) { model.confirmRemove(volume.id) }
+            } footer: { Text(UIText.modeSwitchHint) }
+        }
+        .formStyle(.grouped)
+        .disabled(model.busy.contains(volume.id) || !model.isReady || model.connectionBusy)
     }
 
     private func writeSection(record: LocationRecord?, draft: AppModel.Draft?) -> some View {
@@ -218,31 +258,34 @@ private struct LocationPane: View {
                 Text(UIText.addShare).tag(Optional(Self.addShareTag))
             }
             .disabled(model.serverID(id) == nil)
-            LabeledContent(UIText.folder) {
-                HStack {
-                    TextField(UIText.folder, text: binding(model.folderText, model.setFolder),
-                              prompt: Text(UIText.fullShare))
-                        .labelsHidden()
-                        .focused($focus, equals: .folder)
-                        .onSubmit(submit)
-                        .textInputSuggestions {
-                            ForEach(model.folderSuggestions, id: \.self) { Text($0).textInputCompletion($0) }
-                        }
-                        .task(id: focus == .folder ? model.folderText(id) : nil) {
-                            guard focus == .folder else { return }
-                            try? await Task.sleep(for: Self.completionDelay)
-                            if !Task.isCancelled { await model.suggestFolders(id) }
-                        }
-                    Button(UIText.select) { model.selectFolder(id) }.disabled(model.grantID(id) == nil)
+            if model.draft(id)?.mode != .serverVolume {
+                LabeledContent(UIText.folder) {
+                    HStack {
+                        TextField(UIText.folder, text: binding(model.folderText, model.setFolder),
+                                  prompt: Text(UIText.fullShare))
+                            .labelsHidden()
+                            .focused($focus, equals: .folder)
+                            .onSubmit(submit)
+                            .textInputSuggestions {
+                                ForEach(model.folderSuggestions, id: \.self) { Text($0).textInputCompletion($0) }
+                            }
+                            .task(id: focus == .folder ? model.folderText(id) : nil) {
+                                guard focus == .folder else { return }
+                                try? await Task.sleep(for: Self.completionDelay)
+                                if !Task.isCancelled { await model.suggestFolders(id) }
+                            }
+                        Button(UIText.select) { model.selectFolder(id) }.disabled(model.grantID(id) == nil)
+                    }
                 }
+                TextField(UIText.name, text: binding(model.nameText, model.setName))
+                    .focused($focus, equals: .name)
+                    .onSubmit(submit)
             }
-            TextField(UIText.name, text: binding(model.nameText, model.setName))
-                .focused($focus, equals: .name)
-                .onSubmit(submit)
         } header: {
             Text(UIText.source)
         } footer: {
-            Text(UIText.locationFinderHint).foregroundStyle(.secondary)
+            Text(model.draft(id)?.mode == .serverVolume ? UIText.nativeVolumeHint : UIText.locationFinderHint)
+                .foregroundStyle(.secondary)
         }
     }
 
