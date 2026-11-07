@@ -206,7 +206,7 @@ final class AppModel {
         case .catalogUnavailable: UIText.catalogUnavailable
         case .turnedOff: UIText.turnedOff
         case .needsGrant: UIText.selectShareAgainShort
-        case .notConnected: UIText.connectInLocation
+        case .notConnected: UIText.clickConnect
         case .unresponsive: UIText.cannotConnect(host)
         case .folderMissing: UIText.folderNotOnShare
         case .connected(let fraction?): UIText.joined(UIText.connected, UIText.downloaded(fraction))

@@ -285,6 +285,7 @@ enum UIText {
     static let notConnected = "Not connected"
     static let removalNotComplete = "The removal is not complete."
     static let connectInLocation = "Open this location in TinyMounter Settings. Then click Connect."
+    static let clickConnect = "Not connected. Click Connect."
     static let selectShareAgain = "Select the share again. Click Select Again… in the location."
     static let folderNotOnShare = "This folder is not on the share."
     static let catalogUnavailable = "TinyMounter cannot read the data for this location. Remove the location. Then add it again."
