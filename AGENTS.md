@@ -1,4 +1,4 @@
-# Working on tinymounter
+# Working on TinyMounter
 
 These rules apply to humans and agents alike. The [README](README.md) describes the project and its
 current status.

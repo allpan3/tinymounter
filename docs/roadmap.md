@@ -5,7 +5,7 @@ content proofs. Implementation and signed VM checks are complete; read-performan
 remain unmet. Earlier dated milestones remain historical evidence.
 
 Date: 2026-10-29. Decision status: accepted. The user approved this roadmap, including permanent
-deletion without a tinymounter Trash, parallel agents/worktrees and the first disposable VM test
+deletion without a TinyMounter Trash, parallel agents/worktrees and the first disposable VM test
 session. Implementation follows the safety gates and dependencies below. Each physical-Mac
 installation needs the user's separate approval.
 
@@ -142,7 +142,7 @@ acceptance still need evidence with this implementation.
 
 Accepted policy: explicit permanent deletion, with no custom Trash or hidden retention copies.
 Deleting removes the selected file's contents and attached data from the server and its location
-views. A server's own backups or recycle bin are outside tinymounter's guarantee. The UI must
+views. A server's own backups or recycle bin are outside TinyMounter's guarantee. The UI must
 make that permanent effect clear; Finder's actual warning and callback behavior is a protocol/UI
 gate. Do not advertise Move to Trash or Put Back without implementing their different semantics.
 The user accepted this product choice with the roadmap on 2026-10-29. The user also accepted
@@ -330,7 +330,7 @@ with 644 tests. Normal builds enable the confirmed Delete Permanently… command
 ordinary Finder deletion stays refused under the Replace design. See the
 [integration checklist](m24-integration-checklist.md).
 
-The supported write boundary remains folders whose writers use SMB and leave tinymounter's
+The supported write boundary remains folders whose writers use SMB and leave TinyMounter's
 transaction files alone. All milestones preserve complete pending content, refuse silent
 replacement of another device's changes, retain uncertainty, and preserve existing locations,
 IDs, keep requests and downloads except when the user explicitly requests their removal.

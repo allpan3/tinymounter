@@ -146,7 +146,7 @@ it does not hide the NAS from Network or prevent access through `/Volumes`. Reus
 mount does not change its flags. This native mount supports credentials, permissions and
 directory notifications; the app's SMB client transfers File Provider contents.
 
-Server volume (SMB) is a separate whole-share location mode. It requests a browsable mount and
+Server Volume is a separate whole-share location mode. It requests a browsable mount and
 opens that mount in Finder, with no File Provider catalog, download cache or Read only control.
 Add safely disconnects a reused hidden mount before mounting visibly; busy mounts refuse the
 change. Native volumes reuse launch/wake/network reconnect and respect intentional eject for
@@ -352,7 +352,7 @@ or transfer, and remove the temporary rollback copy after verifying an installat
 retain app backups. Keep test logs and other evidence. Unregistering a loose `.app` bundle alone
 does not prevent macOS from discovering it again in Spotlight.
 
-**Update.** Quit tinymounter, build the new version, and open it. After Quit, the app stays
+**Update.** Quit TinyMounter, build the new version, and open it. After Quit, the app stays
 stopped: only a crash makes the extension start it again. Keep the same team and bundle
 identifier, because the settings and catalogs are in containers named after them. While the
 formats stay the same, the locations, their downloads and their Keep Downloaded requests stay.
@@ -387,7 +387,7 @@ carry no schema version; incompatible prototype state requires Start Fresh.
 2. In Servers, click **Forget** for each share. Forget ejects the share before it deletes the
    saved access. If an eject fails, close open files and try again.
 3. In General, turn off **Open at login**.
-4. Click **Quit tinymounter** in the menu bar item.
+4. Click **Quit TinyMounter** in the menu bar item.
 5. Delete `TinyMounter.app`.
 6. Optionally, delete its data: `~/Library/Containers/<bundle ID>` and
    `~/Library/Containers/<bundle ID>.provider`, and

@@ -91,7 +91,7 @@ defects in §2.
 
 ## 4. Connect in the app (M12)
 
-The user asked to connect in tinymounter instead of Finder, and to see only the locations in
+The user asked to connect in TinyMounter instead of Finder, and to see only the locations in
 Finder. M12 keeps the macOS mount; phase 5's own connection would remove it.
 
 - **Add Server…** saves an SMB address independently of its share grants. A server-only address
@@ -173,7 +173,7 @@ needs approval before a new build runs.
 | # | Milestone | Question it answers | Needs |
 | --- | --- | --- | --- |
 | M11 | The app comes back by itself | Does the share come back after macOS drops it, and the app after a crash, with no change after an eject or a Quit? | M9 |
-| M12 | Connect in the app | Can the user connect in tinymounter, with macOS's own dialogs, and see only the locations in Finder? | M11 |
+| M12 | Connect in the app | Can the user connect in TinyMounter, with macOS's own dialogs, and see only the locations in Finder? | M11 |
 | M13 | Verified offline status for kept files | Can the app distinguish a keep request from a complete, current local copy? | M12 |
 | M14 | Keep folders downloaded | Can the user keep a folder and its subfolders without opening each one? | M13 |
 

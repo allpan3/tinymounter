@@ -15,7 +15,7 @@ One NAS folder can be visible in up to three ways at once:
 
 - **A server volume on this Mac.** The macOS SMB client mounts the share. Every read and write goes
   straight to the NAS.
-- **A File Provider location.** tinymounter's replica: metadata snapshots plus downloaded
+- **A File Provider location.** TinyMounter's replica: metadata snapshots plus downloaded
   copies, served locally and offline.
 - **Everyone else.** Other Macs, phones, media servers and anything else that writes to the share.
 
