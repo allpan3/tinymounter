@@ -39,8 +39,20 @@ disposable Samba VM. The location was added and removed without file changes by 
 - `Tools/run-checks.sh` passed: 523 tests, one optional fixture skip, zero failures and no Swift
   warnings. A new test covers forgetting used and unused shares and the empty server.
 
-Not verified: the Finder sidebar on a clean Mac (the VM sidebar holds many retained test
-domains), Select… connecting a disconnected share, and the Select Again… and Connect header
-actions, which need a broken or ejected share.
+Follow-up the same day, signed test identity, read-only location:
+
+- After the share was ejected, Select… in a draft connected it again, hidden, and opened the
+  folder panel on the share.
+- After an eject of the location's share, its header showed Connect. Connect mounted it again
+  with `nobrowse` and the state returned to Connected. The status line then told the user to
+  open the location in Settings, so it now says "Not connected. Click Connect."
+- Forget took under a second, too quickly to see the progress indicator.
+- UI text shows "TinyMounter", and the mode labels are File Provider and Server Volume.
+
+On the physical Mac, the user installed the first test build. Finder hid the support mount,
+but QSpace Pro listed it as a volume; see the [0.2.0 plan](../roadmap.md).
+
+Not verified: Select Again…, which needs access that no longer resolves, and the progress
+indicator during a slow eject.
 
 Local evidence: `results/servers-redesign-20261107/`.
