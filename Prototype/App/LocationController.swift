@@ -322,6 +322,9 @@ final class LocationController {
     /// Where the Server Volume's share is mounted; nil if it isn't.
     func volumePath(_ shareID: UUID) -> String? { volume(for: shareID)?.mountPath }
 
+    /// The Server Volume's `smb://` URL, without a password.
+    func volumeURL(_ shareID: UUID) -> URL? { volume(for: shareID)?.shareURL }
+
     func addServerVolume(id: UUID, shareID: UUID) throws {
         guard isReady else { throw LocationError.catalogClosed }
         try store.update { settings in

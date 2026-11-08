@@ -719,8 +719,8 @@ final class AppModel {
             if controller.volumePath(volume.shareID) == nil {
                 guard await mountVolume(volume.shareID) else { return }
             }
-            guard let path = controller.volumePath(volume.shareID),
-                  NSWorkspace.shared.open(URL(filePath: path, directoryHint: .isDirectory)) else {
+            // The sandbox can't open the mount point; Finder opens the mounted share for its URL.
+            guard let url = controller.volumeURL(volume.shareID), NSWorkspace.shared.open(url) else {
                 return show(UIText.cannotShow)
             }
         }

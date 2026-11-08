@@ -112,8 +112,9 @@ final class ServerVolumeMount: @unchecked Sendable {
         checkNow()
     }
 
-    /// The URL names the account but never the password, which NetFS gets on its own.
-    private var mountURL: URL? {
+    /// The share's `smb://` URL. It names the account but never the password, which NetFS gets
+    /// on its own. Finder opens an already mounted share for it.
+    var shareURL: URL? {
         var components = URLComponents()
         components.scheme = "smb"
         components.user = address.account
@@ -127,7 +128,7 @@ final class ServerVolumeMount: @unchecked Sendable {
     /// smbfs reports a refused password as a missing share (ENOENT), so a session through the
     /// protocol's client signs in first: a refusal then reaches the server once, and is named.
     private func mountSignedIn(reason: String) -> SourceFailure? {
-        guard let url = mountURL else { return .pathRejected }
+        guard let url = shareURL else { return .pathRejected }
         let started = ContinuousClock.now
         var status: Int32?
         let failure: SourceFailure?
