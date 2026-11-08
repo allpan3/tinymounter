@@ -6,6 +6,8 @@ public enum SourceFailure: Error, Equatable, Sendable {
     case serverUnreachable
     /// This Mac has no network path. Unlike `serverUnreachable`, a probe can't recover it.
     case notConnected
+    /// macOS doesn't let the app reach the local network. Probes recover it once the user allows it.
+    case localNetworkDenied
     case notAuthenticated
     case noPermission
     case pathRejected

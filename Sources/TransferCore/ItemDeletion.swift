@@ -41,7 +41,7 @@ public enum DeletionFailure: Equatable, Sendable {
            (error as NSError).code == CocoaError.userCancelled.rawValue { return .cancelled }
         switch SourceFailure.classify(error, context: .listing) {
         case .versionChanged: return .changed
-        case .serverUnreachable, .notConnected: return .connection
+        case .serverUnreachable, .notConnected, .localNetworkDenied: return .connection
         case .notAuthenticated: return .authentication
         case .noPermission: return .accessDenied
         case .pathRejected, .tooManyEntries: return .unsupported

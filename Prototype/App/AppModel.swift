@@ -1357,6 +1357,7 @@ final class AppModel {
         case .notConnected?: UIText.connectInLocation
         case .notAuthenticated?: host.map(UIText.signInAgainMessage) ?? UIText.signInAgainShort
         case .serverUnreachable?: host.map(UIText.cannotConnect) ?? UIText.cannotDo(logFields(error))
+        case .localNetworkDenied?: UIText.localNetworkDenied
         case .missing?: UIText.folderNotOnShare
         case .tooManyEntries?: UIText.tooManyItems
         default: UIText.cannotDo(logFields(error))

@@ -401,7 +401,7 @@ extension LocationSource {
         if let error = error as? ItemDeletionError { return error == .unresolved }
         if let error = error as? UploadError { return error == .pendingWrites || error == .unresolved }
         if let error = error as? SourceFailure {
-            return [.notConnected, .serverUnreachable, .versionChanged, .listingIncomplete].contains(error)
+            return [.notConnected, .serverUnreachable, .localNetworkDenied, .versionChanged, .listingIncomplete].contains(error)
         }
         return error as? TransferError != .cancelled
     }

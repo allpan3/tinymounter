@@ -191,6 +191,7 @@ enum UIText {
         if DownloadSpace.isFull(error) { return "There is not sufficient space on this Mac." }
         switch SourceFailure.classify(error, context: .listing) {
         case .serverUnreachable, .notConnected: return "There is no connection to the server."
+        case .localNetworkDenied: return localNetworkDenied
         case .notAuthenticated: return "The server did not accept the sign-in."
         case .noPermission: return "The server does not give write access."
         default:

@@ -139,15 +139,18 @@ final class ConnectionHealthTests: XCTestCase {
     }
 
     func testAShareThatCannotConnectIsUnresponsiveUntilAProbeSignsIn() {
-        let clock = ManualClock()
-        var health = ConnectionHealth(now: { clock.now })
-        health.failed(.classify(errno: ECONNREFUSED, context: .listing))
-        XCTAssertEqual(health.refusal(), .serverUnreachable)
-        XCTAssertFalse(health.startProbe())
-        clock.now += ConnectionHealth.firstProbeDelay
-        XCTAssertTrue(health.startProbe())
-        XCTAssertEqual(health.probeFinished(succeeded: true), both)
-        XCTAssertEqual(health.evaluate(), .connected)
+        // Local Network access the user allows later recovers the same way.
+        for failure in [SourceFailure.classify(errno: ECONNREFUSED, context: .listing), .localNetworkDenied] {
+            let clock = ManualClock()
+            var health = ConnectionHealth(now: { clock.now })
+            health.failed(failure)
+            XCTAssertEqual(health.refusal(), .serverUnreachable, "\(failure)")
+            XCTAssertFalse(health.startProbe(), "\(failure)")
+            clock.now += ConnectionHealth.firstProbeDelay
+            XCTAssertTrue(health.startProbe(), "\(failure)")
+            XCTAssertEqual(health.probeFinished(succeeded: true), both, "\(failure)")
+            XCTAssertEqual(health.evaluate(), .connected, "\(failure)")
+        }
     }
 
     func testProbesBackOffToTheLongestDelayAndRestartOnWake() {

@@ -51,8 +51,12 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
 
     /// A download that the user started failed because the share is not connected or does not respond.
     func downloadFailed(_ share: ShareRecord, host: String, _ failure: SourceFailure) {
-        post(share.id, title: UIText.downloadFailedTitle,
-             body: failure == .notConnected ? UIText.connectInLocation : UIText.onSameNetwork(host))
+        let body = switch failure {
+        case .notConnected: UIText.connectInLocation
+        case .localNetworkDenied: UIText.localNetworkDenied
+        default: UIText.onSameNetwork(host)
+        }
+        post(share.id, title: UIText.downloadFailedTitle, body: body)
     }
 
     /// `id` is a share's, or a server's for sign-in; it has one notification per outage.
