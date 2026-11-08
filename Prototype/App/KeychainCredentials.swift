@@ -45,6 +45,16 @@ struct KeychainCredentialStore: CredentialStore {
         guard status == errSecSuccess || status == errSecItemNotFound else { throw Self.error(status) }
     }
 
+    /// Start Fresh: every generic-password item of the `dev.tinymounter.<protocol>` services, and
+    /// no other item. On macOS a delete removes every item that matches.
+    func deleteAll() throws {
+        for remoteProtocol in RemoteProtocol.allCases {
+            let status = SecItemDelete([kSecClass: kSecClassGenericPassword,
+                                        kSecAttrService: Self.service(remoteProtocol)] as CFDictionary)
+            guard status == errSecSuccess || status == errSecItemNotFound else { throw Self.error(status) }
+        }
+    }
+
     static func service(_ remoteProtocol: RemoteProtocol) -> String { "dev.tinymounter." + remoteProtocol.rawValue }
 
     /// `account@host`: host names don't depend on case, so one server has one item.

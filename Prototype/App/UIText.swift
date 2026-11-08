@@ -350,9 +350,9 @@ enum UIText {
     static let startFreshMenu = "Start Fresh…"
     static let startFreshTitle = "Remove all locations and start fresh?"
     static let startFreshMessage = """
-        TinyMounter cannot read the data of an earlier version. Start Fresh removes all locations from \
-        this Mac. Then you add them again. The files on the server do not change. Changes that did not \
-        upload are kept in a folder that opens in Finder.
+        TinyMounter cannot read the data of an earlier version. Start Fresh removes all locations and \
+        saved server passwords from this Mac. Then you add them again. The files on the server do not \
+        change. Changes that did not upload are kept in a folder that opens in Finder.
         """
     static let domainsUnreadable = "TinyMounter cannot read its locations from macOS. Quit TinyMounter. Then open it again."
     static let providerTranslocated = "Quit TinyMounter. Use Finder to drag the app into Applications, then open it from there. macOS cannot enable its File Provider from this temporary location."
