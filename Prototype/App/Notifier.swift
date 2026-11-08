@@ -49,6 +49,14 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
+    /// A Server Volume did not mount again because the server refused the saved password.
+    func signInRefused(_ share: ShareRecord, host: String) {
+        post(share.serverID, title: UIText.cannotSignInTitle(host), body: UIText.signInAgainInSettings)
+    }
+
+    /// Sign In Again… saved a new password: the next refusal notifies again.
+    func signedIn(_ serverID: UUID) { notified.remove(serverID) }
+
     /// A download that the user started failed because the share is not connected or does not respond.
     func downloadFailed(_ share: ShareRecord, host: String, _ failure: SourceFailure) {
         let body = switch failure {
