@@ -3,7 +3,7 @@ import Foundation
 import OSLog
 import UniformTypeIdentifiers
 
-/// One SMB connection authenticated with the selected account.
+/// One SMB connection, signed in with a password or with the share mount's cached credential.
 final class SMBEdit: FileRenameRemote, UploadRemote {
     private final class Handle {
         var bytes = [UInt8](repeating: 0, count: 16)
@@ -15,7 +15,8 @@ final class SMBEdit: FileRenameRemote, UploadRemote {
     private let client: UnsafeMutableRawPointer
     private let endpoint: ShareAddress
     private let folder: RelativePath
-    private let root: Int32
+    /// The share mount's root for mount-credential sessions; nil for a password session.
+    private let root: Int32?
     private let progress: Progress
     private var handles: [String: Handle] = [:]
     private var directories: [String: Handle] = [:]
@@ -46,6 +47,21 @@ final class SMBEdit: FileRenameRemote, UploadRemote {
         self.endpoint = endpoint
         self.folder = folder
         self.root = root
+        self.progress = progress
+    }
+
+    /// A password session, which `SMBClient.openSession` opens. Throws `SourceFailure`.
+    init(share: ShareAddress, password: Data, folder: RelativePath, progress: Progress) throws {
+        var error: Int32 = 0, status: UInt32 = 0
+        guard let client = SMBClient.withLogin(host: share.host, account: share.account, password: password, {
+            tm_edit_connect_password($0, share.share, &error, &status)
+        }) else {
+            throw SMBSignIn.failure(status: status, errno: error)
+        }
+        self.client = client
+        endpoint = share
+        self.folder = folder
+        root = nil
         self.progress = progress
     }
 
@@ -451,6 +467,74 @@ final class SMBEdit: FileRenameRemote, UploadRemote {
 
 }
 
+private final class SessionFolderReceipt {
+    let persist: (RemoteFolderIdentity) throws -> Void
+    var nativeID: UInt64?
+    var error: Error?
+
+    init(persist: @escaping (RemoteFolderIdentity) throws -> Void) { self.persist = persist }
+}
+
+private func receiveSessionFolder(_ context: UnsafeMutableRawPointer?, _ fileID: UInt64, _ birth: UInt64) -> Int32 {
+    guard let context else { return EINVAL }
+    let receipt = Unmanaged<SessionFolderReceipt>.fromOpaque(context).takeUnretainedValue()
+    do {
+        try receipt.persist(RemoteFolderIdentity(fileID: fileID, birthMicroseconds: birth))
+        receipt.nativeID = fileID
+        return 0
+    } catch {
+        receipt.error = error
+        return EIO
+    }
+}
+
+/// M18 folder creation and initial naming on this session's connection.
+extension SMBEdit {
+    private static let folderLog = Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
+
+    func createFolder(_ path: RelativePath, expected: RemoteFolderIdentity?,
+                      receipt: (RemoteFolderIdentity) throws -> Void) throws -> UInt64 {
+        let full = try remotePath(path.string)
+        return try withFolderReceipt(receipt) { context in
+            var sent: Int32 = 0
+            var trace = tm_smb_folder_trace()
+            let code = tm_edit_create_folder(client, full, expected?.fileID ?? 0, expected?.birthMicroseconds ?? 0,
+                                             receiveSessionFolder, context, &sent, &trace)
+            let stage = String(cString: tm_smb_folder_stage_name(trace.stage))
+            Self.folderLog.notice("""
+                session_folder_create stage=\(stage, privacy: .public) parents=\(trace.parents) \
+                status=\(String(format: "0x%08x", trace.status), privacy: .public) errno=\(trace.error) \
+                sent=\(trace.sent_queued)>\(trace.sent)
+                """)
+            guard code == 0 else { throw FolderMutationFailure(code: code, mayHaveChanged: sent != 0) }
+        }
+    }
+
+    func nameFolder(from source: RelativePath, to destination: RelativePath, expected: RemoteFolderIdentity,
+                    recoveryOnly: Bool) throws -> UInt64 {
+        let from = try remotePath(source.string), to = try remotePath(destination.string)
+        return try withFolderReceipt({ _ in }) { context in
+            var sent: Int32 = 0
+            let code = tm_edit_name_folder(client, from, to, expected.fileID, expected.birthMicroseconds,
+                                           recoveryOnly ? 1 : 0, receiveSessionFolder, context, &sent)
+            guard code == 0 else { throw FolderMutationFailure(code: code, mayHaveChanged: sent != 0) }
+        }
+    }
+
+    private func withFolderReceipt(_ persist: (RemoteFolderIdentity) throws -> Void,
+                                   operation: (UnsafeMutableRawPointer) throws -> Void) throws -> UInt64 {
+        try withoutActuallyEscaping(persist) { persist in
+            let receipt = SessionFolderReceipt(persist: persist)
+            do { try withExtendedLifetime(receipt) { try operation(Unmanaged.passUnretained(receipt).toOpaque()) } }
+            catch { throw receipt.error ?? error }
+            guard let nativeID = receipt.nativeID else { throw UploadError.unresolved }
+            return nativeID
+        }
+    }
+}
+
+extension SMBEdit: RemoteSession {}
+
 extension SMBEdit: FolderMoveRemote {
     private struct FolderMoveCurrent {
         let identity: RemoteFileIdentity
@@ -463,7 +547,7 @@ extension SMBEdit: FolderMoveRemote {
         guard folder.isRoot, handles.isEmpty, deletionTarget == nil else {
             throw UploadError.invalidRequest
         }
-        _ = try folderMoveMountIdentity()
+        try requireSameShare()
         let parents = try protectRenameParents(source: source, destination: destination)
         for parent in parents {
             guard SMBName.matchesStored(parent.name, requested: RelativePath(parent.path)!.components.last ?? "") else {
@@ -818,8 +902,7 @@ extension SMBEdit: FolderMoveRemote {
 
     private func folderMoveFingerprint(kind: CatalogRow.Kind, values: [UInt64]) throws
         -> (UInt64, ContentFingerprint) {
-        let mount = try folderMoveMountIdentity()
-        try mount.requireMounted(root)
+        try requireSameShare()
         guard values[2] <= Int64.max, values[4] & 0x450 == (kind == .folder ? 0x10 : 0) else {
             throw UploadError.unresolved
         }
@@ -827,14 +910,17 @@ extension SMBEdit: FolderMoveRemote {
                                                   modifiedMicroseconds: values[5], changedMicroseconds: values[6]))
     }
 
-    private func folderMoveMountIdentity() throws -> MountIdentity {
-        if let mount = folderMoveMount { try mount.requireMounted(root); return mount }
+    /// A mount-credential session proves that the mount is still this share; a password
+    /// session's connection is its own proof.
+    private func requireSameShare() throws {
+        guard folder.isRoot else { throw UploadError.invalidRequest }
+        guard let root else { return }
+        if let mount = folderMoveMount { try mount.requireMounted(root); return }
         let mount = try MountIdentity(descriptor: root)
-        guard folder.isRoot, mount.typeName == "smbfs", ShareAddress(mount.mountFrom) == endpoint else {
+        guard mount.typeName == "smbfs", ShareAddress(mount.mountFrom) == endpoint else {
             throw UploadError.invalidRequest
         }
         folderMoveMount = mount
-        return mount
     }
 
     private func folderMovePath(_ path: String) throws -> RelativePath {
@@ -1024,7 +1110,7 @@ extension SMBEdit {
         guard selected.components.allSatisfy(FileRenameRequest.supportsName), !Self.isPackage(name) else {
             throw ItemDeletionError.unsupported
         }
-        _ = try folderMoveMountIdentity()
+        try requireSameShare()
         let chain: [FileRenameParent]
         do { chain = try protectRenameParents(source: selected.string, destination: selected.string) }
         catch { throw Self.traversalFailure(error) }

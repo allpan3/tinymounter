@@ -13,6 +13,9 @@
 #include <smb2/smb2.h>
 #include <smb2/libsmb2.h>
 #include <smb2/libsmb2-raw.h>
+#include <smb2/libsmb2-dcerpc.h>
+#include <smb2/libsmb2-dcerpc-srvsvc.h>
+#include "libsmb2-private.h"
 
 // libsmb2 links contexts globally; payload I/O belongs to each independent context.
 static pthread_mutex_t context_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -133,6 +136,14 @@ struct reply {
     char name[256];
 };
 
+// Set while a folder operation runs on a session's connection, which outlives the operation.
+struct session_link {
+    int failed;
+    size_t count;
+    smb2_file_id files[520];
+};
+static _Thread_local struct session_link *session_link;
+
 static void finished(struct smb2_context *smb, int status, void *data, void *context)
 {
     struct reply *reply = context;
@@ -147,6 +158,23 @@ static void opened(struct smb2_context *smb, int status, void *data, void *conte
     if (!status && data) memcpy(reply->file, ((struct smb2_create_reply *)data)->file_id, SMB2_FD_SIZE);
     finished(smb, status, data, context);
     if (!status && !data) reply->error = EIO;
+    struct session_link *link = session_link;
+    if (!status && data && link) {
+        if (link->count < sizeof(link->files) / sizeof(link->files[0]))
+            memcpy(link->files[link->count++], reply->file, SMB2_FD_SIZE);
+        else link->failed = 1;
+    }
+}
+
+static void forget_handle(const smb2_file_id file)
+{
+    struct session_link *link = session_link;
+    for (size_t i = 0; link && i < link->count; i++) {
+        if (memcmp(link->files[i], file, SMB2_FD_SIZE)) continue;
+        memmove(link->files[i], link->files[i + 1], (link->count - i - 1) * SMB2_FD_SIZE);
+        link->count--;
+        return;
+    }
 }
 
 static void inspected(struct smb2_context *smb, int status, void *data, void *context)
@@ -183,14 +211,17 @@ static int perform(struct smb2_context *smb, struct smb2_pdu *pdu, struct reply 
     smb2_queue_pdu(smb, pdu);
     struct timespec start, now;
     clock_gettime(CLOCK_MONOTONIC, &start);
+    int error = 0;
     while (!reply->done) {
         struct pollfd fd = { .fd = smb2_get_fd(smb), .events = smb2_which_events(smb) };
-        if (poll(&fd, 1, 100) < 0 && errno != EINTR) return errno;
-        if (smb2_service(smb, fd.revents) < 0) return EIO;
+        if (poll(&fd, 1, 100) < 0 && errno != EINTR) { error = errno; break; }
+        if (smb2_service(smb, fd.revents) < 0) { error = EIO; break; }
         clock_gettime(CLOCK_MONOTONIC, &now);
-        if (now.tv_sec - start.tv_sec >= 12 && !reply->done) return ETIMEDOUT;
+        if (now.tv_sec - start.tv_sec >= 12 && !reply->done) { error = ETIMEDOUT; break; }
     }
-    return reply->error;
+    // A request without a reply can still complete later, so its connection is unusable.
+    if (error && session_link) session_link->failed = 1;
+    return error ? error : reply->error;
 }
 
 static int open_folder(struct smb2_context *smb, const char *path, int writable,
@@ -299,6 +330,12 @@ static int same_name(const char *left, const char *right, CFStringCompareFlags f
     return equal;
 }
 
+// libsmb2's wait loop returns -1, not -EPERM, when it fails without a connection.
+static int connect_error(int connected)
+{
+    return connected == -1 ? ENOTCONN : connected < 0 ? -connected : EIO;
+}
+
 static struct smb2_context *connect_folder_share(const char *server, const char *share,
                                                  const char *account, int *error)
 {
@@ -324,14 +361,131 @@ static struct smb2_context *connect_folder_share(const char *server, const char 
     log = os_log_create("dev.tinymounter.prototype", "smb");
     os_log_info(log, "smb_connect result=%d", connected);
     os_release(log);
-    // libsmb2's wait loop returns -1, not -EPERM, when it fails without a connection.
-    if (connected) { *error = connected == -1 ? ENOTCONN : connected < 0 ? -connected : EIO; goto done; }
+    if (connected) { *error = connect_error(connected); goto done; }
     free(principal);
     return smb;
 done:
     tm_smb_destroy_context(smb);
     free(principal);
     return NULL;
+}
+
+struct smb2_context *tm_smb_connect_password(const struct tm_smb_login *login, const char *share,
+                                             int *error, uint32_t *status)
+{
+    *status = 0;
+    *error = EINVAL;
+    if (!login || !login->server || !*login->server || !share || !*share || !login->account ||
+        !login->password || memchr(login->password, 0, login->password_length)) return NULL;
+    char *account = strdup(login->account), *user = account, *domain = NULL;
+    if (!account) { *error = ENOMEM; return NULL; }
+    char *separator = strchr(account, '\\');
+    if (!separator) separator = strchr(account, ';');
+    if (separator) {
+        *separator = '\0';
+        domain = account;
+        user = separator + 1;
+    } else if ((separator = strrchr(account, '@'))) {
+        // Samba refuses the UPN as an NTLM user name with an empty domain, so split it.
+        *separator = '\0';
+        domain = separator + 1;
+    }
+    // The vendored library still accepts a guest session for this name, which isn't a password login.
+    if (!*user || (domain && !*domain) || !strcasecmp(user, "guest")) {
+        free(account);
+        *error = EACCES;
+        return NULL;
+    }
+    char *secret = calloc(1, login->password_length + 1);
+    struct smb2_context *smb = secret ? create_context() : NULL;
+    if (!smb) {
+        free(secret);
+        free(account);
+        *error = ENOMEM;
+        return NULL;
+    }
+    memcpy(secret, login->password, login->password_length);
+    smb2_set_timeout(smb, 10);
+    smb2_set_version(smb, SMB2_VERSION_ANY3);
+    smb2_set_authentication(smb, SMB2_SEC_NTLMSSP);
+    smb2_set_user(smb, user);
+    if (domain) smb2_set_domain(smb, domain);
+    smb2_set_password(smb, secret);
+    smb2_secure_zero(secret, login->password_length);
+    free(secret);
+    free(account);
+    smb2_set_sign(smb, 1);
+    smb2_set_seal(smb, 1);
+    smb2_set_security_mode(smb, SMB2_NEGOTIATE_SIGNING_ENABLED | SMB2_NEGOTIATE_SIGNING_REQUIRED);
+    int connected = smb2_connect_share(smb, login->server, share, NULL);
+    smb2_clear_password(smb);
+    if (connected) {
+        *error = connect_error(connected);
+        *status = (uint32_t)smb2_get_nterror(smb);
+    } else if (smb2_get_dialect(smb) < SMB2_VERSION_0300 || !smb->seal) {
+        *error = ENOTSUP;
+    } else {
+        *error = 0;
+        return smb;
+    }
+    tm_smb_destroy_context(smb);
+    return NULL;
+}
+
+struct share_listing {
+    int done, error;
+    uint32_t status;
+    tm_smb_share_callback each;
+    void *context;
+};
+
+static void shares_listed(struct smb2_context *smb, int status, void *data, void *context)
+{
+    struct share_listing *listing = context;
+    struct srvsvc_NetrShareEnum_rep *reply = data;
+    listing->done = 1;
+    if (status || !reply) {
+        listing->status = (uint32_t)status;
+        listing->error = status ? nterror_to_errno((uint32_t)status) : EIO;
+    } else if (reply->ses.ShareInfo.Level != SHARE_INFO_1) {
+        listing->error = EIO;
+    } else {
+        struct srvsvc_SHARE_INFO_1_CONTAINER *shares = &reply->ses.ShareInfo.Level1;
+        for (uint32_t i = 0; !listing->error && i < shares->EntriesRead; i++) {
+            if (!shares->Buffer) { listing->error = EIO; break; }
+            const struct srvsvc_SHARE_INFO_1 *share = &shares->Buffer->share_info_1[i];
+            if (!share->netname.utf8) continue;
+            listing->error = listing->each(listing->context, share->netname.utf8, share->type);
+        }
+    }
+    if (reply) smb2_free_data(smb, reply);
+}
+
+int tm_smb_share_names(const struct tm_smb_login *login, tm_smb_share_callback each, void *context,
+                       uint32_t *status)
+{
+    int error;
+    if (!each) return EINVAL;
+    struct smb2_context *smb = tm_smb_connect_password(login, "IPC$", &error, status);
+    if (!smb) return error;
+    struct share_listing listing = { .each = each, .context = context };
+    error = smb2_share_enum_async(smb, SHARE_INFO_1, shares_listed, &listing);
+    if (error) error = -error;
+    struct timespec start, now;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    while (!error && !listing.done) {
+        struct pollfd fd = { .fd = smb2_get_fd(smb), .events = smb2_which_events(smb) };
+        if (poll(&fd, 1, 100) < 0 && errno != EINTR) { error = errno; break; }
+        if (smb2_service(smb, fd.revents) < 0) { error = ECONNRESET; break; }
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        if (now.tv_sec - start.tv_sec >= 12 && !listing.done) error = ETIMEDOUT;
+    }
+    if (!error) {
+        error = listing.error;
+        *status = listing.status;
+    }
+    tm_smb_destroy_context(smb);
+    return error;
 }
 
 static int hold_parents(struct smb2_context *smb, const char *source, size_t parent_length,
@@ -361,30 +515,15 @@ const char *tm_smb_folder_stage_name(int stage)
     return stage >= 0 && stage < (int)(sizeof(names) / sizeof(names[0])) ? names[stage] : "unknown";
 }
 
-int tm_smb_create_folder(const char *server, const char *share, const char *account,
-                         const char *path, uint64_t expected_id, uint64_t expected_birth,
-                         tm_smb_folder_callback receipt, void *context, int *create_sent,
-                         struct tm_smb_folder_trace *trace)
+// Stages after the connection; `path` is composed and valid.
+static int create_folder_in(struct smb2_context *smb, const char *path, uint64_t expected_id,
+                            uint64_t expected_birth, tm_smb_folder_callback receipt, void *context,
+                            int *create_sent, struct tm_smb_folder_trace *trace)
 {
-    struct tm_smb_folder_trace unused;
-    int unsent;
-    if (!trace) trace = &unused;
-    if (!create_sent) create_sent = &unsent;
-    *trace = (struct tm_smb_folder_trace){ .stage = TM_FOLDER_ARGUMENTS, .error = EINVAL };
-    *create_sent = 0;
-    char composed[1024];
-    if (!server || !*server || !share || !*share || !account || !*account || !receipt ||
-        !tm_smb_compose(path, composed, sizeof(composed)) || !valid_path(composed) ||
-        (!!expected_id != !!expected_birth)) return EINVAL;
-    path = composed;
     struct reply reply = {0};
-    int error;
-    trace->stage = TM_FOLDER_CONNECT;
-    struct smb2_context *smb = connect_folder_share(server, share, account, &error);
-    if (!smb) goto finish;
     trace->stage = TM_FOLDER_PARENT;
     const char *leaf = strrchr(path, '/');
-    error = hold_parents(smb, path, leaf ? (size_t)(leaf - path + 1) : 0, &reply, &trace->parents);
+    int error = hold_parents(smb, path, leaf ? (size_t)(leaf - path + 1) : 0, &reply, &trace->parents);
     if (error) goto done;
     error = open_folder(smb, path, 0, !expected_id, create_sent, &reply);
     trace->stage = reply.queried ? TM_FOLDER_QUERY : TM_FOLDER_TARGET;
@@ -407,62 +546,92 @@ int tm_smb_create_folder(const char *server, const char *share, const char *acco
     if (!error) trace->stage = TM_FOLDER_DONE;
 done:
     trace->status = reply.status;
-    tm_smb_destroy_context(smb);
-finish:
+    return error;
+}
+
+static int create_arguments(const char *path, char composed[1024], uint64_t expected_id,
+                            uint64_t expected_birth, tm_smb_folder_callback receipt)
+{
+    return receipt && tm_smb_compose(path, composed, 1024) && valid_path(composed) &&
+        !!expected_id == !!expected_birth;
+}
+
+int tm_smb_create_folder(const char *server, const char *share, const char *account,
+                         const char *path, uint64_t expected_id, uint64_t expected_birth,
+                         tm_smb_folder_callback receipt, void *context, int *create_sent,
+                         struct tm_smb_folder_trace *trace)
+{
+    struct tm_smb_folder_trace unused;
+    int unsent;
+    if (!trace) trace = &unused;
+    if (!create_sent) create_sent = &unsent;
+    *trace = (struct tm_smb_folder_trace){ .stage = TM_FOLDER_ARGUMENTS, .error = EINVAL };
+    *create_sent = 0;
+    char composed[1024];
+    if (!server || !*server || !share || !*share || !account || !*account ||
+        !create_arguments(path, composed, expected_id, expected_birth, receipt)) return EINVAL;
+    int error;
+    trace->stage = TM_FOLDER_CONNECT;
+    struct smb2_context *smb = connect_folder_share(server, share, account, &error);
+    if (smb) {
+        error = create_folder_in(smb, composed, expected_id, expected_birth, receipt, context,
+                                 create_sent, trace);
+        tm_smb_destroy_context(smb);
+    }
     trace->error = error;
     trace->sent = *create_sent;
     return error;
 }
 
-int tm_smb_name_folder(const char *server, const char *share, const char *account,
-                       const char *source, const char *destination, uint64_t expected_id,
-                       uint64_t expected_birth, int recovery_only,
-                       tm_smb_folder_callback receipt, void *context, int *rename_sent)
+static int name_arguments(const char *source, const char *destination, char composed_source[1024],
+                          char composed_destination[1024], uint64_t expected_id, uint64_t expected_birth,
+                          tm_smb_folder_callback receipt, size_t *parent_length)
 {
-    if (rename_sent) *rename_sent = 0;
-    char composed_source[1024], composed_destination[1024];
-    if (!server || !*server || !share || !*share || !account || !*account || !expected_id ||
-        !expected_birth || !receipt || !tm_smb_compose(source, composed_source, sizeof(composed_source)) ||
-        !tm_smb_compose(destination, composed_destination, sizeof(composed_destination))) return EINVAL;
+    if (!expected_id || !expected_birth || !receipt || !tm_smb_compose(source, composed_source, 1024) ||
+        !tm_smb_compose(destination, composed_destination, 1024)) return 0;
     source = composed_source;
     destination = composed_destination;
-    if (!valid_path(source) || !valid_path(destination) || !strcmp(source, destination)) return EINVAL;
+    if (!valid_path(source) || !valid_path(destination) || !strcmp(source, destination)) return 0;
     const char *source_leaf = strrchr(source, '/'), *destination_leaf = strrchr(destination, '/');
-    size_t parent_length = source_leaf ? (size_t)(source_leaf - source + 1) : 0;
-    if (parent_length != (destination_leaf ? (size_t)(destination_leaf - destination + 1) : 0) ||
-        strncmp(source, destination, parent_length)) return EINVAL;
-    int error;
-    struct smb2_context *smb = connect_folder_share(server, share, account, &error);
-    if (!smb) return error;
+    *parent_length = source_leaf ? (size_t)(source_leaf - source + 1) : 0;
+    return *parent_length == (destination_leaf ? (size_t)(destination_leaf - destination + 1) : 0) &&
+        !strncmp(source, destination, *parent_length);
+}
+
+// After the connection; both paths are composed, valid and share `parent_length`.
+static int name_folder_in(struct smb2_context *smb, const char *source, const char *destination,
+                          size_t parent_length, uint64_t expected_id, uint64_t expected_birth,
+                          int recovery_only, tm_smb_folder_callback receipt, void *context,
+                          int *rename_sent)
+{
     struct reply reply = {0};
     int parents = 0;
-    error = hold_parents(smb, source, parent_length, &reply, &parents);
-    if (error) goto done;
+    const char *destination_leaf = strrchr(destination, '/');
+    int error = hold_parents(smb, source, parent_length, &reply, &parents);
+    if (error) return error;
     error = open_folder(smb, destination, 0, 0, NULL, &reply);
     if (!error) {
-        if (reply.identity != expected_id || reply.birth != expected_birth) { error = EEXIST; goto done; }
+        if (reply.identity != expected_id || reply.birth != expected_birth) return EEXIST;
         const char *name = destination_leaf ? destination_leaf + 1 : destination;
         int case_only = same_name(source, destination, kCFCompareNonliteral | kCFCompareCaseInsensitive);
-        if (!case_only && same_name(reply.name, name, kCFCompareNonliteral)) {
-            error = receipt(context, reply.identity, reply.birth);
-            goto done;
-        }
+        if (!case_only && same_name(reply.name, name, kCFCompareNonliteral))
+            return receipt(context, reply.identity, reply.birth);
         if (!recovery_only) {
             struct smb2_close_request close = {0};
             memcpy(close.file_id, reply.file, SMB2_FD_SIZE);
             error = perform(smb, smb2_cmd_close_async(smb, &close, finished, &reply), &reply);
-            if (error) goto done;
+            if (error) return error;
+            forget_handle(close.file_id);
         }
     } else if (error != ENOENT) {
-        if (error == ENOTDIR) error = EEXIST;
-        goto done;
+        return error == ENOTDIR ? EEXIST : error;
     }
-    if (recovery_only) { error = EAGAIN; goto done; }
+    if (recovery_only) return EAGAIN;
     error = open_folder(smb, source, 1, 0, NULL, &reply);
-    if (error) goto done;
-    if (reply.identity != expected_id || reply.birth != expected_birth) { error = ESTALE; goto done; }
+    if (error) return error;
+    if (reply.identity != expected_id || reply.birth != expected_birth) return ESTALE;
     char *target = strdup(destination);
-    if (!target) { error = ENOMEM; goto done; }
+    if (!target) return ENOMEM;
     for (char *p = target; *p; p++) if (*p == '/') *p = '\\';
     struct smb2_file_rename_info name = { .replace_if_exist = 0, .file_name = (const uint8_t *)target };
     struct smb2_set_info_request set = {0};
@@ -483,8 +652,83 @@ int tm_smb_name_folder(const char *server, const char *share, const char *accoun
     }
     free(target);
     if (!error) error = receipt(context, reply.identity, reply.birth);
-done:
+    return error;
+}
+
+int tm_smb_name_folder(const char *server, const char *share, const char *account,
+                       const char *source, const char *destination, uint64_t expected_id,
+                       uint64_t expected_birth, int recovery_only,
+                       tm_smb_folder_callback receipt, void *context, int *rename_sent)
+{
+    if (rename_sent) *rename_sent = 0;
+    char composed_source[1024], composed_destination[1024];
+    size_t parent_length;
+    if (!server || !*server || !share || !*share || !account || !*account ||
+        !name_arguments(source, destination, composed_source, composed_destination, expected_id,
+                        expected_birth, receipt, &parent_length)) return EINVAL;
+    int error;
+    struct smb2_context *smb = connect_folder_share(server, share, account, &error);
+    if (!smb) return error;
+    error = name_folder_in(smb, composed_source, composed_destination, parent_length, expected_id,
+                           expected_birth, recovery_only, receipt, context, rename_sent);
     tm_smb_destroy_context(smb);
+    return error;
+}
+
+// Closes what the operation opened. Returns 1 when the connection must be dropped.
+static int end_session_link(struct smb2_context *smb, struct session_link *link)
+{
+    session_link = NULL;
+    for (size_t i = 0; !link->failed && i < link->count; i++) {
+        struct reply reply = {0};
+        struct smb2_close_request close = {0};
+        memcpy(close.file_id, link->files[i], SMB2_FD_SIZE);
+        session_link = link;
+        (void)perform(smb, smb2_cmd_close_async(smb, &close, finished, &reply), &reply);
+        session_link = NULL;
+    }
+    return link->failed;
+}
+
+int tm_smb_session_create_folder(struct smb2_context *smb, const char *path, uint64_t expected_id,
+                                 uint64_t expected_birth, tm_smb_folder_callback receipt, void *context,
+                                 int *create_sent, struct tm_smb_folder_trace *trace, int *broken)
+{
+    *broken = 0;
+    *create_sent = 0;
+    *trace = (struct tm_smb_folder_trace){ .stage = TM_FOLDER_ARGUMENTS, .error = EINVAL };
+    char composed[1024];
+    if (!smb || !create_arguments(path, composed, expected_id, expected_birth, receipt)) return EINVAL;
+    struct session_link *link = calloc(1, sizeof(*link));
+    if (!link) return trace->error = ENOMEM;
+    session_link = link;
+    int error = create_folder_in(smb, composed, expected_id, expected_birth, receipt, context,
+                                 create_sent, trace);
+    *broken = end_session_link(smb, link);
+    free(link);
+    trace->error = error;
+    trace->sent = *create_sent;
+    return error;
+}
+
+int tm_smb_session_name_folder(struct smb2_context *smb, const char *source, const char *destination,
+                               uint64_t expected_id, uint64_t expected_birth, int recovery_only,
+                               tm_smb_folder_callback receipt, void *context, int *rename_sent,
+                               int *broken)
+{
+    *broken = 0;
+    *rename_sent = 0;
+    char composed_source[1024], composed_destination[1024];
+    size_t parent_length;
+    if (!smb || !name_arguments(source, destination, composed_source, composed_destination, expected_id,
+                                expected_birth, receipt, &parent_length)) return EINVAL;
+    struct session_link *link = calloc(1, sizeof(*link));
+    if (!link) return ENOMEM;
+    session_link = link;
+    int error = name_folder_in(smb, composed_source, composed_destination, parent_length, expected_id,
+                               expected_birth, recovery_only, receipt, context, rename_sent);
+    *broken = end_session_link(smb, link);
+    free(link);
     return error;
 }
 
