@@ -10,6 +10,13 @@ TinyMounter consistently. Required VM checks pass: 523 tests, one optional skip,
 warnings. QSpace Pro still lists the hidden support mount; 0.2.0 plans to remove it. See the
 [setup redesign checks](docs/results/2026-11-07-servers-redesign.md).
 
+Change watching for 0.2.0, 2026-11-08: the SMB watcher for step 4 is built but not yet wired
+into the app. Against the Samba fixture in the VM, changes in watched folders, three levels
+deep included, reached it in 1.2–2.4 ms; overflow, folder deletion, an smbd restart and an
+unanswered echo each led to the planned listing or reconnection. Required checks pass: 534
+tests, one optional skip. Finder behaviour and NAS servers are unverified. See the
+[change-watching results](docs/results/2026-11-08-change-watching.md).
+
 SMB change notifications for 0.2.0, 2026-11-08: a VM spike on Samba 4.19 shows that libsmb2 can
 watch folders without the hidden mount, with replies 1–5 ms after a change. A tree watch misses
 content edits in subfolders, so the proposal keeps one watch per M15 folder on a dedicated

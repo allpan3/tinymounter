@@ -314,6 +314,37 @@ In the signed VM app, with changes made on the fixture by another client:
    reconnects with backoff and relists every watched folder.
 5. The app's own uploads cause at most one listing per folder per 2 s (`DirectoryRefresh`).
 
+### Step 4 wiring after step 3
+
+`SMBNotify.c`, `SMBWatch` and `LocationChangeWatch` are built and checked against the fixture
+([results](results/2026-11-08-change-watching.md)); nothing calls them yet. Wiring them:
+
+1. `SMBClient.openWatcher` returns `SMBWatch(share:password:notice:)` with the Keychain bytes.
+   `connect_share` in `SMBNotify.c` and `SMBWatch.connectFailure` switch to step 2's shared
+   password connect (with `smb2_clear_password()`) and sign-in classification.
+2. `ShareConnection` owns one `LocationChangeWatch(limit: SMBWatch.folderLimit, …)`. Its `open`
+   throws `refusal()` without I/O when the state refuses requests, and otherwise reads the
+   password and calls `client.openWatcher`. `excluded` is `editNamespace.isReserved`. `refresh`
+   hops to the main actor and calls `discovery[domainID]?.changed(id)` for each ID, or
+   `refreshAll` for nil, only while `canDiscover`. Several locations share one share, so this
+   replaces the single-set `watch(folders:notice:)` above with `setFolders(_:domainID:root:)`
+   and `removeLocation(_:)`.
+3. `discoverChanges` passes each location's discovery folders as `WatchedFolder` (ID, parent
+   ID, catalog path below the location folder) to `setFolders` instead of
+   `setDiscoveryFolders`; a dropped, turned-off or removed location calls `removeLocation`.
+   `Catalog.relativePath(of:)` and `item(id:)` give the path and parent, so no new catalog
+   lookup is needed: notices name the watched path, which the plan maps back to its IDs.
+   Watches then start with the membership, not after each listing.
+4. Delete the watch code in `LocationSource.listSettledOnLane`, `onDirectoryChange` and its
+   handler, `ShareSession`'s watch table, `keepWatches`, `drainWatches`, and
+   `DirectoryWatch.swift` with its generator entry. `canDiscover` drops `hasSession`.
+5. `LocationFolderMoves.drainFolderMove` and the deletion admission call
+   `changeWatch.drain(below:)` after their reservation. It returns once the server closed the
+   handles; on a 10 s timeout the watcher ends its connection instead, so it does not throw.
+6. `reconnect()` follows a state change to `connected`, `credentialsChanged()` and wake.
+   `ShareConnection` teardown calls `cancel()`.
+7. Then run the step 4 checks above in the signed VM app.
+
 ## Spike answers
 
 - **Login** ([results](results/2026-11-08-password-login.md)): libsmb2's own NTLMSSP signs in
