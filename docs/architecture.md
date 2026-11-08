@@ -30,10 +30,10 @@ The modes have different paths and semantics. Do not silently change a File Prov
 | macOS integration | `NSFileProviderReplicatedExtension` plus `NSFileProviderPartialContentFetching` | Native integration with Finder and other file managers, local APFS materialization, offline reads, range requests |
 | Implementation | Swift app and core libraries; SwiftUI/AppKit where appropriate; C interop for a direct SMB library | Small native macOS application; no UI runtime in the byte path |
 | First transport prototype | Native SMB mount, read using POSIX APIs | Holds the SMB implementation constant against Finder to isolate integration cost |
-| Selected SMB transport | Direct `libsmb2` for remote I/O; native mounts for grants and lifecycle | Adopted after the single-client experiments; distribution and performance gates remain |
+| Selected SMB transport | Direct `libsmb2` for sign-in, remote I/O and change notification; NetFS mounts only for Server Volume | Adopted after the single-client experiments; the File Provider mount was removed in 0.2.0; distribution and performance gates remain |
 | Metadata | Per-domain SQLite database in an App Group, WAL, short transactions | Stable identities, directory snapshots, ordered changes, pins, restart recovery |
 | Downloaded content | OS-managed materialized files; short-lived staging in the provider's temporary directory | Avoid an unnecessary second permanent content cache |
-| Credentials | Keychain with a deliberate shared access group | Separate connection records by account; never put passwords in URLs or process arguments |
+| Credentials | One generic-password item per server in the login keychain, service `dev.tinymounter.smb` | Separate connection records by account; never put passwords in URLs, settings, logs or process arguments |
 | Distribution | Signed development builds first; Developer ID/notarized beta proposed | Prove real extension behavior and entitlements early; App Store remains a separate packaging gate |
 | Future mount management | NetFS APIs, per-user login component, `NWPathMonitor` plus actual SMB reachability | Native mounts and reconnection without inventing a filesystem |
 
@@ -42,17 +42,19 @@ The dated experiments below record the earlier native-transport design and its m
 
 ## 3. Components and ownership
 
-**TinyMounter.app** owns connection setup through macOS's login dialog, domain registration, pin controls, connection status, diagnostics, and native-volume connection controls. One File Provider domain represents a particular share/subfolder and authenticated account. Domain identity is stable across app restarts and reconnections.
+**TinyMounter.app** owns sign-in with its own sheet and Keychain item, domain registration, pin controls, connection status, diagnostics, and native-volume connection controls. One File Provider domain represents a particular share/subfolder and authenticated account. Domain identity is stable across app restarts and reconnections.
 
-**Saved connections, accepted and implemented on 2026-10-18.** Server addresses and share grants
-are separate records. The app owns read-only grants; macOS owns passwords and SMB mounts. An
-existing connection can be associated with a saved server by explicit selection, with confirmation
-for another address. Since 2026-11-07, shares are added only through a location, and grants stay
-saved after their last location is removed. Servers lists them; Forget ejects an unused share
-before deleting its grant, and failure retains the records. Keep Downloaded lists hold typed file
-and folder requests ([M14 results](results/2026-10-19-folder-keeps.md)). The
-[connection-management results](results/2026-10-18-connection-management.md) record VM checks and
-physical-Mac limits.
+**Saved connections, accepted on 2026-10-18 and changed for 0.2.0 on 2026-11-08.** Servers and
+shares are separate records. `Settings.json` holds a server's protocol, host and account and a
+share's name; it holds no password and no bookmark. The app keeps each server's password in its
+own Keychain item and signs in with NTLMSSP; there is no guest login. Shares are added only
+through a location and stay saved after their last location is removed. Servers lists them;
+Forget deletes an unused share, or a server with its shares and its password. Earlier settings
+are refused, and Start Fresh replaces them ([connection layer plan](connection-layer-plan.md)).
+Keep Downloaded lists hold typed file and folder requests
+([M14 results](results/2026-10-19-folder-keeps.md)). The
+[connection-management results](results/2026-10-18-connection-management.md) record the earlier
+mount-based checks.
 
 **TinyMounterFileProvider.appex** owns the File Provider callbacks: item lookup, paginated enumeration, working-set changes, full and partial fetches, cancellation, progress, and error translation. It must work when the settings window is closed. Cached reads must not depend on the app being alive. Do not remove/re-add domains to implement reconnect.
 
@@ -135,10 +137,11 @@ Separate latency-sensitive metadata from bulk reads; pool authenticated sessions
 `libsmb2` is LGPL-2.1-or-later. Dependency selection must include notices/source obligations, linkage and user-relinking requirements, and signing/distribution compatibility. The wrapper's MIT license does not erase its bundled library's obligations [L1–L2]. Complete that review before committing to a distribution build.
 
 The user adopted `libsmb2-6.3` for remote listing, metadata, reads and writes on 2026-11-04.
-The app embeds a separate dynamic library and uses public GSS APIs for cached credentials.
-Native mounts retain scoped grants, lifecycle checks and directory change hints. On 2026-11-07 the user
-decided to remove this mount for File Provider locations in 0.2.0, because third-party file
-managers list it ([roadmap](roadmap.md)). Authenticated
+The app embeds a separate dynamic library. Since 0.2.0, File Provider locations use no mount,
+because third-party file managers listed the hidden one ([roadmap](roadmap.md)). The app signs
+in with the server's Keychain password, opens an SMB session for each operation, keeps one
+`CHANGE_NOTIFY` connection per share with at most 64 watches, and judges each share's health from
+the results of its calls ([results](results/2026-11-08-connection-layer.md)). Authenticated
 mutations require encryption. The library source and licence are in `Vendor/libsmb2`; the
 personal-use release includes the complete source, notices and [rebuilding instructions](release.md#rebuild-and-replace-the-library).
 
@@ -197,7 +200,7 @@ Use directory listing metadata to avoid a separate `stat` for every child where 
 
 File Provider sync anchors are ordered cursors over TinyMounter's durable change log, not wall-clock timestamps or SMB notification sequence numbers. Commit item changes and log entries atomically. Advance an anchor only through changes actually delivered, including tombstones. Expired anchors trigger a supported full resynchronization. Test pagination with interleaved additions, renames, and large deletion batches.
 
-Watch active/materialized directories with SMB `CHANGE_NOTIFY` where supported; reconcile on wake/reconnect, on access when stale, and periodically with backoff. Notifications are invalidation hints, not a durable history of everything that happened offline. Fall back if a server accepts watches but never delivers them. Do not recursively poll millions of files at a fixed short interval or rely on local FSEvents to discover every remote SMB change. Pinned trees get bounded scheduled scans. M15 uses public Dispatch vnode sources on the native SMB mount [C1, C2], with at most 64 watches per session. It monitors listed materialized and kept folders, and parents of kept files. Periodic reconciliation covers missed events. A successful listing is due again after 60 s; one automatic listing runs at a time with a one-second gap, so larger sets take longer. Failures back off to at most 240 s. Wake requests refresh, and launch/recovery reconciliation and per-fetch fingerprint checks remain. It never walks unvisited unkept trees. See the [phase 3 plan](phase3-plan.md#m15-discover-nas-changes-while-the-app-runs) and [signed VM results](results/2026-10-19-nas-change-discovery.md).
+Watch active/materialized directories with SMB `CHANGE_NOTIFY` where supported; reconcile on wake/reconnect, on access when stale, and periodically with backoff. Notifications are invalidation hints, not a durable history of everything that happened offline. Fall back if a server accepts watches but never delivers them. Do not recursively poll millions of files at a fixed short interval or rely on local FSEvents to discover every remote SMB change. Pinned trees get bounded scheduled scans. M15 used public Dispatch vnode sources on the native SMB mount [C1, C2]. Since 0.2.0, each share has one `CHANGE_NOTIFY` connection with at most 64 non-tree watches, one per folder ([results](results/2026-11-08-connection-layer.md)). It monitors listed materialized and kept folders, and parents of kept files. Periodic reconciliation covers missed events. A successful listing is due again after 60 s; one automatic listing runs at a time with a one-second gap, so larger sets take longer. Failures back off to at most 240 s. Wake requests refresh, and launch/recovery reconciliation and per-fetch fingerprint checks remain. It never walks unvisited unkept trees. See the [phase 3 plan](phase3-plan.md#m15-discover-nas-changes-while-the-app-runs) and [signed VM results](results/2026-10-19-nas-change-discovery.md).
 
 **Version coherence is a separate feasibility gate.** Plain SMB usually exposes mutable files, not retrievable immutable revisions. Size/mtime/change-time fingerprints are useful change evidence, not cryptographic version IDs. They may miss timestamp-preserving modifications. Never combine ranges after detecting a version change; use Apple's strict-version failure (`versionNoLongerAvailable`) and let the system refetch/retry.
 

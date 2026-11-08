@@ -144,12 +144,9 @@ Duplicate instead.
 
 **Server** lists saved servers as `account@host`. Add Server… opens the sign-in sheet
 ([section 11](#11-sign-in-and-folder-browser-020)) and then continues to the share.
-**Share** lists the server's saved share grants and Add Share…. This is the only place to add a
-share. Select… connects the share first if necessary. The app offers existing SMB
-connections before asking macOS to connect another share. A connection at a different address
-needs explicit confirmation. Until the 0.2.0 connection layer replaces them, share connections
-still go through macOS, which shows its own login dialog when it has no password for the
-account. Bonjour discovery remains unimplemented.
+**Share** lists the server's saved shares and Add Share…, which lists the server's disk shares
+over the saved sign-in. This is the only place to add a share. Bonjour discovery remains
+unimplemented.
 
 ### 4.2 Adding a location: Duplicate
 
@@ -184,16 +181,14 @@ the first location on a server.
   remains planned.
 - **Servers:** the shares that TinyMounter has access to, grouped by server, in a grouped form.
   Each share row shows the account and share, the locations that use it, and its connection
-  state. Servers adds nothing: the location form adds servers and shares (section 4.1). The
-  access to a share stays saved after its last location is removed, so adding it again does not
-  ask again. Forget ejects an unused share and deletes its access; it is unavailable while a
-  location uses the share, and it keeps the entry if the eject fails. A server without other
+  state. Servers adds nothing: the location form adds servers and shares (section 4.1). A share
+  stays saved after its last location is removed. Forget deletes an unused share; it is
+  unavailable while a location uses the share. A server without other
   shares goes with its last share, and its saved password with it. Each server also has a row
   with "Password saved", or "Sign in again." and Sign In Again… when no password is saved, and
   Forget. Forget on a server is unavailable while a location uses it. After a confirmation, it
-  deletes the saved password, then ejects and forgets the server's shares.
-  Select Again… shows only when the access no longer resolves.
-  Connection problems also show in the location's header, with Connect or Select Again….
+  deletes the saved password, then forgets the server's shares.
+  Connection problems also show in the location's header, with Connect or Sign In Again….
   File Provider locations have no Disconnect: the app reconnects them automatically. Server
   volumes keep Connect and Disconnect in their own pane.
   Native volumes reuse reconnect after launch, wake and network changes. An intentional eject
@@ -300,7 +295,7 @@ forms. Check Reduce Transparency and Increase Contrast.
 
 ## M18 creation access, accepted 2026-10-23
 
-Creation access requires a location's scoped write grant. Pending uploads retain their full
+Creation access required a location's scoped write grant until 0.2.0. Pending uploads retain their full
 local copies and prevent location removal or source changes. Other devices can see a new file
 before its upload finishes. The controls are now defined by the unified write mode below. On
 2026-11-02 the [pending-changes plan](pending-changes-plan.md) changed the removal rule: pending
@@ -312,7 +307,9 @@ M20 replaces separate creation and editing controls with one Read only toggle. I
 for a new location; a duplicate retains the original's mode. Initial share selection retains the
 macOS read and write permissions for reuse by its locations. All supported write operations use
 that mode, including M20 file renaming. Unsupported operations
-remain unavailable. Do not add another feature switch.
+remain unavailable. Do not add another feature switch. Since 0.2.0 there is no share permission
+or grant: Read only is a plain setting, and the account's permissions on the server apply. The
+permission rules below describe 0.1.2.
 
 Add connects a saved share when needed, then reuses its permission without another picker.
 Cancelling or failing the connection leaves the draft intact. Enabling writes also reuses permission.
