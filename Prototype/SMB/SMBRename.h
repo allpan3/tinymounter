@@ -2,6 +2,7 @@
 #define TINYMOUNTER_SMB_RENAME_H
 #include <stdint.h>
 #include "SMBEdit.h"
+#include "SMBNotify.h"
 
 enum tm_smb_folder_stage {
     TM_FOLDER_ARGUMENTS = 1, TM_FOLDER_CONNECT, TM_FOLDER_PARENT, TM_FOLDER_TARGET, TM_FOLDER_QUERY,

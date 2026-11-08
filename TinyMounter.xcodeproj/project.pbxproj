@@ -311,6 +311,30 @@
 			"path" = "Sources/TransferCore/DirectoryRefresh.swift";
 			"sourceTree" = "<group>";
 		};
+		"A2719CDE3A399E1F95540886" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Sources/TransferCore/RemoteConnection.swift";
+			"sourceTree" = "<group>";
+		};
+		"96372CAF9E05860FBD9A1873" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Sources/TransferCore/ChangeWatching.swift";
+			"sourceTree" = "<group>";
+		};
+		"DF7DC60FC5DB44EDF10C9CC4" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Prototype/App/SMBWatch.swift";
+			"sourceTree" = "<group>";
+		};
+		"23105F36E107F6DAEDBD8D47" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Prototype/App/LocationChangeWatch.swift";
+			"sourceTree" = "<group>";
+		};
 		"0938F0590199574A610E8984" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
@@ -803,6 +827,12 @@
 			"path" = "Prototype/SMB/SMBEdit.c";
 			"sourceTree" = "<group>";
 		};
+		"C2DB81015255E9DFD94FAB7F" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.c.c";
+			"path" = "Prototype/SMB/SMBNotify.c";
+			"sourceTree" = "<group>";
+		};
 		"5C023B695060408517A5B5A3" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "text.xcconfig";
@@ -923,6 +953,10 @@
 				"126FB768F1C97EFC4258BD93",
 				"EDCB6545D0F504A25222C6FE",
 				"4BDB675F367283A46069638F",
+				"A2719CDE3A399E1F95540886",
+				"96372CAF9E05860FBD9A1873",
+				"DF7DC60FC5DB44EDF10C9CC4",
+				"23105F36E107F6DAEDBD8D47",
 				"0938F0590199574A610E8984",
 				"E16DF99AE10C698F0554125D",
 				"569CBA877F5135D2D6D4A127",
@@ -1019,6 +1053,7 @@
 				"DA78F94EB2BABC4B1512B36C",
 				"E88A6AEBF3631DC3CD75684B",
 				"3460932DFA6D205DFCD1318C",
+				"C2DB81015255E9DFD94FAB7F",
 			);
 			"sourceTree" = "<group>";
 		};
@@ -1466,6 +1501,10 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "3460932DFA6D205DFCD1318C";
 		};
+		"A60E2120AF30F0B2A6BF92BE" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "C2DB81015255E9DFD94FAB7F";
+		};
 		"6ED262C96F13ED98B88F3F95" = {
 			"isa" = "PBXSourcesBuildPhase";
 			"buildActionMask" = 2147483647;
@@ -1525,6 +1564,7 @@
 				"C22CD4F62C56261BA81164CC",
 				"7D949746C9FCBB2FB57BBF9B",
 				"E0B434F5C132973CB42C1D16",
+				"A60E2120AF30F0B2A6BF92BE",
 			);
 			"runOnlyForDeploymentPostprocessing" = 0;
 		};
@@ -1845,6 +1885,22 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "4BDB675F367283A46069638F";
 		};
+		"5FC599E5DFC78118FAAC3D12" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "A2719CDE3A399E1F95540886";
+		};
+		"DD4F7979967DEE037E02D2D8" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "96372CAF9E05860FBD9A1873";
+		};
+		"E34A186FEE1EDEF398C97E7B" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "DF7DC60FC5DB44EDF10C9CC4";
+		};
+		"1AA7E40038D9F7F25FB2AFA1" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "23105F36E107F6DAEDBD8D47";
+		};
 		"A232BB27CD5E44AACCEA8C7C" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "0938F0590199574A610E8984";
@@ -1976,6 +2032,10 @@
 				"71C369A63F812C2EAE1CB35D",
 				"1D3AF2F47517BF4DBF1CBD90",
 				"8E0A1989CAF41D0D38936118",
+				"5FC599E5DFC78118FAAC3D12",
+				"DD4F7979967DEE037E02D2D8",
+				"E34A186FEE1EDEF398C97E7B",
+				"1AA7E40038D9F7F25FB2AFA1",
 				"A232BB27CD5E44AACCEA8C7C",
 				"CE726ADF5E7695684E1E4244",
 				"060D1D419E35D027B55BFAA3",

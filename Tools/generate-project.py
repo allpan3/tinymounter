@@ -58,6 +58,8 @@ app_paths = ["Sources/TransferCore/FileRename.swift", "Sources/TransferCore/Read
              "Prototype/App/LocationFolderMoves.swift",
              "Prototype/App/TinyMounterApp.swift", "Prototype/App/SourceReaderHost.swift",
              "Prototype/App/DirectoryWatch.swift", "Sources/TransferCore/DirectoryRefresh.swift",
+             "Sources/TransferCore/RemoteConnection.swift", "Sources/TransferCore/ChangeWatching.swift",
+             "Prototype/App/SMBWatch.swift", "Prototype/App/LocationChangeWatch.swift",
              "Prototype/App/SettingsStore.swift", "Prototype/App/ShareAccess.swift",
              "Prototype/App/LocationController.swift", "Prototype/App/AppModel.swift",
              "Prototype/App/PermanentDeletionConfirmation.swift",
@@ -79,6 +81,7 @@ smb_sources = smb_makefile.split("libsmb2_la_SOURCES =", 1)[1].split("SOCURRENT"
 smb_paths = ["Vendor/libsmb2/lib/" + name for name in re.findall(r"[\w-]+\.c", smb_sources)]
 smb_paths.append("Prototype/SMB/SMBRename.c")
 smb_paths.append("Prototype/SMB/SMBEdit.c")
+smb_paths.append("Prototype/SMB/SMBNotify.c")
 files.update({path: ref(path, "sourcecode.c.c") for path in smb_paths})
 
 config_path = "Prototype/Config/Prototype.xcconfig"
