@@ -57,7 +57,7 @@ extension LocationSource {
             return (path, affected)
         }
         defer { editNamespace.release(reservation) }
-        try editNamespace.drainReads(below: [path])
+        try drainChanges(affected, below: [path])
         return try editNamespace.perform {
             try admitDeletion(request, recursive: recursive, path: path, planned: affected,
                               progress: progress, admitted: admitted)

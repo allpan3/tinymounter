@@ -22,8 +22,8 @@ typedef void (*tm_notify_callback)(void *context, int event, uint64_t token, uin
 
 struct tm_notify;
 
-// Signs in on the calling thread with SMB 3, signing and encryption required. The password
-// bytes are copied and every copy is zeroed after the connect. On failure, returns NULL with
+// Signs in on the calling thread as tm_edit_connect_password does: SMB 3, signing and encryption
+// required, no guest. The password bytes are copied and every copy is zeroed after the connect. On failure, returns NULL with
 // an errno value in `error` and the server's NTSTATUS, if any, in `ntstatus`.
 struct tm_notify *tm_notify_open(const char *server, const char *share, const char *account,
                                  const uint8_t *password, size_t password_length, int echo_seconds,

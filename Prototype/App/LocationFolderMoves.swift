@@ -48,8 +48,8 @@ extension LocationSource {
             return (source, destination, affected)
         }
         defer { editNamespace.release(reservation) }
-        guard case let (source, destination, _)? = planned else { return CreateReceipt(item: request.item) }
-        try editNamespace.drainReads(below: [source, destination])
+        guard case let (source, destination, affected)? = planned else { return CreateReceipt(item: request.item) }
+        try drainChanges(affected, below: [source, destination])
         try renameAccess()
         var record = try withFolderMoveRemote(progress: progress) { remote in
             var record = try admitFolderMove(request, source: source, destination: destination, remote: remote)
@@ -64,10 +64,10 @@ extension LocationSource {
     /// Resumes a durable intent; while pending it blocks new reads, watches and writes below it.
     @discardableResult
     func retryFolderMove(_ id: UUID) throws -> PendingFolderMove {
-        let record = try editNamespace.perform { () -> PendingFolderMove in
+        let (record, affected) = try editNamespace.perform { () -> (PendingFolderMove, [LocationSource]) in
             guard case .folder(let record)? = try Self.renameOutbox().intents().first(where: { $0.id == id }),
                   record.owner == domainID else { throw UploadError.unresolved }
-            return record
+            return (record, try record.views.map { try editNamespace.source($0.domain) })
         }
         guard record.isPending else {
             try record.requireMoved()
@@ -76,7 +76,7 @@ extension LocationSource {
         guard let source = RelativePath(record.source), let destination = RelativePath(record.destination) else {
             throw UploadError.unresolved
         }
-        try editNamespace.drainReads(below: [source, destination])
+        try drainChanges(affected, below: [source, destination])
         try renameAccess()
         let progress = Progress()
         var current = record
@@ -137,6 +137,17 @@ extension LocationSource {
                 guard !paths.contains(where: { EditNamespace.contains($0, full) }) else { throw UploadError.pendingWrites }
             }
         }
+    }
+
+    /// Outside the namespace lock: a transfer finishing its read can still need that lock.
+    func drainChanges(_ affected: [LocationSource], below paths: [RelativePath]) throws {
+        var drained: [ObjectIdentifier] = []
+        // Locations of one share through two accounts have two connections, each with its watches.
+        for participant in affected where !drained.contains(ObjectIdentifier(participant.connection)) {
+            drained.append(ObjectIdentifier(participant.connection))
+            participant.connection.changeWatch.drain(below: paths)
+        }
+        try editNamespace.drainReads(below: paths)
     }
 
     private func admitFolderMove(_ request: FileRenameRequest, source: RelativePath, destination: RelativePath,

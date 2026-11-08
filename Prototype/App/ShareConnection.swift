@@ -94,14 +94,28 @@ final class ShareConnection: @unchecked Sendable {
     private var wanted = false
     private let network = NWPathMonitor()
     private var observers: [NotificationCenter.ObservationToken] = []
+    private let watchLimit: Int
+    private let refresh: LocationChangeWatch.Refresh
     private static let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "share")
 
-    init(shareID: UUID, address: ShareAddress, client: any RemoteClient, signIn: ServerSignIn,
-         onRecovery: @escaping @Sendable ([SourceFailure]) -> Void) {
+    /// The change notices of this share's discovery folders, on one watcher connection.
+    private(set) lazy var changeWatch = LocationChangeWatch(limit: watchLimit, open: { [weak self] notice in
+        guard let self else { return nil }
+        if let refusal = refusal() { throw refusal }
+        return try signIn.signIn { password in
+            try self.client.openWatcher(self.address, password: password, notice: notice)
+        }
+    }, excluded: { [editNamespace] in editNamespace.isReserved($0) }, refresh: refresh)
+
+    /// `watchLimit` is the protocol's watcher limit; `refresh` gets each notice's folders to list.
+    init(shareID: UUID, address: ShareAddress, client: any RemoteClient, signIn: ServerSignIn, watchLimit: Int,
+         refresh: @escaping LocationChangeWatch.Refresh, onRecovery: @escaping @Sendable ([SourceFailure]) -> Void) {
         self.shareID = shareID
         self.address = address
         self.client = client
         self.signIn = signIn
+        self.watchLimit = watchLimit
+        self.refresh = refresh
         self.onRecovery = onRecovery
         editNamespace = EditNamespace.shared(address)
         tick = DispatchSource.makeTimerSource(queue: monitor)
@@ -117,6 +131,7 @@ final class ShareConnection: @unchecked Sendable {
             self?.conditionsChanged(satisfied: update.status == .satisfied)
         }
         network.start(queue: monitor)
+        _ = changeWatch
     }
 
     deinit {
@@ -202,6 +217,13 @@ final class ShareConnection: @unchecked Sendable {
         signIn.credentialsChanged()
         changeHealth { $0.signedIn() }
         connect()
+        changeWatch.reconnect()
+    }
+
+    /// The share is forgotten: its watcher connection ends. Off the caller's thread, because
+    /// `cancel()` waits for a watcher sign-in that may be running.
+    func close() {
+        DispatchQueue.global(qos: .utility).async { [changeWatch] in changeWatch.cancel() }
     }
 
     private func succeeded() {
@@ -222,6 +244,7 @@ final class ShareConnection: @unchecked Sendable {
             return wanted && health.state == .notConnected && satisfied != false
         }
         if reconnect { connect() }
+        if satisfied == nil { changeWatch.reconnect() }
     }
 
     private func checkHealth() {
@@ -266,6 +289,7 @@ final class ShareConnection: @unchecked Sendable {
                 share=\(self.shareID.uuidString, privacy: .public) state=\(String(describing: after), privacy: .public)
                 """)
             handler?(after)
+            if after == .connected { changeWatch.reconnect() }
         }
         return result
     }

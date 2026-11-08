@@ -1,5 +1,6 @@
 #define __STDC_WANT_LIB_EXT1__ 1
 #include "SMBNotify.h"
+#include "SMBEdit.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -19,10 +20,11 @@
 #define NOTIFY_FILTER 0xF5Fu
 // The largest output buffer that libsmb2's fixed credit charge of 1 allows.
 #define NOTIFY_BUFFER 65536u
-#define REPLY_SECONDS 10
 #define STATUS_NOTIFY_ENUM_DIR 0x0000010Cu
 
 extern int tm_smb_compose(const char *path, char *composed, size_t capacity);
+extern struct smb2_context *tm_smb_connect_password(const struct tm_smb_login *login, const char *share,
+                                                    int *error, uint32_t *status);
 
 struct watch {
     struct watch *next;
@@ -61,42 +63,14 @@ struct tm_notify {
 
 // MARK: Connection
 
-// Kept apart so it can become the shared password connect of the SMB client.
+// Step 2's password connect, so the watcher signs in, seals and refuses as every session does.
 static struct smb2_context *connect_share(const char *server, const char *share, const char *account,
                                           const uint8_t *password, size_t length, int *error,
                                           uint32_t *ntstatus)
 {
-    struct smb2_context *smb = smb2_init_context();
-    char *secret = smb ? calloc(1, length + 1) : NULL;
-    if (!secret) {
-        if (smb) smb2_destroy_context(smb);
-        *error = ENOMEM;
-        return NULL;
-    }
-    memcpy(secret, password, length);
-    smb2_set_timeout(smb, REPLY_SECONDS);
-    smb2_set_version(smb, SMB2_VERSION_ANY3);
-    smb2_set_authentication(smb, SMB2_SEC_NTLMSSP);
-    smb2_set_user(smb, account);
-    smb2_set_password(smb, secret);
-    memset_s(secret, length + 1, 0, length + 1);
-    free(secret);
-    smb2_set_sign(smb, 1);
-    smb2_set_seal(smb, 1);
-    smb2_set_security_mode(smb, SMB2_NEGOTIATE_SIGNING_ENABLED | SMB2_NEGOTIATE_SIGNING_REQUIRED);
-    int connected = smb2_connect_share(smb, server, share, NULL);
-    if (smb->password) {
-        memset_s(discard_const(smb->password), strlen(smb->password), 0, strlen(smb->password));
-        smb2_set_password(smb, NULL);
-    }
-    if (connected) {
-        *ntstatus = (uint32_t)smb2_get_nterror(smb);
-        // libsmb2's wait loop returns -1, not -EPERM, when it fails without a connection.
-        *error = connected == -1 ? ENOTCONN : connected < 0 ? -connected : EIO;
-        smb2_destroy_context(smb);
-        return NULL;
-    }
-    return smb;
+    struct tm_smb_login login = { .server = server, .account = account, .password = password,
+                                  .password_length = length };
+    return tm_smb_connect_password(&login, share, error, ntstatus);
 }
 
 static void deliver(struct tm_notify *n, int event, uint64_t token, uint32_t status,

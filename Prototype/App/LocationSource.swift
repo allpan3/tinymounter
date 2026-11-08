@@ -57,8 +57,6 @@ final class LocationSource: @unchecked Sendable {
     /// The last root listing found no location folder (plan §7, "This folder is not on the share").
     private var rootMissing = false
     private var changeHandler: (@Sendable () -> Void)?
-    private var directoryHandler: (@Sendable ([String]) -> Void)?
-    private var watchedFolders: Set<String> = []
     private static let listingLog = Logger(subsystem: "dev.tinymounter.prototype", category: "listing")
     private static let fetchLog = Logger(subsystem: "dev.tinymounter.prototype", category: "fetch")
 
@@ -92,7 +90,7 @@ final class LocationSource: @unchecked Sendable {
             catalogLock.withLock { catalog = nil }
             editNamespace.detach(domainID)
         }
-        setDiscoveryFolders([])
+        connection.changeWatch.removeLocation(domainID)
     }
 
     var isRootMissing: Bool { lock.withLock { rootMissing } }
@@ -105,14 +103,6 @@ final class LocationSource: @unchecked Sendable {
         lock.withLock { changeHandler }?()
     }
 
-    func onDirectoryChange(_ handler: @escaping @Sendable ([String]) -> Void) {
-        lock.withLock { directoryHandler = handler }
-    }
-
-    func setDiscoveryFolders(_ folders: Set<String>) {
-        lock.withLock { watchedFolders = folders }
-    }
-
     func discoveryFolders(materialized: [String]) throws -> Set<String> {
         try withCatalog { catalog in
             let kept = try catalog.keptItems()
@@ -122,6 +112,16 @@ final class LocationSource: @unchecked Sendable {
                 guard let row = try catalog.item(id: id) else { return false }
                 return !row.deleted && row.kind == .folder && row.listGen != nil
             })
+        }
+    }
+
+    /// The discovery folders to watch, with their paths below the location folder.
+    func watchedFolders(_ ids: Set<String>) throws -> [WatchedFolder] {
+        try withCatalog { catalog in
+            try ids.sorted().compactMap { id in
+                guard let row = try catalog.item(id: id), let path = try catalog.relativePath(of: id) else { return nil }
+                return WatchedFolder(id: id, parentID: row.parentID, path: path)
+            }
         }
     }
 
