@@ -383,6 +383,12 @@ const char *smb2_get_user(struct smb2_context *smb2);
 void smb2_set_password(struct smb2_context *smb2, const char *password);
 
 /*
+ * Zero and free the stored password. Call it once smb2_connect_share() has
+ * returned: libsmb2 does not reconnect, so it needs the password only to connect.
+ */
+void smb2_clear_password(struct smb2_context *smb2);
+
+/*
  * Convert a win timestamp to a unix timeval
  */
 void smb2_win_to_timeval(uint64_t smb2_time, struct smb2_timeval *tv);

@@ -350,6 +350,9 @@ struct smb2dir {
 void smb2_set_nterror(struct smb2_context *smb2, int nterror,
                     const char *error_string, ...);
 
+/* Zeroes a secret in a way the compiler can't remove. */
+void smb2_secure_zero(void *buffer, size_t length);
+
 void smb2_close_connecting_fds(struct smb2_context *smb2);
 
 void *smb2_alloc_init(struct smb2_context *smb2, size_t size);

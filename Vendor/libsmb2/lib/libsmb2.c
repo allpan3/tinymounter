@@ -703,9 +703,14 @@ session_setup_cb(struct smb2_context *smb2, int status,
         }
 
         if (rep->session_flags & SMB2_SESSION_FLAG_IS_GUEST) {
-                if (smb2->sec != SMB2_SEC_NTLMSSP) {
+                /* A server may map an unknown account to guest: that is a refused login. */
+                if (smb2->sec != SMB2_SEC_NTLMSSP || smb2->user == NULL ||
+                    strcasecmp(smb2->user, "guest") != 0) {
                         smb2_close_context(smb2);
-                        c_data->cb(smb2, -EACCES, NULL, c_data->cb_data);
+                        smb2_set_nterror(smb2, SMB2_STATUS_LOGON_FAILURE,
+                                         "Session setup returned a guest session");
+                        c_data->cb(smb2, -nterror_to_errno(SMB2_STATUS_LOGON_FAILURE),
+                                   NULL, c_data->cb_data);
                         free_c_data(smb2, c_data);
                         return;
                 }

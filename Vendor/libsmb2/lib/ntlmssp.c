@@ -144,11 +144,15 @@ ntlmssp_destroy_context(struct auth_data *auth)
         free(auth->ntlm_buf);
         free(auth->buf);
         free(auth->user);
+        if (auth->password) {
+                smb2_secure_zero(auth->password, strlen(auth->password));
+        }
         free(auth->password);
         free(auth->domain);
         free(auth->workstation);
         free(auth->client_challenge);
         free(auth->target_info);
+        smb2_secure_zero(auth->exported_session_key, SMB2_KEY_SIZE);
         free(auth);
 }
 
@@ -205,6 +209,9 @@ ntlmssp_init_context(const char *user,
         return auth_data;
  failed:
         free(auth_data->user);
+        if (auth_data->password) {
+                smb2_secure_zero(auth_data->password, strlen(auth_data->password));
+        }
         free(auth_data->password);
         free(auth_data->domain);
         free(auth_data->workstation);
@@ -324,35 +331,6 @@ ntlm_decode_challenge_message(struct smb2_context *smb2, struct auth_data *auth_
 }
 
 static int
-ntlm_convert_password_hash(const char *password, unsigned char password_hash[16])
-{
-        int i, hn, ln;
-        struct smb2_utf16 *utf16_password = NULL;
-
-        utf16_password = smb2_utf8_to_utf16(password);
-        if (utf16_password == NULL) {
-                return -1;
-        }
-
-        for (i = 0; i < 32; i++) {
-                utf16_password->val[i] = le16toh(utf16_password->val[i]);
-                if (islower((unsigned int) utf16_password->val[i])) {
-                        utf16_password->val[i] = toupper((unsigned int) utf16_password->val[i]);
-                }
-        }
-
-        /* FreeRDP: winpr/libwinpr/sspi/NTLM/ntlm_compute.c */
-        for (i = 0; i < 32; i += 2)
-        {
-                hn = utf16_password->val[i] > '9' ? utf16_password->val[i] - 'A' + 10 : utf16_password->val[i] - '0';
-                ln = utf16_password->val[i + 1] > '9' ? utf16_password->val[i + 1] - 'A' + 10 : utf16_password->val[i + 1] - '0';
-                password_hash[i / 2] = (hn << 4) | ln;
-        }
-
-        return 0;
-}
-
-static int
 NTOWFv1(const char *password, unsigned char password_hash[16])
 {
         MD4_CTX ctx;
@@ -365,7 +343,9 @@ NTOWFv1(const char *password, unsigned char password_hash[16])
         MD4Init(&ctx);
         MD4Update(&ctx, (unsigned char *)utf16_password->val, utf16_password->len * 2);
         MD4Final(password_hash, &ctx);
+        smb2_secure_zero(utf16_password->val, utf16_password->len * 2);
         free(utf16_password);
+        smb2_secure_zero(&ctx, sizeof(ctx));
 
         return 0;
 }
@@ -384,15 +364,8 @@ NTOWFv2(const char *user, const char *password, const char *domain,
                 return -1;
         }
         
-        /* ntlm:F638EDF864C4805DC65D9BF2BB77E4C0 */
-        if ((strlen(password) == 37) && (strncmp(password, "ntlm:", 5) == 0)) {
-                if (ntlm_convert_password_hash(password + 5, ntlm_hash) < 0) {
-                        return -1;
-                }
-        } else {
-                if (NTOWFv1(password, ntlm_hash) < 0) {
-                        return -1;
-                }
+        if (NTOWFv1(password, ntlm_hash) < 0) {
+                return -1;
         }
 
         len = strlen(user) + 1;
@@ -401,6 +374,7 @@ NTOWFv2(const char *user, const char *password, const char *domain,
         }
         userdomain = malloc(len);
         if (userdomain == NULL) {
+                smb2_secure_zero(ntlm_hash, sizeof(ntlm_hash));
                 return -1;
         }
 
@@ -417,12 +391,14 @@ NTOWFv2(const char *user, const char *password, const char *domain,
         utf16_userdomain = smb2_utf8_to_utf16(userdomain);
         if (utf16_userdomain == NULL) {
                 free(userdomain);
+                smb2_secure_zero(ntlm_hash, sizeof(ntlm_hash));
                 return -1;
         }
 
         smb2_hmac_md5((unsigned char *)utf16_userdomain->val,
                  utf16_userdomain->len * 2,
                  ntlm_hash, 16, ntlmv2_hash);
+        smb2_secure_zero(ntlm_hash, sizeof(ntlm_hash));
         free(userdomain);
         free(utf16_userdomain);
 
@@ -701,6 +677,8 @@ encode_ntlm_auth(struct smb2_context *smb2, time_t ti,
 
         ret = 0;
 finished:
+        smb2_secure_zero(ResponseKeyNT, sizeof(ResponseKeyNT));
+        smb2_secure_zero(key_exch, sizeof(key_exch));
         free(utf16_domain);
         free(utf16_user);
         free(utf16_workstation);
