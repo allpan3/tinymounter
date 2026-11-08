@@ -10,6 +10,11 @@ TinyMounter consistently. Required VM checks pass: 523 tests, one optional skip,
 warnings. QSpace Pro still lists the hidden support mount; 0.2.0 plans to remove it. See the
 [setup redesign checks](docs/results/2026-11-07-servers-redesign.md).
 
+0.2.0 password login spike, 2026-11-08: libsmb2 logs in with the account and password, with no
+mount, over sealed SMB 3.1.1. A sandboxed probe stores the password in its own Keychain item.
+The data protection keychain needs a provisioning profile, so the proposal uses the file-based
+keychain for now; this awaits the user's decision. See the [spike results](docs/results/2026-11-08-password-login.md).
+
 Native SMB mode, 2026-11-07: Add now offers a normal Finder server volume. Each share uses
 one mode; remove its existing locations before switching. Signed VM checks pass for native
 access, safe removal, reconnect and mode switching. Required checks pass: 522 tests, one
