@@ -203,6 +203,24 @@
 			"path" = "Prototype/App/SMBEdit.swift";
 			"sourceTree" = "<group>";
 		};
+		"55E0B562F18AFE4D5052209D" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Prototype/App/SMBClient.swift";
+			"sourceTree" = "<group>";
+		};
+		"A2719CDE3A399E1F95540886" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Sources/TransferCore/RemoteConnection.swift";
+			"sourceTree" = "<group>";
+		};
+		"4754DE042D6D5E58155AB81A" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Sources/TransferCore/SMBSignIn.swift";
+			"sourceTree" = "<group>";
+		};
 		"1A4F941C144EC41EDAD17D71" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
@@ -887,6 +905,9 @@
 				"0523D3A43604D8C7886B49BE",
 				"14D65D07B2D05C965A7AFC96",
 				"B5037F6DF4FF777669B4056C",
+				"55E0B562F18AFE4D5052209D",
+				"A2719CDE3A399E1F95540886",
+				"4754DE042D6D5E58155AB81A",
 				"1A4F941C144EC41EDAD17D71",
 				"97400C5053E7668FF1C2D77D",
 				"9D03E25CFAE681F2E63ED55C",
@@ -1752,6 +1773,18 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "B5037F6DF4FF777669B4056C";
 		};
+		"E1600E572F47EE5AFA5F6AD0" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "55E0B562F18AFE4D5052209D";
+		};
+		"5FC599E5DFC78118FAAC3D12" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "A2719CDE3A399E1F95540886";
+		};
+		"2D5FAE47794307377EC2BB89" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "4754DE042D6D5E58155AB81A";
+		};
 		"415164BFDB38D86A80B85B63" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "1A4F941C144EC41EDAD17D71";
@@ -1925,6 +1958,9 @@
 				"44A7E63479978016D0D1D884",
 				"84AFAF25C8E82649C60660B0",
 				"5833B1B968BD345E4BCA79AD",
+				"E1600E572F47EE5AFA5F6AD0",
+				"5FC599E5DFC78118FAAC3D12",
+				"2D5FAE47794307377EC2BB89",
 				"415164BFDB38D86A80B85B63",
 				"49CD54CBA1349AD1F3ACA6A4",
 				"09786A8A43AA404B0468CDED",

@@ -12,6 +12,7 @@
 #include <smb2/libsmb2.h>
 #include <smb2/libsmb2-raw.h>
 #include "libsmb2-private.h"
+#include "SMBRename.h"
 
 struct tm_edit_reply {
     int done, error;
@@ -31,6 +32,13 @@ extern void *tm_smb_begin_edit(const char *, const char *, const char *, int *);
 extern void tm_smb_end_edit(void *);
 extern void tm_smb_destroy_context(void *);
 extern int tm_smb_compose(const char *, char *, size_t);
+extern struct smb2_context *tm_smb_connect_password(const struct tm_smb_login *, const char *, int *,
+                                                    uint32_t *);
+extern int tm_smb_session_create_folder(struct smb2_context *, const char *, uint64_t, uint64_t,
+                                        tm_smb_folder_callback, void *, int *,
+                                        struct tm_smb_folder_trace *, int *);
+extern int tm_smb_session_name_folder(struct smb2_context *, const char *, const char *, uint64_t,
+                                      uint64_t, int, tm_smb_folder_callback, void *, int *, int *);
 
 void *tm_edit_connect(const char *server, const char *share, const char *account, int *error)
 {
@@ -39,6 +47,17 @@ void *tm_edit_connect(const char *server, const char *share, const char *account
     client->smb = tm_smb_begin_edit(server, share, account, error);
     if (!client->smb) { free(client); return NULL; }
     *error = 0;
+    return client;
+}
+
+void *tm_edit_connect_password(const struct tm_smb_login *login, const char *share, int *error,
+                               uint32_t *status)
+{
+    struct edit_client *client = calloc(1, sizeof(*client));
+    *status = 0;
+    if (!client) { *error = ENOMEM; return NULL; }
+    client->smb = tm_smb_connect_password(login, share, error, status);
+    if (!client->smb) { free(client); return NULL; }
     return client;
 }
 
@@ -67,6 +86,17 @@ static void done(struct smb2_context *smb, int status, void *data, void *context
     reply->done = 1;
 }
 
+static void drop_connection(struct edit_client *client)
+{
+    // An abortive close drops unsent requests; a graceful one can deliver a lost create later.
+    struct linger reset = {.l_onoff = 1, .l_linger = 0};
+    t_socket connection = smb2_get_fd(client->smb);
+    if (connection >= 0) (void)setsockopt(connection, SOL_SOCKET, SO_LINGER, &reset, sizeof(reset));
+    // Destroy queued callbacks while their reply storage is still alive.
+    tm_smb_destroy_context(client->smb);
+    client->smb = NULL;
+}
+
 static int wait_reply(struct edit_client *client, struct smb2_pdu *pdu, struct tm_edit_reply *reply)
 {
     if (!pdu || !client->smb) return EIO;
@@ -82,13 +112,7 @@ static int wait_reply(struct edit_client *client, struct smb2_pdu *pdu, struct t
         if (!reply->done && now.tv_sec - start.tv_sec >= 12) { error = ETIMEDOUT; break; }
     }
     if (error) {
-        // An abortive close drops unsent requests; a graceful one can deliver a lost create later.
-        struct linger reset = {.l_onoff = 1, .l_linger = 0};
-        t_socket connection = smb2_get_fd(client->smb);
-        if (connection >= 0) (void)setsockopt(connection, SOL_SOCKET, SO_LINGER, &reset, sizeof(reset));
-        // Destroy queued callbacks while their reply storage is still alive.
-        tm_smb_destroy_context(client->smb);
-        client->smb = NULL;
+        drop_connection(client);
         return error;
     }
     client->ntstatus = reply->error ? reply->ntstatus : 0;
@@ -427,4 +451,34 @@ int tm_edit_flush(void *opaque, uint8_t *file)
     memcpy(request.file_id, file, SMB2_FD_SIZE);
     struct tm_edit_reply reply = {0};
     return wait_reply(client, smb2_cmd_flush_async(smb, &request, done, &reply), &reply);
+}
+
+int tm_edit_create_folder(void *opaque, const char *path, uint64_t expected_id, uint64_t expected_birth,
+                          tm_smb_folder_callback receipt, void *context, int *create_sent,
+                          struct tm_smb_folder_trace *trace)
+{
+    struct edit_client *client = opaque;
+    client->ntstatus = 0;
+    *create_sent = 0;
+    if (!client->smb) return EIO;
+    int broken;
+    int error = tm_smb_session_create_folder(client->smb, path, expected_id, expected_birth, receipt,
+                                             context, create_sent, trace, &broken);
+    if (broken) drop_connection(client);
+    return error;
+}
+
+int tm_edit_name_folder(void *opaque, const char *source, const char *destination, uint64_t expected_id,
+                        uint64_t expected_birth, int recovery_only, tm_smb_folder_callback receipt,
+                        void *context, int *rename_sent)
+{
+    struct edit_client *client = opaque;
+    client->ntstatus = 0;
+    *rename_sent = 0;
+    if (!client->smb) return EIO;
+    int broken;
+    int error = tm_smb_session_name_folder(client->smb, source, destination, expected_id, expected_birth,
+                                           recovery_only, receipt, context, rename_sent, &broken);
+    if (broken) drop_connection(client);
+    return error;
 }

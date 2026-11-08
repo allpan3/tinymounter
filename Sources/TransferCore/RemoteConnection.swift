@@ -42,19 +42,20 @@ public enum ConnectionState: Equatable, Sendable {
 
 /// One protocol's client. Calls block the calling thread, time out per request and throw
 /// `SourceFailure`: `notAuthenticated` when the server refuses the account or password.
+/// A password is UTF-8 bytes, passed on to the protocol without a `String` copy.
 public protocol RemoteClient: Sendable {
     var remoteProtocol: RemoteProtocol { get }
 
     /// Signs in and returns the names of the file shares that the account can see.
-    func shareNames(on server: ServerAccount, password: String) throws -> [String]
+    func shareNames(on server: ServerAccount, password: Data) throws -> [String]
 
     /// Signs in and connects to the share. Relative paths start at `folder`, from the share root.
-    func openSession(_ share: ShareAddress, password: String, folder: RelativePath,
+    func openSession(_ share: ShareAddress, password: Data, folder: RelativePath,
                      progress: Progress) throws -> any RemoteSession
 
     /// Signs in on a connection of its own for change notices. It watches no folder until
     /// `watch(_:)` names some. Nil if the server can't watch.
-    func openWatcher(_ share: ShareAddress, password: String,
+    func openWatcher(_ share: ShareAddress, password: Data,
                      notice: @escaping @Sendable (ChangeNotice) -> Void) throws -> (any RemoteWatcher)?
 }
 

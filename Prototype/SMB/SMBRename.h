@@ -3,8 +3,6 @@
 #include <stdint.h>
 #include "SMBEdit.h"
 
-typedef int (*tm_smb_folder_callback)(void *context, uint64_t file_id, uint64_t birth_us);
-
 enum tm_smb_folder_stage {
     TM_FOLDER_ARGUMENTS = 1, TM_FOLDER_CONNECT, TM_FOLDER_PARENT, TM_FOLDER_TARGET, TM_FOLDER_QUERY,
     TM_FOLDER_IDENTITY, TM_FOLDER_RECEIPT, TM_FOLDER_DONE
@@ -32,5 +30,12 @@ int tm_smb_name_folder(const char *server, const char *share, const char *accoun
                        const char *source, const char *destination, uint64_t expected_id,
                        uint64_t expected_birth, int recovery_only,
                        tm_smb_folder_callback receipt, void *context, int *rename_sent);
+
+// Called once per share the server lists; a nonzero result stops the listing with that error.
+typedef int (*tm_smb_share_callback)(void *context, const char *name, uint32_t type);
+
+// Signs in to IPC$ and lists the server's shares (srvsvc NetrShareEnum, level 1), unfiltered.
+int tm_smb_share_names(const struct tm_smb_login *login, tm_smb_share_callback each, void *context,
+                       uint32_t *status);
 
 #endif

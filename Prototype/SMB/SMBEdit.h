@@ -1,8 +1,22 @@
 #ifndef TINYMOUNTER_SMB_EDIT_H
 #define TINYMOUNTER_SMB_EDIT_H
+#include <stddef.h>
 #include <stdint.h>
 
+// A password login over NTLMSSP: SMB 3 only, with signing and encryption required.
+struct tm_smb_login {
+    const char *server;
+    // "name", "DOMAIN\\name", "DOMAIN;name" or "name@domain".
+    const char *account;
+    // UTF-8 without a terminator. Copied only for libsmb2, which zeroes its copies after connect.
+    const uint8_t *password;
+    size_t password_length;
+};
+
 void *tm_edit_connect(const char *server, const char *share, const char *account, int *error);
+// On failure, *status is the server's NTSTATUS for the refused step, or 0 if none arrived.
+void *tm_edit_connect_password(const struct tm_smb_login *login, const char *share, int *error,
+                               uint32_t *status);
 void tm_edit_disconnect(void *opaque);
 // Zero means the preceding operation had no failure with a decoded server reply.
 // Copy immediately: the next operation clears this, including successful cleanup closes.
@@ -27,4 +41,14 @@ int tm_edit_write(void *opaque, uint8_t *file, uint64_t offset, const uint8_t *b
 int tm_edit_rename(void *opaque, uint8_t *file, const char *destination);
 int tm_edit_delete(void *opaque, uint8_t *file);
 int tm_edit_flush(void *opaque, uint8_t *file);
+
+typedef int (*tm_smb_folder_callback)(void *context, uint64_t file_id, uint64_t birth_us);
+struct tm_smb_folder_trace;
+// tm_smb_create_folder and tm_smb_name_folder on this connection; paths are share-relative.
+int tm_edit_create_folder(void *opaque, const char *path, uint64_t expected_id, uint64_t expected_birth,
+                          tm_smb_folder_callback receipt, void *context, int *create_sent,
+                          struct tm_smb_folder_trace *trace);
+int tm_edit_name_folder(void *opaque, const char *source, const char *destination, uint64_t expected_id,
+                        uint64_t expected_birth, int recovery_only, tm_smb_folder_callback receipt,
+                        void *context, int *rename_sent);
 #endif
