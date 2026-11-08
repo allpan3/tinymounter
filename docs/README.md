@@ -28,7 +28,9 @@ it wrong.
 
 ## Results logs
 
-- [App-owned SMB password login](results/2026-11-08-password-login.md). 0.2.0 spike: libsmb2 password login without a mount, Keychain item and entitlement limits, error mapping and memory hygiene. Proposed.
+- [SMB2 CHANGE_NOTIFY through libsmb2](results/2026-11-08-smb-change-notify.md). 0.2.0 spike: coverage, latency, overflow, connection model, cancellation and timeouts on Samba; per-folder watches recommended.
+
+- [App-owned SMB password login](results/2026-11-08-password-login.md). 0.2.0 spike: libsmb2 password login without a mount, Keychain item and entitlement limits, error mapping and memory hygiene. File-based keychain accepted.
 
 - [One add flow and a simpler Servers pane](results/2026-11-07-servers-redesign.md). Shares added only in locations, retained access, Forget and the first-time flow.
 

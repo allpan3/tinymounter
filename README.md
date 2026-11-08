@@ -10,10 +10,16 @@ TinyMounter consistently. Required VM checks pass: 523 tests, one optional skip,
 warnings. QSpace Pro still lists the hidden support mount; 0.2.0 plans to remove it. See the
 [setup redesign checks](docs/results/2026-11-07-servers-redesign.md).
 
+SMB change notifications for 0.2.0, 2026-11-08: a VM spike on Samba 4.19 shows that libsmb2 can
+watch folders without the hidden mount, with replies 1–5 ms after a change. A tree watch misses
+content edits in subfolders, so the proposal keeps one watch per M15 folder on a dedicated
+connection, with 60 s listings as the fallback. Not implemented; NAS behaviour is unverified.
+See the [CHANGE_NOTIFY results](docs/results/2026-11-08-smb-change-notify.md).
+
 0.2.0 password login spike, 2026-11-08: libsmb2 logs in with the account and password, with no
 mount, over sealed SMB 3.1.1. A sandboxed probe stores the password in its own Keychain item.
 The data protection keychain needs a provisioning profile, so the proposal uses the file-based
-keychain for now; this awaits the user's decision. See the [spike results](docs/results/2026-11-08-password-login.md).
+keychain for now; the user accepted this on 2026-11-08. See the [spike results](docs/results/2026-11-08-password-login.md).
 
 Native SMB mode, 2026-11-07: Add now offers a normal Finder server volume. Each share uses
 one mode; remove its existing locations before switching. Signed VM checks pass for native
