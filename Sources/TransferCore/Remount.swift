@@ -48,14 +48,15 @@ public struct RemountPolicy: Sendable {
         return true
     }
 
-    public mutating func finished(status: Int32, now: Duration) -> Outcome {
+    /// `failure` is nil for a mount, as `failure(status:)` gives it.
+    public mutating func finished(_ failure: SourceFailure?, now: Duration) -> Outcome {
         mounting = false
-        switch status {
-        case 0, EEXIST:
+        switch failure {
+        case nil:
             delay = .zero
             notBefore = .zero
             return .mounted
-        case _ where Self.isNetworkFailure(status):
+        case .serverUnreachable?, .notConnected?, .localNetworkDenied?:
             delay = delay == .zero ? Self.firstDelay : min(delay * 2, Self.longestDelay)
             notBefore = now + delay
             return .retry(after: delay)
@@ -68,8 +69,27 @@ public struct RemountPolicy: Sendable {
     /// NetFS's status when the server doesn't answer its server-info request, as when it pauses.
     public static let serverInfoFailed: Int32 = -1
 
+    /// NetFS statuses from NetFS.h and NetAuthErrors.h.
+    public static let passwordNeedsChange: Int32 = -5045
+    public static let accountRestricted: Int32 = -5999
+    public static let noSharesAvailable: Int32 = -5998
+    public static let noAuthSharesAvailable: Int32 = -6003
+
+    /// What a NetFS mount status means; nil when the share is mounted, also by an earlier mount.
+    /// smbfs also reports a refused password as ENOENT, so the caller signs in before it mounts.
+    public static func failure(status: Int32) -> SourceFailure? {
+        switch status {
+        case 0, EEXIST: nil
+        case EAUTH, ENEEDAUTH, passwordNeedsChange: .notAuthenticated
+        case EPERM, EACCES, accountRestricted, noSharesAvailable, noAuthSharesAvailable: .noPermission
+        case ENOENT: .missing
+        case _ where isNetworkFailure(status): .serverUnreachable
+        default: .unknown(domain: "NetFS", code: Int(status))
+        }
+    }
+
     /// A mount status that can change when the server or the network does.
-    public static func isNetworkFailure(_ status: Int32) -> Bool {
+    private static func isNetworkFailure(_ status: Int32) -> Bool {
         [serverInfoFailed, ETIMEDOUT, EHOSTUNREACH, ENETUNREACH, EHOSTDOWN, ENETDOWN, ECONNREFUSED, ECONNRESET,
          ECONNABORTED, ENOTCONN, EADDRNOTAVAIL, EAGAIN, EINTR].contains(status)
     }

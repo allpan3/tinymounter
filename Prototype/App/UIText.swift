@@ -360,8 +360,12 @@ enum UIText {
     static let wrongFolderPath = "This folder path is not correct. Type a path in the share."
     static let wrongName = "This name is not correct. Type a different name."
     static let wrongAddress = "This address is not correct. Type an address such as smb://server/share."
-    static func passwordNotAccepted(_ host: String) -> String {
-        "\(host) did not accept the password. Type the password again."
+    static func shareNotOnServer(_ share: String, host: String) -> String { "The share “\(share)” is not on \(host)." }
+    static func noShareAccess(_ share: String, host: String) -> String {
+        "\(host) does not give this account access to the share “\(share)”."
+    }
+    static func cannotMount(_ share: String, code: Int) -> String {
+        "TinyMounter cannot connect to the share “\(share)” (error \(code))."
     }
     static let tooManyItems = "This folder has more than 100,000 items. TinyMounter cannot show it."
     static let cannotShow = "Finder cannot show this location."

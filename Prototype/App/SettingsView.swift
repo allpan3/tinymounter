@@ -197,6 +197,8 @@ private struct LocationPane: View {
                         Button(UIText.showInFinder) { model.showInFinder(volume.id) }
                         if model.mountedVolumes.contains(share.id) {
                             Button(UIText.disconnect) { model.disconnect(share) }
+                        } else if model.needsSignIn(share.serverID) {
+                            Button(UIText.signInAgain) { model.signInAgain(serverID: share.serverID) }
                         } else {
                             Button(UIText.connect) { model.connect(share) }
                         }

@@ -6,26 +6,35 @@ import Network
 import OSLog
 
 /// The mount table, NetFS mount, remount and eject handling, for Server Volume mode only.
-/// macOS mounts the share and signs in with its own Keychain item; the status is mounted or not.
+/// NetFS signs in with the server's saved name and password; the status is mounted or not.
 final class ServerVolumeMount: @unchecked Sendable {
     let shareID: UUID
     private let address: ShareAddress
+    private let client: any RemoteClient
+    private let signIn: ServerSignIn
     private let onChange: @Sendable (Bool) -> Void
+    private let onRemountRefused: @Sendable () -> Void
     private let monitor = DispatchQueue(label: "dev.tinymounter.prototype.volume-monitor", qos: .utility)
+    // A mount blocks until NetFS answers, so it never runs on the monitor.
+    private let mounter = DispatchQueue(label: "dev.tinymounter.prototype.volume-mount", qos: .userInitiated)
     private let poll: DispatchSourceTimer
     private let lock = NSLock()
     private var mounted = false
     private var remount = RemountPolicy()
-    private var mountRequest: AsyncRequestID?
     private let network = NWPathMonitor()
     private var observers: [NotificationCenter.ObservationToken] = []
     private static let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "share")
 
     /// `onChange` gets the mounted state after each change, on the monitor queue.
-    init(shareID: UUID, address: ShareAddress, onChange: @escaping @Sendable (Bool) -> Void) {
+    /// `onRemountRefused` follows a mount again that the server refused the saved password for.
+    init(shareID: UUID, address: ShareAddress, client: any RemoteClient, signIn: ServerSignIn,
+         onChange: @escaping @Sendable (Bool) -> Void, onRemountRefused: @escaping @Sendable () -> Void) {
         self.shareID = shareID
         self.address = address
+        self.client = client
+        self.signIn = signIn
         self.onChange = onChange
+        self.onRemountRefused = onRemountRefused
         poll = DispatchSource.makeTimerSource(queue: monitor)
         poll.schedule(deadline: .now(), repeating: .seconds(10), leeway: .seconds(1))
         poll.setEventHandler { [weak self] in self?.checkMountTable() }
@@ -49,7 +58,6 @@ final class ServerVolumeMount: @unchecked Sendable {
     deinit {
         poll.cancel()
         network.cancel()
-        if let mountRequest { NetFSMountURLCancel(mountRequest) }
         for token in observers { NSWorkspace.shared.notificationCenter.removeObserver(token) }
     }
 
@@ -67,20 +75,16 @@ final class ServerVolumeMount: @unchecked Sendable {
 
     func checkNow() { monitor.async { [self] in checkMountTable() } }
 
-    /// Add, Connect and Show in Finder: a visible mount, with macOS's own sign-in if it needs one.
-    func mount() async -> Int32 {
-        guard let url = mountURL else { return EINVAL }
-        let started = ContinuousClock.now
-        let status = await withCheckedContinuation { continuation in
-            Self.mount(url, showsUI: true, queue: .global(qos: .userInitiated)) { continuation.resume(returning: $0) }
+    /// Sign In Again… saved a new password: a wanted share that is not ejected mounts again now.
+    func credentialsChanged() { conditionsChanged() }
+
+    /// Add, Connect and Show in Finder: a visible mount. Nil once the share is mounted.
+    func mount() async -> SourceFailure? {
+        let failure = await withCheckedContinuation { continuation in
+            mounter.async { [self] in continuation.resume(returning: mountSignedIn(reason: "user")) }
         }
-        let ms = started.duration(to: .now) / .milliseconds(1)
-        Self.logger.info("""
-            share=\(self.shareID.uuidString, privacy: .public) volume_mount status=\(status) \
-            ms=\(ms, format: .fixed(precision: 1))
-            """)
         checkNow()
-        return status
+        return failure
     }
 
     /// Ejects every mount of this share.
@@ -108,6 +112,7 @@ final class ServerVolumeMount: @unchecked Sendable {
         checkNow()
     }
 
+    /// The URL names the account but never the password, which NetFS gets on its own.
     private var mountURL: URL? {
         var components = URLComponents()
         components.scheme = "smb"
@@ -115,6 +120,36 @@ final class ServerVolumeMount: @unchecked Sendable {
         components.host = address.host
         components.path = "/" + address.share
         return components.url
+    }
+
+    /// One NetFS mount with the server's saved password, on the mounter queue. A refused password
+    /// refuses the server, so no other mount or session of the server signs in until it changes.
+    /// smbfs reports a refused password as a missing share (ENOENT), so a session through the
+    /// protocol's client signs in first: a refusal then reaches the server once, and is named.
+    private func mountSignedIn(reason: String) -> SourceFailure? {
+        guard let url = mountURL else { return .pathRejected }
+        let started = ContinuousClock.now
+        var status: Int32?
+        let failure: SourceFailure?
+        do {
+            try signIn.signIn { password in
+                _ = try client.openSession(address, password: password, folder: .root, progress: Progress())
+                let result = Self.mount(url, user: address.account, password: password)
+                status = result
+                if let failure = RemountPolicy.failure(status: result) { throw failure }
+            }
+            failure = nil
+        } catch {
+            failure = SourceFailure.classify(error, context: .listing)
+        }
+        let ms = started.duration(to: .now) / .milliseconds(1)
+        // No status: NetFS did not run, because the sign-in failed or was refused earlier.
+        Self.logger.info("""
+            share=\(self.shareID.uuidString, privacy: .public) volume_mount reason=\(reason, privacy: .public) \
+            status=\(status.map { "\($0)" } ?? "none", privacy: .public) \
+            \(failure.map(logFields) ?? "ok=1", privacy: .public) ms=\(ms, format: .fixed(precision: 1))
+            """)
+        return failure
     }
 
     private func isThisShare(_ mount: MountEntry) -> Bool {
@@ -148,33 +183,25 @@ final class ServerVolumeMount: @unchecked Sendable {
         if !listed { mountAgain() }
     }
 
-    /// Phase 3 plan §1: macOS mounts the share with its Keychain password and shows no dialog.
+    /// Phase 3 plan §1: the share mounts again with the saved password and shows no dialog.
     private func mountAgain() {
-        guard lock.withLock({ remount.startMount(now: Self.uptime()) }), let url = mountURL else { return }
-        let started = ContinuousClock.now
-        Self.logger.info("share=\(self.shareID.uuidString, privacy: .public) remount_started")
-        let request = Self.mount(url, showsUI: false, queue: monitor) { [weak self] status in
-            self?.mountFinished(status: status, started: started)
+        guard lock.withLock({ remount.startMount(now: Self.uptime()) }) else { return }
+        mounter.async { [self] in
+            let failure = mountSignedIn(reason: "remount")
+            monitor.async { [self] in mountFinished(failure) }
         }
-        if let request { lock.withLock { mountRequest = request } }
     }
 
-    private func mountFinished(status: Int32, started: ContinuousClock.Instant) {
-        let outcome = lock.withLock {
-            mountRequest = nil
-            return remount.finished(status: status, now: Self.uptime())
-        }
+    private func mountFinished(_ failure: SourceFailure?) {
+        let outcome = lock.withLock { remount.finished(failure, now: Self.uptime()) }
         let next = switch outcome {
         case .mounted: "mounted"
         case .retry(let delay): "retry_s=\(delay.components.seconds)"
         case .stopped: "stopped"
         }
-        let ms = started.duration(to: .now) / .milliseconds(1)
-        Self.logger.info("""
-            share=\(self.shareID.uuidString, privacy: .public) remount_finished status=\(status) \
-            ms=\(ms, format: .fixed(precision: 1)) \(next, privacy: .public)
-            """)
+        Self.logger.info("share=\(self.shareID.uuidString, privacy: .public) remount_finished \(next, privacy: .public)")
         if outcome == .mounted { checkMountTable() }
+        if failure == .notAuthenticated { onRemountRefused() }
     }
 
     /// Wake or a network change: the next mount try runs at once.
@@ -185,23 +212,24 @@ final class ServerVolumeMount: @unchecked Sendable {
         }
     }
 
-    @discardableResult
-    private static func mount(_ url: URL, showsUI: Bool, queue: DispatchQueue,
-                              done: @escaping @Sendable (Int32) -> Void) -> AsyncRequestID? {
+    /// NetFS takes the password only as a CFString: this copy lives until the call returns.
+    /// No dialog, so a refusal comes back as a status instead of a macOS sign-in window.
+    private static func mount(_ url: URL, user: String, password: Data) -> Int32 {
+        let secret = password.withUnsafeBytes { bytes in
+            CFStringCreateWithBytes(nil, bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count,
+                                    CFStringBuiltInEncodings.UTF8.rawValue, false)
+        }
+        guard let secret else { return EINVAL }
         let openOptions = NSMutableDictionary()
-        if !showsUI { openOptions["UIOption"] = "NoUI" }
+        openOptions["UIOption"] = "NoUI"
         // A Server Volume shows in Finder's sidebar, as Connect to Server mounts it.
         let mountOptions = NSMutableDictionary()
         mountOptions[kNetFSMountFlagsKey] = 0
-        var request: AsyncRequestID?
-        let status = NetFSMountURLAsync(url as CFURL, nil, nil, nil, openOptions, mountOptions, &request, queue) {
-            status, _, _ in done(status)
-        }
-        guard status == 0 else {
-            queue.async { done(status) }
-            return nil
-        }
-        return request
+        var mountpoints: Unmanaged<CFArray>?
+        let status = NetFSMountURLSync(url as CFURL, nil, user as CFString, secret, openOptions, mountOptions,
+                                       &mountpoints)
+        mountpoints?.release()
+        return status
     }
 
     private static func uptime() -> Duration { .nanoseconds(DispatchTime.now().uptimeNanoseconds) }

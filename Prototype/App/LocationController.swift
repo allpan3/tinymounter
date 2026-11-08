@@ -35,6 +35,8 @@ final class LocationController {
     var onShareState: ((UUID, ConnectionState, ConnectionState) -> Void)?
     /// A fetch that a user waits for failed on its share: the share and the failure.
     var onUserFetchFailed: ((UUID, SourceFailure) -> Void)?
+    /// A Server Volume's share did not mount again: the server refused the saved password.
+    var onVolumeSignInRefused: ((UUID) -> Void)?
     /// Saved Keep Downloaded paths became kept files: the record and the item IDs.
     var onKeepsRestored: ((LocationRecord, [String]) -> Void)?
     /// A location's kept files or root state changed: its domain ID.
@@ -158,6 +160,9 @@ final class LocationController {
     /// The share's state; not connected until its first session starts.
     func shareState(_ shareID: UUID) -> ConnectionState { shareStates[shareID] ?? .notConnected }
 
+    /// Servers that refused the saved password, or have none, for a location or a Server Volume.
+    var refusedServers: Set<UUID> { Set(signIns.filter { $0.value.isRefused }.keys) }
+
     /// Nil for a record without an open catalog: "catalog unavailable" (plan §7).
     func isRootMissing(_ record: LocationRecord) -> Bool? { sources[record.domainID]?.isRootMissing }
 
@@ -264,6 +269,8 @@ final class LocationController {
         signIns[serverID]?.credentialsChanged()
         let ids = Set(store.settings?.shares.filter { $0.serverID == serverID }.map(\.id) ?? [])
         for (id, connection) in connections where ids.contains(id) { connection.credentialsChanged() }
+        for (id, volume) in volumes where ids.contains(id) { volume.credentialsChanged() }
+        onChange?()
     }
 
     func removeServer(_ id: UUID) async throws {
@@ -298,10 +305,13 @@ final class LocationController {
     /// Connect in a location: the next connection attempt starts now.
     func connect(_ shareID: UUID) { connection(for: shareID)?.connect() }
 
-    /// Server Volume: a visible mount through macOS, with its own sign-in. Returns the NetFS status.
-    func mountVolume(_ shareID: UUID) async -> Int32 {
-        guard let volume = volume(for: shareID) else { return EINVAL }
-        return await volume.mount()
+    /// Server Volume: a visible mount through macOS with the server's saved password.
+    /// Nil once the share is mounted.
+    func mountVolume(_ shareID: UUID) async -> SourceFailure? {
+        guard let volume = volume(for: shareID) else { return .missing }
+        let failure = await volume.mount()
+        if failure == .notAuthenticated { onChange?() }
+        return failure
     }
 
     /// Server Volume Disconnect: an eject, after which macOS does not mount it again.
@@ -1349,10 +1359,8 @@ final class LocationController {
         if let connection = connections[shareID] { return connection }
         guard let settings = store.settings, let share = settings.shares.first(where: { $0.id == shareID }),
               let server = settings.servers.first(where: { $0.id == share.serverID }) else { return nil }
-        let signIn = signIns[server.id] ?? ServerSignIn(login: server.login, credentials: credentials)
-        signIns[server.id] = signIn
         let connection = ShareConnection(shareID: shareID, address: ShareAddress(server.login, share: share.name),
-                                         client: client, signIn: signIn, watchLimit: watchLimit,
+                                         client: client, signIn: signIn(for: server), watchLimit: watchLimit,
                                          refresh: { [weak self] domainID, folderIDs in
             Task { @MainActor in self?.noticed(domainID, folderIDs) }
         }) { [weak self] failures in
@@ -1390,16 +1398,34 @@ final class LocationController {
         }
     }
 
+    /// One sign-in per server, shared by its locations' connections and its Server Volumes.
+    private func signIn(for server: ServerRecord) -> ServerSignIn {
+        if let signIn = signIns[server.id] { return signIn }
+        let signIn = ServerSignIn(login: server.login, credentials: credentials)
+        signIns[server.id] = signIn
+        return signIn
+    }
+
     /// The Server Volume's mount; nil for a share that is not saved.
     private func volume(for shareID: UUID) -> ServerVolumeMount? {
         if let volume = volumes[shareID] { return volume }
-        guard let address = store.settings?.address(of: shareID) else { return nil }
-        let volume = ServerVolumeMount(shareID: shareID, address: address) { [weak self] mounted in
+        guard let settings = store.settings, let share = settings.shares.first(where: { $0.id == shareID }),
+              let server = settings.servers.first(where: { $0.id == share.serverID }) else { return nil }
+        let volume = ServerVolumeMount(shareID: shareID, address: ShareAddress(server.login, share: share.name),
+                                       client: client, signIn: signIn(for: server)) { [weak self] mounted in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     guard let self, self.volumes[shareID] != nil else { return }
                     if mounted { self.mountedVolumes.insert(shareID) } else { self.mountedVolumes.remove(shareID) }
                     self.onChange?()
+                }
+            }
+        } onRemountRefused: { [weak self] in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self, self.volumes[shareID] != nil else { return }
+                    self.onChange?()
+                    self.onVolumeSignInRefused?(shareID)
                 }
             }
         }

@@ -127,6 +127,8 @@ final class AppModel {
     private(set) var mountedVolumes: Set<UUID> = []
     /// Servers without a saved password; they show Sign In Again….
     private(set) var passwordMissing: Set<UUID> = []
+    /// Servers that refused the saved password since it was last saved.
+    private(set) var refusedServers: Set<UUID> = []
     @ObservationIgnored private var passwordCheck = 0
     var signIn: SignInRequest?
     var folderBrowser: FolderBrowserRequest?
@@ -167,6 +169,7 @@ final class AppModel {
         controller.onChange = { [weak self] in self?.refresh() }
         controller.onShareState = { [weak self] shareID, before, state in self?.shareChanged(shareID, before, state) }
         controller.onUserFetchFailed = { [weak self] shareID, failure in self?.downloadFailed(shareID, failure) }
+        controller.onVolumeSignInRefused = { [weak self] shareID in self?.volumeSignInRefused(shareID) }
         controller.onKeepsRestored = { [weak self] record, ids in self?.keepsRestored(record, ids) }
         controller.onLocationChange = { [weak self] domainID in self?.locationChanged(domainID) }
         controller.onMaterializedChange = { [weak self] in self?.materializedRevision += 1 }
@@ -911,9 +914,9 @@ final class AppModel {
         signIn = SignInRequest(purpose: .again(server))
     }
 
-    /// No password is saved, or the server refused it for one of its shares.
+    /// No password is saved, or the server refused it for a location or a Server Volume.
     func needsSignIn(_ serverID: UUID) -> Bool {
-        passwordMissing.contains(serverID)
+        passwordMissing.contains(serverID) || refusedServers.contains(serverID)
             || shares.contains { $0.serverID == serverID && shareStates[$0.id] == .needsSignIn }
     }
 
@@ -961,6 +964,7 @@ final class AppModel {
         }
         passwordMissing.remove(serverID)
         signIn = nil
+        notifier.signedIn(serverID)
         controller.credentialsChanged(serverID)
         guard case .add(let locationID) = request.purpose else { return nil }
         setServer(locationID, serverID)
@@ -1081,15 +1085,27 @@ final class AppModel {
     }
 
     private func mountVolume(_ shareID: UUID) async -> Bool {
-        guard !connectionBusy, let address = address(shareID) else { return false }
+        guard !connectionBusy, let share = share(shareID), let address = address(shareID) else { return false }
         connectionBusy = true
-        defer { connectionBusy = false }
-        let status = await controller.mountVolume(shareID)
-        guard status == 0 || status == EEXIST else {
-            if let message = Self.mountMessage(status, host: address.host) { show(message) }
-            return false
+        let failure = await controller.mountVolume(shareID)
+        connectionBusy = false
+        switch failure {
+        case nil: return true
+        case .notAuthenticated?: showSignInAgain(share.serverID, host: address.host)
+        case let failure?: show(Self.mountMessage(failure, host: address.host, share: share.name))
         }
-        return true
+        return false
+    }
+
+    /// The same sign-in serves the server's locations, so Sign In Again… opens from here too.
+    private func showSignInAgain(_ serverID: UUID, host: String) {
+        let alert = NSAlert()
+        alert.messageText = UIText.signInAgainMessage(host)
+        alert.addButton(withTitle: UIText.signInAgain)
+        alert.addButton(withTitle: UIText.cancel)
+        Task {
+            if await present(alert) == .alertFirstButtonReturn { signInAgain(serverID: serverID) }
+        }
     }
 
     /// Disconnect for a Server Volume: an eject, so macOS does not mount it again.
@@ -1259,6 +1275,7 @@ final class AppModel {
         update(\.notOnServer, controller.notOnServer)
         update(\.shareStates, Dictionary(uniqueKeysWithValues: shares.map { ($0.id, controller.shareState($0.id)) }))
         update(\.mountedVolumes, controller.mountedVolumes)
+        update(\.refusedServers, controller.refusedServers)
         update(\.states, Dictionary(uniqueKeysWithValues: records.map { ($0.id, computeState($0)) }))
         let ids = Set(records.map(\.id) + serverVolumes.map(\.id))
         if edits.keys.contains(where: { !ids.contains($0) }) { edits = edits.filter { ids.contains($0.key) } }
@@ -1287,6 +1304,11 @@ final class AppModel {
     private func shareChanged(_ shareID: UUID, _ before: ConnectionState, _ state: ConnectionState) {
         guard let share = share(shareID), let address = address(shareID) else { return }
         notifier.shareChanged(share, host: address.host, from: before, to: state, hasLocations: isShareUsed(shareID))
+    }
+
+    private func volumeSignInRefused(_ shareID: UUID) {
+        guard let share = share(shareID), let address = address(shareID) else { return }
+        notifier.signInRefused(share, host: address.host)
     }
 
     private func downloadFailed(_ shareID: UUID, _ failure: SourceFailure) {
@@ -1330,13 +1352,15 @@ final class AppModel {
         return alert.runModal()
     }
 
-    /// Nil when the user clicked Cancel in macOS's dialog.
-    private static func mountMessage(_ status: Int32, host: String) -> String? {
-        switch status {
-        case Int32(userCanceledErr): nil
-        case EAUTH, EACCES, EPERM: UIText.passwordNotAccepted(host)
-        case _ where RemountPolicy.isNetworkFailure(status): UIText.cannotConnect(host)
-        default: UIText.cannotDo("status=\(status)")
+    /// A Server Volume that did not mount. A refused password goes to Sign In Again… instead.
+    private static func mountMessage(_ failure: SourceFailure, host: String, share: String) -> String {
+        switch failure {
+        case .missing: UIText.shareNotOnServer(share, host: host)
+        case .noPermission: UIText.noShareAccess(share, host: host)
+        case .serverUnreachable, .notConnected: UIText.cannotConnect(host)
+        case .localNetworkDenied: UIText.localNetworkDenied
+        case .unknown(_, let code): UIText.cannotMount(share, code: code)
+        default: UIText.cannotDo(logFields(failure))
         }
     }
 
