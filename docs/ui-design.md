@@ -190,7 +190,8 @@ the first location on a server.
   deletes the saved password, then forgets the server's shares.
   Connection problems also show in the location's header, with Connect or Sign In Again….
   File Provider locations have no Disconnect: the app reconnects them automatically. Server
-  volumes keep Connect and Disconnect in their own pane.
+  volumes keep Connect and Disconnect in their own pane; Sign In Again… replaces Connect when the
+  server refuses the saved password.
   Native volumes reuse reconnect after launch, wake and network changes. An intentional eject
   holds reconnect for the current app session. Network selection policies remain future scope.
 - **About:** version, acknowledgements, and Export Diagnostics. The export does not include file
@@ -350,6 +351,20 @@ password.
 home-nas again." It shows on the server's row in Servers when no password is saved, and in a
 location's header with the status "Sign in again." when the server refuses the saved password
 (step 3).
+
+A server volume signs in with the same saved password (plan Decision 1). When the server
+refuses it, the volume shows "Not mounted" with Sign In Again… in place of Connect, and every
+location of that server shows Sign in again. Connect or Show in Finder then shows "home-nas did
+not accept the saved password. Click Sign In Again… and type the password." with Sign In Again…
+and Cancel. A refused automatic reconnect posts the server's sign-in notification. Other mount
+failures show:
+
+- "The share “Media” is not on home-nas." when the server has no such share.
+- "home-nas does not give this account access to the share “Media”." when the account can't
+  open it.
+- The connection message, "TinyMounter cannot connect to home-nas. Make sure that home-nas is
+  on. Make sure that this Mac is on the same network.", when the server doesn't answer.
+- "TinyMounter cannot connect to the share “Media” (error N)." for other NetFS statuses.
 
 The password is a generic-password item in the login keychain: service `dev.tinymounter.smb`,
 account `name@host` with the host in lowercase. Finder's own internet-password item for the
