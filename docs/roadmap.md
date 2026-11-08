@@ -28,13 +28,17 @@ hides it, but QSpace Pro lists it as a second entry; Mountain Duck and Driio sho
 locations because they mount nothing. 0.2.0 removes that mount: TinyMounter keeps the
 password in its own Keychain item, connects with its own SMB client, and discovers NAS changes
 without the mount. The share-access panel goes away. Server Volume mode keeps its mount.
-This reverses "macOS owns passwords" and needs a VM validation plan before implementation.
+This reverses "macOS owns passwords". On 2026-11-08 the user accepted the
+[connection layer plan](connection-layer-plan.md): a password typed once and kept in the login
+keychain, no guest login, Start Fresh instead of a settings conversion, one change-notification
+watch per discovery folder, an in-app folder browser, and a protocol-neutral layer with SMB as its
+only implementation. The menu bar activity panel moves to 0.3.0.
 
 ### One add flow and a simpler Servers pane, accepted 2026-11-07
 
 Shares are added only in a location; Servers lists the saved shares and forgets unused ones.
-See the [results](results/2026-11-07-servers-redesign.md). It is installed on the physical Mac
-as a test build, not as a release.
+See the [results](results/2026-11-07-servers-redesign.md). Released as 0.1.2 and installed on
+the physical Mac.
 
 ### Native server volumes, accepted 2026-11-07
 

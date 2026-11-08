@@ -1,12 +1,16 @@
 # Connection layer for 0.2.0
 
-Date: 2026-11-08. Decision status: the goal is accepted (see the
-[roadmap](roadmap.md#app-owned-smb-login-for-file-provider-locations-planned-for-020)); the
-interfaces, settings shape, UI copy and step split below are proposed.
+Date: 2026-11-08. Decision status: accepted by the user on 2026-11-08, with the
+[decisions](#decisions) below and the results of the
+[password login](results/2026-11-08-password-login.md) and
+[change notification](results/2026-11-08-smb-change-notify.md) spikes. UI copy is proposed for
+[ui-design.md](ui-design.md) review. See the
+[roadmap](roadmap.md#app-owned-smb-login-for-file-provider-locations-planned-for-020).
 
 File Provider locations stop using the hidden macOS SMB mount. TinyMounter signs in with a
 password that it keeps in its own Keychain item, opens its own SMB sessions for every operation,
-and discovers NAS changes with SMB2 `CHANGE_NOTIFY` plus the existing periodic relisting. One
+and discovers NAS changes with SMB2 `CHANGE_NOTIFY`, one watch per discovery folder, plus the
+existing periodic relisting. One
 protocol-neutral layer, declared in
 [`RemoteConnection.swift`](../Sources/TransferCore/RemoteConnection.swift), carries sign-in,
 connection state, listing, reading, the existing write seams and change watching. SMB is its only
@@ -24,9 +28,9 @@ second protocol could implement it, but nothing here is built for that protocol.
 | Login | `SMBRename.c` reuses the mount's cached NTLM credential (`gss_iter_creds_f`); guest has a separate path | `RemoteClient.openSession(_:password:…)` with the password from `CredentialStore`; guest is removed |
 | Proof that the share is present | `ShareSession` holds an `O_EVTONLY` root descriptor; `MountIdentity.requireMounted` checks it between steps | The SMB session itself. Proofs that need a stable location folder compare its `RemoteFileIdentity` (`directoryIdentity`) instead of a mount identity and inode |
 | Share access grant | `NSOpenPanel` → `ServerGrant` bookmark, resolved per session; a second write bookmark per location | Nothing. Read only is a plain setting; the account's server permissions apply |
-| Change discovery | Up to 64 kqueue vnode watches on mounted folders (`DirectoryWatch`) | One `watchTree` per location folder; `DirectoryRefresh` relists as now |
+| Change discovery | Up to 64 kqueue vnode watches on mounted folders (`DirectoryWatch`) | Up to 64 `CHANGE_NOTIFY` watches per share, one per discovery folder, on a dedicated connection; `DirectoryRefresh` relists as now |
 | Health and reconnect | Mount table polling, `willUnmount`/`didUnmount`, NetFS remount with backoff, `fstatat` probes | `ConnectionHealth` on the results of SMB calls; probes open a session; wake and network-path changes probe at once |
-| Folder Select… | `NSOpenPanel` inside the mount | Removed; Folder completion stays (open decision 3) |
+| Folder Select… | `NSOpenPanel` inside the mount | An in-app folder browser that lists folders over the connection (decision 3) |
 
 ## Interfaces
 
@@ -41,14 +45,15 @@ only declarations:
 - `ConnectionState`: `notConnected`, `connected`, `unresponsive`, `needsSignIn`. It replaces
   `ShareHealth.State`; `needsSignIn` replaces `needsGrant`.
 - `RemoteClient`: `shareNames(on:password:)`, `openSession(_:password:folder:progress:)`,
-  `watchTree(_:password:folder:notice:)`.
+  `openWatcher(_:password:notice:)`.
 - `RemoteSession`: `UploadRemote & FileRenameRemote & FolderMoveRemote & DeletionRemote`, plus
   listing (`directoryIdentity`, `list`, `confirmMissing`), reading (`protectAncestors`,
   `readMetadata`, `transfer`) and the writes that are not seams yet (`overwrite`,
   `createFolder`, `nameFolder`, `renameSourceEntry`, `allowPublishedReads`,
   `captureFolderMoveProofs`, `releaseDeletionTraversal`).
-- `ChangeNotice` (`changed(RelativePath)`, `lost`, `ended(SourceFailure)`) and `RemoteWatch`
-  (`cancel()`).
+- `ChangeNotice` (`changed(RelativePath)`, `lost(RelativePath)`, `ended(SourceFailure)`) and
+  `RemoteWatcher` (`watch(_ folders:)`, `cancel()`). A watcher is one connection that holds one
+  watch per folder in the set it was last given; paths start at the share root.
 
 Errors stay `SourceFailure`. A refused account or password is `notAuthenticated`; an unknown
 share is `missing`; a share the account may not open is `noPermission`. No new error type is
@@ -78,11 +83,11 @@ final class ShareConnection: @unchecked Sendable {
     func connect()
     /// Sign In Again… saved a new password: needsSignIn ends and a session starts.
     func credentialsChanged()
-    func watchTree(folder: RelativePath, notice: @escaping @Sendable (ChangeNotice) -> Void)
-    func stopWatching(folder: RelativePath)
+    /// Replaces the watched set (at most 64 folders); one watcher connection per share.
+    func watch(folders: Set<RelativePath>, notice: @escaping @Sendable (ChangeNotice) -> Void)
 }
 
-/// Generic-password items in the data protection keychain; app-only, not synchronized.
+/// Generic-password items in the login (file-based) keychain; app-only, not synchronized.
 struct KeychainCredentialStore: CredentialStore { … }
 
 /// libsmb2 with a password. SMBEdit conforms to RemoteSession.
@@ -105,10 +110,21 @@ Rules the implementation must keep:
 - The password stays in memory only inside `ShareConnection`, read from the store at the first
   session and again after `credentialsChanged()`. It never reaches Settings.json, logs, process
   arguments, URLs or XPC. Logs name servers and shares by record ID only.
-- The Keychain item: `kSecClassGenericPassword`, service `dev.tinymounter.<protocol>`, account
-  `<account>@<host>` with the host lowercased, `kSecUseDataProtectionKeychain`, accessible after
-  first unlock, not synchronizable. The extension never reads it, so it needs no shared access
-  group. It can't match Finder's internet-password item for the same server.
+- The Keychain item: `kSecClassGenericPassword` in the login (file-based) keychain, service
+  `dev.tinymounter.<protocol>`, account `<account>@<host>` with the host lowercased, not
+  synchronizable, with no new entitlement. The data protection keychain needs a provisioning
+  profile, which the Personal Team build lacks (decision 4). The extension never reads the item.
+  A generic-password item can't match Finder's internet-password item for the same server, so a
+  read never returns Finder's password and Forget never deletes it. A build signed by another
+  certificate makes macOS ask once for the login keychain password.
+- The password goes from the Keychain bytes straight to C, without a Swift `String`, and is read
+  again for each connection. The vendored `smb2_clear_password()` zeroes libsmb2's copies right
+  after connect.
+- SMB 3 only, signing and encryption required, and no guest session: the vendored libsmb2 refuses
+  a guest fallback and drops the `ntlm:<hex>` password form.
+- Only `STATUS_LOGON_FAILURE` enters `needsSignIn`. libsmb2 reports it as `-ECONNREFUSED`, so
+  classification reads `smb2_get_nterror()`. A locked or disabled account is `noPermission` and
+  also stops retries until the user acts.
 - When the network path is not satisfied, requests fail at once with `notConnected`.
 
 ## What current types become
@@ -200,7 +216,9 @@ Text is proposed for [ui-design.md](ui-design.md) review.
   Forget on a server deletes its Keychain item and its unused shares. Forget on a share ejects
   nothing for File Provider shares.
 - **Read only** off asks for nothing; Confirm Write Access and its panel go away.
-- **Folder Select…** goes away for File Provider locations; Folder completion stays.
+- **Folder Select…** opens an in-app folder browser for File Provider locations: a sheet that
+  lists the share's folders through `ShareConnection.folderNames`, one level at a time, with
+  Choose and Cancel. Folder completion stays.
 - **Notification**: one per server on entering `needsSignIn`: "TinyMounter cannot sign in to
   <host>." / "Open TinyMounter Settings and click Sign In Again…."
 
@@ -209,7 +227,7 @@ Text is proposed for [ui-design.md](ui-design.md) review.
 - `ShareSession`, File Provider use of `MountEntry`, bookmark resolution and refresh,
   `ShareAccess.makeGrant`, `connectedShares` for locations, the `willUnmount`/`didUnmount`
   handling for locations.
-- `DirectoryWatch.swift` and the 64-watch limit.
+- `DirectoryWatch.swift`. The 64-watch limit per share stays, now for `CHANGE_NOTIFY` watches.
 - `cached_principal`, `credential`, the guest branch and `-framework GSS` if nothing else uses it.
 - `AppModel.writeGrant`, `selectShare`, `chooseConnectedShare`, `acquireShare`'s mount and the
   hidden-mount cleanup; `selectFolder` for File Provider drafts.
@@ -230,10 +248,10 @@ sequential plan (login, then notifications, then health) so that agents own sepa
 
 | Step | Owns | Depends on |
 | --- | --- | --- |
-| 1. Sign-in and credentials | New `Prototype/App/KeychainCredentials.swift`, `Prototype/App/SignInSheet.swift`; `SettingsView.swift`; `UIText.swift`; the Servers section of `AppModel.swift`; `ServerRecord` in `LocationSettings.swift`; `SettingsTests.swift`; `ui-design.md` | 0; merges after 2 |
+| 1. Sign-in and credentials | New `Prototype/App/KeychainCredentials.swift`, `Prototype/App/SignInSheet.swift`, `Prototype/App/FolderBrowser.swift` (takes a `folderNames` closure; step 3 supplies the connection); `SettingsView.swift`; `UIText.swift`; the Servers section of `AppModel.swift`; `ServerRecord` in `LocationSettings.swift`; `SettingsTests.swift`; `ui-design.md` | 0; merges after 2 |
 | 2. SMB client | `Prototype/SMB/SMBRename.c`, `SMBEdit.c`, both headers; `Prototype/App/SMBEdit.swift`; new `Prototype/App/SMBClient.swift`; a `Tools/` check against the built library | 0 |
 | 3. Connection layer and mount removal | `ShareAccess.swift` split into `ShareConnection.swift`, `LocationSource.swift`, `ServerVolumeMount.swift`; `ShareHealth.swift` → `ConnectionHealth.swift`; `ShareMount.swift`; `DirectoryListing.swift`; the rest of `LocationSettings.swift`; every `Location*.swift`; `LocationController.swift` except discovery; `AppModel.swift` location actions; `Notifier.swift`; `App.entitlements`; their tests; `architecture.md`, `prototype.md` | 1, 2 |
-| 4. Change watching | New `Prototype/SMB/SMBNotify.c` and header, `Prototype/App/SMBWatch.swift`, `Prototype/App/LocationChangeWatch.swift`; `DirectoryWatch.swift` deletion; discovery in `LocationController.swift`; a path-to-folder lookup in `Catalog.swift`; `DirectoryRefresh.swift`; results log and README status | 0 for the C and watch code; 3 for wiring |
+| 4. Change watching | New `Prototype/SMB/SMBNotify.c` and header (one connection and thread per share, non-tree watches, filter `0xF5F`, 64 KiB buffer, request timeout cleared, re-arm in the completion, asynchronous echo every 60 s, handle close to stop), `Prototype/App/SMBWatch.swift`, `Prototype/App/LocationChangeWatch.swift`; `DirectoryWatch.swift` deletion; discovery in `LocationController.swift`; a path-to-folder lookup in `Catalog.swift`; `DirectoryRefresh.swift`; results log and README status | 0 for the C and watch code; 3 for wiring |
 
 Each step that adds files runs `python3 Tools/generate-project.py` and commits the project with
 them; the first step that uses `RemoteConnection.swift` adds it to `app_paths`. After step 3,
@@ -286,52 +304,42 @@ app, against the disposable fixture:
 
 In the signed VM app, with changes made on the fixture by another client:
 
-1. A new, changed, renamed and deleted file three folders below a kept folder appears in Finder
-   within 3 s, against up to 60 s without notices.
+1. A new, changed, renamed and deleted file in an open discovery folder, including one three
+   folders below the location folder, appears in Finder within 3 s, against up to 60 s without
+   notices. A content edit in a folder that is not watched is found by the 60 s relisting.
 2. With `change notify = no` on the fixture, the 60 s relisting still finds each change.
 3. After a fixture SMB restart, `ended` is followed by a new watch once the share reconnects.
-4. Each location holds one watch connection (`lsof -i :445` in the VM).
+4. Each share holds one watch connection and at most 64 watches (`lsof -i :445` in the VM).
+   `STATUS_NOTIFY_ENUM_DIR` relists that folder; any other completion that the app did not cause
+   reconnects with backoff and relists every watched folder.
 5. The app's own uploads cause at most one listing per folder per 2 s (`DirectoryRefresh`).
 
-## Questions for the spikes
+## Spike answers
 
-The password and Keychain spike must confirm:
+- **Login** ([results](results/2026-11-08-password-login.md)): libsmb2's own NTLMSSP signs in
+  with the password and seals SMB 3.1.1 with no mount and no GSS cache, so `-framework GSS` can
+  go. Wrong password: `STATUS_LOGON_FAILURE`; locked account: `STATUS_ACCOUNT_LOCKED_OUT`. Account
+  forms and share enumeration (`IPC$` filtering) are step 2 checks.
+- **Change notifications** ([results](results/2026-11-08-smb-change-notify.md)): a tree watch
+  misses content writes below the watched folder, so step 4 uses one non-tree watch per discovery
+  folder. A pending notify does not block other requests on its connection; 64 and 1,024 watches
+  per connection worked, 4,000 exhausted the fixture's notify process. `STATUS_NOTIFY_ENUM_DIR`
+  means "relist this folder". libsmb2's request timeout must be cleared on notify requests, and
+  its synchronous `smb2_echo()` is broken. Name form in notices (NFC or NFD) is a step 4 check.
 
-1. Data-protection keychain items work in the sandboxed, Personal Team–signed app without a
-   `keychain-access-groups` entitlement, with no prompt, and survive relaunch and reinstall.
-2. libsmb2 signs in with a password through its own NTLMSSP code or through GSS with the
-   password, and still negotiates signing and encryption. `-framework GSS` can then go.
-3. Which errno and NTSTATUS libsmb2 returns for a wrong password, a locked or expired account, an
-   unknown share and a denied share, so each maps to the `SourceFailure` above. A wrong password
-   must never classify as `serverUnreachable`.
-4. Accepted account forms: `name`, `DOMAIN\name` and `name@domain`.
-5. Share enumeration (`smb2_share_enum_async`, srvsvc) works on Samba 4.17, and how to recognize
-   special shares.
+## Decisions
 
-The `CHANGE_NOTIFY` spike must confirm:
+Accepted by the user on 2026-11-08:
 
-6. A watch-tree request on a location folder delivers changes from deep folders on Samba 4.17, and
-   what it costs the server on a large share. If it doesn't, step 4 uses per-folder watches on the
-   discovery folders, and `watchTree` changes before step 4 starts.
-7. How a pending request is serviced with libsmb2's synchronous loop: one thread and one
-   connection per watch, or a shared event loop.
-8. How a lost connection is detected while a request is pending (echo, TCP keepalive), and
-   whether the watch survives idle periods and sleep.
-9. How `STATUS_NOTIFY_ENUM_DIR` and buffer overflow are reported, so they become `lost`.
-10. Name form in notices (NFC or NFD) and how they match catalog names; see
-    [Name spelling over SMB](prototype.md#name-spelling-over-smb).
-
-## Open decisions for the user
-
-1. **Server Volume sign-in.** NetFS can take the saved name and password, so one sign-in serves
-   both modes. Without it, macOS may ask again for a server volume. Recommended: pass them, as a
-   separate small change after step 3.
-2. **Server Volume grant.** Without the bookmark the app can't probe a mounted volume, so a server
-   volume shows only mounted or not mounted, with no unresponsive state. Recommended: accept this;
-   Finder reports a stalled volume itself. The alternative keeps the grant panel for server
-   volumes only.
-3. **Folder Select….** Recommended: remove it and keep completion for 0.2.0. An in-app folder
-   browser that uses `folderNames` can follow if it is missed.
+1. **Server Volume sign-in.** NetFS gets the saved name and password, so one sign-in serves both
+   modes. A separate small change after step 3.
+2. **Server Volume status.** Without the grant, a server volume shows only mounted or not
+   mounted, with no unresponsive state. Finder reports a stalled volume itself.
+3. **Folder Select….** An in-app folder browser replaces the panel (step 1 builds it, step 3
+   connects it).
+4. **Keychain.** The login keychain until a paid membership provides a profile.
+5. **Real NAS.** A read-only watch check on the user's NAS after 0.2.0 runs in the VM, with the
+   user making the changes from another device. Not a prerequisite for the build.
 
 ## Appendix: current mount dependencies
 
