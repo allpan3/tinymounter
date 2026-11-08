@@ -20,8 +20,16 @@ Local changes:
   credential handles and reports numeric errors. It uses GSS.framework without deprecated
   Kerberos cache APIs or password acquisition.
 - User selection does not load NTLM_USER_FILE. Password files are not part of the app's login.
-- An explicit guest session disables signing after the server identifies it as guest. An
-  authenticated GSS connection refuses an unexpected guest fallback.
+- An explicit guest session (user `guest`) disables signing after the server identifies it as
+  guest. Every other login refuses a guest session: GSS with `EACCES`, NTLMSSP as
+  `STATUS_LOGON_FAILURE`, so a server that maps an unknown account to guest can't turn a
+  refused login into a guest session.
+- `smb2_clear_password()` zeroes and frees the stored password; `smb2_set_password()` and
+  `smb2_destroy_context()` call it. The NTLMSSP context zeroes its password copy, the UTF-16
+  password, the NT and NTLMv2 hashes, the response and key-exchange keys and the exported
+  session key before it frees or leaves them. `smb2_secure_zero()` does the zeroing.
+- A password of the form `ntlm:<32 hex digits>` is an ordinary password. Upstream treated it as
+  an NT hash, so an account with such a password could not sign in.
 - Challenges, salts, client GUIDs and encryption nonces use macOS's arc4random_buf.
 - A SET_INFO rename converts `/` to `\` in the new name. Upstream 6.3 converted the request's
   fixed part instead, where a FileId word of 0x002f became 0x005c.

@@ -366,7 +366,7 @@ void smb2_destroy_context(struct smb2_context *smb2)
         free(discard_const(smb2->user));
         free(discard_const(smb2->server));
         free(discard_const(smb2->share));
-        free(discard_const(smb2->password));
+        smb2_clear_password(smb2);
         free(discard_const(smb2->domain));
         free(discard_const(smb2->workstation));
         free(smb2->enc);
@@ -625,12 +625,28 @@ const char *smb2_get_user(struct smb2_context *smb2)
         return NULL;
 }
 
-void smb2_set_password(struct smb2_context *smb2, const char *password)
+void smb2_secure_zero(void *buffer, size_t length)
+{
+        volatile unsigned char *bytes = buffer;
+
+        while (bytes && length--) {
+                *bytes++ = 0;
+        }
+}
+
+void smb2_clear_password(struct smb2_context *smb2)
 {
         if (smb2->password) {
+                smb2_secure_zero(discard_const(smb2->password),
+                                 strlen(smb2->password));
                 free(discard_const(smb2->password));
                 smb2->password = NULL;
         }
+}
+
+void smb2_set_password(struct smb2_context *smb2, const char *password)
+{
+        smb2_clear_password(smb2);
         if (password == NULL) {
                 return;
         }
