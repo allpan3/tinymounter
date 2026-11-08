@@ -28,6 +28,8 @@ it wrong.
 
 ## Results logs
 
+- [App-owned SMB password login](results/2026-11-08-password-login.md). 0.2.0 spike: libsmb2 password login without a mount, Keychain item and entitlement limits, error mapping and memory hygiene. Proposed.
+
 - [One add flow and a simpler Servers pane](results/2026-11-07-servers-redesign.md). Shares added only in locations, retained access, Forget and the first-time flow.
 
 - [Native SMB server volumes](results/2026-11-07-native-server-volumes.md). One mode per share, native Finder operations, safe removal and reconnect.
