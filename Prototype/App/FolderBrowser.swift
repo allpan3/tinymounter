@@ -6,8 +6,13 @@ struct FolderBrowserRequest: Identifiable {
     let entryID: UUID
     let share: String
     let start: RelativePath
-    /// The names of the subfolders of a folder in the share.
+    /// The names of the subfolders of a folder in the share; a failure carries its message.
     let folderNames: (RelativePath) async throws -> [String]
+}
+
+/// Why the browser cannot show a folder, in words for the user.
+struct FolderBrowserError: Error {
+    let message: String
 }
 
 /// Connection-layer plan decision 3: lists a share's folders one level at a time, in the app.
@@ -20,7 +25,7 @@ struct FolderBrowser: View {
     @State private var names: [String] = []
     @State private var selection: String?
     @State private var loading = true
-    @State private var failed = false
+    @State private var failure: String?
 
     init(request: FolderBrowserRequest, choose: @escaping (RelativePath) -> Void, cancel: @escaping () -> Void) {
         self.request = request
@@ -49,8 +54,8 @@ struct FolderBrowser: View {
             .overlay {
                 if loading {
                     ProgressView()
-                } else if failed {
-                    Text(UIText.cannotListFolders).foregroundStyle(.secondary)
+                } else if let failure {
+                    Text(failure).foregroundStyle(.secondary).multilineTextAlignment(.center).padding()
                 } else if names.isEmpty {
                     Text(UIText.noFolders).foregroundStyle(.secondary)
                 }
@@ -84,7 +89,7 @@ struct FolderBrowser: View {
 
     private func load() async {
         loading = true
-        failed = false
+        failure = nil
         names = []
         do {
             let listed = try await request.folderNames(path)
@@ -94,7 +99,7 @@ struct FolderBrowser: View {
                 .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         } catch {
             guard !Task.isCancelled else { return }
-            failed = true
+            failure = (error as? FolderBrowserError)?.message ?? UIText.cannotListFolders
         }
         loading = false
     }

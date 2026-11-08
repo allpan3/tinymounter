@@ -189,16 +189,16 @@ private struct LocationPane: View {
             Section {
                 LabeledContent(UIText.name, value: model.volumeName(volume))
                 LabeledContent(UIText.connectionMode, value: UIText.serverVolume)
-                if let grant = model.grant(volume.grantID) {
-                    LabeledContent(UIText.server, value: grant.host)
-                    LabeledContent(UIText.share, value: UIText.accountAndShare(grant.account, grant.share))
+                if let share = model.share(volume.shareID), let address = model.address(volume.shareID) {
+                    LabeledContent(UIText.server, value: address.host)
+                    LabeledContent(UIText.share, value: UIText.accountAndShare(address.account, share.name))
                     Text(model.volumeStatus(volume)).foregroundStyle(.secondary)
                     HStack {
                         Button(UIText.showInFinder) { model.showInFinder(volume.id) }
-                        switch model.shareStates[grant.id] ?? .notConnected {
-                        case .notConnected: Button(UIText.connect) { model.connect(grant) }
-                        case .connected, .unresponsive: Button(UIText.disconnect) { model.disconnect(grant) }
-                        case .needsGrant: Button(UIText.selectAgain) { model.selectAgain(grant) }
+                        if model.mountedVolumes.contains(share.id) {
+                            Button(UIText.disconnect) { model.disconnect(share) }
+                        } else {
+                            Button(UIText.connect) { model.connect(share) }
                         }
                     }
                 }
@@ -248,7 +248,7 @@ private struct LocationPane: View {
                     } else {
                         Button(UIText.showInFinder) { model.showInFinder(record.id) }.disabled(record.removing)
                     }
-                    if let grant = model.grant(record.grantID) { shareAction(model.state(record), grant) }
+                    if let share = model.share(record.shareID) { shareAction(model.state(record), share) }
                 }
             }
         }
@@ -256,11 +256,10 @@ private struct LocationPane: View {
 
     /// Connection problems are fixed in the location, not in Servers.
     @ViewBuilder
-    private func shareAction(_ state: AppModel.LocationState, _ grant: ServerGrant) -> some View {
+    private func shareAction(_ state: AppModel.LocationState, _ share: ShareRecord) -> some View {
         switch state {
-        case .needsGrant: Button(UIText.selectAgain) { model.selectAgain(grant) }
-        case .needsSignIn: Button(UIText.signInAgain) { model.signInAgain(serverID: grant.serverID) }
-        case .notConnected: Button(UIText.connect) { model.connect(grant) }
+        case .needsSignIn: Button(UIText.signInAgain) { model.signInAgain(serverID: share.serverID) }
+        case .notConnected: Button(UIText.connect) { model.connect(share) }
         default: EmptyView()
         }
     }
@@ -274,9 +273,9 @@ private struct LocationPane: View {
                 Text(UIText.addServer).tag(Optional(Self.addServerTag))
             }
             Picker(UIText.share, selection: shareBinding) {
-                if model.grantID(id) == nil { Text(UIText.noShare).tag(String?.none) }
+                if model.shareID(id) == nil { Text(UIText.noShare).tag(String?.none) }
                 ForEach(sharesOnServer, id: \.id) {
-                    Text(UIText.accountAndShare($0.account, $0.share)).tag(Optional($0.id.uuidString))
+                    Text($0.name).tag(Optional($0.id.uuidString))
                 }
                 Divider()
                 Text(UIText.addShare).tag(Optional(Self.addShareTag))
@@ -298,7 +297,7 @@ private struct LocationPane: View {
                                 try? await Task.sleep(for: Self.completionDelay)
                                 if !Task.isCancelled { await model.suggestFolders(id) }
                             }
-                        Button(UIText.select) { model.selectFolder(id) }.disabled(model.grantID(id) == nil)
+                        Button(UIText.select) { model.selectFolder(id) }.disabled(model.shareID(id) == nil)
                     }
                 }
                 TextField(UIText.name, text: binding(model.nameText, model.setName))
@@ -357,7 +356,7 @@ private struct LocationPane: View {
                 Button(UIText.cancel) { model.cancel(id) }.disabled(model.busy.contains(id))
                 Button(UIText.add) { model.add(id) }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(model.grantID(id) == nil || !model.isReady || model.busy.contains(id))
+                    .disabled(model.shareID(id) == nil || !model.isReady || model.busy.contains(id))
             }
         } else if model.hasEdit(id) {
             bar(UIText.applyBar) {
@@ -389,7 +388,7 @@ private struct LocationPane: View {
     private static let addShareTag = "\u{0}add-share"
     private static let completionDelay = Duration.milliseconds(150)
 
-    private var sharesOnServer: [ServerGrant] {
+    private var sharesOnServer: [ShareRecord] {
         model.shares.filter { $0.serverID == model.serverID(id) }
     }
 
@@ -404,11 +403,11 @@ private struct LocationPane: View {
     }
 
     private var shareBinding: Binding<String?> {
-        Binding { model.grantID(id)?.uuidString } set: { key in
+        Binding { model.shareID(id)?.uuidString } set: { key in
             if key == Self.addShareTag {
                 model.addShare(for: id)
-            } else if let key, let grantID = UUID(uuidString: key) {
-                model.setGrant(id, grantID)
+            } else if let key, let shareID = UUID(uuidString: key) {
+                model.setShare(id, shareID)
             }
         }
     }
@@ -498,7 +497,7 @@ private struct StoragePane: View {
     }
 }
 
-/// Shares that tinymounter has access to, by server. Locations add shares; this pane only
+/// Saved shares, by server. Locations add shares; this pane only
 /// shows them and forgets the ones that no location uses.
 private struct ServersPane: View {
     @Bindable var model: AppModel
@@ -518,9 +517,9 @@ private struct ServersPane: View {
             ForEach(model.servers) { server in
                 Section(UIText.serverAddress(server)) {
                     serverRow(server)
-                    let grants = model.shares.filter { $0.serverID == server.id }
-                    if grants.isEmpty { Text(UIText.noShares).foregroundStyle(.secondary) }
-                    ForEach(grants, id: \.id) { grant in shareRow(grant) }
+                    let shares = model.shares.filter { $0.serverID == server.id }
+                    if shares.isEmpty { Text(UIText.noShares).foregroundStyle(.secondary) }
+                    ForEach(shares, id: \.id) { share in shareRow(share) }
                 }
             }
         }
@@ -545,21 +544,18 @@ private struct ServersPane: View {
         }
     }
 
-    private func shareRow(_ grant: ServerGrant) -> some View {
-        let names = model.locationNames(using: grant.id)
+    private func shareRow(_ share: ShareRecord) -> some View {
+        let names = model.locationNames(using: share.id)
         return HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(UIText.accountAndShare(grant.account, grant.share))
+                Text(share.name)
                 Text(names.isEmpty ? UIText.notUsed : UIText.usedBy(names))
                     .font(.callout).foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.tail)
             }
             Spacer()
-            Text(model.shareStatus(grant)).foregroundStyle(.secondary)
-            if model.shareStates[grant.id] == .needsGrant {
-                Button(UIText.selectAgain) { model.selectAgain(grant) }
-            }
-            Button(UIText.forget) { model.forgetShare(grant) }
+            Text(model.shareStatus(share)).foregroundStyle(.secondary)
+            Button(UIText.forget) { model.forgetShare(share) }
                 .disabled(!names.isEmpty)
                 .help(names.isEmpty ? "" : UIText.forgetUsedHelp)
         }

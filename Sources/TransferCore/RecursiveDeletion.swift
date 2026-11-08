@@ -39,6 +39,24 @@ public struct DeletionCancellationState: Sendable {
     }
 }
 
+/// One catalog row's claim about the object at its share-root path; every claim must still hold.
+public struct DeletionExpectation: Sendable {
+    public let path: RelativePath
+    public let kind: CatalogRow.Kind
+    public let nativeID: UInt64
+    public let fingerprint: ContentFingerprint
+    public init(path: RelativePath, row: CatalogRow, nativeID: UInt64) throws {
+        guard !row.deleted, row.parentID != nil, nativeID != 0,
+              path.components.last.map({ $0.utf8.elementsEqual(row.name.utf8) }) == true else {
+            throw ItemDeletionError.invalidRequest
+        }
+        self.path = path
+        kind = row.kind
+        self.nativeID = nativeID
+        fingerprint = ContentFingerprint(size: row.size, mtimeNs: row.mtimeNs, ctimeNs: row.ctimeNs)
+    }
+}
+
 /// Fresh, protected evidence for one request. The catalog cannot show that a remote tree is complete,
 /// so every directory needs a complete listing and every listed entry needs its own evidence.
 public struct DeletionTraversal: Sendable {

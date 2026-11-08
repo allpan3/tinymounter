@@ -14,13 +14,13 @@ extension LocationSource {
     func edit(_ request: EditRequest, contents: URL, progress: Progress,
               started: @escaping @Sendable () -> Void,
               reply: @escaping @Sendable (Result<EditReceipt, Error>) -> Void) {
-        access.enqueue { [self] in
+        connection.enqueue { [self] in
             started()
             var phase = "catalog"
             let result = Result {
                 let (row, path, operation) = try editNamespace.perform {
                     try uploadLock.withLock {
-                        guard !mutationsSuspended, writeBookmark != nil else { throw UploadError.readOnly }
+                        guard !mutationsSuspended, writable else { throw UploadError.readOnly }
                         let (row, path) = try withCatalog { try $0.editTarget(request) }
                         guard let full = folder.appending(path) else { throw UploadError.invalidRequest }
                         try editNamespace.requireUncontested(path: full, excluding: request.id)
@@ -28,12 +28,9 @@ extension LocationSource {
                     }
                 }
                 defer { editNamespace.endRead(operation) }
-                guard let bookmark = uploadLock.withLock({ writeBookmark }) else { throw UploadError.readOnly }
-                phase = "access"
-                return try withWriteSession(bookmark, progress: progress) { session in
-                    guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
-                    phase = "connect"
-                    let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: session.root, progress: progress)
+                guard uploadLock.withLock({ writable }) else { throw UploadError.readOnly }
+                phase = "connect"
+                return try connection.withSession(folder: folder, progress: progress) { remote, _ in
                     let expected = request.failOnConflict
                         ? ContentFingerprint(size: row.size, mtimeNs: row.mtimeNs, ctimeNs: row.ctimeNs) : nil
                     phase = "overwrite"
@@ -75,12 +72,8 @@ extension LocationSource {
             return (row, path, try editNamespace.beginRead(full))
         }
         defer { editNamespace.endRead(operation) }
-        return try access.withSession { session, progressed in
-            let observation = progress.observe(\.completedUnitCount) { _, _ in progressed() }
-            defer { observation.invalidate() }
-            guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
-            let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: session.root, progress: progress)
-            defer { bytes = remote.readBytes; withExtendedLifetime(remote) {} }
+        return try connection.withSession(folder: folder, progress: progress) { remote, _ in
+            defer { bytes = remote.readBytes }
             try remote.protectAncestors(of: path.string)
             let metadata = try remote.readMetadata(path: path.string)
             let expected = ContentFingerprint(size: row.size, mtimeNs: row.mtimeNs, ctimeNs: row.ctimeNs)

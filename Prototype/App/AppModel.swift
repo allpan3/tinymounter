@@ -18,7 +18,7 @@ final class AppModel {
     struct Draft: Identifiable, Equatable {
         let id = UUID()
         var serverID: UUID?
-        var grantID: UUID?
+        var shareID: UUID?
         var folder: String
         var name: String
         var readOnly = false
@@ -31,7 +31,7 @@ final class AppModel {
 
     /// A source change that waits for Apply.
     struct SourceEdit: Equatable {
-        var grantID: UUID
+        var shareID: UUID
         var folder: String
     }
 
@@ -69,13 +69,13 @@ final class AppModel {
     }
 
     enum LocationState: Equatable {
-        case starting, removing, catalogUnavailable, turnedOff, needsGrant, needsSignIn, notConnected, unresponsive
+        case starting, removing, catalogUnavailable, turnedOff, needsSignIn, notConnected, unresponsive
         case folderMissing
         case connected(downloading: Double?)
 
         var isProblem: Bool {
             switch self {
-            case .catalogUnavailable, .turnedOff, .needsGrant, .needsSignIn, .notConnected, .unresponsive,
+            case .catalogUnavailable, .turnedOff, .needsSignIn, .notConnected, .unresponsive,
                  .folderMissing: true
             case .starting, .removing, .connected: false
             }
@@ -108,8 +108,7 @@ final class AppModel {
     @ObservationIgnored private let store: SettingsStore
     @ObservationIgnored private let notifier = Notifier()
     @ObservationIgnored private let credentials = KeychainCredentialStore()
-    /// Until SMBClient.shareNames lands, Sign In cannot ask the server and accepts every password.
-    @ObservationIgnored var listShares: ShareLister = { _, _ in [] }
+    @ObservationIgnored private let client: any RemoteClient = SMBClient()
     var selection: Pane?
     var searchText = ""
     var drafts: [Draft] = []
@@ -123,7 +122,9 @@ final class AppModel {
     private(set) var records: [LocationRecord] = []
     private(set) var serverVolumes: [ServerVolumeRecord] = []
     private(set) var servers: [ServerRecord] = []
-    private(set) var shares: [ServerGrant] = []
+    private(set) var shares: [ShareRecord] = []
+    /// The shares with a Server Volume that macOS has mounted.
+    private(set) var mountedVolumes: Set<UUID> = []
     /// Servers without a saved password; they show Sign In Again….
     private(set) var passwordMissing: Set<UUID> = []
     @ObservationIgnored private var passwordCheck = 0
@@ -131,7 +132,7 @@ final class AppModel {
     var folderBrowser: FolderBrowserRequest?
     private(set) var connectionBusy = false
     private(set) var states: [UUID: LocationState] = [:]
-    private(set) var shareStates: [UUID: ShareHealth.State] = [:]
+    private(set) var shareStates: [UUID: ConnectionState] = [:]
     private(set) var keepRows: [UUID: [KeepRow]] = [:]
     private(set) var notOnServer: [UUID: Set<KeepPath>] = [:]
     private(set) var keepRevision: [UUID: Int] = [:]
@@ -164,8 +165,8 @@ final class AppModel {
         store = SettingsStore()
         controller = LocationController(store: store)
         controller.onChange = { [weak self] in self?.refresh() }
-        controller.onShareState = { [weak self] grantID, before, state in self?.shareChanged(grantID, before, state) }
-        controller.onUserFetchFailed = { [weak self] grantID, failure in self?.downloadFailed(grantID, failure) }
+        controller.onShareState = { [weak self] shareID, before, state in self?.shareChanged(shareID, before, state) }
+        controller.onUserFetchFailed = { [weak self] shareID, failure in self?.downloadFailed(shareID, failure) }
         controller.onKeepsRestored = { [weak self] record, ids in self?.keepsRestored(record, ids) }
         controller.onLocationChange = { [weak self] domainID in self?.locationChanged(domainID) }
         controller.onMaterializedChange = { [weak self] in self?.materializedRevision += 1 }
@@ -197,7 +198,13 @@ final class AppModel {
 
     func draft(_ id: UUID) -> Draft? { drafts.first { $0.id == id } }
 
-    func grant(_ id: UUID?) -> ServerGrant? { shares.first { $0.id == id } }
+    func share(_ id: UUID?) -> ShareRecord? { shares.first { $0.id == id } }
+
+    /// The share's server sign-in and name.
+    func address(_ id: UUID?) -> ShareAddress? {
+        guard let share = share(id), let server = servers.first(where: { $0.id == share.serverID }) else { return nil }
+        return ShareAddress(server.login, share: share.name)
+    }
 
     var selectedRecord: LocationRecord? {
         guard case .location(let id) = selection else { return nil }
@@ -209,13 +216,12 @@ final class AppModel {
     func state(_ record: LocationRecord) -> LocationState { states[record.id] ?? .starting }
 
     func statusText(_ record: LocationRecord) -> String {
-        let host = grant(record.grantID)?.host ?? ""
+        let host = address(record.shareID)?.host ?? ""
         return switch state(record) {
         case .starting: UIText.notConnected
         case .removing: UIText.removalNotComplete
         case .catalogUnavailable: UIText.catalogUnavailable
         case .turnedOff: UIText.turnedOff
-        case .needsGrant: UIText.selectShareAgainShort
         case .needsSignIn: UIText.signInAgainShort
         case .notConnected: UIText.clickConnect
         case .unresponsive: UIText.cannotConnect(host)
@@ -232,7 +238,7 @@ final class AppModel {
         case .connected(nil): UIText.connected
         case .starting, .notConnected, .unresponsive: UIText.notConnected
         case .removing: UIText.removalNotComplete
-        case .catalogUnavailable, .turnedOff, .needsGrant, .needsSignIn, .folderMissing: UIText.problem
+        case .catalogUnavailable, .turnedOff, .needsSignIn, .folderMissing: UIText.problem
         }
     }
 
@@ -242,39 +248,43 @@ final class AppModel {
         case .connected(nil): "checkmark.circle"
         case .starting, .notConnected, .unresponsive: "bolt.horizontal.circle"
         case .removing: "trash.circle"
-        case .catalogUnavailable, .turnedOff, .needsGrant, .needsSignIn, .folderMissing: "exclamationmark.triangle"
+        case .catalogUnavailable, .turnedOff, .needsSignIn, .folderMissing: "exclamationmark.triangle"
         }
     }
 
     var menuImageName: String {
         let all = records.map(state)
         if all.contains(where: \.isProblem)
-            || serverVolumes.contains(where: { shareStates[$0.grantID] != .connected }) { return "MenuBarProblem" }
+            || serverVolumes.contains(where: { !mountedVolumes.contains($0.shareID) }) { return "MenuBarProblem" }
         if all.contains(where: { if case .connected(.some) = $0 { true } else { false } }) { return "MenuBarDownloading" }
         return "MenuBarDrive"
     }
 
-    func shareStatus(_ grant: ServerGrant) -> String {
-        switch shareStates[grant.id] ?? .notConnected {
+    /// A Server Volume's share is mounted or not; a location's share has its connection state.
+    func shareStatus(_ share: ShareRecord) -> String {
+        if serverVolumes.contains(where: { $0.shareID == share.id }) {
+            return mountedVolumes.contains(share.id) ? UIText.mounted : UIText.notMounted
+        }
+        return switch shareStates[share.id] ?? .notConnected {
         case .connected: UIText.connected
         case .notConnected: UIText.notConnected
         case .unresponsive: UIText.notResponding
-        case .needsGrant: UIText.selectShareAgainShort
+        case .needsSignIn: UIText.signInAgainShort
         }
     }
 
     func sourceText(_ record: LocationRecord) -> String {
-        let grant = grant(record.grantID)
-        return UIText.source(host: grant?.host ?? "", share: grant?.share ?? "", folder: record.folder)
+        UIText.source(host: address(record.shareID)?.host ?? "", share: share(record.shareID)?.name ?? "",
+                      folder: record.folder)
     }
 
     var isDownloading: Bool { !controller.downloading.isEmpty }
 
     // MARK: Source fields
 
-    func grantID(_ id: UUID) -> UUID? {
-        if let draft = draft(id) { return draft.grantID }
-        return edits[id]?.grantID ?? record(id)?.grantID ?? serverVolume(id)?.grantID
+    func shareID(_ id: UUID) -> UUID? {
+        if let draft = draft(id) { return draft.shareID }
+        return edits[id]?.shareID ?? record(id)?.shareID ?? serverVolume(id)?.shareID
     }
 
     func folderText(_ id: UUID) -> String {
@@ -288,35 +298,35 @@ final class AppModel {
     }
 
     func serverID(_ id: UUID) -> UUID? {
-        draft(id)?.serverID ?? grant(grantID(id))?.serverID
+        draft(id)?.serverID ?? share(shareID(id))?.serverID
     }
 
     func setServer(_ id: UUID, _ serverID: UUID) {
         let available = shares.first { $0.serverID == serverID }
         if let index = drafts.firstIndex(where: { $0.id == id }) {
             drafts[index].serverID = serverID
-            drafts[index].grantID = available?.id
+            drafts[index].shareID = available?.id
             followFolder(index)
         } else if let available {
-            setGrant(id, available.id)
+            setShare(id, available.id)
         } else {
             guard !connectionBusy else { return }
             connectionBusy = true
             Task {
                 defer { connectionBusy = false }
-                if let grantID = await acquireShare(serverID) { setGrant(id, grantID) }
+                if let shareID = await acquireShare(serverID) { setShare(id, shareID) }
             }
         }
     }
 
-    func setGrant(_ id: UUID, _ grantID: UUID) {
+    func setShare(_ id: UUID, _ shareID: UUID) {
         if let index = drafts.firstIndex(where: { $0.id == id }) {
-            drafts[index].serverID = grant(grantID)?.serverID
-            guard drafts[index].grantID != grantID else { return }
-            drafts[index].grantID = grantID
+            drafts[index].serverID = share(shareID)?.serverID
+            guard drafts[index].shareID != shareID else { return }
+            drafts[index].shareID = shareID
             followFolder(index)
         } else if let record = record(id) {
-            setEdit(record, SourceEdit(grantID: grantID, folder: folderText(id)))
+            setEdit(record, SourceEdit(shareID: shareID, folder: folderText(id)))
         }
     }
 
@@ -327,7 +337,7 @@ final class AppModel {
             drafts[index].folder = text
             followFolder(index)
         } else if let record = record(id) {
-            setEdit(record, SourceEdit(grantID: grantID(id) ?? record.grantID, folder: text))
+            setEdit(record, SourceEdit(shareID: shareID(id) ?? record.shareID, folder: text))
         }
     }
 
@@ -345,8 +355,8 @@ final class AppModel {
 
     /// Plan §8: the subfolders of the typed folder; the view calls it 150 ms after the last change.
     func suggestFolders(_ id: UUID) async {
-        guard let grantID = grantID(id) else { return update(\.folderSuggestions, []) }
-        let suggestions = await controller.folderSuggestions(grantID: grantID, typed: folderText(id))
+        guard let shareID = shareID(id) else { return update(\.folderSuggestions, []) }
+        let suggestions = await controller.folderSuggestions(shareID: shareID, typed: folderText(id))
         if !Task.isCancelled { update(\.folderSuggestions, suggestions) }
     }
 
@@ -357,25 +367,25 @@ final class AppModel {
 
     private func setEdit(_ record: LocationRecord, _ edit: SourceEdit) {
         let folder = LocationRecord.normalizedFolder(edit.folder)?.string
-        edits[record.id] = edit.grantID == record.grantID && folder == record.folder ? nil : edit
+        edits[record.id] = edit.shareID == record.shareID && folder == record.folder ? nil : edit
     }
 
     private func followFolder(_ index: Int) {
         guard !drafts[index].nameEdited else { return }
-        drafts[index].name = defaultName(grantID: drafts[index].grantID, folder: drafts[index].folder)
+        drafts[index].name = defaultName(shareID: drafts[index].shareID, folder: drafts[index].folder)
     }
 
     /// The last folder name, or the share's name for the full share.
-    private func defaultName(grantID: UUID?, folder: String) -> String {
+    private func defaultName(shareID: UUID?, folder: String) -> String {
         if let folder = LocationRecord.normalizedFolder(folder), let last = folder.components.last { return last }
-        return grant(grantID)?.share ?? ""
+        return share(shareID)?.name ?? ""
     }
 
     /// The saved paths that Add would take, below the draft's folder.
     func savedKeeps(_ draft: Draft) -> [String] {
-        guard let grant = grant(draft.grantID), let folder = LocationRecord.normalizedFolder(draft.folder),
+        guard let address = address(draft.shareID), let folder = LocationRecord.normalizedFolder(draft.folder),
               let settings = store.settings else { return [] }
-        return settings.savedKeeps(host: grant.host, share: grant.share, inside: folder)
+        return settings.savedKeeps(host: address.host, share: address.share, inside: folder)
             .map { ($0.below(folder)?.string ?? $0.path) + ($0.kind == .folder ? "/" : "") }
     }
 
@@ -383,8 +393,8 @@ final class AppModel {
 
     func newLocation() {
         let server = servers.first
-        let grant = shares.first { $0.serverID == server?.id }
-        let draft = Draft(serverID: server?.id, grantID: grant?.id, folder: "", name: grant?.share ?? "", original: nil)
+        let share = shares.first { $0.serverID == server?.id }
+        let draft = Draft(serverID: server?.id, shareID: share?.id, folder: "", name: share?.name ?? "", original: nil)
         drafts.append(draft)
         select(draft.id)
     }
@@ -393,7 +403,7 @@ final class AppModel {
     func duplicate(_ recordID: UUID) {
         guard let record = record(recordID) else { return }
         let taken = records.map(\.name) + drafts.map(\.name)
-        let draft = Draft(serverID: grant(record.grantID)?.serverID, grantID: record.grantID, folder: record.folder,
+        let draft = Draft(serverID: share(record.shareID)?.serverID, shareID: record.shareID, folder: record.folder,
                           name: LocationRecord.copyName(record.name, among: taken), readOnly: record.readOnly,
                           original: record.id)
         drafts.insert(draft, at: 0)
@@ -426,33 +436,25 @@ final class AppModel {
 
     func add(_ draftID: UUID) {
         guard !connectionBusy, let draft = draft(draftID), !busy.contains(draftID) else { return }
-        guard let grantID = draft.grantID else { return }
-        do { try store.settings?.requireMode(draft.mode, for: grantID) }
-        catch { return show(error, grantID: grantID) }
+        guard let shareID = draft.shareID else { return }
+        do { try store.settings?.requireMode(draft.mode, for: shareID) }
+        catch { return show(error, shareID: shareID) }
         if draft.mode == .serverVolume { return addServerVolume(draft) }
         guard let folder = LocationRecord.normalizedFolder(draft.folder) else { return show(UIText.wrongFolderPath) }
         let typed = draft.name.trimmingCharacters(in: .whitespaces)
-        let name = typed.isEmpty ? defaultName(grantID: grantID, folder: draft.folder) : typed
+        let name = typed.isEmpty ? defaultName(shareID: shareID, folder: draft.folder) : typed
         guard RelativePath.isValidComponent(name) else { return show(UIText.wrongName) }
         busy.insert(draftID)
         Task {
             defer { busy.remove(draftID) }
             do {
-                if controller.mountPath(grantID) == nil {
-                    guard let grant = grant(grantID), await connectShare(grant) else { return }
-                }
-                var bookmark: Data?
-                if !draft.readOnly {
-                    guard let granted = try await writeGrant(grantID: grantID) else { return }
-                    bookmark = granted
-                }
                 // The record keeps the draft's ID, and its selection, from the moment it is saved.
-                _ = try await controller.add(id: draftID, name: name, folder: folder, grantID: grantID,
-                                             after: draft.original, writeBookmark: bookmark)
+                _ = try await controller.add(id: draftID, name: name, folder: folder, shareID: shareID,
+                                             after: draft.original, readOnly: draft.readOnly)
                 notifier.requestPermission()
                 await controller.restorePendingKeeps(draftID)
             } catch {
-                show(error, grantID: grantID)
+                show(error, shareID: shareID)
             }
         }
     }
@@ -472,7 +474,7 @@ final class AppModel {
                 names[recordID] = nil
             } catch {
                 names[recordID] = nil
-                show(error, grantID: record.grantID)
+                show(error, shareID: record.shareID)
             }
         }
     }
@@ -494,21 +496,15 @@ final class AppModel {
             busy.insert(recordID)
             defer { busy.remove(recordID) }
             do {
-                var bookmark: Data?
-                if !record.readOnly {
-                    guard let granted = try await writeGrant(grantID: edit.grantID) else { return }
-                    bookmark = granted
-                }
-                _ = try await controller.apply(recordID, grantID: edit.grantID, folder: folder,
-                                               writeBookmark: bookmark)
+                _ = try await controller.apply(recordID, shareID: edit.shareID, folder: folder)
                 edits[recordID] = nil
                 await controller.restorePendingKeeps(recordID)
             } catch {
                 // A failure after the record changed leaves the domain for the next launch to add.
-                if let changed = self.record(recordID), changed.grantID == edit.grantID, changed.folder == folder.string {
+                if let changed = self.record(recordID), changed.shareID == edit.shareID, changed.folder == folder.string {
                     edits[recordID] = nil
                 }
-                show(error, grantID: edit.grantID)
+                show(error, shareID: edit.shareID)
             }
         }
     }
@@ -527,7 +523,7 @@ final class AppModel {
                 let preserved = try await controller.startFresh()
                 if !preserved.isEmpty { NSWorkspace.shared.activateFileViewerSelecting(preserved) }
             } catch {
-                show(error, grantID: nil)
+                show(error, shareID: nil)
             }
         }
     }
@@ -568,7 +564,7 @@ final class AppModel {
                     selection = entries.first.map { .location($0.id) } ?? .general
                 }
             } catch {
-                show(error, grantID: record.grantID)
+                show(error, shareID: record.shareID)
             }
         }
     }
@@ -589,39 +585,9 @@ final class AppModel {
         busy.insert(id)
         Task {
             defer { busy.remove(id) }
-            do {
-                var bookmark = record.writeBookmark
-                if !readOnly {
-                    guard let granted = try await writeGrant(grantID: record.grantID) else { return }
-                    bookmark = granted
-                }
-                try await controller.setWriteMode(id, readOnly: readOnly, bookmark: bookmark)
-            } catch { show(error, grantID: record.grantID) }
+            do { try await controller.setWriteMode(id, readOnly: readOnly) }
+            catch { show(error, shareID: record.shareID) }
         }
-    }
-
-    private func writeGrant(grantID: UUID) async throws -> Data? {
-        guard let grant = grant(grantID) else { throw UploadError.readOnly }
-        if let bookmark = store.settings?.writeBookmark(for: grantID) { return bookmark }
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.resolvesAliases = false
-        panel.message = UIText.writeGrantMessage
-        panel.prompt = UIText.confirmWriteSetup
-        panel.directoryURL = URL(filePath: controller.mountPath(grantID) ?? "/Volumes", directoryHint: .isDirectory)
-        guard await run(panel), let url = panel.url else { return nil }
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        guard let mount = try ShareAccess.connectedShares().first(where: {
-            $0.path == ShareAccess.filePath(url)
-        }), mount.identity.mountFrom == grant.mountFrom else { throw UploadError.readOnly }
-        let bookmark = try url.bookmarkData(options: [.withSecurityScope],
-                                            includingResourceValuesForKeys: nil, relativeTo: nil)
-        try controller.saveWriteGrant(bookmark, grantID: grantID)
-        return bookmark
     }
 
     func savedChangeBytes(_ record: LocationRecord) async throws -> Int64 { try await controller.savedChangeBytes(record) }
@@ -689,7 +655,7 @@ final class AppModel {
             guard await present(alert) == .alertFirstButtonReturn else { return }
             do { try await controller.stopCreate(record, template: item.id) }
             catch UploadError.unresolved { show(UIText.stopRefused) }
-            catch { show(error, grantID: record.grantID) }
+            catch { show(error, shareID: record.shareID) }
         }
     }
 
@@ -718,10 +684,10 @@ final class AppModel {
 
     func serverVolume(_ id: UUID) -> ServerVolumeRecord? { serverVolumes.first { $0.id == id } }
 
-    func volumeName(_ volume: ServerVolumeRecord) -> String { grant(volume.grantID)?.share ?? UIText.serverVolume }
+    func volumeName(_ volume: ServerVolumeRecord) -> String { share(volume.shareID)?.name ?? UIText.serverVolume }
 
     func volumeStatus(_ volume: ServerVolumeRecord) -> String {
-        grant(volume.grantID).map(shareStatus) ?? UIText.notConnected
+        mountedVolumes.contains(volume.shareID) ? UIText.mounted : UIText.notMounted
     }
 
     func setMode(_ id: UUID, _ mode: LocationMode) {
@@ -734,21 +700,23 @@ final class AppModel {
     }
 
     private func addServerVolume(_ draft: Draft) {
-        guard busy.isEmpty, let grant = grant(draft.grantID) else { return }
+        guard busy.isEmpty, let shareID = draft.shareID else { return }
         busy.insert(draft.id)
         Task {
             defer { busy.remove(draft.id) }
-            guard await connectShare(grant, native: true) else { return }
-            do { try controller.addServerVolume(id: draft.id, grantID: grant.id) }
-            catch { show(error, grantID: grant.id) }
+            guard await mountVolume(shareID) else { return }
+            do { try controller.addServerVolume(id: draft.id, shareID: shareID) }
+            catch { show(error, shareID: shareID) }
         }
     }
 
     private func showServerVolume(_ volume: ServerVolumeRecord) {
-        guard !connectionBusy, let grant = grant(volume.grantID) else { return }
+        guard !connectionBusy else { return }
         Task {
-            guard await connectShare(grant) else { return }
-            guard let path = controller.mountPath(grant.id),
+            if controller.volumePath(volume.shareID) == nil {
+                guard await mountVolume(volume.shareID) else { return }
+            }
+            guard let path = controller.volumePath(volume.shareID),
                   NSWorkspace.shared.open(URL(filePath: path, directoryHint: .isDirectory)) else {
                 return show(UIText.cannotShow)
             }
@@ -770,7 +738,7 @@ final class AppModel {
             do {
                 try await controller.removeServerVolume(volume.id)
                 selection = entries.first.map { .location($0.id) } ?? .general
-            } catch { show(error, grantID: volume.grantID) }
+            } catch { show(error, shareID: volume.shareID) }
         }
     }
 
@@ -847,7 +815,7 @@ final class AppModel {
                 case .saved(let path): try controller.discardPendingKeep(path, in: recordID)
                 }
             } catch {
-                show(error, grantID: record.grantID)
+                show(error, shareID: record.shareID)
             }
         }
     }
@@ -943,7 +911,11 @@ final class AppModel {
         signIn = SignInRequest(purpose: .again(server))
     }
 
-    func needsSignIn(_ serverID: UUID) -> Bool { passwordMissing.contains(serverID) }
+    /// No password is saved, or the server refused it for one of its shares.
+    func needsSignIn(_ serverID: UUID) -> Bool {
+        passwordMissing.contains(serverID)
+            || shares.contains { $0.serverID == serverID && shareStates[$0.id] == .needsSignIn }
+    }
 
     /// Sign In: the server checks the password first, so a refusal saves nothing.
     func completeSignIn(_ request: SignInRequest, server text: String, name: String, password: Data) async -> String? {
@@ -962,8 +934,9 @@ final class AppModel {
         }
         connectionBusy = true
         defer { connectionBusy = false }
+        let names: [String]
         do {
-            _ = try await listShares(login, password)
+            names = try await listShares(login, password)
         } catch SourceFailure.notAuthenticated {
             return UIText.signInRefused
         } catch {
@@ -988,13 +961,20 @@ final class AppModel {
         }
         passwordMissing.remove(serverID)
         signIn = nil
+        controller.credentialsChanged(serverID)
         guard case .add(let locationID) = request.purpose else { return nil }
         setServer(locationID, serverID)
-        if share != nil || grant(grantID(locationID))?.serverID != serverID,
-           let grantID = await acquireShare(serverID, share: share) {
-            setGrant(locationID, grantID)
+        if share != nil || self.share(shareID(locationID))?.serverID != serverID,
+           let shareID = await chooseShare(serverID, names: names, typed: share) {
+            setShare(locationID, shareID)
         }
         return nil
+    }
+
+    /// Signs in with the password and returns the share names, off the main actor.
+    private func listShares(_ login: ServerAccount, _ password: Data) async throws -> [String] {
+        let client = client
+        return try await Task.detached { try client.shareNames(on: login, password: password) }.value
     }
 
     private func saveServer(_ login: ServerAccount) throws -> UUID {
@@ -1037,172 +1017,102 @@ final class AppModel {
         connectionBusy = true
         Task {
             defer { connectionBusy = false }
-            if let grantID = await acquireShare(serverID) { setGrant(locationID, grantID) }
+            if let shareID = await acquireShare(serverID) { setShare(locationID, shareID) }
         }
     }
 
-    private func acquireShare(_ serverID: UUID, share: String? = nil) async -> UUID? {
+    /// Add Share…: the server's share names with the saved password; nothing is mounted.
+    private func acquireShare(_ serverID: UUID) async -> UUID? {
         guard let server = servers.first(where: { $0.id == serverID }) else { return nil }
-        guard let url = Self.mountURL(server.login, share: share) else {
-            show(UIText.addressRejected)
-            return nil
-        }
+        let credentials = credentials
+        let login = server.login
         do {
-            let before = try ShareAccess.connectedShares()
-            let compatible = before.filter { $0.address.account.caseInsensitiveCompare(server.login.account) == .orderedSame }
-            if !compatible.isEmpty {
-                switch await chooseConnectedShare(compatible, server: server) {
-                case .existing(let mount): return await selectShare(serverID: serverID, at: mount.path)
-                case .cancel: return nil
-                case .connect: break
-                }
-            }
-            let (status, paths) = await ShareAccess.mount(url)
-            guard status == 0 || status == EEXIST else {
-                if let message = Self.mountMessage(status, host: server.login.host) { show(message) }
+            guard let password = try await Task.detached(operation: { try credentials.password(for: login) }).value else {
+                passwordMissing.insert(serverID)
+                show(UIText.signInAgainMessage(login.host))
                 return nil
             }
-            let mounted = try ShareAccess.connectedShares()
-            let typed = share == nil ? nil : ServerAddress(typed: url.absoluteString)
-            let path = paths.first ?? typed.flatMap { ShareAccess.mountPath(of: $0) }
-            let grantID: UUID?
-            if let path {
-                grantID = await selectShare(serverID: serverID, at: path)
-            } else {
-                show(UIText.cannotDo("status=\(status)"))
-                grantID = nil
-            }
-            let kept = grant(grantID)?.mountFrom
-            let previous = Set(before.map(\.identity))
-            let requestedPaths = Set(paths)
-            for mount in mounted where requestedPaths.contains(mount.path)
-                && !previous.contains(mount.identity) && mount.identity.mountFrom != kept {
-                do { try await ShareAccess.unmount(mount, reason: "not_selected") }
-                catch { show(UIText.cannotDisconnect(mount.address.share)) }
-            }
-            return grantID
+            let names = try await listShares(login, password)
+            return await chooseShare(serverID, names: names, typed: nil)
+        } catch SourceFailure.notAuthenticated {
+            show(UIText.signInAgainMessage(login.host))
+            return nil
         } catch {
-            show(error, grantID: nil)
+            show(error, shareID: nil, host: login.host)
             return nil
         }
     }
 
-    /// The account is in the URL, so macOS asks for this account's password when it has none.
-    private static func mountURL(_ login: ServerAccount, share: String?) -> URL? {
-        var components = URLComponents()
-        components.scheme = "smb"
-        components.user = login.account
-        components.host = login.host
-        if let share { components.path = "/" + share }
-        return components.url
-    }
-
-    func connect(_ grant: ServerGrant) {
-        Task { _ = await connectShare(grant) }
-    }
-
-    private func connectShare(_ grant: ServerGrant, native: Bool? = nil) async -> Bool {
-        guard !connectionBusy else { return false }
-        guard let url = URL(string: "smb:" + grant.mountFrom) else {
-            show(UIText.addressRejected)
-            return false
+    /// A share named in the typed address is saved at once; otherwise the user picks one.
+    private func chooseShare(_ serverID: UUID, names: [String], typed: String?) async -> UUID? {
+        guard let server = servers.first(where: { $0.id == serverID }) else { return nil }
+        guard !names.isEmpty else {
+            show(UIText.noSharesOnServer(server.login.host))
+            return nil
         }
+        var name = typed.flatMap { typed in names.first { $0.caseInsensitiveCompare(typed) == .orderedSame } }
+        if name == nil {
+            let alert = NSAlert()
+            alert.messageText = UIText.chooseShareTitle(server.login.host)
+            alert.addButton(withTitle: UIText.addShareButton)
+            alert.addButton(withTitle: UIText.cancel)
+            let choices = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 320, height: 26))
+            let sorted = names.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+            choices.addItems(withTitles: sorted)
+            alert.accessoryView = choices
+            guard await present(alert) == .alertFirstButtonReturn else { return nil }
+            name = sorted[choices.indexOfSelectedItem]
+        }
+        guard let name else { return nil }
+        do { return try controller.saveShare(serverID: serverID, name: name) }
+        catch {
+            show(error, shareID: nil)
+            return nil
+        }
+    }
+
+    /// Connect in a location starts a connection attempt; for a Server Volume it mounts the share.
+    func connect(_ share: ShareRecord) {
+        if serverVolumes.contains(where: { $0.shareID == share.id }) {
+            Task { _ = await mountVolume(share.id) }
+        } else {
+            controller.connect(share.id)
+        }
+    }
+
+    private func mountVolume(_ shareID: UUID) async -> Bool {
+        guard !connectionBusy, let address = address(shareID) else { return false }
         connectionBusy = true
         defer { connectionBusy = false }
-        let visible = native ?? serverVolumes.contains { $0.grantID == grant.id }
-        if visible {
-            do {
-                let mounts = try ShareAccess.connectedShares().filter { $0.identity.mountFrom == grant.mountFrom }
-                if mounts.contains(where: { !$0.isHidden }) {
-                    controller.shareMounted(grant.id)
-                    return true
-                }
-                for mount in mounts where mount.isHidden {
-                    try await ShareAccess.unmount(mount, reason: "server_volume_visibility")
-                }
-            } catch {
-                controller.shareMounted(grant.id)
-                show(UIText.cannotDisconnect(grant.share))
-                return false
-            }
-        }
-        let (status, _) = await ShareAccess.mount(url, browsable: visible)
+        let status = await controller.mountVolume(shareID)
         guard status == 0 || status == EEXIST else {
-            if let message = Self.mountMessage(status, host: grant.host) { show(message) }
+            if let message = Self.mountMessage(status, host: address.host) { show(message) }
             return false
         }
-        guard let mounted = try? ShareAccess.connectedShares(),
-              mounted.contains(where: { $0.identity.mountFrom == grant.mountFrom && (!visible || !$0.isHidden) }) else {
-            show(visible ? UIText.nativeMountUnavailable : UIText.selectShareAgain)
-            return false
-        }
-        controller.shareMounted(grant.id)
         return true
     }
 
-    func disconnect(_ grant: ServerGrant) {
+    /// Disconnect for a Server Volume: an eject, so macOS does not mount it again.
+    func disconnect(_ share: ShareRecord) {
         guard !connectionBusy else { return }
-        connectionBusy = true
-        notifier.userDisconnected(grant.id)
-        Task {
-            defer { connectionBusy = false }
-            do { try await controller.disconnect(grant.id) }
-            catch {
-                notifier.disconnectFailed(grant.id)
-                show(UIText.cannotDisconnect(grant.share))
-            }
-        }
-    }
-
-    func selectAgain(_ grant: ServerGrant) {
-        guard !connectionBusy else { return }
-        let serverID = grant.serverID
         connectionBusy = true
         Task {
             defer { connectionBusy = false }
-            _ = await selectShare(serverID: serverID, again: grant)
+            do { try await controller.unmountVolume(share.id) }
+            catch { show(UIText.cannotDisconnect(share.name)) }
         }
     }
 
-    private func selectShare(serverID: UUID, again existing: ServerGrant? = nil, at path: String? = nil) async -> UUID? {
-        let panel = NSOpenPanel()
-        let directory = path ?? existing.flatMap { controller.mountPath($0.id) } ?? "/Volumes"
-        panel.directoryURL = URL(filePath: directory, directoryHint: .isDirectory)
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.resolvesAliases = false
-        panel.message = UIText.selectShareMessage
-        guard await run(panel), let url = panel.url else { return nil }
-        do {
-            let grant = try await ShareAccess.makeGrant(for: url, serverID: serverID)
-            if let existing, existing.mountFrom != grant.mountFrom {
-                show(UIText.otherShare)
-                return nil
-            }
-            if let server = servers.first(where: { $0.id == serverID }),
-               server.login.account.caseInsensitiveCompare(grant.account) != .orderedSame {
-                show(UIText.otherAccount)
-                return nil
-            }
-            return try controller.saveGrant(grant)
-        } catch {
-            show(error, grantID: nil)
-            return nil
-        }
-    }
-
-    func forgetShare(_ grant: ServerGrant) {
+    func forgetShare(_ record: ShareRecord) {
         guard !connectionBusy else { return }
-        guard !isGrantUsed(grant.id) else { return show(UIText.shareInUse) }
+        guard !isShareUsed(record.id) else { return show(UIText.shareInUse) }
         let alert = NSAlert()
-        alert.messageText = UIText.forgetShareTitle(grant.share)
+        alert.messageText = UIText.forgetShareTitle(record.name)
         alert.informativeText = UIText.forgetShareMessage
         alert.addButton(withTitle: UIText.forget)
         alert.addButton(withTitle: UIText.cancel)
-        let lastLogin = shares.contains { $0.serverID == grant.serverID && $0.id != grant.id }
-            ? nil : servers.first { $0.id == grant.serverID }?.login
+        let lastLogin = shares.contains { $0.serverID == record.serverID && $0.id != record.id }
+            ? nil : servers.first { $0.id == record.serverID }?.login
         connectionBusy = true
         Task {
             defer { connectionBusy = false }
@@ -1210,18 +1120,18 @@ final class AppModel {
             // The server goes with its last share, so its password goes first.
             if let lastLogin, !(await deletePassword(lastLogin)) { return }
             do {
-                try await controller.removeShare(grant.id)
-                let serverGone = !servers.contains { $0.id == grant.serverID }
-                for index in drafts.indices where drafts[index].grantID == grant.id
-                    || (serverGone && drafts[index].serverID == grant.serverID) {
-                    drafts[index].grantID = nil
+                try await controller.removeShare(record.id)
+                let serverGone = !servers.contains { $0.id == record.serverID }
+                for index in drafts.indices where drafts[index].shareID == record.id
+                    || (serverGone && drafts[index].serverID == record.serverID) {
+                    drafts[index].shareID = nil
                     if serverGone { drafts[index].serverID = nil }
                 }
-                edits = edits.filter { $0.value.grantID != grant.id }
+                edits = edits.filter { $0.value.shareID != record.id }
             } catch SettingsError.shareInUse {
                 show(UIText.shareInUse)
             } catch {
-                show(UIText.cannotDisconnect(grant.share))
+                show(UIText.cannotForgetShare)
             }
         }
     }
@@ -1244,7 +1154,7 @@ final class AppModel {
                 try await controller.removeServer(id)
                 for index in drafts.indices where drafts[index].serverID == id {
                     drafts[index].serverID = nil
-                    drafts[index].grantID = nil
+                    drafts[index].shareID = nil
                 }
             } catch {
                 show(UIText.cannotRemoveServer)
@@ -1253,72 +1163,29 @@ final class AppModel {
     }
 
     /// The names of the locations that use a share, for Servers.
-    func locationNames(using grantID: UUID) -> [String] {
-        records.filter { $0.grantID == grantID }.map(\.name)
-            + serverVolumes.filter { $0.grantID == grantID }.map(volumeName)
+    func locationNames(using shareID: UUID) -> [String] {
+        records.filter { $0.shareID == shareID }.map(\.name)
+            + serverVolumes.filter { $0.shareID == shareID }.map(volumeName)
     }
 
     func isServerUsed(_ id: UUID) -> Bool {
-        let grants = Set(shares.filter { $0.serverID == id }.map(\.id))
-        return records.contains { grants.contains($0.grantID) }
-            || serverVolumes.contains { grants.contains($0.grantID) }
+        let ids = Set(shares.filter { $0.serverID == id }.map(\.id))
+        return records.contains { ids.contains($0.shareID) } || serverVolumes.contains { ids.contains($0.shareID) }
     }
 
-    func isGrantUsed(_ id: UUID) -> Bool {
-        records.contains { $0.grantID == id } || serverVolumes.contains { $0.grantID == id }
+    func isShareUsed(_ id: UUID) -> Bool {
+        records.contains { $0.shareID == id } || serverVolumes.contains { $0.shareID == id }
     }
 
-    private enum ShareChoice {
-        case existing(ShareAccess.ConnectedShare), connect, cancel
-    }
-
-    private func chooseConnectedShare(_ mounts: [ShareAccess.ConnectedShare], server: ServerRecord) async -> ShareChoice {
-        let alert = NSAlert()
-        alert.messageText = UIText.chooseShareTitle(server.login.host)
-        alert.informativeText = UIText.chooseShareDescription
-        alert.addButton(withTitle: UIText.useShare)
-        alert.addButton(withTitle: UIText.connectAnotherShare)
-        alert.addButton(withTitle: UIText.cancel)
-        let choices = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 420, height: 26))
-        for mount in mounts { choices.addItem(withTitle: UIText.mountedShare(mount.address)) }
-        if let index = mounts.firstIndex(where: { $0.address.host.caseInsensitiveCompare(server.login.host) == .orderedSame }) {
-            choices.selectItem(at: index)
-        }
-        alert.accessoryView = choices
-        switch await present(alert) {
-        case .alertFirstButtonReturn:
-            let mount = mounts[choices.indexOfSelectedItem]
-            let known = Set(shares.filter { $0.serverID == server.id }.map { $0.host.lowercased() }
-                + [server.login.host.lowercased()])
-            if !known.contains(mount.address.host.lowercased()) {
-                let confirmation = NSAlert()
-                confirmation.messageText = UIText.useOtherAddressTitle
-                confirmation.informativeText = UIText.useOtherAddress(mount.address, server: server.login.host)
-                confirmation.addButton(withTitle: UIText.useShare)
-                confirmation.addButton(withTitle: UIText.cancel)
-                guard await present(confirmation) == .alertFirstButtonReturn else { return .cancel }
-            }
-            return .existing(mount)
-        case .alertSecondButtonReturn: return .connect
-        default: return .cancel
-        }
-    }
-
-    /// Select… for Folder: the in-app folder browser. It connects the share first if necessary.
+    /// Select… for Folder: the in-app folder browser, which lists the share's folders.
     func selectFolder(_ id: UUID) {
-        guard !connectionBusy, let grantID = grantID(id), let grant = grant(grantID) else { return }
-        Task {
-            if controller.mountPath(grantID) == nil {
-                guard await connectShare(grant) else { return }
-            }
-            let controller = controller
-            // Folder completion returns at most FolderCompletion.maxSuggestions names; step 3 lists all.
-            folderBrowser = FolderBrowserRequest(
-                entryID: id, share: grant.share, start: LocationRecord.normalizedFolder(folderText(id)) ?? .root
-            ) { path in
-                await controller.folderSuggestions(grantID: grantID, typed: path.isRoot ? "" : path.string + "/")
-                    .map { RelativePath($0)?.components.last ?? $0 }
-            }
+        guard !connectionBusy, let shareID = shareID(id), let share = share(shareID) else { return }
+        let controller = controller, host = address(shareID)?.host
+        folderBrowser = FolderBrowserRequest(
+            entryID: id, share: share.name, start: LocationRecord.normalizedFolder(folderText(id)) ?? .root
+        ) { path in
+            do { return try await controller.folderNames(shareID: shareID, in: path) }
+            catch { throw FolderBrowserError(message: Self.message(for: error, host: host)) }
         }
     }
 
@@ -1338,7 +1205,7 @@ final class AppModel {
             if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
         } catch {
             Self.log.error("open_at_login on=\(on) \(logFields(error), privacy: .public)")
-            show(error, grantID: nil)
+            show(error, shareID: nil)
         }
         refreshLoginStatus()
     }
@@ -1365,7 +1232,7 @@ final class AppModel {
             descriptors=\(counts.descriptors)
             rss_bytes=\(counts.residentBytes)
             shares=\(counts.shares)
-            sessions=\(counts.sessions)
+            connected=\(counts.connected)
             """
     }
 
@@ -1391,6 +1258,7 @@ final class AppModel {
         update(\.canStartFresh, controller.problem == .settingsUnreadable)
         update(\.notOnServer, controller.notOnServer)
         update(\.shareStates, Dictionary(uniqueKeysWithValues: shares.map { ($0.id, controller.shareState($0.id)) }))
+        update(\.mountedVolumes, controller.mountedVolumes)
         update(\.states, Dictionary(uniqueKeysWithValues: records.map { ($0.id, computeState($0)) }))
         let ids = Set(records.map(\.id) + serverVolumes.map(\.id))
         if edits.keys.contains(where: { !ids.contains($0) }) { edits = edits.filter { ids.contains($0.key) } }
@@ -1407,8 +1275,8 @@ final class AppModel {
         guard controller.isReady else { return .starting }
         guard let rootMissing = controller.isRootMissing(record) else { return .catalogUnavailable }
         if controller.turnedOff.contains(record.domainID) { return .turnedOff }
-        switch controller.shareState(record.grantID) {
-        case .needsGrant: return .needsGrant
+        switch controller.shareState(record.shareID) {
+        case .needsSignIn: return .needsSignIn
         case .notConnected: return .notConnected
         case .unresponsive: return .unresponsive
         case .connected: break
@@ -1416,14 +1284,14 @@ final class AppModel {
         return rootMissing ? .folderMissing : .connected(downloading: controller.downloading[record.domainID])
     }
 
-    private func shareChanged(_ grantID: UUID, _ before: ShareHealth.State, _ state: ShareHealth.State) {
-        guard let grant = grant(grantID) else { return }
-        notifier.shareChanged(grant, from: before, to: state, hasLocations: isGrantUsed(grantID))
+    private func shareChanged(_ shareID: UUID, _ before: ConnectionState, _ state: ConnectionState) {
+        guard let share = share(shareID), let address = address(shareID) else { return }
+        notifier.shareChanged(share, host: address.host, from: before, to: state, hasLocations: isShareUsed(shareID))
     }
 
-    private func downloadFailed(_ grantID: UUID, _ failure: SourceFailure) {
-        guard let grant = grant(grantID) else { return }
-        notifier.downloadFailed(grant, failure)
+    private func downloadFailed(_ shareID: UUID, _ failure: SourceFailure) {
+        guard let share = share(shareID), let address = address(shareID) else { return }
+        notifier.downloadFailed(share, host: address.host, failure)
     }
 
     // MARK: Alerts
@@ -1434,9 +1302,9 @@ final class AppModel {
         Task { _ = await present(alert) }
     }
 
-    private func show(_ error: Error, grantID: UUID?) {
+    private func show(_ error: Error, shareID: UUID?, host: String? = nil) {
         Self.log.error("action failed \(logFields(error), privacy: .public)")
-        show(Self.message(for: error, host: grant(grantID)?.host))
+        show(Self.message(for: error, host: host ?? address(shareID)?.host))
     }
 
     private func confirmPermanentDeletion(_ selection: PermanentDeletionSelection, progress: Progress) async -> Bool {
@@ -1485,16 +1353,9 @@ final class AppModel {
         if let error = error as? UploadError {
             return error == .pendingWrites ? UIText.pendingUploadHint : UIText.uploadAccessError
         }
-        if let refusal = error as? ShareGrantError {
-            return switch refusal {
-            case .notVolumeRoot: UIText.notVolumeRoot
-            case .notSMBShare: UIText.notSMBShare
-            case .addressRejected: UIText.addressRejected
-            }
-        }
         return switch error as? SourceFailure {
         case .notConnected?: UIText.connectInLocation
-        case .notAuthenticated?: UIText.selectShareAgain
+        case .notAuthenticated?: host.map(UIText.signInAgainMessage) ?? UIText.signInAgainShort
         case .serverUnreachable?: host.map(UIText.cannotConnect) ?? UIText.cannotDo(logFields(error))
         case .missing?: UIText.folderNotOnShare
         case .tooManyEntries?: UIText.tooManyItems

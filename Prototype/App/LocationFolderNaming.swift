@@ -1,32 +1,5 @@
-import Darwin
 import Foundation
 import OSLog
-
-private final class FolderReceipt {
-    let persist: (RemoteFolderIdentity) throws -> Void
-    var nativeID: UInt64?
-    var error: Error?
-    var step = "none"
-
-    init(persist: @escaping (RemoteFolderIdentity) throws -> Void) {
-        self.persist = persist
-    }
-
-    func receive(fileID: UInt64, birth: UInt64) throws {
-        step = "persist"
-        let identity = try RemoteFolderIdentity(fileID: fileID, birthMicroseconds: birth)
-        try persist(identity)
-        nativeID = fileID
-        step = "done"
-    }
-}
-
-private func receiveFolder(_ context: UnsafeMutableRawPointer?, _ fileID: UInt64, _ birth: UInt64) -> Int32 {
-    guard let context else { return EINVAL }
-    let receipt = Unmanaged<FolderReceipt>.fromOpaque(context).takeUnretainedValue()
-    do { try receipt.receive(fileID: fileID, birth: birth); return 0 }
-    catch { receipt.error = error; return EIO }
-}
 
 extension LocationSource {
     private static let namingLog = Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
@@ -34,7 +7,7 @@ extension LocationSource {
     func nameFolder(_ request: FolderNameRequest, progress: Progress,
                     started: @escaping @Sendable () -> Void,
                     reply: @escaping @Sendable (Result<CreateReceipt, Error>) -> Void) {
-        access.enqueue { [self] in
+        connection.enqueue { [self] in
             started()
             let result = Result { try editNamespace.perform {
                 try editNamespace.requireSettled()
@@ -58,7 +31,7 @@ extension LocationSource {
 
     private func nameFolderOnLane(_ request: FolderNameRequest, progress: Progress) throws -> CreateReceipt {
         try uploadLock.withLock {
-            guard !mutationsSuspended, let bookmark = writeBookmark else { throw UploadError.readOnly }
+            guard !mutationsSuspended, writable else { throw UploadError.readOnly }
             guard !progress.isCancelled else { throw TransferError.cancelled }
             let outbox = try Self.outbox(domainID: domainID)
             var record = try outbox.initialNamingRecord(item: request.item)
@@ -79,25 +52,9 @@ extension LocationSource {
                    let other = try catalog.liveChild(parent: request.parent, nameKey: NameKey(request.name)),
                    other.id != request.item { throw UploadError.collision }
             }
-            try withWriteSession(bookmark) { session in
-                let pin = openat(session.root, ".", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
-                guard pin >= 0 else { throw posixError("hold naming mount") }
-                defer { Darwin.close(pin) }
-                guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
+            try connection.withSession(folder: folder) { remote, _ in
                 try outbox.nameFolder(&record, name: request.name) { source, destination, identity, recovering in
-                    guard let from = folder.appending(source), let to = folder.appending(destination) else {
-                        throw UploadError.invalidRequest
-                    }
-                    return try folderReceipt(persist: { _ in }) { context in
-                        var sent: Int32 = 0
-                        let code = ShareAccess.withDirectSMB {
-                            tm_smb_name_folder(endpoint.host, endpoint.share, endpoint.account,
-                                               from.string, to.string, identity.fileID,
-                                               identity.birthMicroseconds, recovering ? 1 : 0,
-                                               receiveFolder, context, &sent)
-                        }
-                        guard code == 0 else { throw FolderMutationFailure(code: code, mayHaveChanged: sent != 0) }
-                    }
+                    try remote.nameFolder(from: source, to: destination, expected: identity, recoveryOnly: recovering)
                 }
             }
             if record.initialName?.state == .verified {
@@ -112,44 +69,10 @@ extension LocationSource {
         }
     }
 
-    func createFolder(_ record: inout PendingUpload, outbox: UploadOutbox, session: ShareSession,
+    func createFolder(_ record: inout PendingUpload, outbox: UploadOutbox, remote: any RemoteSession,
                       progress: Progress) throws {
-        guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
-        let requestID = record.id
         try outbox.createFolder(&record, progress: progress) { path, identity, persist in
-            guard let source = folder.appending(path) else { throw UploadError.invalidRequest }
-            return try folderReceipt(persist: persist) { context in
-                var sent: Int32 = 0
-                var trace = tm_smb_folder_trace()
-                let code = ShareAccess.withDirectSMB {
-                    tm_smb_create_folder(endpoint.host, endpoint.share, endpoint.account, source.string,
-                                         identity?.fileID ?? 0, identity?.birthMicroseconds ?? 0,
-                                         receiveFolder, context, &sent, &trace)
-                }
-                Self.logCreate(requestID, trace, Unmanaged<FolderReceipt>.fromOpaque(context).takeUnretainedValue())
-                guard code == 0 else { throw FolderMutationFailure(code: code, mayHaveChanged: sent != 0) }
-            }
-        }
-    }
-
-    private static func logCreate(_ request: UUID, _ trace: tm_smb_folder_trace, _ receipt: FolderReceipt) {
-        let stage = String(cString: tm_smb_folder_stage_name(trace.stage))
-        let status = String(format: "0x%08x", trace.status)
-        namingLog.notice("""
-            folder_create request=\(request.uuidString, privacy: .public) stage=\(stage, privacy: .public) \
-            parents=\(trace.parents) status=\(status, privacy: .public) errno=\(trace.error) \
-            sent=\(trace.sent_queued)>\(trace.sent) receipt=\(receipt.step, privacy: .public)
-            """)
-    }
-
-    private func folderReceipt(persist: (RemoteFolderIdentity) throws -> Void,
-                               operation: (UnsafeMutableRawPointer) throws -> Void) throws -> UInt64 {
-        try withoutActuallyEscaping(persist) { persist in
-            let receipt = FolderReceipt(persist: persist)
-            do { try operation(Unmanaged.passUnretained(receipt).toOpaque()) }
-            catch { throw receipt.error ?? error }
-            guard let nativeID = receipt.nativeID else { throw UploadError.unresolved }
-            return nativeID
+            try remote.createFolder(path, expected: identity, receipt: persist)
         }
     }
 }

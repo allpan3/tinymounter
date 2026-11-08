@@ -10,7 +10,7 @@ extension LocationSource {
     func moveFolder(_ request: FileRenameRequest, progress: Progress,
                     started: @escaping @Sendable () -> Void,
                     reply: @escaping @Sendable (Result<CreateReceipt, Error>) -> Void) {
-        access.enqueue { [self] in
+        connection.enqueue { [self] in
             started()
             let result = Result { try moveFolderOnLane(request, progress: progress) }
             Self.folderMoveLog.info("folder_move request=\(request.id.uuidString, privacy: .public) ok=\((try? result.get()) != nil)")
@@ -26,7 +26,7 @@ extension LocationSource {
 
     private func moveFolderOnLane(_ request: FileRenameRequest, progress: Progress) throws -> CreateReceipt {
         let replayed = try editNamespace.perform { () -> PendingFolderMove? in
-            _ = try renameAccess()
+            try renameAccess()
             return try Self.renameOutbox().replayFolder(owner: domainID, request: request)
         }
         if let replayed {
@@ -38,7 +38,7 @@ extension LocationSource {
         let reservation = UUID()
         let planned = try editNamespace.perform { () -> (RelativePath, RelativePath, [LocationSource])? in
             try editNamespace.requireSettled()
-            _ = try renameAccess()
+            try renameAccess()
             let (source, destination) = try folderMovePaths(request)
             if SMBName.same(source.string, destination.string) { return nil }
             let affected = try folderMoveSources(source: source, destination: destination)
@@ -48,19 +48,15 @@ extension LocationSource {
             return (source, destination, affected)
         }
         defer { editNamespace.release(reservation) }
-        guard case let (source, destination, affected)? = planned else { return CreateReceipt(item: request.item) }
-        try drainFolderMove(affected, paths: [source, destination])
-        let bookmark = try renameAccess()
-        let record = try withWriteSession(bookmark, progress: progress) { session in
-            var record = try withFolderMoveRemote(session: session, progress: progress) { remote in
-                var record = try admitFolderMove(request, source: source, destination: destination,
-                                                 remote: remote, session: session)
-                try publishFolderMove(&record, remote: remote)
-                return record
-            }
-            try completeFolderMove(&record, session: session, progress: progress)
+        guard case let (source, destination, _)? = planned else { return CreateReceipt(item: request.item) }
+        try editNamespace.drainReads(below: [source, destination])
+        try renameAccess()
+        var record = try withFolderMoveRemote(progress: progress) { remote in
+            var record = try admitFolderMove(request, source: source, destination: destination, remote: remote)
+            try publishFolderMove(&record, remote: remote)
             return record
         }
+        try completeFolderMove(&record, progress: progress)
         try record.requireMoved()
         return CreateReceipt(item: request.item)
     }
@@ -68,10 +64,10 @@ extension LocationSource {
     /// Resumes a durable intent; while pending it blocks new reads, watches and writes below it.
     @discardableResult
     func retryFolderMove(_ id: UUID) throws -> PendingFolderMove {
-        let (record, affected) = try editNamespace.perform { () -> (PendingFolderMove, [LocationSource]) in
+        let record = try editNamespace.perform { () -> PendingFolderMove in
             guard case .folder(let record)? = try Self.renameOutbox().intents().first(where: { $0.id == id }),
                   record.owner == domainID else { throw UploadError.unresolved }
-            return (record, try record.views.map { try editNamespace.source($0.domain) })
+            return record
         }
         guard record.isPending else {
             try record.requireMoved()
@@ -80,20 +76,18 @@ extension LocationSource {
         guard let source = RelativePath(record.source), let destination = RelativePath(record.destination) else {
             throw UploadError.unresolved
         }
-        try drainFolderMove(affected, paths: [source, destination])
-        let bookmark = try renameAccess()
+        try editNamespace.drainReads(below: [source, destination])
+        try renameAccess()
         let progress = Progress()
-        return try withWriteSession(bookmark, progress: progress) { session in
-            var current = record
-            if current.state != .verified && current.state != .recovering {
-                try withFolderMoveRemote(session: session, progress: progress) { remote in
-                    try publishFolderMove(&current, remote: remote)
-                }
+        var current = record
+        if current.state != .verified && current.state != .recovering {
+            try withFolderMoveRemote(progress: progress) { remote in
+                try publishFolderMove(&current, remote: remote)
             }
-            try completeFolderMove(&current, session: session, progress: progress)
-            try current.requireMoved()
-            return current
         }
+        try completeFolderMove(&current, progress: progress)
+        try current.requireMoved()
+        return current
     }
 
     private func folderMovePaths(_ request: FileRenameRequest) throws -> (RelativePath, RelativePath) {
@@ -145,20 +139,10 @@ extension LocationSource {
         }
     }
 
-    /// Outside the namespace lock: a transfer finishing its read can still need that lock.
-    private func drainFolderMove(_ affected: [LocationSource], paths: [RelativePath]) throws {
-        var drained: [ObjectIdentifier] = []
-        for participant in affected where !drained.contains(ObjectIdentifier(participant.access)) {
-            drained.append(ObjectIdentifier(participant.access))
-            try participant.access.drainWatches(below: paths)
-        }
-        try editNamespace.drainReads(below: paths)
-    }
-
     private func admitFolderMove(_ request: FileRenameRequest, source: RelativePath, destination: RelativePath,
-                                 remote: SMBEdit, session: ShareSession) throws -> PendingFolderMove {
+                                 remote: any RemoteSession) throws -> PendingFolderMove {
         try editNamespace.requireSettled()
-        _ = try renameAccess()
+        try renameAccess()
         let outbox = try Self.renameOutbox()
         let (current, target) = try folderMovePaths(request)
         guard current.string.utf8.elementsEqual(source.string.utf8),
@@ -170,16 +154,14 @@ extension LocationSource {
               SMBName.same(root.name, source.components.last ?? "") else { throw SourceFailure.versionChanged }
         let views = try affected.map {
             try $0.folderMoveView(request: $0 === self ? request : nil, source: source, destination: destination,
-                                  parents: parents, remote: remote, mount: session.identity,
-                                  session: $0.access === access ? session : nil)
+                                  parents: parents, remote: remote)
         }
         return try outbox.prepareFolder(owner: domainID, request: request, source: source, destination: destination,
                                         identity: root.identity, parents: parents, views: views)
     }
 
     private func folderMoveView(request: FileRenameRequest?, source: RelativePath, destination: RelativePath,
-                                parents: [FileRenameParent], remote: SMBEdit, mount: MountIdentity,
-                                session: ShareSession?) throws -> FolderMoveView {
+                                parents: [FileRenameParent], remote: any RemoteSession) throws -> FolderMoveView {
         try uploadLock.withLock {
             guard !mutationsSuspended else { throw UploadError.pendingWrites }
             let relative = RelativePath(source.components.dropFirst(folder.components.count).joined(separator: "/"))!
@@ -205,31 +187,20 @@ extension LocationSource {
                 let move = try catalog.prepareFolderMove(item: id, destinationParent: parent, destinationName: name)
                 return (move, [oldParent, parent])
             }
-            if let session {
-                try validateRenameParents(parentIDs, parents: parents, session: session)
-            } else {
-                try access.withSession { session, _ in
-                    // Native lookups run through the owner's mount, so every view must use the same one.
-                    guard session.identity == mount else { throw UploadError.readOnly }
-                    try validateRenameParents(parentIDs, parents: parents, session: session)
-                }
-            }
+            try validateRenameParents(parentIDs, parents: parents)
             let proofs = try remote.captureFolderMoveProofs(move: move, folder: folder)
             return FolderMoveView(domain: domainID, folder: folder, move: move, proofs: proofs)
         }
     }
 
-    private func withFolderMoveRemote<T>(session: ShareSession, progress: Progress,
-                                         _ operation: (SMBEdit) throws -> T) throws -> T {
+    // The session ends, releasing its SMB handles, before another namespace operation can start.
+    private func withFolderMoveRemote<T>(progress: Progress, _ operation: (any RemoteSession) throws -> T) throws -> T {
         try editNamespace.perform {
-            guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
-            let remote = try SMBEdit(endpoint: endpoint, folder: .root, root: session.root, progress: progress)
-            // Release SMB handles before another namespace operation can start.
-            return try withExtendedLifetime(remote) { try operation(remote) }
+            try connection.withSession(folder: .root, progress: progress) { remote, _ in try operation(remote) }
         }
     }
 
-    private func publishFolderMove(_ record: inout PendingFolderMove, remote: SMBEdit) throws {
+    private func publishFolderMove(_ record: inout PendingFolderMove, remote: any RemoteSession) throws {
         let outbox = try Self.renameOutbox()
         try editNamespace.requireSettled(excluding: record.id)
         let participants = try folderMoveParticipants(record)
@@ -243,8 +214,7 @@ extension LocationSource {
         try applyFolderMoveCatalogs(&record, participants: participants, outbox: outbox, remote: remote)
     }
 
-    private func completeFolderMove(_ record: inout PendingFolderMove, session: ShareSession,
-                                     progress: Progress) throws {
+    private func completeFolderMove(_ record: inout PendingFolderMove, progress: Progress) throws {
         guard record.state != .completed else { return }
         let outbox = try Self.renameOutbox()
         var current = record
@@ -252,7 +222,7 @@ extension LocationSource {
         while current.state != .completed {
             let retiredKeeps = current.rootRetired
             try waitForFolderMoveSettings(current)
-            try withFolderMoveRemote(session: session, progress: progress) { remote in
+            try withFolderMoveRemote(progress: progress) { remote in
                 try publishFolderMove(&current, remote: remote)
                 guard current.state != .completed else { return }
                 // A newly retired root needs Settings cleanup outside these locks before finishing.
@@ -297,7 +267,7 @@ extension LocationSource {
 
     private func applyFolderMoveCatalogs(_ record: inout PendingFolderMove,
                                          participants: [(FolderMoveView, LocationSource)],
-                                         outbox: FileRenameOutbox, remote: SMBEdit) throws {
+                                         outbox: FileRenameOutbox, remote: any RemoteSession) throws {
         let planned = record
         func applicable(_ state: CatalogFolderMoveState, domain: String) throws -> Bool {
             if try state == planned.latestTarget(domain: domain) { return true }
@@ -327,7 +297,7 @@ extension LocationSource {
         }
     }
 
-    // The main actor can need the namespace; wait without its lock or an SMBEdit.
+    // The main actor can need the namespace; wait without its lock or a session.
     private func waitForFolderMoveSettings(_ record: PendingFolderMove) throws {
         final class Outcome: @unchecked Sendable { var result: Result<Void, Error> = .failure(UploadError.unresolved) }
         let outcome = Outcome(), done = DispatchSemaphore(value: 0), update = renameSettings
@@ -345,7 +315,7 @@ extension LocationSource {
     }
 
     /// Fails if the SMB connection lost its handles; a later retry then reverifies all evidence.
-    private func requireFolderMoveProtection(_ record: PendingFolderMove, remote: SMBEdit) throws {
+    private func requireFolderMoveProtection(_ record: PendingFolderMove, remote: any RemoteSession) throws {
         guard [.verified, .recovering].contains(record.state),
               try remote.protectFolderMoveParents(source: record.destination, destination: record.destination)
                 == record.destinationParents else { throw UploadError.unresolved }

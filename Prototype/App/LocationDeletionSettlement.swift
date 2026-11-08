@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 
 // Keep only on the owner's lane; a restart supplies nil and obtains new observations.
@@ -7,7 +6,7 @@ struct LocationDeletionSettlementAttempt: Sendable {
     fileprivate let sources: [LocationSource]
     fileprivate var settlements: [String: CatalogDeletionSettlement] = [:]
     fileprivate var heldSince: [String: [Data: ContinuousClock.Instant]] = [:]
-    fileprivate var roots: [String: (mount: MountIdentity, inode: UInt64)] = [:]
+    fileprivate var roots: [String: RemoteFileIdentity] = [:]
 
     var isSettled: Bool {
         record.plan.views.allSatisfy {
@@ -63,18 +62,17 @@ extension LocationSource {
                     return
                 }
                 let source = pending[index]
-                try source.withDeletionSettlementRoot(current) { session, endpoint, root, inode, _ in
+                try source.withDeletionSettlementRoot(current) { _, endpoint, root, _ in
                     guard next.roots[source.domainID] != nil,
                           let previous = next.settlements[source.domainID] else {
                         throw UploadError.unresolved
                     }
-                    try source.requireDeletionSettlementRoot(next, mount: session.identity, inode: inode)
+                    try source.requireDeletionSettlementRoot(next, root: root)
                     try source.withCatalog { catalog in
                         let checked = try catalog.settleDeletion(current, endpoint: endpoint,
                             locationRoot: source.folder, previous: previous)
                         next.settlements[source.domainID] = checked
                         guard checked.isSettled else { throw UploadError.pendingWrites }
-                        try session.identity.requireMounted(root)
                         try finish(index + 1)
                     }
                 }
@@ -86,10 +84,9 @@ extension LocationSource {
     private func settleDeletionView(_ record: PendingDeletion,
                                    attempt: inout LocationDeletionSettlementAttempt) throws
         -> ContinuousClock.Instant? {
-        try withDeletionSettlementRoot(record) { session, endpoint, root, inode, progressed in
-            try requireDeletionSettlementRoot(attempt, mount: session.identity, inode: inode)
-            attempt.roots[domainID] = (session.identity, inode)
-            let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: root, progress: Progress())
+        try withDeletionSettlementRoot(record) { remote, endpoint, root, progressed in
+            try requireDeletionSettlementRoot(attempt, root: root)
+            attempt.roots[domainID] = root
             return try withCatalog { catalog in
                 let pending = try catalog.settleDeletion(record, endpoint: endpoint, locationRoot: folder,
                                                          previous: attempt.settlements[domainID])
@@ -158,27 +155,19 @@ extension LocationSource {
     }
 
     private func requireDeletionSettlementRoot(_ attempt: LocationDeletionSettlementAttempt,
-                                               mount: MountIdentity, inode: UInt64) throws {
-        if let previous = attempt.roots[domainID] {
-            guard previous.mount == mount, previous.inode == inode else { throw SourceFailure.versionChanged }
-        }
+                                               root: RemoteFileIdentity) throws {
+        if let previous = attempt.roots[domainID], previous != root { throw SourceFailure.versionChanged }
     }
 
     private func withDeletionSettlementRoot<T>(_ record: PendingDeletion,
-        _ body: (ShareSession, ShareAddress, Int32, UInt64, @escaping Progressed) throws -> T) throws -> T {
-        try access.withSession { session, progressed in
-            guard let endpoint = ShareAddress(session.identity.mountFrom), record.plan.endpoint.matches(endpoint),
-                  let view = record.plan.views.first(where: { $0.domain == domainID }),
-                  folder.string.utf8.elementsEqual(view.folder.utf8) else { throw UploadError.unresolved }
-            // Reopen the configured path; a cached location descriptor may now name a moved folder.
-            let root = try session.openFolder(folder)
-            defer { Darwin.close(root) }
-            var info = stat()
-            while fstat(root, &info) != 0 {
-                guard errno == EINTR else { throw posixError("fstat deletion root") }
-            }
-            try session.identity.requireMounted(root)
-            return try body(session, endpoint, root, UInt64(info.st_ino), progressed)
+        _ body: (any RemoteSession, ShareAddress, RemoteFileIdentity, @escaping Progressed) throws -> T) throws -> T {
+        let endpoint = connection.address
+        guard record.plan.endpoint.matches(endpoint),
+              let view = record.plan.views.first(where: { $0.domain == domainID }),
+              folder.string.utf8.elementsEqual(view.folder.utf8) else { throw UploadError.unresolved }
+        // Each session opens the configured path again, so a moved location folder shows as a new identity.
+        return try connection.withSession(folder: folder) { remote, progressed in
+            try body(remote, endpoint, remote.directoryIdentity(.root), progressed)
         }
     }
 }

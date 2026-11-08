@@ -220,7 +220,7 @@ final class FolderKeepTests: XCTestCase {
     func testTypedSavedRequestsRoundTrip() throws {
         let file = KeepPath(path: "tree/data", kind: .file)
         let folder = KeepPath(path: "tree", kind: .folder)
-        var record = LocationRecord(name: "test", grantID: UUID(), folder: .root)
+        var record = LocationRecord(name: "test", shareID: UUID(), folder: .root)
         record.pendingKeeps = [file, folder]
         let settings = AppSettings(locations: [record], savedKeeps: [.init(host: "home-nas", share: "share",
                                                                         paths: [file, folder])])

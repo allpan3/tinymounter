@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 import OSLog
 import UniformTypeIdentifiers
@@ -18,7 +17,7 @@ extension LocationSource {
 
     func permanentDeletionSelection(_ request: DeleteItemRequest) throws -> PermanentDeletionSelection {
         try editNamespace.perform {
-            _ = try renameAccess()
+            try renameAccess()
             let deletion = DeletionRequest(item: request.item, contentVersion: request.contentVersion,
                 metadataVersion: request.metadataVersion, eventVersion: request.eventVersion)
             let path = try deletionPath(deletion)
@@ -49,7 +48,7 @@ extension LocationSource {
         let reservation = UUID()
         let (path, affected) = try editNamespace.perform { () -> (RelativePath, [LocationSource]) in
             try editNamespace.requireSettled(deletionBusyError: ItemDeletionError.busy)
-            _ = try renameAccess()
+            try renameAccess()
             let path = try deletionPath(request)
             let affected = try deletionSources(path)
             for participant in affected { try participant.prepareRenameFolders(source: path, destination: path) }
@@ -58,7 +57,7 @@ extension LocationSource {
             return (path, affected)
         }
         defer { editNamespace.release(reservation) }
-        try drainDeletion(affected, path: path)
+        try editNamespace.drainReads(below: [path])
         return try editNamespace.perform {
             try admitDeletion(request, recursive: recursive, path: path, planned: affected,
                               progress: progress, admitted: admitted)
@@ -99,10 +98,7 @@ extension LocationSource {
 
     func replayedDeletion(_ request: DeletionRequest) throws -> PendingDeletion? {
         try editNamespace.perform {
-            try access.withSession { share, _ in
-                guard let endpoint = ShareAddress(share.identity.mountFrom) else { throw UploadError.readOnly }
-                return try replayedDeletion(request, endpoint: endpoint, outbox: Self.deletionOutbox())
-            }
+            try replayedDeletion(request, endpoint: connection.address, outbox: Self.deletionOutbox())
         }
     }
 
@@ -144,44 +140,35 @@ extension LocationSource {
         return affected
     }
 
-    /// Outside the namespace lock: a transfer finishing its read can still need that lock.
-    private func drainDeletion(_ affected: [LocationSource], path: RelativePath) throws {
-        var drained: [ObjectIdentifier] = []
-        for participant in affected where !drained.contains(ObjectIdentifier(participant.access)) {
-            drained.append(ObjectIdentifier(participant.access))
-            try participant.access.drainWatches(below: [path])
-        }
-        try editNamespace.drainReads(below: [path])
-    }
-
     /// Inside the namespace lock, so no listing commits between the catalog views and the plan.
     private func admitDeletion(_ request: DeletionRequest, recursive: Bool, path: RelativePath,
                                planned: [LocationSource], progress: Progress,
                                admitted: (PendingDeletion) -> Void) throws -> PendingDeletion {
-        let bookmark = try renameAccess()
-        return try withWriteSession(bookmark, progress: progress) { share in
-            guard let endpoint = ShareAddress(share.identity.mountFrom) else { throw UploadError.readOnly }
-            let outbox = try Self.deletionOutbox()
-            if let replayed = try replayedDeletion(request, endpoint: endpoint, outbox: outbox) {
-                admitted(replayed)
-                return replayed
-            }
-            try editNamespace.requireSettled(deletionBusyError: ItemDeletionError.busy)
-            guard try deletionPath(request).string.utf8.elementsEqual(path.string.utf8) else {
-                throw SourceFailure.versionChanged
-            }
-            // The drain covered these sources' watches; a reopened source may hold new ones.
-            let affected = try deletionSources(path)
-            guard affected.elementsEqual(planned, by: { $0 === $1 }) else { throw UploadError.unresolved }
-            for participant in affected { try participant.requireFolderMovePathsSettled([path]) }
-            let claims = try affected.map {
-                try $0.deletionClaims(path, request: $0 === self ? request : nil,
-                                      endpoint: endpoint, mount: share.identity)
-            }
-            let record = try Self.prepareDeletion(request, recursive: recursive, path: path, owner: domainID,
-                                                  claims: claims, protectedRoots: editNamespace.locationRoots(),
-                                                  outbox: outbox, endpoint: endpoint, root: share.root,
-                                                  progress: progress, admitted: admitted)
+        try renameAccess()
+        let endpoint = connection.address
+        let outbox = try Self.deletionOutbox()
+        if let replayed = try replayedDeletion(request, endpoint: endpoint, outbox: outbox) {
+            admitted(replayed)
+            return replayed
+        }
+        try editNamespace.requireSettled(deletionBusyError: ItemDeletionError.busy)
+        guard try deletionPath(request).string.utf8.elementsEqual(path.string.utf8) else {
+            throw SourceFailure.versionChanged
+        }
+        let affected = try deletionSources(path)
+        guard affected.elementsEqual(planned, by: { $0 === $1 }) else { throw UploadError.unresolved }
+        for participant in affected { try participant.requireFolderMovePathsSettled([path]) }
+        let claims = try affected.map { try $0.deletionClaims(path, request: $0 === self ? request : nil) }
+        // The capture checks every claimed file ID, so a replaced folder fails here.
+        return try connection.withSession(folder: .root, progress: progress) { remote, _ in
+            let traversal = try remote.captureDeletionTraversal(of: path, recursive: recursive,
+                                                                expecting: claims.flatMap { $0.expectations })
+            let record = try outbox.prepare(endpoint: endpoint, owner: domainID, request: request, traversal: traversal,
+                                            views: claims.map { $0.view }, protectedRoots: editNamespace.locationRoots(),
+                                            recursive: recursive)
+            admitted(record)
+            // A failed close leaves the plan unrun until the capture session has ended.
+            try remote.releaseDeletionTraversal()
             Self.deletionLog.info("""
                 deletion_admit id=\(record.id.uuidString, privacy: .public) nodes=\(record.plan.nodes.count) \
                 views=\(record.plan.views.count)
@@ -190,77 +177,30 @@ extension LocationSource {
         }
     }
 
-    // Returning destroys the capture client before a node can acquire the global SMB mutex.
-    private static func prepareDeletion(_ request: DeletionRequest, recursive: Bool, path: RelativePath, owner: String,
-                                        claims: [(view: DeletionView, expectations: [DeletionExpectation])],
-                                        protectedRoots: [RelativePath], outbox: DeletionOutbox,
-                                        endpoint: ShareAddress, root: Int32,
-                                        progress: Progress, admitted: (PendingDeletion) -> Void) throws -> PendingDeletion {
-        let remote = try SMBEdit(endpoint: endpoint, folder: .root, root: root, progress: progress)
-        let traversal = try remote.captureDeletionTraversal(of: path, recursive: recursive,
-                                                            expecting: claims.flatMap { $0.expectations })
-        let record = try outbox.prepare(endpoint: endpoint, owner: owner, request: request, traversal: traversal,
-                                        views: claims.map { $0.view }, protectedRoots: protectedRoots,
-                                        recursive: recursive)
-        admitted(record)
-        // A failed close leaves the plan unrun until the capture session has ended.
-        try remote.releaseDeletionTraversal()
-        return record
-    }
-
     // The upload lock keeps this view's edit receipts fixed while reading its admission evidence.
-    private func deletionClaims(_ path: RelativePath, request: DeletionRequest?,
-                                endpoint: ShareAddress, mount: MountIdentity) throws
+    private func deletionClaims(_ path: RelativePath, request: DeletionRequest?) throws
         -> (view: DeletionView, expectations: [DeletionExpectation]) {
         try uploadLock.withLock {
             guard !mutationsSuspended else { throw UploadError.pendingWrites }
-            return try withDeletionAdmissionRoot(endpoint: endpoint, mount: mount) {
-                guard let relative = RelativePath(path.components.dropFirst(folder.components.count).joined(separator: "/")),
-                      !relative.isRoot else { throw UploadError.unresolved }
-                let (rows, view) = try withCatalog { catalog -> ([DeletionRow], DeletionView) in
-                    let rows = try deletionRows(relative, catalog: catalog)
-                    if let request {
-                        guard let selected = rows.first?.row, selected.id == request.item,
-                              selected.contentVersion == request.contentVersion,
-                              selected.metadataVersion == request.metadataVersion else { throw SourceFailure.versionChanged }
-                    }
-                    let items = rows.map {
-                        DeletionViewItem(item: $0.row.id, path: $0.path, contentVersion: $0.row.contentVersion)
-                    }
-                    return (rows, try catalog.deletionView(locationRoot: folder, items: items))
+            guard let relative = RelativePath(path.components.dropFirst(folder.components.count).joined(separator: "/")),
+                  !relative.isRoot else { throw UploadError.unresolved }
+            let (rows, view) = try withCatalog { catalog -> ([DeletionRow], DeletionView) in
+                let rows = try deletionRows(relative, catalog: catalog)
+                if let request {
+                    guard let selected = rows.first?.row, selected.id == request.item,
+                          selected.contentVersion == request.contentVersion,
+                          selected.metadataVersion == request.metadataVersion else { throw SourceFailure.versionChanged }
                 }
-                let expectations = try rows.map { entry -> DeletionExpectation in
-                    guard let full = folder.appending(entry.path) else { throw UploadError.unresolved }
-                    return try DeletionExpectation(path: full, row: entry.row, nativeID: entry.nativeID)
+                let items = rows.map {
+                    DeletionViewItem(item: $0.row.id, path: $0.path, contentVersion: $0.row.contentVersion)
                 }
-                return (view, expectations)
+                return (rows, try catalog.deletionView(locationRoot: folder, items: items))
             }
-        }
-    }
-
-    private func withDeletionAdmissionRoot<T>(endpoint: ShareAddress, mount: MountIdentity,
-                                              _ body: () throws -> T) throws -> T {
-        try access.withSession { session, _ in
-            guard let actual = ShareAddress(session.identity.mountFrom),
-                  DeletionEndpoint(endpoint).matches(actual), session.identity == mount else {
-                throw UploadError.readOnly
+            let expectations = try rows.map { entry -> DeletionExpectation in
+                guard let full = folder.appending(entry.path) else { throw UploadError.unresolved }
+                return try DeletionExpectation(path: full, row: entry.row, nativeID: entry.nativeID)
             }
-            let root = try session.openFolder(folder)
-            defer { Darwin.close(root) }
-            let cached = try session.locationRoot(folder)
-            func inode(_ descriptor: Int32) throws -> UInt64 {
-                var info = stat()
-                while fstat(descriptor, &info) != 0 {
-                    guard errno == EINTR else { throw posixError("fstat deletion admission root") }
-                }
-                return UInt64(info.st_ino)
-            }
-            // A cached descriptor may still name a moved or replaced location folder.
-            guard try inode(root) == inode(cached) else { throw SourceFailure.versionChanged }
-            try session.identity.requireMounted(root)
-            let result = try body()
-            try session.identity.requireMounted(root)
-            return result
+            return (view, expectations)
         }
     }
 
@@ -300,35 +240,31 @@ extension LocationSource {
     // Durable blocking permits node sessions outside the namespace lock used by unrelated reads.
     private func runDeletion(_ record: inout PendingDeletion, progress: Progress) throws {
         let id = record.id
-        let bookmark = try editNamespace.perform { () -> Data in
+        let endpoint = connection.address
+        try editNamespace.perform {
             try editNamespace.requireSettled(excluding: id)
-            return try renameAccess()
+            try renameAccess()
+            guard record.plan.endpoint.matches(endpoint),
+                  let path = RelativePath(record.plan.selected.path),
+                  try editNamespace.source(domainID) === self else { throw UploadError.unresolved }
+            let affected = try deletionSources(path)
+            guard Set(affected.map(\.domainID)) == Set(record.plan.views.map(\.domain)) else {
+                throw UploadError.unresolved
+            }
+            for source in affected {
+                guard let view = record.plan.views.first(where: { $0.domain == source.domainID }),
+                      source.folder.string.utf8.elementsEqual(view.folder.utf8) else { throw UploadError.unresolved }
+                try source.uploadLock.withLock {
+                    guard !source.mutationsSuspended else { throw UploadError.pendingWrites }
+                    try source.withCatalog { _ in }
+                }
+            }
         }
-        try withWriteSession(bookmark, progress: progress) { share in
-            guard let endpoint = ShareAddress(share.identity.mountFrom) else { throw UploadError.readOnly }
-            try editNamespace.perform {
-                guard record.plan.endpoint.matches(endpoint),
-                      let path = RelativePath(record.plan.selected.path),
-                      try editNamespace.source(domainID) === self else { throw UploadError.unresolved }
-                let affected = try deletionSources(path)
-                guard Set(affected.map(\.domainID)) == Set(record.plan.views.map(\.domain)) else {
-                    throw UploadError.unresolved
-                }
-                for source in affected {
-                    guard let view = record.plan.views.first(where: { $0.domain == source.domainID }),
-                          source.folder.string.utf8.elementsEqual(view.folder.utf8) else { throw UploadError.unresolved }
-                    try source.uploadLock.withLock {
-                        guard !source.mutationsSuspended else { throw UploadError.pendingWrites }
-                        try source.withDeletionAdmissionRoot(endpoint: endpoint, mount: share.identity) {
-                            try source.withCatalog { _ in }
-                        }
-                    }
-                }
-            }
-            try RecursiveDeletionTransaction.run(&record, outbox: Self.deletionOutbox(), endpoint: endpoint,
-                                                 owner: domainID) { body in
-                try Self.deletionNodeSession(endpoint: endpoint, root: share.root, progress: progress, body)
-            }
+        try RecursiveDeletionTransaction.run(&record, outbox: Self.deletionOutbox(), endpoint: endpoint,
+                                             owner: domainID) { body in
+            guard !progress.isCancelled else { throw TransferError.cancelled }
+            // One session per node, ended when it returns or throws.
+            try connection.withSession(folder: .root, progress: progress) { remote, _ in try body(remote) }
         }
         let summary = record.summary, count = record.plan.nodes.count
         Self.deletionLog.info("""
@@ -336,13 +272,5 @@ extension LocationSource {
             deleted=\(summary[.deleted] ?? 0) unconfirmed=\(summary[.unconfirmed] ?? 0) \
             stopped=\(summary[.stopped] ?? 0)
             """)
-    }
-
-    /// One connection per node, ended when this returns or throws.
-    private static func deletionNodeSession(endpoint: ShareAddress, root: Int32, progress: Progress,
-                                            _ body: (DeletionRemote) throws -> Void) throws {
-        guard !progress.isCancelled else { throw TransferError.cancelled }
-        let remote = try SMBEdit(endpoint: endpoint, folder: .root, root: root, progress: progress)
-        try body(remote)
     }
 }

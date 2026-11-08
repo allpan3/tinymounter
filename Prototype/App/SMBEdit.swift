@@ -3,7 +3,7 @@ import Foundation
 import OSLog
 import UniformTypeIdentifiers
 
-/// One SMB connection, signed in with a password or with the share mount's cached credential.
+/// One SMB connection, signed in with a password. `SMBClient.openSession` opens it.
 final class SMBEdit: FileRenameRemote, UploadRemote {
     private final class Handle {
         var bytes = [UInt8](repeating: 0, count: 16)
@@ -15,14 +15,11 @@ final class SMBEdit: FileRenameRemote, UploadRemote {
     private let client: UnsafeMutableRawPointer
     private let endpoint: ShareAddress
     private let folder: RelativePath
-    /// The share mount's root for mount-credential sessions; nil for a password session.
-    private let root: Int32?
     private let progress: Progress
     private var handles: [String: Handle] = [:]
     private var directories: [String: Handle] = [:]
     private var deletionTarget: String?
     private var deletionParents: [ItemDeletionParent]?
-    private var folderMoveMount: MountIdentity?
     private var folderMoveRoots: [String: Handle] = [:]
     private var folderMoveFiles: [String: Handle] = [:]
     private var folderMoveParents: Set<String> = []
@@ -36,21 +33,7 @@ final class SMBEdit: FileRenameRemote, UploadRemote {
     private static let delete: UInt32 = 0x10000
     private static let statusKey = "tinymounter.smb.ntstatus"
 
-    init(endpoint: ShareAddress, folder: RelativePath, root: Int32, progress: Progress) throws {
-        var error: Int32 = 0
-        guard let client = ShareAccess.withDirectSMB({
-            tm_edit_connect(endpoint.host, endpoint.share, endpoint.account, &error)
-        }) else {
-            throw posixError("connect SMB", code: error)
-        }
-        self.client = client
-        self.endpoint = endpoint
-        self.folder = folder
-        self.root = root
-        self.progress = progress
-    }
-
-    /// A password session, which `SMBClient.openSession` opens. Throws `SourceFailure`.
+    /// Throws `SourceFailure`.
     init(share: ShareAddress, password: Data, folder: RelativePath, progress: Progress) throws {
         var error: Int32 = 0, status: UInt32 = 0
         guard let client = SMBClient.withLogin(host: share.host, account: share.account, password: password, {
@@ -61,7 +44,6 @@ final class SMBEdit: FileRenameRemote, UploadRemote {
         self.client = client
         endpoint = share
         self.folder = folder
-        root = nil
         self.progress = progress
     }
 
@@ -910,17 +892,9 @@ extension SMBEdit: FolderMoveRemote {
                                                   modifiedMicroseconds: values[5], changedMicroseconds: values[6]))
     }
 
-    /// A mount-credential session proves that the mount is still this share; a password
-    /// session's connection is its own proof.
+    /// The session's own connection to the share is the proof that it is still the same share.
     private func requireSameShare() throws {
         guard folder.isRoot else { throw UploadError.invalidRequest }
-        guard let root else { return }
-        if let mount = folderMoveMount { try mount.requireMounted(root); return }
-        let mount = try MountIdentity(descriptor: root)
-        guard mount.typeName == "smbfs", ShareAddress(mount.mountFrom) == endpoint else {
-            throw UploadError.invalidRequest
-        }
-        folderMoveMount = mount
     }
 
     private func folderMovePath(_ path: String) throws -> RelativePath {
@@ -1066,24 +1040,6 @@ extension SMBEdit: DeletionRemote {
         case .cannotDelete: return ItemDeletionError.cannotDelete
         default: return error
         }
-    }
-}
-
-/// One catalog row's claim about the object at its share-root path; every claim must still hold.
-struct DeletionExpectation {
-    let path: RelativePath
-    let kind: CatalogRow.Kind
-    let nativeID: UInt64
-    let fingerprint: ContentFingerprint
-    init(path: RelativePath, row: CatalogRow, nativeID: UInt64) throws {
-        guard !row.deleted, row.parentID != nil, nativeID != 0,
-              path.components.last.map({ $0.utf8.elementsEqual(row.name.utf8) }) == true else {
-            throw ItemDeletionError.invalidRequest
-        }
-        self.path = path
-        kind = row.kind
-        self.nativeID = nativeID
-        fingerprint = ContentFingerprint(size: row.size, mtimeNs: row.mtimeNs, ctimeNs: row.ctimeNs)
     }
 }
 

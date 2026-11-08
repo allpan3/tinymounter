@@ -83,15 +83,3 @@ struct SignInSheet: View {
         }
     }
 }
-
-// LocationController.saveServer has no caller since AppModel saves sign-ins. These keep it
-// compiling until step 3 of the connection-layer plan removes it.
-extension ServerRecord {
-    init(address: ServerAddress) {
-        self.init(login: ServerAccount(remoteProtocol: .smb, host: address.host, account: address.account ?? ""))
-    }
-
-    func matches(_ address: ServerAddress) -> Bool {
-        address.account.map { login.matches(ServerAccount(remoteProtocol: .smb, host: address.host, account: $0)) } ?? false
-    }
-}

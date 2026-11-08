@@ -2,10 +2,7 @@ import CryptoKit
 import Darwin
 import Foundation
 
-// Standalone harness: SMBClient and SMBEdit over password sessions, without ShareAccess.
-enum ShareAccess {
-    static func withDirectSMB<T>(_ call: () throws -> T) rethrows -> T { try call() }
-}
+// Standalone harness: SMBClient and SMBEdit over password sessions, without the app's connections.
 
 struct Failed: Error, CustomStringConvertible {
     let description: String

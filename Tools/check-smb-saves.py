@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Compare production SMB overwrites with native writes in the disposable macOS VM fixture.
 
-Compile check-smb-saves.swift with TransferCore, SMBEdit.swift and SMBRename.h, linked to the
-VM's built libTinyMounterSMB. Pass HELPER SERVER NEW_EVIDENCE_DIRECTORY. This creates a fresh
+Compile check-smb-saves.swift with TransferCore, SMBEdit.swift, SMBClient.swift and SMBRename.h,
+linked to the VM's built libTinyMounterSMB. Pass HELPER SERVER PASSWORD_FILE NEW_EVIDENCE_DIRECTORY;
+the file holds the fixture account's password, outside the repository. This creates a fresh
 simplify-20261105/saves-* subtree; it refuses existing results. Caches are warmed, residency
 unverified. Timing excludes input preparation and hashes; direct reports connection separately.
 """
@@ -17,7 +18,7 @@ import time
 
 
 def main():
-    helper, server, output = sys.argv[1:]
+    helper, server, secret, output = sys.argv[1:]
     root = Path(output).resolve()
     mount = Path('/Volumes/tinymounter-single')
     if Path.home() != Path('/Users/user') or not mount.is_mount():
@@ -40,7 +41,7 @@ def main():
                 path = target / f'{label}-{mib}-{round_number}.bin'
                 path.read_bytes()
                 if label == 'direct':
-                    process = subprocess.run([helper, server, str(mib), str(round_number), str(root)],
+                    process = subprocess.run([helper, server, secret, str(mib), str(round_number), str(root)],
                                              capture_output=True, text=True, timeout=120)
                     (root / f'{label}-{mib}-{round_number}.log').write_text(process.stdout + process.stderr)
                     process.check_returncode()

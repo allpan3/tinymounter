@@ -4,7 +4,7 @@ import Foundation
 /// Share I/O failures only: the extension maps catalog and SQLite errors itself.
 public enum SourceFailure: Error, Equatable, Sendable {
     case serverUnreachable
-    /// The mount went away. Unlike `serverUnreachable`, a probe can't recover it; a new mount can.
+    /// This Mac has no network path. Unlike `serverUnreachable`, a probe can't recover it.
     case notConnected
     case notAuthenticated
     case noPermission
@@ -19,7 +19,7 @@ public enum SourceFailure: Error, Equatable, Sendable {
     case unknown(domain: String, code: Int)
 
     public enum Context: Sendable {
-        case shareRoot, locationRoot, listing, fetch
+        case listing, fetch
     }
 
     public static func classify(errno code: Int32, context: Context) -> SourceFailure {
@@ -29,16 +29,12 @@ public enum SourceFailure: Error, Equatable, Sendable {
             return .serverUnreachable
         case EAUTH, ENEEDAUTH:
             return .notAuthenticated
-        case EPERM:
-            // Without a valid grant the sandbox returns EPERM, so at a root EPERM means the grant.
-            return context == .shareRoot || context == .locationRoot ? .notAuthenticated : .noPermission
-        case EACCES:
+        case EPERM, EACCES:
             return .noPermission
         case ELOOP, ENOTCAPABLE:
             return .pathRejected
         case ENOENT, ENOTDIR:
-            // A share root that is gone means the mount went away, not the location's files.
-            return context == .shareRoot ? .notConnected : .missing
+            return .missing
         default:
             return .unknown(domain: NSPOSIXErrorDomain, code: Int(code))
         }

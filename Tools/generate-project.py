@@ -59,10 +59,11 @@ app_paths = ["Sources/TransferCore/FileRename.swift", "Sources/TransferCore/Read
              "Prototype/App/LocationUploads.swift", "Prototype/App/LocationFolderNaming.swift",
              "Prototype/App/LocationFolderMoves.swift",
              "Prototype/App/TinyMounterApp.swift", "Prototype/App/SourceReaderHost.swift",
-             "Prototype/App/DirectoryWatch.swift", "Sources/TransferCore/DirectoryRefresh.swift",
+             "Sources/TransferCore/DirectoryRefresh.swift",
              "Sources/TransferCore/ChangeWatching.swift",
              "Prototype/App/SMBWatch.swift", "Prototype/App/LocationChangeWatch.swift",
-             "Prototype/App/SettingsStore.swift", "Prototype/App/ShareAccess.swift",
+             "Prototype/App/SettingsStore.swift", "Prototype/App/ShareConnection.swift",
+             "Prototype/App/LocationSource.swift", "Prototype/App/ServerVolumeMount.swift",
              "Prototype/App/LocationController.swift", "Prototype/App/AppModel.swift",
              "Prototype/App/PermanentDeletionConfirmation.swift",
              "Prototype/App/SettingsView.swift", "Prototype/App/MenuBar.swift", "Prototype/App/Notifier.swift",
@@ -71,7 +72,7 @@ app_paths = ["Sources/TransferCore/FileRename.swift", "Sources/TransferCore/Read
              "Sources/TransferCore/FolderCompletion.swift", "Sources/TransferCore/LaunchReconciliation.swift",
              "Sources/TransferCore/LocationSettings.swift", "Sources/TransferCore/FolderKeep.swift",
              "Sources/TransferCore/OfflineState.swift", "Sources/TransferCore/Remount.swift",
-             "Sources/TransferCore/ShareHealth.swift", "Sources/TransferCore/ShareMount.swift"]
+             "Sources/TransferCore/ConnectionHealth.swift"]
 provider_paths = ["Prototype/Provider/CatalogItem.swift", "Prototype/Provider/Enumerators.swift",
                   "Prototype/Provider/FinderDownloadProgress.swift",
                   "Prototype/Provider/FileProviderExtension.swift", "Prototype/Provider/SourceReaderService.swift",

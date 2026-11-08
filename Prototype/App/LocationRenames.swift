@@ -17,7 +17,7 @@ extension LocationSource {
     func renameFile(_ request: FileRenameRequest, progress: Progress,
                     started: @escaping @Sendable () -> Void,
                     reply: @escaping @Sendable (Result<CreateReceipt, Error>) -> Void) {
-        access.enqueue { [self] in
+        connection.enqueue { [self] in
             started()
             let finish: @Sendable (Result<CreateReceipt, Error>) -> Void = { result in
                 Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
@@ -25,7 +25,7 @@ extension LocationSource {
                 reply(result)
             }
             let result = Result { try editNamespace.perform { () -> PendingFileRename? in
-                _ = try renameAccess()
+                try renameAccess()
                 let outbox = try Self.renameOutbox()
                 if var record = try outbox.replayFile(owner: domainID, request: request) {
                     if renameCompletions[record.id] == nil {
@@ -53,7 +53,7 @@ extension LocationSource {
     private func startRename(_ request: FileRenameRequest, outbox: FileRenameOutbox,
                              progress: Progress) throws -> PendingFileRename? {
         try editNamespace.requireSettled()
-        let bookmark = try renameAccess()
+        try renameAccess()
         let (path, destination) = try withCatalog { catalog -> (RelativePath, RelativePath) in
             guard let row = try catalog.item(id: request.item), !row.deleted, row.allowsWriting,
                   row.kind == .file, row.contentVersion == request.contentVersion,
@@ -72,16 +72,14 @@ extension LocationSource {
         let sources = try editNamespace.affectedSources(source: path, destination: destination)
         for source in sources { try source.requireRenamePathsSettled(source: path, destination: destination) }
         for source in sources { try source.prepareRenameFolders(source: path, destination: destination) }
-        return try withWriteSession(bookmark, progress: progress) { session in
-            guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
-            let remote = try SMBEdit(endpoint: endpoint, folder: .root, root: session.root, progress: progress)
+        return try connection.withSession(folder: .root, progress: progress) { remote, _ in
             let parents = try remote.protectRenameParents(source: path.string, destination: destination.string)
             guard let evidence = try remote.inspectRename(path: path.string),
                   evidence.name == path.components.last else { throw SourceFailure.versionChanged }
             let base = try FileRevision(item: request.item, version: evidence.version)
             let views = try sources.map {
                 try $0.renameView(path: path, destination: destination, version: evidence.version,
-                                  parents: parents, session: $0.access === access ? session : nil)
+                                  parents: parents)
             }
             guard let source = RelativePath((path.components.dropLast() + [evidence.name]).joined(separator: "/")) else {
                 throw UploadError.unresolved
@@ -90,7 +88,7 @@ extension LocationSource {
                                                 views: views, destination: destination, parents: parents)
             // Case aliases need one delete-capable handle; publication revalidates after reopening.
             if NameKey(source.string) == NameKey(destination.string) { try remote.releaseRename(path: source.string) }
-            try finishRename(&record, outbox: outbox, progress: progress, session: session, remote: remote)
+            try finishRename(&record, outbox: outbox, progress: progress, remote: remote)
             return record
         }
     }
@@ -110,7 +108,7 @@ extension LocationSource {
     }
 
     func retryRenames() {
-        access.enqueue { [self] in
+        connection.enqueue { [self] in
             let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
             var sharingFailure: Error?
             do {
@@ -194,13 +192,13 @@ extension LocationSource {
         }
     }
 
-    func renameAccess() throws -> Data {
+    /// Read only is off and Remove Location has not suspended changes.
+    func renameAccess() throws {
         try uploadLock.withLock {
-            guard !mutationsSuspended, let bookmark = writeBookmark,
+            guard !mutationsSuspended, writable,
                   try withCatalog({ try $0.item(id: Catalog.rootItemID)?.allowsWriting }) == true else {
                 throw UploadError.readOnly
             }
-            return bookmark
         }
     }
 
@@ -223,7 +221,7 @@ extension LocationSource {
     }
 
     private func renameView(path: RelativePath, destination: RelativePath, version: RemoteFileVersion,
-                            parents: [FileRenameParent], session: ShareSession?) throws -> FileRenameView {
+                            parents: [FileRenameParent]) throws -> FileRenameView {
         try uploadLock.withLock {
             guard !mutationsSuspended else { throw UploadError.pendingWrites }
             let relative = RelativePath(path.components.dropFirst(folder.components.count).joined(separator: "/"))!
@@ -249,13 +247,7 @@ extension LocationSource {
                    other.id != row.id { throw UploadError.collision }
                 return (row, actual, identity, parent)
             }
-            if let session {
-                try validateRenameParents([row.parentID!, destinationParent], parents: parents, session: session)
-            } else {
-                try access.withSession { session, _ in
-                    try validateRenameParents([row.parentID!, destinationParent], parents: parents, session: session)
-                }
-            }
+            try validateRenameParents([row.parentID!, destinationParent], parents: parents)
             let native = (inode: version.identity.fileID, fingerprint: try version.fingerprint)
             guard native.inode == identity else { throw SourceFailure.versionChanged }
             guard native.fingerprint == ContentFingerprint(size: row.size, mtimeNs: row.mtimeNs, ctimeNs: row.ctimeNs)
@@ -265,8 +257,7 @@ extension LocationSource {
         }
     }
 
-    func validateRenameParents(_ ids: [String], parents: [FileRenameParent], session: ShareSession) throws {
-        try session.identity.requireMounted(session.root)
+    func validateRenameParents(_ ids: [String], parents: [FileRenameParent]) throws {
         for id in Set(ids) {
             let (relative, nativeID) = try withCatalog { catalog in
                 guard let row = try catalog.item(id: id), row.kind == .folder, !row.deleted,
@@ -282,16 +273,14 @@ extension LocationSource {
 
     private func finishRename(_ record: inout PendingFileRename, outbox: FileRenameOutbox, progress: Progress) throws {
         if record.state == .completed { return }
-        let bookmark = try renameAccess()
-        try withWriteSession(bookmark, progress: progress) { session in
-            guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
-            let remote = try SMBEdit(endpoint: endpoint, folder: .root, root: session.root, progress: progress)
-            try finishRename(&record, outbox: outbox, progress: progress, session: session, remote: remote)
+        try renameAccess()
+        try connection.withSession(folder: .root, progress: progress) { remote, _ in
+            try finishRename(&record, outbox: outbox, progress: progress, remote: remote)
         }
     }
 
     private func finishRename(_ record: inout PendingFileRename, outbox: FileRenameOutbox, progress: Progress,
-                              session: ShareSession, remote: SMBEdit) throws {
+                              remote: any RemoteSession) throws {
         guard record.owner == domainID, let sourcePath = RelativePath(record.source),
               let destination = RelativePath(record.destination),
               record.views.contains(where: { $0.domain == domainID && $0.folder == folder.string }) else {
@@ -347,7 +336,7 @@ extension LocationSource {
             } catch {
                 settingsResult = .failure(error)
             }
-            access.enqueue { [self] in
+            connection.enqueue { [self] in
                 let result = Result {
                     try settingsResult.get()
                     return try editNamespace.perform {
