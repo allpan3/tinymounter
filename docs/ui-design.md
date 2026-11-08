@@ -22,8 +22,8 @@ saved under another account. Add connects automatically; saved native volumes al
 Show in Finder, Connect/Disconnect and Remove controls. On 2026-11-07 the user also accepted one
 add flow: shares are added only in a location, and Servers only lists them (section 4.3). On
 2026-11-08 the [connection-layer plan](connection-layer-plan.md#ui-changes) replaced the Add
-Server… address dialog with a sign-in sheet ([section 11](#11-sign-in-020)). The original mockup
-below is historical.
+Server… address dialog with a sign-in sheet and the Folder Select… panel with a folder browser
+([section 11](#11-sign-in-and-folder-browser-020)). The original mockup below is historical.
 
 ## 1. Principles
 
@@ -101,7 +101,8 @@ Selecting a location shows one grouped form with all of its settings:
    available offline", and a Show in Finder button. If macOS disables the File Provider, show
    "File Provider is off.", instructions to enable it, and Open System Settings… instead.
 2. **Source.** Server, Share, Folder and Name. The user types a folder path, with completion, or
-   clicks Select… to browse. An empty path means the full share.
+   clicks Select… to browse the share in the app
+   ([section 11](#11-sign-in-and-folder-browser-020)). An empty path means the full share.
 3. **Connection Mode.** Choose File Provider or Server volume when adding a location. Native
    volumes use the whole share and its actual name; their Folder and Name fields are omitted.
 4. **Keep Downloaded** (File Provider only). Each kept file or folder, with its state: Available
@@ -142,7 +143,7 @@ the files on the server do not change. To try a different source and keep this l
 Duplicate instead.
 
 **Server** lists saved servers as `account@host`. Add Server… opens the sign-in sheet
-([section 11](#11-sign-in-020)) and then continues to the share.
+([section 11](#11-sign-in-and-folder-browser-020)) and then continues to the share.
 **Share** lists the server's saved share grants and Add Share…. This is the only place to add a
 share. Select… connects the share first if necessary. The app offers existing SMB
 connections before asking macOS to connect another share. A connection at a different address
@@ -325,7 +326,7 @@ Once confirmed, enabling Read only blocks new remote changes but retains the gra
 reuse. Refuse that change while writes are pending. Changing the source uses only the target
 share's permission, with the existing account and mount checks on every mutation.
 
-## 11. Sign-in (0.2.0)
+## 11. Sign-in and folder browser (0.2.0)
 
 Proposed on 2026-11-08 with the [connection-layer plan](connection-layer-plan.md#ui-changes);
 built in its step 1.
@@ -358,3 +359,13 @@ account `name@host` with the host in lowercase. Finder's own internet-password i
 same server never matches it, so Forget never deletes Finder's item. Settings.json holds only
 the server, `{"id", "login": {"remoteProtocol", "host", "account"}}`. A Settings.json from 0.1.2
 has no `login` and is refused; General then offers Start Fresh.
+
+**Select…** next to Folder in a File Provider location opens a folder browser in the app, not
+a macOS panel: "Select a folder in Media.", an Enclosing Folder button, the path from the share
+name, and the folders of one folder at a time, in Finder's order. As in Finder, folders whose
+names start with "." don't show; the Folder field still takes them. Double-click opens a folder.
+Choose sets Folder to the selected folder, or to the folder that the list shows when none is
+selected; Cancel changes nothing. An empty folder shows "No folders"; a failed listing shows
+"TinyMounter cannot show the folders. Make sure that the share is connected." Until step 3
+connects it to the share connection, the browser lists through folder completion, which
+returns at most 50 folders and shows a failed listing as "No folders".

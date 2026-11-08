@@ -378,7 +378,14 @@ enum UIText {
 
     // Panels
     static let selectShareMessage = "Click Open to give TinyMounter access to this share. Use Read only in a location to prevent changes."
-    static let selectFolderMessage = "Select a folder in the share."
+
+    // Folder browser
+    static func selectFolderTitle(_ share: String) -> String { "Select a folder in \(share)." }
+    static let enclosingFolder = "Enclosing Folder"
+    static let choose = "Choose"
+    static let noFolders = "No folders"
+    static let cannotListFolders = "TinyMounter cannot show the folders. Make sure that the share is connected."
+    static let folderBrowserHint = "To open a folder, double-click it. Choose uses the selected folder, or this folder if you select none."
 
     // Servers
     static let selectAgain = "Select Again…"
