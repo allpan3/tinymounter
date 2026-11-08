@@ -19,16 +19,14 @@ final class SettingsTests: XCTestCase {
     }
 
     func testServerVolumeExcludesProviderLocationsAcrossAccounts() throws {
-        let server = serverRecord("fixture")
-        let first = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//one@fixture/Share",
-                                address: try XCTUnwrap(ShareAddress("//one@fixture/Share")))
-        let second = ServerGrant(serverID: server.id, bookmark: Data([2]), mountFrom: "//two@FIXTURE/share",
-                                 address: try XCTUnwrap(ShareAddress("//two@FIXTURE/share")))
-        let other = ServerGrant(serverID: server.id, bookmark: Data([3]), mountFrom: "//one@fixture/other",
-                                address: try XCTUnwrap(ShareAddress("//one@fixture/other")))
-        var location = LocationRecord(name: "Provider", grantID: first.id, folder: .root)
+        let server = ServerRecord(login: ServerAccount(remoteProtocol: .smb, host: "fixture", account: "one"))
+        let otherAccount = ServerRecord(login: ServerAccount(remoteProtocol: .smb, host: "FIXTURE", account: "two"))
+        let first = ShareRecord(serverID: server.id, name: "Share")
+        let second = ShareRecord(serverID: otherAccount.id, name: "share")
+        let other = ShareRecord(serverID: server.id, name: "other")
+        var location = LocationRecord(name: "Provider", shareID: first.id, folder: .root)
         location.removing = true
-        var settings = AppSettings(servers: [server], shares: [first, second, other], locations: [location])
+        var settings = AppSettings(servers: [server, otherAccount], shares: [first, second, other], locations: [location])
         XCTAssertThrowsError(try settings.requireMode(.serverVolume, for: second.id)) {
             XCTAssertEqual($0 as? SettingsError, .shareModeConflict)
         }
@@ -36,11 +34,12 @@ final class SettingsTests: XCTestCase {
         XCTAssertNoThrow(try settings.requireMode(.serverVolume, for: other.id))
         settings.locations.removeAll()
         XCTAssertNoThrow(try settings.requireMode(.serverVolume, for: second.id))
-        settings.serverVolumes = [ServerVolumeRecord(grantID: second.id)]
+        settings.serverVolumes = [ServerVolumeRecord(shareID: second.id)]
         XCTAssertThrowsError(try settings.requireMode(.fileProvider, for: first.id))
         XCTAssertThrowsError(try settings.requireMode(.serverVolume, for: first.id))
-        XCTAssertTrue(settings.serverIsUsed(server.id))
-        XCTAssertThrowsError(try settings.removeServer(server.id))
+        XCTAssertTrue(settings.serverIsUsed(otherAccount.id))
+        XCTAssertFalse(settings.serverIsUsed(server.id))
+        XCTAssertThrowsError(try settings.removeServer(otherAccount.id))
         let url = directory.appending(path: "Settings.json")
         try settings.save(to: url)
         XCTAssertEqual(try AppSettings.load(from: url), settings)
@@ -48,16 +47,15 @@ final class SettingsTests: XCTestCase {
         XCTAssertNoThrow(try settings.requireMode(.fileProvider, for: first.id))
     }
 
-    func testServerVolumeSettingsRejectConflictingOrMissingGrants() throws {
+    func testServerVolumeSettingsRejectConflictingOrMissingShares() throws {
         let server = serverRecord("fixture")
-        let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//one@fixture/share",
-                                address: try XCTUnwrap(ShareAddress("//one@fixture/share")))
-        let volume = ServerVolumeRecord(grantID: grant.id)
-        let location = LocationRecord(name: "Provider", grantID: grant.id, folder: .root)
+        let share = ShareRecord(serverID: server.id, name: "share")
+        let volume = ServerVolumeRecord(shareID: share.id)
+        let location = LocationRecord(name: "Provider", shareID: share.id, folder: .root)
         for settings in [
             AppSettings(servers: [server], serverVolumes: [volume]),
-            AppSettings(servers: [server], shares: [grant], locations: [location], serverVolumes: [volume]),
-            AppSettings(servers: [server], shares: [grant], serverVolumes: [volume, ServerVolumeRecord(grantID: grant.id)])
+            AppSettings(servers: [server], shares: [share], locations: [location], serverVolumes: [volume]),
+            AppSettings(servers: [server], shares: [share], serverVolumes: [volume, ServerVolumeRecord(shareID: share.id)])
         ] {
             XCTAssertThrowsError(try settings.save(to: directory.appending(path: "Settings.json")))
             XCTAssertThrowsError(try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(settings)))
@@ -66,32 +64,30 @@ final class SettingsTests: XCTestCase {
 
     func testDeletionRemovesOnlyConfirmedTypedKeepsOnTheSameShare() throws {
         let server = serverRecord("fixture")
-        let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//account@fixture/share",
-                                address: try XCTUnwrap(ShareAddress("//account@fixture/share")))
-        let other = ServerGrant(serverID: server.id, bookmark: Data([2]), mountFrom: "//account@fixture/other",
-                                address: try XCTUnwrap(ShareAddress("//account@fixture/other")))
+        let share = ShareRecord(serverID: server.id, name: "share")
+        let other = ShareRecord(serverID: server.id, name: "other")
         let folder = KeepPath(path: "Tree/Café", kind: .folder)
         let deleted = KeepPath(path: "Tree/Café/deleted", kind: .file)
         let uncertain = KeepPath(path: "Tree/Café/unconfirmed", kind: .file)
         let replacementKind = KeepPath(path: folder.path, kind: .file)
         let neighbor = KeepPath(path: "Tree/Café-other", kind: .folder)
         let paths = [folder, deleted, uncertain, replacementKind, neighbor]
-        var location = LocationRecord(name: "Location", grantID: grant.id, folder: .root)
+        var location = LocationRecord(name: "Location", shareID: share.id, folder: .root)
         location.pendingKeeps = paths
-        var otherLocation = LocationRecord(name: "Other", grantID: other.id, folder: .root)
+        var otherLocation = LocationRecord(name: "Other", shareID: other.id, folder: .root)
         otherLocation.pendingKeeps = paths
-        var settings = AppSettings(servers: [server], shares: [grant, other], locations: [location, otherLocation], savedKeeps: [
+        var settings = AppSettings(servers: [server], shares: [share, other], locations: [location, otherLocation], savedKeeps: [
             SavedKeepList(host: "FIXTURE", share: "SHARE", paths: paths),
             SavedKeepList(host: "fixture", share: "other", paths: paths)])
         let removed = [KeepPath(path: "tree/Cafe\u{301}", kind: .folder), deleted]
-        try settings.removeKeptItems(removed, host: grant.host, share: grant.share)
+        try settings.removeKeptItems(removed, host: "fixture", share: "share")
         let expected = [uncertain, replacementKind, neighbor]
         XCTAssertEqual(settings.locations[0].pendingKeeps, expected)
         XCTAssertEqual(settings.locations[0].domainID, location.domainID)
         XCTAssertEqual(settings.locations[1], otherLocation)
         XCTAssertEqual(settings.savedKeeps.map(\.paths), [expected, paths])
         let completed = settings
-        try settings.removeKeptItems(removed, host: grant.host, share: grant.share)
+        try settings.removeKeptItems(removed, host: "fixture", share: "share")
         XCTAssertEqual(settings, completed)
         let url = directory.appending(path: "Settings.json")
         try settings.save(to: url)
@@ -114,28 +110,26 @@ final class SettingsTests: XCTestCase {
 
     func testFileMoveRewritesOnlyMatchingKeepsOnTheSameShareAndIsIdempotent() throws {
         let server = serverRecord("fixture")
-        let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//account@fixture/share",
-                                address: try XCTUnwrap(ShareAddress("//account@fixture/share")))
-        let other = ServerGrant(serverID: server.id, bookmark: Data([2]), mountFrom: "//account@fixture/other",
-                                address: try XCTUnwrap(ShareAddress("//account@fixture/other")))
+        let share = ShareRecord(serverID: server.id, name: "share")
+        let other = ShareRecord(serverID: server.id, name: "other")
         let old = KeepPath(path: "Inbox/file.txt", kind: .file)
         let new = KeepPath(path: "Archive/file.txt", kind: .file)
         let folder = KeepPath(path: "Inbox/file.txt", kind: .folder)
         let neighbor = KeepPath(path: "Inbox/file.txt/child", kind: .file)
-        var location = LocationRecord(name: "Location", grantID: grant.id, folder: .root)
+        var location = LocationRecord(name: "Location", shareID: share.id, folder: .root)
         location.pendingKeeps = [old, new, folder, neighbor]
-        var otherLocation = LocationRecord(name: "Other", grantID: other.id, folder: .root)
+        var otherLocation = LocationRecord(name: "Other", shareID: other.id, folder: .root)
         otherLocation.pendingKeeps = [old]
-        var settings = AppSettings(servers: [server], shares: [grant, other], locations: [location, otherLocation],
+        var settings = AppSettings(servers: [server], shares: [share, other], locations: [location, otherLocation],
                                    savedKeeps: [SavedKeepList(host: "FIXTURE", share: "SHARE", paths: [old]),
                                                 SavedKeepList(host: "fixture", share: "other", paths: [old])])
-        try settings.moveKeptFile(from: old.path, to: new.path, host: grant.host, share: grant.share)
+        try settings.moveKeptFile(from: old.path, to: new.path, host: "fixture", share: "share")
         XCTAssertEqual(settings.locations[0].pendingKeeps, [new, folder, neighbor])
         XCTAssertEqual(settings.locations[1], otherLocation)
         XCTAssertEqual(settings.savedKeeps.map(\.paths), [[new], [old]])
         XCTAssertEqual(settings.locations[0].domainID, location.domainID)
         let completed = settings
-        try settings.moveKeptFile(from: old.path, to: new.path, host: grant.host, share: grant.share)
+        try settings.moveKeptFile(from: old.path, to: new.path, host: "fixture", share: "share")
         XCTAssertEqual(settings, completed)
         let url = directory.appending(path: "Settings.json")
         try settings.save(to: url)
@@ -144,18 +138,16 @@ final class SettingsTests: XCTestCase {
 
     func testFolderMoveRewritesTypedDescendantsAndPreservesOtherShares() throws {
         let server = serverRecord("fixture")
-        let address = try XCTUnwrap(ShareAddress("//account@fixture/share"))
-        let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//account@fixture/share",
-                                address: address)
+        let share = ShareRecord(serverID: server.id, name: "share")
         let paths = [KeepPath(path: "Inbox/Café", kind: .folder),
                      KeepPath(path: "inbox/Cafe\u{301}/Nested/file.txt", kind: .file),
                      KeepPath(path: "Inbox/Café/Nested", kind: .folder),
                      KeepPath(path: "Archive/Report/Nested/file.txt", kind: .file),
                      KeepPath(path: "Inbox/Café", kind: .file),
                      KeepPath(path: "Inbox/Café-other/file.txt", kind: .file)]
-        var location = LocationRecord(name: "Location", grantID: grant.id, folder: .root)
+        var location = LocationRecord(name: "Location", shareID: share.id, folder: .root)
         location.pendingKeeps = paths
-        var settings = AppSettings(servers: [server], shares: [grant], locations: [location], savedKeeps: [
+        var settings = AppSettings(servers: [server], shares: [share], locations: [location], savedKeeps: [
             SavedKeepList(host: "FIXTURE", share: "SHARE", paths: paths),
             SavedKeepList(host: "fixture", share: "other", paths: paths)])
         try settings.moveKeptFolder(from: "Inbox/Café", to: "Archive/Report", host: "fixture", share: "share")
@@ -175,27 +167,26 @@ final class SettingsTests: XCTestCase {
 
     func testRootRetirementClearsSubtreeKeepsWithoutChangingAncestorsOrOtherShares() throws {
         let server = serverRecord("fixture")
-        let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//account@fixture/share",
-                                address: try XCTUnwrap(ShareAddress("//account@fixture/share")))
+        let share = ShareRecord(serverID: server.id, name: "share")
         let paths = [KeepPath(path: "Archive", kind: .folder), KeepPath(path: "Archive/Café", kind: .folder),
                      KeepPath(path: "archive/Cafe\u{301}/Nested/file", kind: .file),
                      KeepPath(path: "Archive/Café-other/file", kind: .file)]
-        var location = LocationRecord(name: "Location", grantID: grant.id, folder: .root)
+        var location = LocationRecord(name: "Location", shareID: share.id, folder: .root)
         location.pendingKeeps = paths
-        var settings = AppSettings(servers: [server], shares: [grant], locations: [location], savedKeeps: [
+        var settings = AppSettings(servers: [server], shares: [share], locations: [location], savedKeeps: [
             SavedKeepList(host: "fixture", share: "share", paths: paths),
             SavedKeepList(host: "fixture", share: "other", paths: paths)])
         let original = settings
         for invalid in ["", "../Archive"] {
-            XCTAssertThrowsError(try settings.removeKeptFolder(at: invalid, host: grant.host, share: grant.share))
+            XCTAssertThrowsError(try settings.removeKeptFolder(at: invalid, host: "fixture", share: "share"))
             XCTAssertEqual(settings, original)
         }
-        try settings.removeKeptFolder(at: "Archive/Café", host: grant.host, share: grant.share)
+        try settings.removeKeptFolder(at: "Archive/Café", host: "fixture", share: "share")
         let retained = [paths[0], paths[3]]
         XCTAssertEqual(settings.locations[0].pendingKeeps, retained)
         XCTAssertEqual(settings.savedKeeps.map(\.paths), [retained, paths])
         let completed = settings
-        try settings.removeKeptFolder(at: "Archive/Café", host: grant.host, share: grant.share)
+        try settings.removeKeptFolder(at: "Archive/Café", host: "fixture", share: "share")
         XCTAssertEqual(settings, completed)
         let url = directory.appending(path: "Settings.json")
         try settings.save(to: url)
@@ -215,13 +206,12 @@ final class SettingsTests: XCTestCase {
     }
 
     func testFolderKeepRewriteRefusesInvalidOrOverlongTargetsWithoutPartialChanges() throws {
-        let grant = ServerGrant(serverID: UUID(), bookmark: Data([1]), mountFrom: "//account@fixture/share",
-                                address: try XCTUnwrap(ShareAddress("//account@fixture/share")))
-        var location = LocationRecord(name: "Location", grantID: grant.id, folder: .root)
+        let share = ShareRecord(serverID: UUID(), name: "share")
+        var location = LocationRecord(name: "Location", shareID: share.id, folder: .root)
         location.pendingKeeps = [KeepPath(path: "a/short", kind: .file)]
         let component = String(repeating: "x", count: 250)
         let long = "a/" + Array(repeating: component, count: 4).joined(separator: "/")
-        let original = AppSettings(shares: [grant], locations: [location], savedKeeps: [
+        let original = AppSettings(shares: [share], locations: [location], savedKeeps: [
             SavedKeepList(host: "fixture", share: "share", paths: [KeepPath(path: long, kind: .file)])])
         for (source, target) in [("", "b"), ("a", ""), ("a", "a/sub"), ("a/sub", "a"),
                                   ("a", "../b"), ("a", String(repeating: "z", count: 30))] {
@@ -231,62 +221,54 @@ final class SettingsTests: XCTestCase {
         }
     }
 
-    func testReadOnlyRetainsInactiveGrantAcrossRelaunch() throws {
-        var location = LocationRecord(name: "Read", grantID: UUID(), folder: .root)
-        location.writeBookmark = Data([4])
-        location.readOnly = true
-        let settings = AppSettings(locations: [location])
+    func testReadOnlyIsAPlainSettingPerLocation() throws {
+        let server = serverRecord("fixture")
+        let share = ShareRecord(serverID: server.id, name: "share")
+        var writable = LocationRecord(name: "Write", shareID: share.id, folder: .root)
+        XCTAssertTrue(writable.readOnly)
+        writable.readOnly = false
+        let settings = AppSettings(servers: [server], shares: [share],
+                                   locations: [LocationRecord(name: "Read", shareID: share.id, folder: .root), writable])
         let url = directory.appending(path: "Settings.json")
         try settings.save(to: url)
-        let restored = try AppSettings.load(from: url)
-        XCTAssertEqual(restored, settings)
-        XCTAssertNil(restored.locations[0].activeWriteBookmark)
-        var enabled = restored.locations[0]
-        enabled.readOnly = false
-        XCTAssertEqual(enabled.activeWriteBookmark, Data([4]))
-    }
-
-    func testShareWritePermissionSurvivesRelaunchWithoutEnablingLocations() throws {
-        let server = serverRecord("fixture")
-        let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), writeBookmark: Data([2]),
-                                mountFrom: "//account@fixture/share",
-                                address: try XCTUnwrap(ShareAddress("//account@fixture/share")))
-        let location = LocationRecord(name: "Read", grantID: grant.id, folder: .root)
-        let settings = AppSettings(servers: [server], shares: [grant], locations: [location])
-        let url = directory.appending(path: "Settings.json")
-        try settings.save(to: url)
-        let restored = try AppSettings.load(from: url)
-        XCTAssertEqual(restored, settings)
-        XCTAssertEqual(restored.writeBookmark(for: grant.id), Data([2]))
-        XCTAssertTrue(restored.locations[0].readOnly)
-        XCTAssertNil(restored.locations[0].activeWriteBookmark)
-        XCTAssertEqual(try mode(url), 0o600)
-    }
-
-    func testEarlierSettingsReuseOnlyTheSameGrantsLocationPermission() throws {
-        let server = serverRecord("fixture")
-        let grants = try ["//account@fixture/share", "//other@fixture/share", "//account@fixture/other"].map {
-            ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: $0,
-                        address: try XCTUnwrap(ShareAddress($0)))
-        }
-        let readOnly = LocationRecord(name: "Read", grantID: grants[0].id, folder: .root)
-        var previouslyWritable = LocationRecord(name: "Retained", grantID: grants[0].id, folder: .root)
-        previouslyWritable.writeBookmark = Data([4])
-        let settings = AppSettings(servers: [server], shares: grants, locations: [readOnly, previouslyWritable])
-        let data = try JSONEncoder().encode(settings)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(try AppSettings.load(from: url).locations.map(\.readOnly), [true, false])
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
         let shares = try XCTUnwrap(json["shares"] as? [[String: Any]])
-        XCTAssertTrue(shares.allSatisfy { $0["writeBookmark"] == nil })
-        var restored = try JSONDecoder().decode(AppSettings.self, from: data)
-        XCTAssertEqual(restored, settings)
-        XCTAssertEqual(restored.writeBookmark(for: grants[0].id), Data([4]))
-        XCTAssertNil(restored.writeBookmark(for: grants[1].id))
-        XCTAssertNil(restored.writeBookmark(for: grants[2].id))
-        XCTAssertTrue(restored.locations.allSatisfy { $0.activeWriteBookmark == nil })
-        restored.shares[0].writeBookmark = Data([5])
-        XCTAssertEqual(restored.writeBookmark(for: grants[0].id), Data([5]))
-        restored.shares.removeFirst()
-        XCTAssertNil(restored.writeBookmark(for: grants[0].id))
+        XCTAssertEqual(shares.map { Set($0.keys) }, [["id", "serverID", "name"]])
+    }
+
+    func testEarlierSettingsAreRejectedNotConverted() throws {
+        let server = UUID().uuidString, grant = UUID().uuidString
+        let earlier = #"""
+            {"servers":[{"id":"\#(server)","login":{"remoteProtocol":"smb","host":"nas.local","account":"account"}}],
+             "shares":[{"id":"\#(grant)","serverID":"\#(server)","bookmark":"AQ==","mountFrom":"//account@nas.local/Media",
+                        "host":"nas.local","account":"account","share":"Media"}],
+             "locations":[{"id":"\#(UUID().uuidString)","name":"Media","grantID":"\#(grant)","folder":"",
+                           "domainID":"\#(UUID().uuidString)","removing":false,"pendingKeeps":[],"readOnly":true}],
+             "savedKeeps":[]}
+            """#
+        XCTAssertThrowsError(try JSONDecoder().decode(AppSettings.self, from: Data(earlier.utf8)))
+    }
+
+    func testAShareAddressIsItsServersSignInAndItsName() throws {
+        let server = ServerRecord(login: ServerAccount(remoteProtocol: .smb, host: "NAS.local", account: "account"))
+        let otherAccount = ServerRecord(login: ServerAccount(remoteProtocol: .smb, host: "nas.local", account: "other"))
+        let media = ShareRecord(serverID: server.id, name: "Media")
+        let same = ShareRecord(serverID: otherAccount.id, name: "MEDIA")
+        let photos = ShareRecord(serverID: server.id, name: "Photos")
+        let settings = AppSettings(servers: [server, otherAccount], shares: [media, same, photos])
+        let address = try XCTUnwrap(settings.address(of: media.id))
+        XCTAssertEqual(address, ShareAddress(server.login, share: "Media"))
+        XCTAssertEqual(address.login, server.login)
+        XCTAssertEqual(DeletionEndpoint(address).remoteProtocol, .smb)
+        XCTAssertNil(settings.address(of: UUID()))
+        XCTAssertEqual(settings.relatedShareIDs(host: "nas.local", share: "media"), [media.id, same.id])
+        for name in ["", "..", "a/b"] {
+            let json = #"{"id":"\#(UUID().uuidString)","serverID":"\#(server.id.uuidString)","name":"\#(name)"}"#
+            XCTAssertThrowsError(try JSONDecoder().decode(ShareRecord.self, from: Data(json.utf8))) {
+                XCTAssertEqual($0 as? SettingsError, .invalidServer)
+            }
+        }
     }
 
     func testNormalizedFolderTrimsSlashesAndRejectsInvalidComponents() {
@@ -347,34 +329,10 @@ final class SettingsTests: XCTestCase {
         for invalid in ["", "smb://", "afp://nas.local/Media", "smb://account:secret@nas.local/Media",
                         "smb://:secret@nas.local/Media", "smb://@nas.local/Media", "smb://nas.local:445/Media",
                         "smb://nas.local/Media/Movies", "smb://nas.local/%2E%2E", "smb://nas.local/a%2Fb",
-                        "smb://nas.local/Media?x=1", "smb://nas.local/Media#x", "smb://nas.local//Media"] {
+                        "smb://nas.local/Media?x=1", "smb://nas.local/Media#x", "smb://nas.local//Media",
+                        "smb://guest:@nas.local/Media"] {
             XCTAssertNil(ServerAddress(typed: invalid), invalid)
         }
-    }
-
-    func testOSGuestAddressesLoseOnlyAnEmptyPasswordField() {
-        for address in ["//guest:@nas.local/Media", "smb://guest:@nas.local/Media"] {
-            let clean = ShareAddress.withoutEmptyPassword(address)
-            XCTAssertNotNil(clean.flatMap(ShareAddress.init))
-            XCTAssertFalse(clean?.contains(":@") ?? true)
-        }
-        let normal = "//DOMAIN;user%40x@nas.local/My%20Media"
-        XCTAssertEqual(ShareAddress.withoutEmptyPassword(normal), normal)
-        XCTAssertNil(ShareAddress.withoutEmptyPassword("//guest:secret@nas.local/Media"))
-        XCTAssertNil(ShareAddress.withoutEmptyPassword("//guest:%00@nas.local/Media"))
-        XCTAssertNil(ServerAddress(typed: "smb://guest:@nas.local/Media"))
-        XCTAssertEqual(MountIdentity(typeName: "smbfs", fsid: 1, mountFrom: "//guest:@nas.local/Media").mountFrom,
-                       "//guest@nas.local/Media")
-    }
-
-    func testServerAddressMatchesTheMountedShare() throws {
-        let mounted = try XCTUnwrap(ShareAddress("//account@NAS.local/Media"))
-        XCTAssertEqual(ServerAddress(typed: "nas.local/media")?.matches(mounted), true)
-        XCTAssertEqual(ServerAddress(typed: "account@nas.local/Media")?.matches(mounted), true)
-        XCTAssertEqual(ServerAddress(typed: "nas.local")?.matches(mounted), true)
-        XCTAssertEqual(ServerAddress(typed: "other@nas.local/Media")?.matches(mounted), false)
-        XCTAssertEqual(ServerAddress(typed: "nas.local/Photos")?.matches(mounted), false)
-        XCTAssertEqual(ServerAddress(typed: "other.local/Media")?.matches(mounted), false)
     }
 
     func testUniqueNameAddsANumber() {
@@ -461,11 +419,11 @@ final class SettingsTests: XCTestCase {
     func testSettingsRoundTripThroughAPrivateFile() throws {
         let address = try XCTUnwrap(ShareAddress("//account@nas.local/Media"))
         let server = serverRecord("nas.local")
-        let grant = ServerGrant(serverID: server.id, bookmark: Data([1, 2, 3]), mountFrom: "//account@nas.local/Media", address: address)
-        var record = LocationRecord(name: "Movies", grantID: grant.id, folder: try XCTUnwrap(RelativePath("Movies/2024")))
+        let share = ShareRecord(serverID: server.id, name: "Media")
+        var record = LocationRecord(name: "Movies", shareID: share.id, folder: try XCTUnwrap(RelativePath("Movies/2024")))
         record.retiredDomainID = UUID().uuidString
         record.pendingKeeps = fileKeeps(["Movies/2024/a.mkv"])
-        var settings = AppSettings(servers: [server], shares: [grant], locations: [record, LocationRecord(name: "Media", grantID: grant.id, folder: .root)],
+        var settings = AppSettings(servers: [server], shares: [share], locations: [record, LocationRecord(name: "Media", shareID: share.id, folder: .root)],
                                    savedKeeps: [SavedKeepList(host: address.host, share: address.share, paths: fileKeeps(["Movies/a.mkv"]))])
         let url = directory.appending(path: "tinymounter/Settings.json")
 
@@ -516,10 +474,9 @@ final class SettingsTests: XCTestCase {
     func testRemovingAServerInUseDoesNotChangeSettings() throws {
         let server = serverRecord("nas.local")
         let other = serverRecord("other.local")
-        let address = try XCTUnwrap(ShareAddress("//account@nas.local/Media"))
-        let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//account@nas.local/Media", address: address)
-        let record = LocationRecord(name: "Media", grantID: grant.id, folder: .root)
-        var settings = AppSettings(servers: [server, other], shares: [grant], locations: [record])
+        let share = ShareRecord(serverID: server.id, name: "Media")
+        let record = LocationRecord(name: "Media", shareID: share.id, folder: .root)
+        var settings = AppSettings(servers: [server, other], shares: [share], locations: [record])
         let before = settings
         XCTAssertTrue(settings.serverIsUsed(server.id))
         XCTAssertThrowsError(try settings.removeServer(server.id)) {
@@ -534,11 +491,9 @@ final class SettingsTests: XCTestCase {
 
     func testForgettingAShareKeepsUsedSharesAndDropsAnEmptyServer() throws {
         let server = serverRecord("nas.local")
-        let used = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//account@nas.local/Media",
-                               address: try XCTUnwrap(ShareAddress("//account@nas.local/Media")))
-        let unused = ServerGrant(serverID: server.id, bookmark: Data([2]), mountFrom: "//account@nas.local/Backup",
-                                 address: try XCTUnwrap(ShareAddress("//account@nas.local/Backup")))
-        let volume = ServerVolumeRecord(grantID: used.id)
+        let used = ShareRecord(serverID: server.id, name: "Media")
+        let unused = ShareRecord(serverID: server.id, name: "Backup")
+        let volume = ServerVolumeRecord(shareID: used.id)
         var settings = AppSettings(servers: [server], shares: [used, unused], serverVolumes: [volume])
         XCTAssertThrowsError(try settings.removeShare(used.id)) {
             XCTAssertEqual($0 as? SettingsError, .shareInUse)
@@ -554,9 +509,8 @@ final class SettingsTests: XCTestCase {
 
     func testASeparateShareWithoutItsServerIsRejected() throws {
         let server = serverRecord("nas.local")
-        let address = try XCTUnwrap(ShareAddress("//account@nas.local/Media"))
-        let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//account@nas.local/Media", address: address)
-        let invalid = AppSettings(shares: [grant])
+        let share = ShareRecord(serverID: server.id, name: "Media")
+        let invalid = AppSettings(shares: [share])
         XCTAssertThrowsError(try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(invalid))) {
             XCTAssertEqual($0 as? SettingsError, .invalidServer)
         }

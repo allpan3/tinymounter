@@ -4,7 +4,7 @@ enum NamespaceDrainError: Error {
     case timedOut
 }
 
-/// Coordinates namespace changes across locations that share an SMB source.
+/// Coordinates namespace changes across the locations on one share.
 final class EditNamespace: @unchecked Sendable {
     private static let registryLock = NSLock()
     nonisolated(unsafe) private static var registry: [String: EditNamespace] = [:]
@@ -20,14 +20,14 @@ final class EditNamespace: @unchecked Sendable {
     private let reads = NSCondition()
     private var activeReads: [UUID: RelativePath] = [:]
 
-    static func key(_ mountFrom: String) -> String {
-        guard let address = ShareAddress(mountFrom) else { return mountFrom.lowercased() }
-        return NameKey(address.host).value + "/" + NameKey(address.share).value
+    /// The same host and share through any account.
+    static func key(_ address: ShareAddress) -> String {
+        address.remoteProtocol.rawValue + "://" + NameKey(address.host).value + "/" + NameKey(address.share).value
     }
 
-    static func shared(_ mountFrom: String) -> EditNamespace {
+    static func shared(_ address: ShareAddress) -> EditNamespace {
         registryLock.withLock {
-            let key = key(mountFrom)
+            let key = key(address)
             if let existing = registry[key] { return existing }
             let result = EditNamespace()
             registry[key] = result

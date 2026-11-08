@@ -14,12 +14,12 @@ extension LocationSource {
 
     private func outbox() throws -> UploadOutbox { try Self.outbox(domainID: domainID) }
 
-    func configureWriteMode(_ bookmark: Data?) throws {
+    func configureWriteMode(_ writable: Bool) throws {
         try editNamespace.perform { try uploadLock.withLock {
             guard !mutationsSuspended else { throw UploadError.readOnly }
-            if bookmark == nil, try Self.pendingWrites(domainID: domainID) > 0 { throw UploadError.pendingWrites }
-            try withCatalog { try $0.setAllowsWriting(bookmark != nil) }
-            writeBookmark = bookmark
+            if !writable, try Self.pendingWrites(domainID: domainID) > 0 { throw UploadError.pendingWrites }
+            try withCatalog { try $0.setAllowsWriting(writable) }
+            self.writable = writable
         } }
         scheduleSignal()
     }
@@ -72,7 +72,7 @@ extension LocationSource {
                 started: @escaping @Sendable () -> Void,
                 checkSpace: @escaping @Sendable (Int64) throws -> Void,
                 reply: @escaping @Sendable (Result<CreateReceipt, Error>) -> Void) {
-        access.enqueue { [self] in
+        connection.enqueue { [self] in
             started()
             // Retry releases only throttled items, so a failure clears when its item is tried again.
             failedCreatesLock.withLock { failedCreates[request.template] = nil }
@@ -139,7 +139,7 @@ extension LocationSource {
                               checkSpace: @escaping (Int64) throws -> Void) throws -> CreateReceipt {
         try finishPendingFolderName(request.parent)
         return try uploadLock.withLock {
-            guard !mutationsSuspended, let bookmark = writeBookmark else { throw UploadError.readOnly }
+            guard !mutationsSuspended, writable else { throw UploadError.readOnly }
             let path = try withCatalog { catalog -> RelativePath in
                 guard let parent = try catalog.item(id: request.parent), !parent.deleted, parent.kind == .folder,
                       let base = try catalog.relativePath(of: parent.id), let path = base.appending(request.name) else {
@@ -152,12 +152,10 @@ extension LocationSource {
                try liveChild(of: request.parent, named: request.name) != nil { throw UploadError.collision }
             var record = try outbox.prepare(request, path: path, contents: contents, progress: progress, checkSpace: checkSpace)
             if record.state == .completed, let item = record.item { return CreateReceipt(item: item) }
-            try withWriteSession(bookmark, progress: progress) { session in
+            try connection.withSession(folder: folder, progress: progress) { remote, _ in
                 if record.kind == .folder {
-                    try createFolder(&record, outbox: outbox, session: session, progress: progress)
+                    try createFolder(&record, outbox: outbox, remote: remote, progress: progress)
                 } else {
-                    guard let endpoint = ShareAddress(session.identity.mountFrom) else { throw UploadError.readOnly }
-                    let remote = try SMBEdit(endpoint: endpoint, folder: folder, root: session.root, progress: progress)
                     try outbox.upload(&record, remote: remote, progress: progress)
                 }
             }
@@ -174,23 +172,6 @@ extension LocationSource {
             try outbox.complete(&record, item: row.id)
             scheduleSignal()
             return CreateReceipt(item: row.id)
-        }
-    }
-
-    func withWriteSession<Result>(_ bookmark: Data, progress: Progress? = nil,
-                                  _ body: (ShareSession) throws -> Result) throws -> Result {
-        return try access.withSession { session, progressed in
-            // Resolution waits while the server does not answer, so it counts toward the stall limit.
-            var stale = false
-            let url = try URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope, .withoutUI, .withoutMounting],
-                              relativeTo: nil, bookmarkDataIsStale: &stale)
-            guard url.startAccessingSecurityScopedResource() else { throw UploadError.readOnly }
-            defer { url.stopAccessingSecurityScopedResource() }
-            let observation = progress?.observe(\.completedUnitCount) { _, _ in progressed() }
-            defer { observation?.invalidate() }
-            let mount = try ShareAccess.connectedShares().first { $0.path == ShareAccess.filePath(url) }
-            guard mount?.identity == session.identity else { throw UploadError.readOnly }
-            return try session.identity.guarding(root: session.root) { try body(session) }
         }
     }
 }

@@ -103,12 +103,6 @@ public final class ReadOnlyFile {
         try self.init(descriptor: fd, noCache: noCache, allowMaterialization: allowMaterialization)
     }
 
-    convenience init(directoryFD: Int32, path: String, noCache: Bool) throws {
-        let fd = openat(directoryFD, path, O_RDONLY | O_CLOEXEC | O_NONBLOCK | O_NOFOLLOW_ANY | O_RESOLVE_BENEATH)
-        guard fd >= 0 else { throw posixError("openat source read-only") }
-        try self.init(descriptor: fd, noCache: noCache, allowMaterialization: false)
-    }
-
     /// Takes ownership of `fd` and closes it if a check fails.
     private init(descriptor fd: Int32, noCache: Bool, allowMaterialization: Bool) throws {
         do {

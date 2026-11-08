@@ -19,7 +19,7 @@ final class LocationController {
         var catalogFiles = 0, catalogsOpen = 0, catalogsUnavailable = 0, items = 0, tombstones = 0
         var listedFolders = 0, kept = 0, catalogsPaused = 0, stageFiles = 0, descriptors = 0
         var residentBytes: UInt64 = 0
-        var shares = 0, sessions = 0
+        var shares = 0, connected = 0
     }
 
     let store: SettingsStore
@@ -31,9 +31,9 @@ final class LocationController {
     /// The latest Pause Downloads change.
     private var pauseChange: Task<Bool, Never>?
     var onChange: (() -> Void)?
-    /// A share's state changed: the grant, the state before and the state now.
-    var onShareState: ((UUID, ShareHealth.State, ShareHealth.State) -> Void)?
-    /// A fetch that a user waits for failed on its share: the grant and the failure.
+    /// A share's state changed: the share, the state before and the state now.
+    var onShareState: ((UUID, ConnectionState, ConnectionState) -> Void)?
+    /// A fetch that a user waits for failed on its share: the share and the failure.
     var onUserFetchFailed: ((UUID, SourceFailure) -> Void)?
     /// Saved Keep Downloaded paths became kept files: the record and the item IDs.
     var onKeepsRestored: ((LocationRecord, [String]) -> Void)?
@@ -52,8 +52,17 @@ final class LocationController {
     /// Domains that the user turned off in System Settings.
     private(set) var turnedOff: Set<String> = []
     private let reader = SourceReaderHost()
-    private var shares: [UUID: ShareAccess] = [:]
-    private var shareStates: [UUID: ShareHealth.State] = [:]
+    private let client: any RemoteClient = SMBClient()
+    private let credentials = KeychainCredentialStore()
+    /// By share ID, for the shares that locations use.
+    private var connections: [UUID: ShareConnection] = [:]
+    /// By server ID: one sign-in for every share of a server.
+    private var signIns: [UUID: ServerSignIn] = [:]
+    private var shareStates: [UUID: ConnectionState] = [:]
+    /// By share ID, for Server Volumes.
+    private var volumes: [UUID: ServerVolumeMount] = [:]
+    /// The shares of Server Volumes that macOS has mounted.
+    private(set) var mountedVolumes: Set<UUID> = []
     private var sources: [String: LocationSource] = [:]
     private var offlineVerification: [String: OfflineVerification] = [:]
     private var offlineGeneration: [String: UUID] = [:]
@@ -68,11 +77,11 @@ final class LocationController {
     private var spaceTask: Task<Void, Never>?
     private var spaceBlocked: [String: [String: SourceReadRequest]] = [:]
     private var wakeObserver: NotificationCenter.ObservationToken?
-    /// Grants with a relisting running; true if a recovery asked for another one.
+    /// Shares with a relisting running; true if a recovery asked for another one.
     private var relisting: [UUID: Bool] = [:]
     private var diagnosticsSignal: (any DispatchSourceSignal)?
     /// Folder completion's last listing, reused while the user types in the same folder.
-    private var completion: (grantID: UUID, parent: RelativePath, names: [String])?
+    private var completion: (shareID: UUID, parent: RelativePath, names: [String])?
     private var completionListing: Task<Void, Never>?
     nonisolated private static let catalogLog = Logger(subsystem: "dev.tinymounter.prototype", category: "catalog")
     nonisolated private static let listingLog = Logger(subsystem: "dev.tinymounter.prototype", category: "listing")
@@ -93,8 +102,8 @@ final class LocationController {
             Task { await self?.signalResolved(domainID, [.serverUnreachable]) }
         }
         reader.onUserFetchFailed = { [weak self] domainID, failure in
-            guard let self, let grantID = sources[domainID]?.access.grantID else { return }
-            onUserFetchFailed?(grantID, failure)
+            guard let self, let shareID = sources[domainID]?.connection.shareID else { return }
+            onUserFetchFailed?(shareID, failure)
         }
         reader.onSpaceChange = { [weak self] domainID, request, blocked in
             guard let self, self.sources[domainID] != nil else { return }
@@ -146,7 +155,7 @@ final class LocationController {
     }
 
     /// The share's state; not connected until its first session starts.
-    func shareState(_ grantID: UUID) -> ShareHealth.State { shareStates[grantID] ?? .notConnected }
+    func shareState(_ shareID: UUID) -> ConnectionState { shareStates[shareID] ?? .notConnected }
 
     /// Nil for a record without an open catalog: "catalog unavailable" (plan §7).
     func isRootMissing(_ record: LocationRecord) -> Bool? { sources[record.domainID]?.isRootMissing }
@@ -201,9 +210,7 @@ final class LocationController {
             domains=\(registered.count) unknown_domains=\(plan.unknownDomains.count) failed_sequences=\(failed)
             """)
         openSources()
-        for volume in settings.serverVolumes {
-            if let grant = settings.shares.first(where: { $0.id == volume.grantID }) { share(for: grant).checkNow() }
-        }
+        for volume in settings.serverVolumes { self.volume(for: volume.shareID)?.checkNow() }
         await refreshDomains()
         // Posted only after a first domains() call, such as refreshDomains made.
         domainObserver = NotificationCenter.default.addObserver(forName: .fileProviderDomainDidChange, object: nil,
@@ -220,7 +227,8 @@ final class LocationController {
                 }
             }
         }
-        for grant in store.settings?.shares ?? [] { share(for: grant).connect() }
+        // Only shares with locations connect; a Server Volume is macOS's own mount.
+        for id in Set(settings.locations.filter { !$0.removing }.map(\.shareID)) { connection(for: id)?.connect() }
         await logDiagnostics(reason: "launch")
         installDiagnosticsSignal()
         isReady = true
@@ -235,108 +243,88 @@ final class LocationController {
         onChange?()
     }
 
-    /// Saves a grant. A grant for a share that has one replaces its bookmark and keeps its ID.
-    func saveGrant(_ grant: ServerGrant) throws -> UUID {
-        var saved = grant.id
+    /// Add Share…: a share that is saved already keeps its ID.
+    func saveShare(serverID: UUID, name: String) throws -> UUID {
+        var saved = UUID()
         try store.update { settings in
-            if let index = settings.shares.firstIndex(where: { $0.mountFrom == grant.mountFrom }) {
-                settings.shares[index].bookmark = grant.bookmark
-                settings.shares[index].writeBookmark = grant.writeBookmark
-                settings.shares[index].serverID = grant.serverID
-                saved = settings.shares[index].id
+            guard settings.servers.contains(where: { $0.id == serverID }) else { throw SettingsError.invalidServer }
+            if let existing = settings.shares.first(where: { $0.serverID == serverID && $0.name == name }) {
+                saved = existing.id
             } else {
-                settings.shares.append(grant)
+                settings.shares.append(ShareRecord(id: saved, serverID: serverID, name: name))
             }
-        }
-        if let share = shares[saved] {
-            share.replaceBookmark(grant.bookmark)
-        } else if let saved = store.settings?.shares.first(where: { $0.id == saved }) {
-            share(for: saved).connect()
         }
         onChange?()
         return saved
     }
 
-    func saveWriteGrant(_ bookmark: Data, grantID: UUID) throws {
-        try store.update { settings in
-            guard let index = settings.shares.firstIndex(where: { $0.id == grantID }) else {
-                throw UploadError.readOnly
-            }
-            settings.shares[index].writeBookmark = bookmark
-        }
-        onChange?()
-    }
-
-    func saveServer(_ address: ServerAddress) throws -> UUID {
-        if let existing = store.settings?.servers.first(where: { $0.matches(address) }) { return existing.id }
-        let server = ServerRecord(address: address)
-        try store.update { $0.servers.append(server) }
-        onChange?()
-        return server.id
+    /// Sign In Again… saved a new password: every share of the server signs in with it.
+    func credentialsChanged(_ serverID: UUID) {
+        signIns[serverID]?.credentialsChanged()
+        let ids = Set(store.settings?.shares.filter { $0.serverID == serverID }.map(\.id) ?? [])
+        for (id, connection) in connections where ids.contains(id) { connection.credentialsChanged() }
     }
 
     func removeServer(_ id: UUID) async throws {
         guard let settings = store.settings else { throw SettingsError.invalidServer }
         guard !settings.serverIsUsed(id) else { throw SettingsError.serverInUse }
-        let grants = settings.shares.filter { $0.serverID == id }
-        for grant in grants { try await disconnect(grant.id, reason: "server_removed") }
+        let ids = settings.shares.filter { $0.serverID == id }.map(\.id)
         try store.update { try $0.removeServer(id) }
-        for grant in grants {
-            shares[grant.id] = nil
-            shareStates[grant.id] = nil
-        }
+        for share in ids { forget(share) }
+        signIns[id] = nil
         onChange?()
     }
 
-    /// Forgets an unused share: it disconnects the share first and keeps the entry if that fails.
+    /// Forgets an unused share. A server without other shares goes with it.
     func removeShare(_ id: UUID) async throws {
         guard let settings = store.settings else { throw SettingsError.invalidServer }
         guard !settings.shareIsUsed(id) else { throw SettingsError.shareInUse }
-        try await disconnect(id, reason: "share_removed")
+        let serverID = settings.shares.first { $0.id == id }?.serverID
         try store.update { try $0.removeShare(id) }
-        shares[id] = nil
-        shareStates[id] = nil
+        forget(id)
+        if let serverID, store.settings?.servers.contains(where: { $0.id == serverID }) != true { signIns[serverID] = nil }
         onChange?()
     }
 
-    func disconnect(_ id: UUID, reason: String = "disconnect") async throws {
-        guard let grant = store.settings?.shares.first(where: { $0.id == id }) else { return }
-        let access = share(for: grant)
-        do {
-            for mount in try ShareAccess.connectedShares() where mount.identity.mountFrom == grant.mountFrom {
-                try await ShareAccess.unmount(mount, reason: reason)
-            }
-        } catch {
-            access.unmountFailed()
-            throw error
-        }
-        access.checkNow()
+    private func forget(_ shareID: UUID) {
+        connections[shareID] = nil
+        shareStates[shareID] = nil
+        volumes[shareID] = nil
+        mountedVolumes.remove(shareID)
     }
 
-    /// Connect mounted the share: its session starts now.
-    func shareMounted(_ grantID: UUID) { shares[grantID]?.checkNow() }
+    /// Connect in a location: the next connection attempt starts now.
+    func connect(_ shareID: UUID) { connection(for: shareID)?.connect() }
 
-    /// The share's mount path, for Select…; nil if it isn't mounted.
-    func mountPath(_ grantID: UUID) -> String? {
-        guard let grant = store.settings?.shares.first(where: { $0.id == grantID }) else { return nil }
-        return share(for: grant).mountPath()
+    /// Server Volume: a visible mount through macOS, with its own sign-in. Returns the NetFS status.
+    func mountVolume(_ shareID: UUID) async -> Int32 {
+        guard let volume = volume(for: shareID) else { return EINVAL }
+        return await volume.mount()
     }
 
-    func addServerVolume(id: UUID, grantID: UUID) throws {
+    /// Server Volume Disconnect: an eject, after which macOS does not mount it again.
+    func unmountVolume(_ shareID: UUID, reason: String = "disconnect") async throws {
+        try await volume(for: shareID)?.unmount(reason: reason)
+    }
+
+    /// Where the Server Volume's share is mounted; nil if it isn't.
+    func volumePath(_ shareID: UUID) -> String? { volume(for: shareID)?.mountPath }
+
+    func addServerVolume(id: UUID, shareID: UUID) throws {
         guard isReady else { throw LocationError.catalogClosed }
         try store.update { settings in
-            try settings.requireMode(.serverVolume, for: grantID)
-            settings.serverVolumes.append(ServerVolumeRecord(id: id, grantID: grantID))
+            try settings.requireMode(.serverVolume, for: shareID)
+            settings.serverVolumes.append(ServerVolumeRecord(id: id, shareID: shareID))
         }
-        if let grant = store.settings?.shares.first(where: { $0.id == grantID }) { share(for: grant).checkNow() }
+        updateRemountWanted()
         onChange?()
     }
 
     func removeServerVolume(_ id: UUID) async throws {
         guard let volume = store.settings?.serverVolumes.first(where: { $0.id == id }) else { return }
-        shares[volume.grantID]?.setRemountWanted(false, browsable: true)
+        volumes[volume.shareID]?.setRemountWanted(false)
         defer { updateRemountWanted() }
-        try await disconnect(volume.grantID, reason: "location_removed")
+        try await unmountVolume(volume.shareID, reason: "location_removed")
         try store.update { $0.serverVolumes.removeAll { $0.id == id } }
         onChange?()
     }
@@ -344,24 +332,23 @@ final class LocationController {
     /// Plan §7: create the catalog, list the root into it, save the record, then add the domain.
     /// The record takes the saved Keep Downloaded paths inside its folder (plan §4). A copy goes
     /// below its original (design §4.2).
-    func add(id: UUID, name: String, folder: RelativePath, grantID: UUID,
-             after original: UUID? = nil, writeBookmark: Data? = nil) async throws -> LocationRecord {
-        guard isReady, let settings = store.settings, let grant = settings.shares.first(where: { $0.id == grantID }) else {
+    func add(id: UUID, name: String, folder: RelativePath, shareID: UUID,
+             after original: UUID? = nil, readOnly: Bool) async throws -> LocationRecord {
+        guard isReady, let settings = store.settings, let address = settings.address(of: shareID) else {
             throw CocoaError(.fileReadUnknown)
         }
-        try settings.requireMode(.fileProvider, for: grantID)
+        try settings.requireMode(.fileProvider, for: shareID)
         var record = LocationRecord(id: id, name: LocationRecord.uniqueName(name, among: settings.locations.map(\.name)),
-                                    grantID: grantID, folder: folder)
-        record.writeBookmark = writeBookmark
-        record.readOnly = writeBookmark == nil
+                                    shareID: shareID, folder: folder)
+        record.readOnly = readOnly
         let listedName = record.name
-        let source = try await makeListedSource(record, folder: folder, grant: grant)
+        let source = try await makeListedSource(record, folder: folder)
         do {
             try store.update { settings in
-                try settings.requireMode(.fileProvider, for: grantID)
+                try settings.requireMode(.fileProvider, for: shareID)
                 // Another Add or a rename can take the name during the root listing.
                 record.name = LocationRecord.uniqueName(name, among: settings.locations.map(\.name))
-                record.pendingKeeps = settings.takeSavedKeeps(host: grant.host, share: grant.share, inside: folder)
+                record.pendingKeeps = settings.takeSavedKeeps(host: address.host, share: address.share, inside: folder)
                 if let index = settings.locations.firstIndex(where: { $0.id == original }) {
                     settings.locations.insert(record, at: index + 1)
                 } else {
@@ -384,26 +371,25 @@ final class LocationController {
         return record
     }
 
-    func setWriteMode(_ recordID: UUID, readOnly: Bool, bookmark: Data?) async throws {
+    /// Read only on: writes stop before the setting is saved. Off: the setting is saved first.
+    func setWriteMode(_ recordID: UUID, readOnly: Bool) async throws {
         guard isReady, let record = store.settings?.locations.first(where: { $0.id == recordID }),
-              readOnly || bookmark != nil,
               !record.removing, let source = sources[record.domainID] else { throw UploadError.readOnly }
-        let save: (Data?, Bool) throws -> Void = { bookmark, readOnly in
+        let save: (Bool) throws -> Void = { readOnly in
             try self.store.update { settings in
                 guard let index = settings.locations.firstIndex(where: { $0.id == recordID }) else { throw UploadError.readOnly }
-                settings.locations[index].writeBookmark = bookmark
                 settings.locations[index].readOnly = readOnly
             }
         }
         if !readOnly {
-            try save(bookmark, false)
-            do { try await Self.offMain { try source.configureWriteMode(bookmark) } }
-            catch { try save(record.writeBookmark, record.readOnly); throw error }
+            try save(false)
+            do { try await Self.offMain { try source.configureWriteMode(true) } }
+            catch { try save(record.readOnly); throw error }
         } else {
-            try await Self.offMain { try source.configureWriteMode(nil) }
-            do { try save(record.writeBookmark, true) }
+            try await Self.offMain { try source.configureWriteMode(false) }
+            do { try save(true) }
             catch {
-                try? await Self.offMain { try source.configureWriteMode(record.activeWriteBookmark) }
+                try? await Self.offMain { try source.configureWriteMode(!record.readOnly) }
                 throw error
             }
         }
@@ -543,39 +529,36 @@ final class LocationController {
     /// Plan §7 Apply: a new catalog with its root listed, the record with both domain IDs, the old
     /// domain removed, then the new one added. Kept paths inside the new source stay pending on the
     /// location; the others go to the old share's saved list.
-    func apply(_ recordID: UUID, grantID: UUID, folder: RelativePath,
-               writeBookmark: Data? = nil) async throws -> LocationRecord {
+    func apply(_ recordID: UUID, shareID: UUID, folder: RelativePath) async throws -> LocationRecord {
         guard isReady, let settings = store.settings,
               let record = settings.locations.first(where: { $0.id == recordID }), !record.removing,
-              let grant = settings.shares.first(where: { $0.id == grantID }) else {
+              let address = settings.address(of: shareID) else {
             throw CocoaError(.fileReadUnknown)
         }
-        try settings.requireMode(.fileProvider, for: grantID)
+        try settings.requireMode(.fileProvider, for: shareID)
         let previousSource = sources[record.domainID]
         if let previousSource { try await Self.offMain { try previousSource.suspendMutations() } }
         else if try LocationSource.pendingWrites(domainID: record.domainID) > 0 { throw UploadError.pendingWrites }
         defer { previousSource?.resumeMutations() }
-        let oldGrant = settings.shares.first { $0.id == record.grantID }
+        let oldAddress = settings.address(of: record.shareID)
         let kept = await keptSharePaths(record) + record.pendingKeeps
-        let sameShare = oldGrant?.isSameShare(host: grant.host, share: grant.share) ?? false
+        let sameShare = oldAddress?.isSameShare(host: address.host, share: address.share) ?? false
         let moving = sameShare ? kept.filter { $0.below(folder) != nil } : []
         var updated = record
         updated.domainID = UUID().uuidString
         updated.retiredDomainID = record.domainID
-        updated.grantID = grantID
+        updated.shareID = shareID
         updated.folder = folder.string
-        updated.writeBookmark = writeBookmark
-        updated.readOnly = writeBookmark == nil
-        let source = try await makeListedSource(updated, folder: folder, grant: grant)
+        let source = try await makeListedSource(updated, folder: folder)
         do {
             try store.update { settings in
-                try settings.requireMode(.fileProvider, for: grantID)
+                try settings.requireMode(.fileProvider, for: shareID)
                 guard let index = settings.locations.firstIndex(where: { $0.id == recordID }) else { return }
-                if let oldGrant {
-                    settings.saveKeeps(kept.filter { !moving.contains($0) }, host: oldGrant.host, share: oldGrant.share)
+                if let oldAddress {
+                    settings.saveKeeps(kept.filter { !moving.contains($0) }, host: oldAddress.host, share: oldAddress.share)
                 }
                 var added = Set<KeepPath>()
-                updated.pendingKeeps = (moving + settings.takeSavedKeeps(host: grant.host, share: grant.share, inside: folder))
+                updated.pendingKeeps = (moving + settings.takeSavedKeeps(host: address.host, share: address.share, inside: folder))
                     .filter { added.insert($0).inserted }
                 settings.locations[index] = updated
             }
@@ -628,12 +611,12 @@ final class LocationController {
             guard items.blocking.isEmpty, items.stoppable == stopping else { throw UploadError.pendingWrites }
         }
         defer { previousSource?.resumeMutations() }
-        let grant = settings.shares.first { $0.id == record.grantID }
+        let address = settings.address(of: record.shareID)
         // A location whose catalog can't be read saves only its pending paths; it must stay removable.
         let paths = saveKeeps && !record.removing ? await keptSharePaths(record) + record.pendingKeeps : []
         try store.update { settings in
             guard let index = settings.locations.firstIndex(where: { $0.id == recordID }) else { return }
-            if let grant { settings.saveKeeps(paths, host: grant.host, share: grant.share) }
+            if let address { settings.saveKeeps(paths, host: address.host, share: address.share) }
             settings.locations[index].removing = true
         }
         notOnServer[recordID] = nil
@@ -939,28 +922,26 @@ final class LocationController {
 
     /// Plan §8 folder completion: lists the typed parent folder unless the last listing was of it.
     /// It never lists more than one folder at a time, and a cancelled request lists nothing.
-    func folderSuggestions(grantID: UUID, typed: String) async -> [String] {
-        guard let query = FolderCompletion(typed: typed),
-              let grant = store.settings?.shares.first(where: { $0.id == grantID }) else { return [] }
-        while completion?.grantID != grantID || completion?.parent != query.parent {
+    func folderSuggestions(shareID: UUID, typed: String) async -> [String] {
+        guard let query = FolderCompletion(typed: typed), let connection = connection(for: shareID) else { return [] }
+        while completion?.shareID != shareID || completion?.parent != query.parent {
             if let running = completionListing {
                 await running.value
                 continue
             }
             guard !Task.isCancelled else { return [] }
-            let share = share(for: grant)
             let listing = Task {
                 let started = ContinuousClock.now
                 do {
-                    let names = try await share.folderNames(in: query.parent)
-                    completion = (grantID, query.parent, names)
+                    let names = try await connection.folderNames(in: query.parent)
+                    completion = (shareID, query.parent, names)
                     Self.listingLog.info("""
                         completion_list folders=\(names.count) \
                         total_ms=\(started.duration(to: .now) / .milliseconds(1), format: .fixed(precision: 1))
                         """)
                 } catch {
                     // Typing on in the same folder doesn't list it again.
-                    completion = (grantID, query.parent, [])
+                    completion = (shareID, query.parent, [])
                     Self.listingLog.error("completion_list \(logFields(error), privacy: .public)")
                 }
                 completionListing = nil
@@ -969,6 +950,12 @@ final class LocationController {
             await listing.value
         }
         return completion.map { query.suggestions(from: $0.names) } ?? []
+    }
+
+    /// Select…'s folder browser: every subfolder name of `path`, or the listing's failure.
+    func folderNames(shareID: UUID, in path: RelativePath) async throws -> [String] {
+        guard let connection = connection(for: shareID) else { throw SettingsError.invalidServer }
+        return try await connection.folderNames(in: path)
     }
 
     /// The Folder field lost focus: the next completion lists again.
@@ -1028,11 +1015,11 @@ final class LocationController {
     /// Plan §7 diagnostics: counts only.
     func diagnostics() async -> Diagnostics {
         let sources = Array(sources.values)
-        let shares = Array(shares.values)
+        let shares = Array(connections.values)
         return (try? await Self.offMain { Self.diagnostics(sources, shares) }) ?? Diagnostics()
     }
 
-    private nonisolated static func diagnostics(_ sources: [LocationSource], _ shares: [ShareAccess]) -> Diagnostics {
+    private nonisolated static func diagnostics(_ sources: [LocationSource], _ shares: [ShareConnection]) -> Diagnostics {
         var counts = Diagnostics()
         for source in sources {
             do {
@@ -1052,7 +1039,7 @@ final class LocationController {
         counts.descriptors = descriptorCount()
         counts.residentBytes = residentBytes()
         counts.shares = shares.count
-        counts.sessions = shares.count { $0.hasSession }
+        counts.connected = shares.count { $0.state == .connected }
         return counts
     }
 
@@ -1064,7 +1051,7 @@ final class LocationController {
             catalogs_open=\(counts.catalogsOpen) catalogs_unavailable=\(counts.catalogsUnavailable) \
             items=\(counts.items) tombstones=\(counts.tombstones) listed_folders=\(counts.listedFolders) \
             stage_files=\(counts.stageFiles) descriptors=\(counts.descriptors) rss_bytes=\(counts.residentBytes) \
-            shares=\(counts.shares) sessions=\(counts.sessions) kept=\(counts.kept) catalogs_paused=\(counts.catalogsPaused)
+            shares=\(counts.shares) connected=\(counts.connected) kept=\(counts.kept) catalogs_paused=\(counts.catalogsPaused)
             """)
     }
 
@@ -1114,11 +1101,10 @@ final class LocationController {
         guard let settings = store.settings else { return }
         for record in settings.locations where !record.removing && sources[record.domainID] == nil {
             do {
-                guard let grant = settings.shares.first(where: { $0.id == record.grantID }),
-                      let folder = RelativePath(record.folder) else { throw CocoaError(.fileReadCorruptFile) }
+                guard let folder = RelativePath(record.folder) else { throw CocoaError(.fileReadCorruptFile) }
                 let catalog = try Catalog.openWriter(at: SharedContainer.catalogURL(domainID: record.domainID),
                                                      domainID: record.domainID)
-                let source = try makeSource(record, folder: folder, grant: grant, catalog: catalog)
+                let source = try makeSource(record, folder: folder, catalog: catalog)
                 sources[record.domainID] = source
                 // Pause Downloads ends with the app process that set it. If it stays, offer Resume.
                 if !Self.pause(source, false) { paused = true }
@@ -1131,8 +1117,9 @@ final class LocationController {
         for source in sources.values { source.retryRenames() }
     }
 
-    private func makeSource(_ record: LocationRecord, folder: RelativePath, grant: ServerGrant,
-                            catalog: Catalog) throws -> LocationSource {
+    private func makeSource(_ record: LocationRecord, folder: RelativePath, catalog: Catalog) throws -> LocationSource {
+        guard let address = store.settings?.address(of: record.shareID),
+              let connection = connection(for: record.shareID) else { throw CocoaError(.fileReadCorruptFile) }
         if let version = try catalog.providerDomainVersion() {
             _ = try ProviderDomainVersion.decode(version)
         } else {
@@ -1143,15 +1130,16 @@ final class LocationController {
         let domain = domain(for: record)
         domains[record.domainID] = domain
         let domainID = record.domainID
-        let source = LocationSource(domainID: domainID, folder: folder, catalog: catalog, access: share(for: grant),
+        let shareID = record.shareID
+        let source = LocationSource(domainID: domainID, folder: folder, catalog: catalog, connection: connection,
                                     renameSettings: { [weak self] rename in
             guard let self else { throw LocationError.catalogClosed }
-            try await self.commitRenameSettings(rename, host: grant.host, share: grant.share)
+            try await self.commitRenameSettings(rename, host: address.host, share: address.share)
         }, renameRecovered: { [weak self] in
             Task { await self?.resumeCreates(domainID) }
         }, deletionSettings: { [weak self] deletion, paths in
             guard let self else { throw LocationError.catalogClosed }
-            try await self.commitDeletionSettings(deletion, paths: paths, owner: domainID, grant: grant.id)
+            try await self.commitDeletionSettings(deletion, paths: paths, owner: domainID, shareID: shareID)
         }, deletionRecovered: { [weak self] in
             Task { await self?.resumeCreates(domainID) }
         }) { folders in
@@ -1162,7 +1150,7 @@ final class LocationController {
                 }
             }
         }
-        try? source.configureWriteMode(record.activeWriteBookmark)
+        try? source.configureWriteMode(!record.readOnly)
         source.onChange { [weak self] in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
@@ -1182,7 +1170,7 @@ final class LocationController {
     }
 
     private func commitDeletionSettings(_ record: PendingDeletion, paths: [KeepPath],
-                                        owner: String, grant: UUID) throws {
+                                        owner: String, shareID: UUID) throws {
         guard record.plan.owner == owner, record.isSettled,
               paths == record.confirmedDeletedKeepPaths else { throw UploadError.unresolved }
         let current = try LocationSource.deletionOutbox().reload(record)
@@ -1194,10 +1182,9 @@ final class LocationController {
                       location.folder.utf8.elementsEqual(view.folder.utf8),
                       let source = sources[view.domain],
                       source.folder.string.utf8.elementsEqual(view.folder.utf8),
-                      source.access.grantID == location.grantID,
-                      let connection = settings.shares.first(where: { $0.id == location.grantID }),
-                      let endpoint = ShareAddress(connection.mountFrom), current.plan.endpoint.matches(endpoint),
-                      view.domain != owner || connection.id == grant else { throw UploadError.unresolved }
+                      source.connection.shareID == location.shareID,
+                      let endpoint = settings.address(of: location.shareID), current.plan.endpoint.matches(endpoint),
+                      view.domain != owner || location.shareID == shareID else { throw UploadError.unresolved }
                 // An older restore must finish before these paths are removed from Settings.
                 guard !restoring.contains(location.id) else { throw UploadError.pendingWrites }
             }
@@ -1291,8 +1278,7 @@ final class LocationController {
 
     private func canDiscover(_ source: LocationSource) -> Bool {
         isReady && sources[source.domainID] === source && domains[source.domainID] != nil
-            && !turnedOff.contains(source.domainID) && source.access.state == .connected
-            && source.access.hasSession
+            && !turnedOff.contains(source.domainID) && source.connection.state == .connected
             && store.settings?.locations.contains { $0.domainID == source.domainID && !$0.removing } == true
     }
 
@@ -1360,49 +1346,68 @@ final class LocationController {
         NSFileProviderDomain(identifier: NSFileProviderDomainIdentifier(record.domainID), displayName: record.name)
     }
 
-    private func share(for grant: ServerGrant) -> ShareAccess {
-        if let share = shares[grant.id] { return share }
-        let grantID = grant.id
-        let share = ShareAccess(grant: grant, store: store) { [weak self] failures in
-            Task { @MainActor in await self?.recovered(grantID, failures) }
+    /// The share's connection; nil for a share that is not saved.
+    private func connection(for shareID: UUID) -> ShareConnection? {
+        if let connection = connections[shareID] { return connection }
+        guard let settings = store.settings, let share = settings.shares.first(where: { $0.id == shareID }),
+              let server = settings.servers.first(where: { $0.id == share.serverID }) else { return nil }
+        let signIn = signIns[server.id] ?? ServerSignIn(login: server.login, credentials: credentials)
+        signIns[server.id] = signIn
+        let connection = ShareConnection(shareID: shareID, address: ShareAddress(server.login, share: share.name),
+                                         client: client, signIn: signIn) { [weak self] failures in
+            Task { @MainActor in await self?.recovered(shareID, failures) }
         }
-        if let settings = store.settings {
-            let related = Set(settings.shares.filter {
-                EditNamespace.key($0.mountFrom) == EditNamespace.key(grant.mountFrom)
-            }.map(\.id))
-            for record in settings.locations where related.contains(record.grantID) {
-                if let folder = RelativePath(record.folder) {
-                    share.editNamespace.register(domain: record.domainID, folder: folder)
-                }
+        // Locations of the same share through another account coordinate with these.
+        let key = EditNamespace.key(ShareAddress(server.login, share: share.name))
+        let related = Set(settings.shares.filter { other in
+            settings.address(of: other.id).map { EditNamespace.key($0) == key } ?? false
+        }.map(\.id))
+        for record in settings.locations where related.contains(record.shareID) {
+            if let folder = RelativePath(record.folder) {
+                connection.editNamespace.register(domain: record.domainID, folder: folder)
             }
         }
         // Changes on two threads can be queued in reverse order, so read the state on main.
-        share.onStateChange { [weak self, weak share] _ in
+        connection.onStateChange { [weak self, weak connection] _ in
             DispatchQueue.main.async {
-                MainActor.assumeIsolated { if let share { self?.shareChanged(grantID, share.state) } }
+                MainActor.assumeIsolated { if let connection { self?.shareChanged(shareID, connection.state) } }
             }
         }
-        shares[grant.id] = share
-        shareStates[grant.id] = share.state
-        let native = store.settings?.serverVolumes.contains { $0.grantID == grantID } == true
-        share.setRemountWanted(native || store.settings?.locations.contains { $0.grantID == grantID } == true,
-                               browsable: native)
-        return share
+        connections[shareID] = connection
+        shareStates[shareID] = connection.state
+        return connection
     }
 
-    /// Phase 3 plan §1: the app mounts again only a share that a location uses.
+    /// The Server Volume's mount; nil for a share that is not saved.
+    private func volume(for shareID: UUID) -> ServerVolumeMount? {
+        if let volume = volumes[shareID] { return volume }
+        guard let address = store.settings?.address(of: shareID) else { return nil }
+        let volume = ServerVolumeMount(shareID: shareID, address: address) { [weak self] mounted in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self, self.volumes[shareID] != nil else { return }
+                    if mounted { self.mountedVolumes.insert(shareID) } else { self.mountedVolumes.remove(shareID) }
+                    self.onChange?()
+                }
+            }
+        }
+        volumes[shareID] = volume
+        volume.setRemountWanted(store.settings?.serverVolumes.contains { $0.shareID == shareID } == true)
+        return volume
+    }
+
+    /// Phase 3 plan §1: macOS mounts again only the share of a Server Volume.
     private func updateRemountWanted() {
-        let native = Set(store.settings?.serverVolumes.map(\.grantID) ?? [])
-        let used = Set(store.settings?.locations.map(\.grantID) ?? []).union(native)
-        for (id, share) in shares { share.setRemountWanted(used.contains(id), browsable: native.contains(id)) }
+        let wanted = Set(store.settings?.serverVolumes.map(\.shareID) ?? [])
+        for (id, volume) in volumes { volume.setRemountWanted(wanted.contains(id)) }
     }
 
-    private func shareChanged(_ grantID: UUID, _ state: ShareHealth.State) {
-        guard shares[grantID] != nil else { return }
-        let before = shareStates[grantID] ?? .notConnected
+    private func shareChanged(_ shareID: UUID, _ state: ConnectionState) {
+        guard connections[shareID] != nil else { return }
+        let before = shareStates[shareID] ?? .notConnected
         guard before != state else { return }
-        shareStates[grantID] = state
-        onShareState?(grantID, before, state)
+        shareStates[shareID] = state
+        onShareState?(shareID, before, state)
         onChange?()
     }
 
@@ -1447,10 +1452,10 @@ final class LocationController {
     }
 
     /// Plan §3 flow 4: the system retries what failed, then flow 5 lists materialized folders again.
-    private func recovered(_ grantID: UUID, _ failures: [SourceFailure]) async {
-        let affected = sources.values.filter { $0.access.grantID == grantID }.map(\.domainID)
+    private func recovered(_ shareID: UUID, _ failures: [SourceFailure]) async {
+        let affected = sources.values.filter { $0.connection.shareID == shareID }.map(\.domainID)
         Self.shareLog.info("""
-            share=\(grantID.uuidString, privacy: .public) recovery domains=\(affected.count) \
+            share=\(shareID.uuidString, privacy: .public) recovery domains=\(affected.count) \
             resolved=\(failures.map { "\($0)" }.joined(separator: ","), privacy: .public)
             """)
         for domainID in affected {
@@ -1458,8 +1463,8 @@ final class LocationController {
             sources[domainID]?.retryDeletions()
             await signalResolved(domainID, failures)
         }
-        relist(grantID)
-        for record in store.settings?.locations ?? [] where record.grantID == grantID && !record.pendingKeeps.isEmpty {
+        relist(shareID)
+        for record in store.settings?.locations ?? [] where record.shareID == shareID && !record.pendingKeeps.isEmpty {
             await restorePendingKeeps(record.id)
         }
     }
@@ -1480,21 +1485,21 @@ final class LocationController {
         }
     }
 
-    /// One relisting per grant at a time; a recovery during one starts another after it.
-    private func relist(_ grantID: UUID) {
-        guard relisting[grantID] == nil else {
-            relisting[grantID] = true
+    /// One relisting per share at a time; a recovery during one starts another after it.
+    private func relist(_ shareID: UUID) {
+        guard relisting[shareID] == nil else {
+            relisting[shareID] = true
             return
         }
-        relisting[grantID] = false
+        relisting[shareID] = false
         Task {
             repeat {
-                relisting[grantID] = false
-                for source in sources.values where source.access.grantID == grantID {
+                relisting[shareID] = false
+                for source in sources.values where source.connection.shareID == shareID {
                     await relistMaterialized(source)
                 }
-            } while relisting[grantID] == true
-            relisting[grantID] = nil
+            } while relisting[shareID] == true
+            relisting[shareID] = nil
         }
     }
 
@@ -1563,11 +1568,10 @@ final class LocationController {
     }
 
     /// A new catalog with its root listed, for Add and Apply. On failure nothing is left.
-    private func makeListedSource(_ record: LocationRecord, folder: RelativePath,
-                                  grant: ServerGrant) async throws -> LocationSource {
+    private func makeListedSource(_ record: LocationRecord, folder: RelativePath) async throws -> LocationSource {
         let url = try SharedContainer.catalogURL(domainID: record.domainID)
         try FileManager.default.createDirectory(at: SharedContainer.catalogsDirectory(), withIntermediateDirectories: true)
-        let source = try makeSource(record, folder: folder, grant: grant,
+        let source = try makeSource(record, folder: folder,
                                 catalog: try Catalog.create(at: url, domainID: record.domainID, rootName: record.name))
         do {
             let receipt = try await source.list(Catalog.rootItemID, requestID: UUID())

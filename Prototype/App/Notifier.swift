@@ -6,7 +6,7 @@ import UserNotifications
 @MainActor
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     static let enabledKey = "notifications"
-    /// Shares with a notification in this outage; a connection ends the outage.
+    /// Shares and servers with a notification in this outage; a connection ends the outage.
     private var notified: Set<UUID> = []
     nonisolated private static let log = Logger(subsystem: "dev.tinymounter.prototype", category: "share")
 
@@ -30,44 +30,41 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    /// Posts when a share that has locations goes from connected to not connected or unresponsive.
-    func shareChanged(_ grant: ServerGrant, from before: ShareHealth.State, to state: ShareHealth.State,
+    /// Posts when a share that has locations stops answering, and once per server that refuses the
+    /// saved password. A lost network needs no notification: the share connects again by itself.
+    func shareChanged(_ share: ShareRecord, host: String, from before: ConnectionState, to state: ConnectionState,
                       hasLocations: Bool) {
         switch (before, state) {
         case (_, .connected):
-            notified.remove(grant.id)
+            notified.remove(share.id)
+            notified.remove(share.serverID)
         case _ where !hasLocations:
             break
-        case (.connected, .notConnected):
-            post(grant, title: UIText.shareDisconnected(grant.share), body: UIText.connectInLocation)
         case (.connected, .unresponsive):
-            post(grant, title: UIText.cannotConnectTitle(grant.host), body: UIText.onSameNetwork(grant.host))
+            post(share.id, title: UIText.cannotConnectTitle(host), body: UIText.onSameNetwork(host))
+        case (_, .needsSignIn):
+            post(share.serverID, title: UIText.cannotSignInTitle(host), body: UIText.signInAgainInSettings)
         default:
             break
         }
     }
 
-    /// The user disconnects the share, so its outage gets no notification.
-    func userDisconnected(_ grantID: UUID) { notified.insert(grantID) }
-
-    /// The share is still mounted.
-    func disconnectFailed(_ grantID: UUID) { notified.remove(grantID) }
-
     /// A download that the user started failed because the share is not connected or does not respond.
-    func downloadFailed(_ grant: ServerGrant, _ failure: SourceFailure) {
-        post(grant, title: UIText.downloadFailedTitle,
-             body: failure == .notConnected ? UIText.connectInLocation : UIText.onSameNetwork(grant.host))
+    func downloadFailed(_ share: ShareRecord, host: String, _ failure: SourceFailure) {
+        post(share.id, title: UIText.downloadFailedTitle,
+             body: failure == .notConnected ? UIText.connectInLocation : UIText.onSameNetwork(host))
     }
 
-    private func post(_ grant: ServerGrant, title: String, body: String) {
-        guard isEnabled, notified.insert(grant.id).inserted else { return }
+    /// `id` is a share's, or a server's for sign-in; it has one notification per outage.
+    private func post(_ id: UUID, title: String, body: String) {
+        guard isEnabled, notified.insert(id).inserted else { return }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
-        let request = UNNotificationRequest(identifier: "share-\(grant.id.uuidString)", content: content, trigger: nil)
+        let request = UNNotificationRequest(identifier: "share-\(id.uuidString)", content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request) { error in
             Self.log.info("""
-                notification share=\(grant.id.uuidString, privacy: .public) posted=\(error == nil)
+                notification share=\(id.uuidString, privacy: .public) posted=\(error == nil)
                 """)
         }
     }

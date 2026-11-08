@@ -97,6 +97,9 @@ public protocol RemoteSession: AnyObject, UploadRemote, FileRenameRemote, Folder
     func renameSourceEntry(path: String) throws -> RenameDirectoryEntry?
     func allowPublishedReads(path: String, expected: RemoteFileVersion) throws
     func captureFolderMoveProofs(move: CatalogFolderMove, folder: RelativePath) throws -> [CatalogFolderMoveProof]
+    /// Holds the parent chain, every directory and every file until `releaseDeletionTraversal`.
+    func captureDeletionTraversal(of selected: RelativePath, recursive: Bool,
+                                  expecting expectations: [DeletionExpectation]) throws -> DeletionTraversal
     func releaseDeletionTraversal() throws
 }
 

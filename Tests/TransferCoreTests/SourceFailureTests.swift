@@ -5,7 +5,7 @@ import XCTest
 @testable import TransferCore
 
 final class SourceFailureTests: XCTestCase {
-    private let everywhere: [SourceFailure.Context] = [.shareRoot, .locationRoot, .listing, .fetch]
+    private let everywhere: [SourceFailure.Context] = [.listing, .fetch]
 
     func testErrnoRowsOfThePlanTable() {
         // A nil expectation is unknown with the errno.
@@ -13,13 +13,9 @@ final class SourceFailureTests: XCTestCase {
             ("timeout class", [ETIMEDOUT, ENOTCONN, ENETDOWN, ENETUNREACH, EHOSTDOWN, EHOSTUNREACH, ECONNRESET,
                                ECONNREFUSED, EPIPE, ENXIO, ESTALE], everywhere, .serverUnreachable),
             ("EAUTH or ENEEDAUTH", [EAUTH, ENEEDAUTH], everywhere, .notAuthenticated),
-            ("EPERM at the share or location root", [EPERM], [.shareRoot, .locationRoot], .notAuthenticated),
-            ("EPERM on an item", [EPERM], [.listing, .fetch], .noPermission),
-            ("EACCES", [EACCES], everywhere, .noPermission),
+            ("EPERM or EACCES", [EPERM, EACCES], everywhere, .noPermission),
             ("ELOOP or ENOTCAPABLE", [ELOOP, ENOTCAPABLE], everywhere, .pathRejected),
-            ("ENOENT or ENOTDIR on an item", [ENOENT, ENOTDIR], [.listing, .fetch], .missing),
-            ("location folder not on the share", [ENOENT, ENOTDIR], [.locationRoot], .missing),
-            ("share root gone with its mount", [ENOENT, ENOTDIR], [.shareRoot], .notConnected),
+            ("ENOENT or ENOTDIR", [ENOENT, ENOTDIR], everywhere, .missing),
             ("not in the table", [EIO, ECANCELED], everywhere, nil),
         ]
         for row in rows {
@@ -73,15 +69,8 @@ final class SourceFailureTests: XCTestCase {
     }
 
     func testThrownOpenErrorIsClassified() throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let fd = open(directory.path(percentEncoded: false), O_RDONLY | O_DIRECTORY | O_CLOEXEC)
-        XCTAssertGreaterThanOrEqual(fd, 0)
-        defer { close(fd) }
-        let missing = try XCTUnwrap(RelativePath("missing.bin"))
-        let identity = try MountIdentity(descriptor: fd)
-        XCTAssertThrowsError(try ReadOnlyFile(directoryFD: fd, relativePath: missing, expected: identity)) {
+        let missing = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        XCTAssertThrowsError(try ReadOnlyFile(url: missing)) {
             XCTAssertEqual(SourceFailure.classify($0, context: .fetch), .missing)
         }
     }

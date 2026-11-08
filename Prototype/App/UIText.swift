@@ -26,14 +26,12 @@ enum UIText {
     static let nativeVolumeHint = "Opens the whole share directly in Finder. Files stay on the server and are unavailable offline. Access follows the server's permissions."
     static let modeSwitchHint = "To switch modes, remove this share's existing locations first."
     static let shareModeConflict = "This share already uses another mode, or already has a server volume. Remove its existing locations before adding a different mode."
-    static let nativeMountUnavailable = "macOS reused a hidden connection. Disconnect this share in Servers, then try again."
     static let volumeBusy = "This server volume is in use. Close its open files and windows, then try again. The location has not been removed."
     static let removeServerVolumeHint = "Disconnect this server volume and stop reconnecting it automatically. Files on the server do not change. Close files that are open on the share first."
 
     // Location pane
     static let access = "Access"
     static let readOnly = "Read only"
-    static let confirmWriteSetup = "Confirm Write Access"
     static var writeModeHint: String {
         let base = "Read only prevents changes to files on the server. Turn it off to create items, edit files, and rename or move ordinary files within this location."
         if SourceReaderBridge.deletionEnabled {
@@ -235,9 +233,8 @@ enum UIText {
     static func pendingMove(from: String, to: String) -> String { "Move \(from) to \(to)" }
     static let conflictSaved = "Saved as a conflict copy"
     static let dismissEditNotice = "Dismiss Notice"
-    static let writeGrantMessage = "Select this share once to allow changes. TinyMounter will remember this permission for its locations."
     static let pendingUploadHint = "Keep this location and its source until the changes finish. Pending content stays on this Mac. An interrupted change may need recovery."
-    static let uploadAccessError = "Select this share again. Read only cannot be enabled while changes are pending."
+    static let uploadAccessError = "TinyMounter cannot make this change now. Try again."
     static func pendingUploads(_ count: Int) -> String { "Pending changes: \(count)" }
     static let source = "Source"
     static let server = "Server"
@@ -284,7 +281,6 @@ enum UIText {
     static let removalNotComplete = "The removal is not complete."
     static let connectInLocation = "Open this location in TinyMounter Settings. Then click Connect."
     static let clickConnect = "Not connected. Click Connect."
-    static let selectShareAgain = "Select the share again. Click Select Again… in the location."
     static let folderNotOnShare = "This folder is not on the share."
     static let catalogUnavailable = "TinyMounter cannot read the data for this location. Remove the location. Then add it again."
     static let turnedOff = "File Provider is off."
@@ -362,11 +358,6 @@ enum UIText {
     static let providerTranslocated = "Quit TinyMounter. Use Finder to drag the app into Applications, then open it from there. macOS cannot enable its File Provider from this temporary location."
     static let wrongFolderPath = "This folder path is not correct. Type a path in the share."
     static let wrongName = "This name is not correct. Type a different name."
-    static let notVolumeRoot = "This folder is not a share. Select the share, not a folder in it."
-    static let notSMBShare = "This volume is not an SMB share. To add a share, click Add Share…."
-    static let addressRejected = "TinyMounter cannot use the address of this share."
-    static let otherShare = "This is a different share. To add it, click Add Share…."
-    static let otherAccount = "This share is connected through another account. To use this account, eject the other connection. Then click Add Share… again."
     static let wrongAddress = "This address is not correct. Type an address such as smb://server/share."
     static func passwordNotAccepted(_ host: String) -> String {
         "\(host) did not accept the password. Type the password again."
@@ -375,9 +366,6 @@ enum UIText {
     static let cannotShow = "Finder cannot show this location."
     static let shareInUse = "A location uses this share. Remove the location first."
     static func cannotDo(_ code: String) -> String { "TinyMounter cannot do this (\(code))." }
-
-    // Panels
-    static let selectShareMessage = "Click Open to give TinyMounter access to this share. Use Read only in a location to prevent changes."
 
     // Folder browser
     static func selectFolderTitle(_ share: String) -> String { "Select a folder in \(share)." }
@@ -388,9 +376,7 @@ enum UIText {
     static let folderBrowserHint = "To open a folder, double-click it. Choose uses the selected folder, or this folder if you select none."
 
     // Servers
-    static let selectAgain = "Select Again…"
     static let notResponding = "Cannot connect"
-    static let selectShareAgainShort = "Select the share again."
     static let signInAgainShort = "Sign in again."
     static let passwordSaved = "Password saved"
     static func accountAndShare(_ account: String, _ share: String) -> String { "\(account) · \(share)" }
@@ -405,29 +391,20 @@ enum UIText {
     static let forgetUsedHelp = "A location uses this share. Remove the location first."
     static func forgetShareTitle(_ share: String) -> String { "Forget the share \(share)?" }
     static let forgetShareMessage = """
-        TinyMounter disconnects the share and forgets its access. The files on the server do not change. \
-        To use the share again, add a location and select the share.
+        TinyMounter forgets this share. The files on the server do not change. \
+        To use the share again, add a location. Then add the share there.
         """
-    static let useShare = "Use Share"
-    static let useOtherAddressTitle = "Use the connection at this other address?"
-    static func useOtherAddress(_ address: ShareAddress, server: String) -> String {
-        "Use \(address.host) / \(address.share), connected as \(address.account), with \(server)? Forget in Servers ejects this connection from this Mac."
-    }
-    static let connectAnotherShare = "Connect Another Share…"
-    static let chooseShareDescription = """
-        These shares are already connected on this Mac. To use one, select it and click Use Share. \
-        To connect another share, click Connect Another Share. macOS asks for the password if necessary. \
-        Select “Remember this password in my keychain”, so that TinyMounter can connect again.
-        """
-    static func chooseShareTitle(_ host: String) -> String { "Choose a share for \(host)." }
-    static func mountedShare(_ address: ShareAddress) -> String {
-        "\(address.host) / \(address.share) · \(address.account)"
-    }
+    static func chooseShareTitle(_ host: String) -> String { "Choose a share on \(host)." }
+    static let addShareButton = "Add Share"
+    static func noSharesOnServer(_ host: String) -> String { "\(host) has no shares that TinyMounter can use." }
+    static let cannotForgetShare = "TinyMounter cannot forget this share. Try again."
+    static let mounted = "Mounted"
+    static let notMounted = "Not mounted"
     static func serverAddress(_ server: ServerRecord) -> String { server.login.account + "@" + server.login.host }
     static let cannotRemoveServer = "TinyMounter cannot forget this server. Try again."
     static func forgetServerTitle(_ server: String) -> String { "Forget the server \(server)?" }
     static let forgetServerMessage = """
-        TinyMounter disconnects the shares of this server and deletes its saved password. \
+        TinyMounter forgets the shares of this server and deletes its saved password. \
         The files on the server do not change.
         """
     static let forgetServerUsedHelp = "A location uses this server. Remove the location first."
@@ -438,6 +415,13 @@ enum UIText {
     static let password = "Password"
     static let signInTitle = "Type the server address, your name and your password."
     static func signInAgainTitle(_ host: String) -> String { "Type your password for \(host) again." }
+    static func signInAgainMessage(_ host: String) -> String {
+        "\(host) did not accept the saved password. Click Sign In Again… and type the password."
+    }
+    static let localNetworkDenied = """
+        TinyMounter cannot reach the local network. In System Settings › Privacy & Security › Local Network, \
+        turn on TinyMounter. Then try again.
+        """
     static let signInDescription = "TinyMounter keeps the password in your keychain."
     static let signInRefused = "The server did not accept this name and password."
     static let typeName = "Type the name of your account on the server."
@@ -512,8 +496,9 @@ enum UIText {
     static let quitMessage = "Files that are not downloaded cannot open until TinyMounter starts again."
 
     // Notifications
-    static func shareDisconnected(_ share: String) -> String { "“\(share)” is not connected" }
     static func cannotConnectTitle(_ host: String) -> String { "TinyMounter cannot connect to \(host)" }
+    static func cannotSignInTitle(_ host: String) -> String { "TinyMounter cannot sign in to \(host)" }
+    static let signInAgainInSettings = "Open TinyMounter Settings. Then click Sign In Again…"
     static let downloadFailedTitle = "A file cannot download"
     static func onSameNetwork(_ host: String) -> String {
         "Make sure that \(host) is on. Make sure that this Mac is on the same network."

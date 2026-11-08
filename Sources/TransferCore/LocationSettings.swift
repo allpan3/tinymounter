@@ -8,15 +8,15 @@ public enum SettingsError: Error, Equatable, Sendable {
     case shareInUse
 }
 
-/// Never in the App Group: grants and saved paths are private.
+/// Never in the App Group: servers, shares and saved paths are private.
 public struct AppSettings: Codable, Equatable, Sendable {
     public var servers: [ServerRecord]
-    public var shares: [ServerGrant]
+    public var shares: [ShareRecord]
     public var locations: [LocationRecord]
     public var savedKeeps: [SavedKeepList]
     public var serverVolumes: [ServerVolumeRecord]
 
-    public init(servers: [ServerRecord] = [], shares: [ServerGrant] = [], locations: [LocationRecord] = [],
+    public init(servers: [ServerRecord] = [], shares: [ShareRecord] = [], locations: [LocationRecord] = [],
                 savedKeeps: [SavedKeepList] = [], serverVolumes: [ServerVolumeRecord] = []) {
         self.servers = servers
         self.shares = shares
@@ -28,7 +28,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         servers = try container.decode([ServerRecord].self, forKey: .servers)
-        shares = try container.decode([ServerGrant].self, forKey: .shares)
+        shares = try container.decode([ShareRecord].self, forKey: .shares)
         locations = try container.decode([LocationRecord].self, forKey: .locations)
         savedKeeps = try container.decode([SavedKeepList].self, forKey: .savedKeeps)
         serverVolumes = try container.decodeIfPresent([ServerVolumeRecord].self, forKey: .serverVolumes) ?? []
@@ -71,42 +71,48 @@ public struct AppSettings: Codable, Equatable, Sendable {
     }
 
     public func serverIsUsed(_ id: UUID) -> Bool {
-        let grants = Set(shares.filter { $0.serverID == id }.map(\.id))
-        return locations.contains { grants.contains($0.grantID) }
-            || serverVolumes.contains { grants.contains($0.grantID) }
+        let ids = Set(shares.filter { $0.serverID == id }.map(\.id))
+        return locations.contains { ids.contains($0.shareID) } || serverVolumes.contains { ids.contains($0.shareID) }
     }
 
     public func shareIsUsed(_ id: UUID) -> Bool {
-        locations.contains { $0.grantID == id } || serverVolumes.contains { $0.grantID == id }
+        locations.contains { $0.shareID == id } || serverVolumes.contains { $0.shareID == id }
+    }
+
+    /// The server's sign-in and the share's name; nil for an unknown share.
+    public func address(of shareID: UUID) -> ShareAddress? {
+        guard let share = shares.first(where: { $0.id == shareID }),
+              let server = servers.first(where: { $0.id == share.serverID }) else { return nil }
+        return ShareAddress(server.login, share: share.name)
+    }
+
+    /// Every saved share with this host and share name, through any account.
+    public func relatedShareIDs(host: String, share: String) -> Set<UUID> {
+        Set(shares.compactMap { record in
+            address(of: record.id).flatMap { $0.isSameShare(host: host, share: share) ? record.id : nil }
+        })
     }
 
     private func validateServerVolumes() throws {
         var used: Set<UUID> = []
         for volume in serverVolumes {
-            guard let grant = shares.first(where: { $0.id == volume.grantID }),
+            guard let address = address(of: volume.shareID),
                   used.insert(volume.id).inserted else { throw SettingsError.invalidServer }
-            let related = Set(shares.filter { $0.isSameShare(host: grant.host, share: grant.share) }.map(\.id))
-            guard !locations.contains(where: { related.contains($0.grantID) }),
-                  serverVolumes.filter({ related.contains($0.grantID) }).count == 1 else {
+            let related = relatedShareIDs(host: address.host, share: address.share)
+            guard !locations.contains(where: { related.contains($0.shareID) }),
+                  serverVolumes.filter({ related.contains($0.shareID) }).count == 1 else {
                 throw SettingsError.shareModeConflict
             }
         }
     }
 
-    public func requireMode(_ mode: LocationMode, for grantID: UUID) throws {
-        guard let grant = shares.first(where: { $0.id == grantID }) else { throw SettingsError.invalidServer }
-        let related = Set(shares.filter { $0.isSameShare(host: grant.host, share: grant.share) }.map(\.id))
-        guard !serverVolumes.contains(where: { related.contains($0.grantID) }),
-              mode == .fileProvider || !locations.contains(where: { related.contains($0.grantID) }) else {
+    public func requireMode(_ mode: LocationMode, for shareID: UUID) throws {
+        guard let address = address(of: shareID) else { throw SettingsError.invalidServer }
+        let related = relatedShareIDs(host: address.host, share: address.share)
+        guard !serverVolumes.contains(where: { related.contains($0.shareID) }),
+              mode == .fileProvider || !locations.contains(where: { related.contains($0.shareID) }) else {
             throw SettingsError.shareModeConflict
         }
-    }
-
-    public func writeBookmark(for grantID: UUID) -> Data? {
-        guard let grant = shares.first(where: { $0.id == grantID }) else { return nil }
-        return grant.writeBookmark ?? locations.first(where: {
-            $0.grantID == grantID && $0.writeBookmark != nil
-        })?.writeBookmark
     }
 
     public mutating func removeServer(_ id: UUID) throws {
@@ -115,14 +121,13 @@ public struct AppSettings: Codable, Equatable, Sendable {
         servers.removeAll { $0.id == id }
     }
 
-    /// Forgets an unused share grant. A server without other shares goes with it.
+    /// Forgets an unused share. A server without other shares goes with it.
     public mutating func removeShare(_ id: UUID) throws {
         guard !shareIsUsed(id) else { throw SettingsError.shareInUse }
         guard let serverID = shares.first(where: { $0.id == id })?.serverID else { return }
         shares.removeAll { $0.id == id }
         if !shares.contains(where: { $0.serverID == serverID }) { servers.removeAll { $0.id == serverID } }
     }
-
 }
 
 public enum LocationMode: String, CaseIterable, Sendable {
@@ -131,11 +136,11 @@ public enum LocationMode: String, CaseIterable, Sendable {
 
 public struct ServerVolumeRecord: Codable, Equatable, Identifiable, Sendable {
     public let id: UUID
-    public let grantID: UUID
+    public let shareID: UUID
 
-    public init(id: UUID = UUID(), grantID: UUID) {
+    public init(id: UUID = UUID(), shareID: UUID) {
         self.id = id
-        self.grantID = grantID
+        self.shareID = shareID
     }
 }
 
@@ -157,46 +162,31 @@ public struct ServerRecord: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
-/// The bookmark, `mountFrom`, host and account are private: never log them.
-public struct ServerGrant: Codable, Equatable, Sendable {
+/// One share on a server. The name is private: never log it.
+public struct ShareRecord: Codable, Equatable, Identifiable, Sendable {
     public let id: UUID
     public var serverID: UUID
-    /// App-scoped, with `.withSecurityScope` and `.securityScopeAllowOnlyReadAccess`.
-    public var bookmark: Data
-    /// Retained permission; each location still controls whether writes are enabled.
-    public var writeBookmark: Data?
-    /// `f_mntfromname`, "//account@host/share".
-    public let mountFrom: String
-    /// From `NSURLVolumeURLForRemountingKey`.
-    public let host: String, account: String, share: String
+    public let name: String
 
-    public init(id: UUID = UUID(), serverID: UUID, bookmark: Data, writeBookmark: Data? = nil,
-                mountFrom: String, address: ShareAddress) {
+    public init(id: UUID = UUID(), serverID: UUID, name: String) {
         self.id = id
         self.serverID = serverID
-        self.bookmark = bookmark
-        self.writeBookmark = writeBookmark
-        self.mountFrom = mountFrom
-        host = address.host
-        account = address.account
-        share = address.share
+        self.name = name
     }
 
-    /// The same share, maybe through another account: Apply keeps its kept paths on the location.
-    public func isSameShare(host: String, share: String) -> Bool {
-        Self.isSameShare(self.host, self.share, host, share)
-    }
-
-    /// Host names and SMB share names don't depend on case.
-    static func isSameShare(_ host: String, _ share: String, _ otherHost: String, _ otherShare: String) -> Bool {
-        host.caseInsensitiveCompare(otherHost) == .orderedSame && share.caseInsensitiveCompare(otherShare) == .orderedSame
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        serverID = try container.decode(UUID.self, forKey: .serverID)
+        name = try container.decode(String.self, forKey: .name)
+        guard RelativePath.isValidComponent(name) else { throw SettingsError.invalidServer }
     }
 }
 
 public struct LocationRecord: Codable, Equatable, Sendable {
     public let id: UUID
     public var name: String
-    public var grantID: UUID
+    public var shareID: UUID
     /// A `RelativePath` from the share root; "" is the full share.
     public var folder: String
     /// The `NSFileProviderDomainIdentifier`, a UUID.
@@ -206,16 +196,13 @@ public struct LocationRecord: Codable, Equatable, Sendable {
     public var removing = false
     /// Saved Keep Downloaded paths, from the share root, that this location took but hasn't found yet.
     public var pendingKeeps: [KeepPath] = []
-    public var writeBookmark: Data?
     public var readOnly = true
 
-    public var activeWriteBookmark: Data? { readOnly ? nil : writeBookmark }
-
-    public init(id: UUID = UUID(), name: String, grantID: UUID, folder: RelativePath,
+    public init(id: UUID = UUID(), name: String, shareID: UUID, folder: RelativePath,
                 domainID: String = UUID().uuidString) {
         self.id = id
         self.name = name
-        self.grantID = grantID
+        self.shareID = shareID
         self.folder = folder.string
         self.domainID = domainID
     }
@@ -255,7 +242,7 @@ public struct LocationRecord: Codable, Equatable, Sendable {
 }
 
 public struct SavedKeepList: Codable, Equatable, Sendable {
-    /// Not the grant ID, so that a new grant for the same share matches.
+    /// Not the share ID, so that the same share saved again, or through another account, matches.
     public let host: String, share: String
     /// `RelativePath`s from the share root.
     public var paths: [KeepPath]
@@ -266,7 +253,7 @@ public struct SavedKeepList: Codable, Equatable, Sendable {
         self.paths = paths
     }
 
-    func isFor(host: String, share: String) -> Bool { ServerGrant.isSameShare(self.host, self.share, host, share) }
+    func isFor(host: String, share: String) -> Bool { ShareAddress.isSameShare(self.host, self.share, host, share) }
 }
 
 extension AppSettings {
@@ -280,8 +267,8 @@ extension AppSettings {
         func retained(_ paths: [KeepPath]) -> [KeepPath] {
             paths.filter { !deleted.contains(KeepPath(path: NameKey($0.path).value, kind: $0.kind)) }
         }
-        let related = Set(shares.filter { ServerGrant.isSameShare($0.host, $0.share, host, share) }.map(\.id))
-        for index in locations.indices where related.contains(locations[index].grantID) {
+        let related = relatedShareIDs(host: host, share: share)
+        for index in locations.indices where related.contains(locations[index].shareID) {
             locations[index].pendingKeeps = retained(locations[index].pendingKeeps)
         }
         for index in savedKeeps.indices where savedKeeps[index].isFor(host: host, share: share) {
@@ -293,8 +280,8 @@ extension AppSettings {
     public mutating func removeKeptFolder(at path: String, host: String, share: String) throws {
         guard let folder = RelativePath(path), !folder.isRoot else { throw UploadError.invalidRequest }
         let prefix = folder.components.map(NameKey.init)
-        let related = Set(shares.filter { ServerGrant.isSameShare($0.host, $0.share, host, share) }.map(\.id))
-        let paths = locations.filter { related.contains($0.grantID) }.flatMap(\.pendingKeeps)
+        let related = relatedShareIDs(host: host, share: share)
+        let paths = locations.filter { related.contains($0.shareID) }.flatMap(\.pendingKeeps)
             + savedKeeps.filter { $0.isFor(host: host, share: share) }.flatMap(\.paths)
         let removed = try paths.filter { keep in
             guard let current = RelativePath(keep.path) else { throw UploadError.invalidRequest }
@@ -334,8 +321,8 @@ extension AppSettings {
             }.filter { seen.insert($0).inserted }
         }
         var updated = self
-        let related = Set(shares.filter { ServerGrant.isSameShare($0.host, $0.share, host, share) }.map(\.id))
-        for index in locations.indices where related.contains(locations[index].grantID) {
+        let related = relatedShareIDs(host: host, share: share)
+        for index in locations.indices where related.contains(locations[index].shareID) {
             updated.locations[index].pendingKeeps = try moved(locations[index].pendingKeeps)
         }
         for index in savedKeeps.indices where savedKeeps[index].isFor(host: host, share: share) {
@@ -356,8 +343,8 @@ extension AppSettings {
                     ? KeepPath(path: destination, kind: .file) : path
             }.filter { seen.insert($0).inserted }
         }
-        let related = Set(shares.filter { ServerGrant.isSameShare($0.host, $0.share, host, share) }.map(\.id))
-        for index in locations.indices where related.contains(locations[index].grantID) {
+        let related = relatedShareIDs(host: host, share: share)
+        for index in locations.indices where related.contains(locations[index].shareID) {
             locations[index].pendingKeeps = moved(locations[index].pendingKeeps)
         }
         for index in savedKeeps.indices where savedKeeps[index].isFor(host: host, share: share) {
@@ -396,21 +383,33 @@ extension AppSettings {
     }
 }
 
-/// An SMB share address with an account and never a password.
+/// A share with the account that signs in to it, never a password. Host, account and share are private.
 public struct ShareAddress: Hashable, Sendable {
+    public let remoteProtocol: RemoteProtocol
     public let host: String
     public let account: String
     public let share: String
 
-    public static func withoutEmptyPassword(_ string: String) -> String? {
-        guard var components = URLComponents(string: string) else { return nil }
-        guard let password = components.password else { return string }
-        guard password.isEmpty else { return nil }
-        components.password = nil
-        return components.string
+    public init(_ login: ServerAccount, share: String) {
+        remoteProtocol = login.remoteProtocol
+        host = login.host
+        account = login.account
+        self.share = share
     }
 
-    /// Parses `f_mntfromname` ("//account@host/share") and a remount URL ("smb://account@host/share").
+    public var login: ServerAccount { ServerAccount(remoteProtocol: remoteProtocol, host: host, account: account) }
+
+    /// The same share, maybe through another account: Apply keeps its kept paths on the location.
+    public func isSameShare(host: String, share: String) -> Bool {
+        Self.isSameShare(self.host, self.share, host, share)
+    }
+
+    /// Host names and SMB share names don't depend on case.
+    static func isSameShare(_ host: String, _ share: String, _ otherHost: String, _ otherShare: String) -> Bool {
+        host.caseInsensitiveCompare(otherHost) == .orderedSame && share.caseInsensitiveCompare(otherShare) == .orderedSame
+    }
+
+    /// Parses an SMB `f_mntfromname` ("//account@host/share") and a remount URL ("smb://account@host/share").
     public init?(_ string: String) {
         guard let components = URLComponents(string: string),
               components.scheme.map({ $0.lowercased() == "smb" }) ?? string.hasPrefix("//"),
@@ -423,6 +422,7 @@ public struct ShareAddress: Hashable, Sendable {
         if parts.count == 3, parts[2].isEmpty { parts.removeLast() }
         guard parts.count == 2, parts[0].isEmpty, let share = parts[1].removingPercentEncoding,
               RelativePath.isValidComponent(share) else { return nil }
+        remoteProtocol = .smb
         self.host = host
         self.account = account
         self.share = share
@@ -435,9 +435,8 @@ public struct ServerAddress: Equatable, Sendable {
     public let url: URL
     public let host: String
     public let account: String?
-    /// Nil for only the server: macOS then asks which share to mount.
+    /// Nil for only the server: the user then picks one of its shares.
     public let share: String?
-    public let serverURL: URL
 
     public init?(typed text: String) {
         var text = text.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: " ", with: "%20")
@@ -461,18 +460,7 @@ public struct ServerAddress: Equatable, Sendable {
         components.percentEncodedPath = parts.count == 2 ? "/" + parts[1] : ""
         guard let url = components.url else { return nil }
         self.url = url
-        components.percentEncodedPath = ""
-        guard let serverURL = components.url else { return nil }
-        self.serverURL = serverURL
         self.host = host
         account = components.user
-    }
-
-    /// For a share that is already mounted: the same server and share, and the account if typed.
-    public func matches(_ mounted: ShareAddress) -> Bool {
-        func same(_ typed: String?, _ other: String) -> Bool {
-            typed.map { $0.caseInsensitiveCompare(other) == .orderedSame } ?? true
-        }
-        return same(host, mounted.host) && same(share, mounted.share) && same(account, mounted.account)
     }
 }

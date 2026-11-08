@@ -50,7 +50,7 @@ extension LocationSource {
 
     func deleteItem(_ request: DeletionRequest, recursive: Bool, progress: Progress,
                     started: @escaping @Sendable () -> Void, reply: @escaping DeletionReply) {
-        access.enqueue { [self] in
+        connection.enqueue { [self] in
             var request = request
             started()
             var recovery: LocationDeletionRecovery?
@@ -97,7 +97,7 @@ extension LocationSource {
 
     // Launch and share recovery settle outcomes without issuing another remote deletion request.
     func retryDeletions() {
-        access.enqueue { [self] in
+        connection.enqueue { [self] in
             do {
                 try requireDeletionRecoverySource()
                 let records = try editNamespace.perform { try Self.deletionOutbox().records() }
@@ -117,7 +117,7 @@ extension LocationSource {
     }
 
     func retryDeletion(_ id: UUID, reply: @escaping DeletionReply) {
-        access.enqueue { [self] in retryDeletionOnLane(id, resume: true, reply: reply) }
+        connection.enqueue { [self] in retryDeletionOnLane(id, resume: true, reply: reply) }
     }
 
     // Cancellation must reach a node before Stop waits behind that node on the lane.
@@ -132,7 +132,7 @@ extension LocationSource {
             return (accepted, accepted ? deletionProgress[id] : nil)
         }
         guard accepted else { return }
-        access.enqueue { [self] in
+        connection.enqueue { [self] in
             deletionRecoveryLock.withLock {
                 deletionCancellation.finishedStop(id)
             }
@@ -172,7 +172,7 @@ extension LocationSource {
     }
 
     func dismissDeletion(_ id: UUID, reply: @escaping @Sendable (Result<Void, Error>) -> Void) {
-        access.enqueue { [self] in
+        connection.enqueue { [self] in
             let result = Result {
                 try requireDeletionRecoverySource()
                 try editNamespace.perform {
@@ -194,7 +194,7 @@ extension LocationSource {
             return Array(deletionProgress.values)
         }
         for progress in active { progress.cancel() }
-        access.enqueue { [self] in
+        connection.enqueue { [self] in
             for recovery in Array(deletionRecoveries.values) {
                 completeDeletionRecovery(recovery, result: .failure(LocationError.catalogClosed))
             }
@@ -305,7 +305,7 @@ extension LocationSource {
                 } catch {
                     result = .failure(error)
                 }
-                access.enqueue { [self] in finishDeletionSettings(recovery, record: record, result: result) }
+                connection.enqueue { [self] in finishDeletionSettings(recovery, record: record, result: result) }
             }
         } catch {
             failDeletionRecovery(recovery, error: error)
@@ -348,7 +348,7 @@ extension LocationSource {
         let seconds = max(0, delay / .seconds(1))
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + seconds) { [weak self, weak recovery] in
             guard let self, let recovery else { return }
-            self.access.enqueue { [self] in
+            self.connection.enqueue { [self] in
                 guard self.deletionRecoveries[id] === recovery, recovery.scheduled == token else { return }
                 recovery.scheduled = nil
                 self.continueDeletionOnLane(recovery, resume: resume)

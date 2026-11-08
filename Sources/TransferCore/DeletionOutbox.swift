@@ -3,18 +3,20 @@ import Foundation
 
 /// The connection that admitted a deletion; server identities mean nothing on another share.
 public struct DeletionEndpoint: Codable, Equatable, Sendable {
+    public let remoteProtocol: RemoteProtocol
     public let host: String
     public let account: String
     public let share: String
 
     public init(_ address: ShareAddress) {
+        remoteProtocol = address.remoteProtocol
         host = address.host
         account = address.account
         share = address.share
     }
 
     public func matches(_ address: ShareAddress) -> Bool {
-        NameKey(host) == NameKey(address.host) && NameKey(account) == NameKey(address.account)
+        remoteProtocol == address.remoteProtocol && NameKey(host) == NameKey(address.host) && NameKey(account) == NameKey(address.account)
             && NameKey(share) == NameKey(address.share)
     }
 
