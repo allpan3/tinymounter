@@ -2,8 +2,8 @@ import Foundation
 import OSLog
 
 /// Change watching for the locations on one share: one watcher of at most 64 discovery folders,
-/// its reconnection with backoff, and the listings that each notice asks for.
-/// Not wired yet: step 3's `ShareConnection` creates it (docs/connection-layer-plan.md, step 4).
+/// its reconnection with backoff, and the listings that each notice asks for. `ShareConnection`
+/// owns one.
 final class LocationChangeWatch: @unchecked Sendable {
     /// Signs in and opens a watcher; nil when the server can't watch.
     typealias Open = @Sendable (_ notice: @escaping @Sendable (ChangeNotice) -> Void) throws -> (any RemoteWatcher)?

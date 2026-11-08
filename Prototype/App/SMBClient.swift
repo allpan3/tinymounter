@@ -27,10 +27,9 @@ struct SMBClient: RemoteClient {
         try SMBEdit(share: share, password: password, folder: folder, progress: progress)
     }
 
-    /// Change watching arrives with SMBNotify; until then discovery relists periodically.
     func openWatcher(_ share: ShareAddress, password: Data,
                      notice: @escaping @Sendable (ChangeNotice) -> Void) throws -> (any RemoteWatcher)? {
-        nil
+        try password.withUnsafeBytes { try SMBWatch(share: share, password: $0, notice: notice) }
     }
 
     /// Lends `password`'s bytes to C for the call; they are never copied into a `String`.

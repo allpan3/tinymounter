@@ -29,7 +29,7 @@ final class SMBWatch: RemoteWatcher, @unchecked Sendable {
                                           Self.echoSeconds, notifyCallback, context.toOpaque(),
                                           &error, &status) else {
             context.release()
-            let failure = Self.connectFailure(error: error, status: status)
+            let failure = SMBSignIn.failure(status: status, errno: error)
             Self.log.error("watch_open status=\(status) \(logFields(failure), privacy: .public)")
             throw failure
         }
@@ -69,16 +69,6 @@ final class SMBWatch: RemoteWatcher, @unchecked Sendable {
 
     /// Echo replies so far, for checks.
     var echoes: Int { calls.withLock { closed ? 0 : Int(tm_notify_echoes(handle)) } }
-
-    // Keep in step with the SMB client's sign-in classification (connection-layer plan, step 2).
-    static func connectFailure(error: Int32, status: UInt32) -> SourceFailure {
-        switch status {
-        case 0xC000_006D: .notAuthenticated // STATUS_LOGON_FAILURE
-        case 0xC000_0234, 0xC000_0072, 0xC000_006E, 0xC000_0071, 0xC000_0022: .noPermission
-        case 0xC000_00CC: .missing // STATUS_BAD_NETWORK_NAME
-        default: SourceFailure.classify(errno: error, context: .listing)
-        }
-    }
 
     fileprivate final class Receiver: @unchecked Sendable {
         private let lock = NSLock()

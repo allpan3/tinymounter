@@ -53,6 +53,7 @@ final class LocationController {
     private(set) var turnedOff: Set<String> = []
     private let reader = SourceReaderHost()
     private let client: any RemoteClient = SMBClient()
+    private let watchLimit = SMBWatch.folderLimit
     private let credentials = KeychainCredentialStore()
     /// By share ID, for the shares that locations use.
     private var connections: [UUID: ShareConnection] = [:]
@@ -287,6 +288,7 @@ final class LocationController {
     }
 
     private func forget(_ shareID: UUID) {
+        connections[shareID]?.close()
         connections[shareID] = nil
         shareStates[shareID] = nil
         volumes[shareID] = nil
@@ -1159,13 +1161,6 @@ final class LocationController {
                 }
             }
         }
-        source.onDirectoryChange { [weak self, weak source] folders in
-            Task { @MainActor in
-                guard let self, let source, self.canDiscover(source) else { return }
-                let now = Self.discoveryNow
-                for folder in folders { self.discovery[domainID]?.changed(folder, now: now) }
-            }
-        }
         return source
     }
 
@@ -1305,7 +1300,7 @@ final class LocationController {
         for id in discovery.keys where !ids.contains(id) {
             discovery[id] = nil
             discoveryMembershipDue[id] = nil
-            sources[id]?.setDiscoveryFolders([])
+            sources[id]?.connection.changeWatch.removeLocation(id)
         }
         for source in active where Self.discoveryNow >= (discoveryMembershipDue[source.domainID] ?? .zero) {
             let id = source.domainID
@@ -1313,12 +1308,15 @@ final class LocationController {
             guard let domain = domains[id], let manager = NSFileProviderManager(for: domain) else { continue }
             do {
                 let materialized = try await MaterializedItems.read(manager)
-                let folders = try await Self.offMain { try source.discoveryFolders(materialized: materialized.folders) }
+                let (folders, watched) = try await Self.offMain {
+                    let folders = try source.discoveryFolders(materialized: materialized.folders)
+                    return (folders, try source.watchedFolders(folders))
+                }
                 guard canDiscover(source), !Task.isCancelled else { continue }
                 var schedule = discovery[id] ?? DirectoryRefresh()
                 schedule.replaceFolders(folders, now: Self.discoveryNow)
                 discovery[id] = schedule
-                source.setDiscoveryFolders(folders)
+                source.connection.changeWatch.setFolders(watched, domainID: id, root: source.folder)
             } catch {
                 Self.listingLog.error("discovery_membership domain=\(id, privacy: .public) \(logFields(error), privacy: .public)")
             }
@@ -1354,7 +1352,10 @@ final class LocationController {
         let signIn = signIns[server.id] ?? ServerSignIn(login: server.login, credentials: credentials)
         signIns[server.id] = signIn
         let connection = ShareConnection(shareID: shareID, address: ShareAddress(server.login, share: share.name),
-                                         client: client, signIn: signIn) { [weak self] failures in
+                                         client: client, signIn: signIn, watchLimit: watchLimit,
+                                         refresh: { [weak self] domainID, folderIDs in
+            Task { @MainActor in self?.noticed(domainID, folderIDs) }
+        }) { [weak self] failures in
             Task { @MainActor in await self?.recovered(shareID, failures) }
         }
         // Locations of the same share through another account coordinate with these.
@@ -1376,6 +1377,17 @@ final class LocationController {
         connections[shareID] = connection
         shareStates[shareID] = connection.state
         return connection
+    }
+
+    /// A change notice: list these folders of the location soon, or every watched one for nil.
+    private func noticed(_ domainID: String, _ folderIDs: [String]?) {
+        guard let source = sources[domainID], canDiscover(source) else { return }
+        let now = Self.discoveryNow
+        if let folderIDs {
+            for id in folderIDs { discovery[domainID]?.changed(id, now: now) }
+        } else {
+            discovery[domainID]?.refreshAll(now: now)
+        }
     }
 
     /// The Server Volume's mount; nil for a share that is not saved.
