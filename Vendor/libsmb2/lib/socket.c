@@ -1156,10 +1156,11 @@ connect_async_ai(struct smb2_context *smb2, const struct addrinfo *ai, int *fd_o
 #else
                   && WSAGetLastError() != WSAEWOULDBLOCK) {
 #endif
+                int err = errno;
                 smb2_set_error(smb2, "Connect failed with errno : "
-                        "%s(%d)", strerror(errno), errno);
+                        "%s(%d)", strerror(err), err);
                 close(fd);
-                return -EIO;
+                return -err;
         }
 
         *fd_out = (int)fd;

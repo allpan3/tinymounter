@@ -71,7 +71,7 @@ public struct ConnectionHealth: Sendable {
     /// Only a refused sign-in ends in `needsSignIn`; only a new password leaves it.
     public mutating func failed(_ failure: SourceFailure) {
         switch failure {
-        case .serverUnreachable:
+        case .serverUnreachable, .localNetworkDenied:
             if state == .connected || state == .notConnected { enter(.unresponsive) }
         case .notConnected:
             if state == .connected || state == .unresponsive { enter(.notConnected) }

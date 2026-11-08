@@ -82,7 +82,7 @@ enum SourceReaderBridge {
     /// Plan §7. `unknown` keeps its domain and code; the extension maps it further.
     static func providerError(_ failure: SourceFailure) -> NSError {
         switch failure {
-        case .serverUnreachable, .notConnected: NSFileProviderError(.serverUnreachable) as NSError
+        case .serverUnreachable, .notConnected, .localNetworkDenied: NSFileProviderError(.serverUnreachable) as NSError
         case .notAuthenticated: NSFileProviderError(.notAuthenticated) as NSError
         case .noPermission, .pathRejected: CocoaError(.fileReadNoPermission) as NSError
         case .missing: CocoaError(.fileReadNoSuchFile) as NSError

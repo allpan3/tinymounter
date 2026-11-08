@@ -431,7 +431,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
             if DownloadSpace.isFull(error) { return CocoaError(.fileWriteOutOfSpace) as NSError }
             if error as? TransferError == .cancelled { return CocoaError(.userCancelled) as NSError }
             switch SourceFailure.classify(error, context: .fetch) {
-            case .serverUnreachable, .notConnected:
+            case .serverUnreachable, .notConnected, .localNetworkDenied:
                 return NSFileProviderError(.serverUnreachable) as NSError
             case .notAuthenticated: return NSFileProviderError(.notAuthenticated) as NSError
             case .noPermission, .pathRejected: return CocoaError(.fileWriteNoPermission) as NSError
@@ -544,7 +544,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
                 item=\(request.item, privacy: .public) failed \(logFields(error), privacy: .public) \
                 reply_domain=\(failure.domain, privacy: .public) reply_code=\(failure.code)
                 """)
-            if !request.background, let share = error as? SourceFailure, [.notConnected, .serverUnreachable].contains(share) {
+            if !request.background, let share = error as? SourceFailure, [.notConnected, .serverUnreachable, .localNetworkDenied].contains(share) {
                 userFetchFailed(share)
             }
             reply(nil, failure)

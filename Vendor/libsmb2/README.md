@@ -50,6 +50,8 @@ Local changes:
   several threads, such as the change-notify thread of each share.
 - The synchronous `smb2_echo()` refused every connected context: its socket check was
   inverted. The app's notify connection uses the asynchronous echo.
+- A socket connect that fails at once returns its errno, not `EIO`. macOS refuses the connect
+  with `EHOSTUNREACH` until the user allows Local Network access, and the app must see that.
 
 Prototype/SMB/SMBRename.c is the app's restricted entry point. Authenticated connections require
 SMB encryption. It opens and checks directory handles, preserves ancestor paths against SMB

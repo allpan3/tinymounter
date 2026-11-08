@@ -830,7 +830,7 @@ final class LocationController {
                 waiting += 1
                 // Every path would fail the same way; the next recovery tries them again.
                 if let failure = error as? SourceFailure,
-                   [SourceFailure.serverUnreachable, .notConnected, .notAuthenticated].contains(failure) { break }
+                   [SourceFailure.serverUnreachable, .notConnected, .localNetworkDenied, .notAuthenticated].contains(failure) { break }
             }
         }
         var kept: [String] = []
@@ -1535,7 +1535,7 @@ final class LocationController {
                 failed += 1
                 // Every folder would fail the same way; the next recovery lists them again.
                 if let failure = error as? SourceFailure,
-                   [SourceFailure.serverUnreachable, .notConnected, .notAuthenticated].contains(failure) { break }
+                   [SourceFailure.serverUnreachable, .notConnected, .localNetworkDenied, .notAuthenticated].contains(failure) { break }
                 if error is LocationError { break }
             }
         }
