@@ -46,6 +46,10 @@ Local changes:
   [CommonCryptor API](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/CCCryptorCreate.3cc.html)
   and SDK header document CBC without padding and CTR in-place operation; no private CCM API
   or additional dependency is used.
+- A mutex guards the list of all contexts, because the app creates and destroys contexts on
+  several threads, such as the change-notify thread of each share.
+- The synchronous `smb2_echo()` refused every connected context: its socket check was
+  inverted. The app's notify connection uses the asynchronous echo.
 
 Prototype/SMB/SMBRename.c is the app's restricted entry point. Authenticated connections require
 SMB encryption. It opens and checks directory handles, preserves ancestor paths against SMB
