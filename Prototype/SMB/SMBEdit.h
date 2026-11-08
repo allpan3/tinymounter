@@ -13,7 +13,6 @@ struct tm_smb_login {
     size_t password_length;
 };
 
-void *tm_edit_connect(const char *server, const char *share, const char *account, int *error);
 // On failure, *status is the server's NTSTATUS for the refused step, or 0 if none arrived.
 void *tm_edit_connect_password(const struct tm_smb_login *login, const char *share, int *error,
                                uint32_t *status);
@@ -44,7 +43,7 @@ int tm_edit_flush(void *opaque, uint8_t *file);
 
 typedef int (*tm_smb_folder_callback)(void *context, uint64_t file_id, uint64_t birth_us);
 struct tm_smb_folder_trace;
-// tm_smb_create_folder and tm_smb_name_folder on this connection; paths are share-relative.
+// Folder creation and initial naming on this connection; paths are share-relative and composed.
 int tm_edit_create_folder(void *opaque, const char *path, uint64_t expected_id, uint64_t expected_birth,
                           tm_smb_folder_callback receipt, void *context, int *create_sent,
                           struct tm_smb_folder_trace *trace);

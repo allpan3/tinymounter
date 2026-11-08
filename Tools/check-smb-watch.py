@@ -21,7 +21,7 @@ def build(output, products):
     actor = output.with_suffix(".actor.o")
     subprocess.run([
         "xcrun", "clang", "-std=gnu11", "-O1", "-Wall", "-Wextra", "-Werror", "-Wno-unused-parameter",
-        "-DHAVE_CONFIG_H=1", "-DHAVE_LIBKRB5=1", "-D_U_=__attribute__((unused))",
+        "-DHAVE_CONFIG_H=1", "-D_U_=__attribute__((unused))",
         f"-I{SMB}/include/apple", f"-I{SMB}/include", f"-I{SMB}/include/smb2", f"-I{ROOT}/Tools",
         "-c", str(ROOT / "Tools/check-smb-watch-actor.c"), "-o", str(actor),
     ], check=True)

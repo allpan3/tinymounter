@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
-#include <GSS/GSS.h>
 #include <smb2/smb2.h>
 #include <smb2/smb2-errors.h>
 #include <smb2/libsmb2.h>
@@ -17,7 +16,7 @@ static struct smb2_pdu *queued;
 static const struct step *script;
 static size_t script_length, script_next;
 static int fail_encoding;
-static int requests;
+static int requests, closes;
 
 static void fake_queue(struct smb2_context *smb, struct smb2_pdu *pdu);
 static int fake_poll(struct pollfd *fds, nfds_t count, int milliseconds);
@@ -27,8 +26,6 @@ static struct smb2_pdu *fake_create(struct smb2_context *smb, struct smb2_create
 static struct smb2_pdu *fake_set_info(struct smb2_context *smb, struct smb2_set_info_request *request,
                                      smb2_command_cb callback, void *context);
 static int fake_connect(struct smb2_context *smb, const char *server, const char *share, const char *user);
-static OM_uint32 fake_credentials(OM_uint32 *minor, OM_uint32 flags, gss_const_OID mechanism, void *context,
-                                  void (*next)(void *, gss_iter_OID, gss_cred_id_t));
 
 // Exercise the production response classification without sending a request to a server.
 #define smb2_queue_pdu fake_queue
@@ -37,7 +34,6 @@ static OM_uint32 fake_credentials(OM_uint32 *minor, OM_uint32 flags, gss_const_O
 #define smb2_cmd_create_async fake_create
 #define smb2_cmd_set_info_async fake_set_info
 #define smb2_connect_share fake_connect
-#define gss_iter_creds_f fake_credentials
 #include "../Prototype/SMB/SMBRename.c"
 #undef smb2_queue_pdu
 #undef poll
@@ -45,7 +41,6 @@ static OM_uint32 fake_credentials(OM_uint32 *minor, OM_uint32 flags, gss_const_O
 #undef smb2_cmd_create_async
 #undef smb2_cmd_set_info_async
 #undef smb2_connect_share
-#undef gss_iter_creds_f
 
 static const uint64_t identity = 42, birth_seconds = 1800000000, birth_micros = 5;
 
@@ -68,10 +63,19 @@ static int fake_poll(struct pollfd *fds, nfds_t count, int milliseconds)
 static int fake_service(struct smb2_context *smb, int revents)
 {
     (void)revents;
-    if (!queued || script_next >= script_length) abort();
+    if (!queued) abort();
     struct smb2_pdu *pdu = queued;
-    const struct step *step = &script[script_next++];
     queued = NULL;
+    // A session closes what the operation opened; the scripts list only the operation's requests.
+    if (pdu->header.command == SMB2_CLOSE) {
+        struct smb2_close_reply closed = {0};
+        closes++;
+        pdu->cb(smb, 0, &closed, pdu->cb_data);
+        smb2_free_pdu(smb, pdu);
+        return 0;
+    }
+    if (script_next >= script_length) abort();
+    const struct step *step = &script[script_next++];
     if (pdu->header.command != step->command) abort();
     uint8_t error_data[8] = {0};
     struct smb2_error_reply failed = { .byte_count = sizeof(error_data), .error_data = error_data };
@@ -119,14 +123,6 @@ static int fake_connect(struct smb2_context *smb, const char *server, const char
     return connect_result;
 }
 
-static OM_uint32 fake_credentials(OM_uint32 *minor, OM_uint32 flags, gss_const_OID mechanism, void *context,
-                                  void (*next)(void *, gss_iter_OID, gss_cred_id_t))
-{
-    *minor = 0;
-    next(context, NULL, NULL);
-    return GSS_S_COMPLETE;
-}
-
 static void run(const struct step *steps, size_t count)
 {
     script = steps;
@@ -140,6 +136,30 @@ static int receive(void *context, uint64_t file_id, uint64_t birth_us)
 {
     receipts++;
     return file_id == identity && birth_us == birth_seconds * 1000000 + birth_micros ? receipt_result : ESTALE;
+}
+
+static struct smb2_context *session;
+
+// The app's session calls, on one context that sends nothing to a server.
+static int create_folder(const char *path, uint64_t expected_id, uint64_t expected_birth, int *sent,
+                         struct tm_smb_folder_trace *trace)
+{
+    struct tm_smb_folder_trace unused;
+    int broken = -1;
+    int error = tm_smb_session_create_folder(session, path, expected_id, expected_birth, receive, NULL, sent,
+                                             trace ? trace : &unused, &broken);
+    if (broken) abort();
+    return error;
+}
+
+static int name_folder(const char *source, const char *destination, uint64_t expected_id,
+                       uint64_t expected_birth, int *sent)
+{
+    int broken = -1;
+    int error = tm_smb_session_name_folder(session, source, destination, expected_id, expected_birth, 0,
+                                           receive, NULL, sent, &broken);
+    if (broken) abort();
+    return error;
 }
 
 // The share root and one parent each take an open and a query before the target CREATE.
@@ -180,8 +200,8 @@ static int check_entry_cases(void)
         run(cases[i].steps, cases[i].count);
         receipts = 0;
         receipt_result = cases[i].receipt_result;
-        int error = tm_smb_create_folder("fixture", "share", "guest", "parent/folder", cases[i].expected_id,
-                                         cases[i].expected_id ? birth : 0, receive, NULL, &sent, &trace);
+        int error = create_folder("parent/folder", cases[i].expected_id, cases[i].expected_id ? birth : 0, &sent,
+                                  &trace);
         if (error != cases[i].error || trace.error != error || trace.stage != cases[i].stage ||
             trace.parents != cases[i].parents || trace.status != cases[i].status ||
             trace.sent_queued != cases[i].sent_queued || trace.sent != cases[i].sent || sent != trace.sent ||
@@ -192,21 +212,34 @@ static int check_entry_cases(void)
     }
     struct tm_smb_folder_trace trace;
     int sent = -1;
-    if (tm_smb_create_folder("fixture", "share", "guest", "parent/../folder", 0, 0, receive, NULL, &sent, &trace)
-            != EINVAL || trace.stage != TM_FOLDER_ARGUMENTS || sent || trace.sent) {
+    if (create_folder("parent/../folder", 0, 0, &sent, &trace) != EINVAL || trace.stage != TM_FOLDER_ARGUMENTS ||
+        sent || trace.sent) {
         fprintf(stderr, "folder create argument case failed\n");
         return 1;
     }
     // A connection that fails in libsmb2's wait loop returns -1, which is not -EPERM.
+    const uint8_t password[] = {'s', 'e', 'c', 'r', 'e', 't'};
     const struct { int result, error; } connects[] = {{-1, ENOTCONN}, {-EACCES, EACCES}, {1, EIO}};
     for (size_t i = 0; i < sizeof(connects) / sizeof(connects[0]); i++) {
+        struct tm_smb_login login = {"fixture", "account", password, sizeof(password)};
         connect_result = connects[i].result;
-        run(NULL, 0);
-        sent = -1;
-        int error = tm_smb_create_folder("fixture", "share", "guest", "parent/folder", 0, 0, receive, NULL,
-                                         &sent, &trace);
-        if (error != connects[i].error || trace.stage != TM_FOLDER_CONNECT || sent || trace.sent || queued) {
-            fprintf(stderr, "folder create connect case %zu failed\n", i);
+        int error = 0;
+        uint32_t status = 1;
+        struct smb2_context *smb = tm_smb_connect_password(&login, "share", &error, &status);
+        if (smb || error != connects[i].error || queued) {
+            fprintf(stderr, "password connect case %zu failed\n", i);
+            return 1;
+        }
+    }
+    // No guest sign-in, whatever the domain: refused before a connection.
+    const char *guests[] = {"guest", "WORKGROUP\\Guest"};
+    connect_result = 0;
+    for (size_t i = 0; i < sizeof(guests) / sizeof(guests[0]); i++) {
+        struct tm_smb_login login = {"fixture", guests[i], password, sizeof(password)};
+        int error = 0;
+        uint32_t status = 1;
+        if (tm_smb_connect_password(&login, "share", &error, &status) || error != EACCES || status) {
+            fprintf(stderr, "guest sign-in case %zu failed\n", i);
             return 1;
         }
     }
@@ -223,8 +256,7 @@ static int check_composed_names(void)
     opened_count = 0;
     receipt_result = 0;
     int sent = -1;
-    if (tm_smb_create_folder("fixture", "share", "guest", "Cafe\xcc\x81/Ne\xcc\x81", 0, 0, receive, NULL,
-                             &sent, NULL) || opened_count != 3 || strcmp(opened_names[0], "") ||
+    if (create_folder("Cafe\xcc\x81/Ne\xcc\x81", 0, 0, &sent, NULL) || opened_count != 3 || strcmp(opened_names[0], "") ||
         strcmp(opened_names[1], "Caf\xc3\xa9") || strcmp(opened_names[2], "Caf\xc3\xa9/N\xc3\xa9")) {
         fprintf(stderr, "composed folder create case failed\n");
         return 1;
@@ -233,16 +265,16 @@ static int check_composed_names(void)
                                 {SMB2_QUERY_INFO, 0}, {SMB2_SET_INFO, 0}};
     run(name, 8);
     opened_count = 0;
-    if (tm_smb_name_folder("fixture", "share", "guest", "Cafe\xcc\x81/untitled folder", "Cafe\xcc\x81/Ne\xcc\x81",
-                           identity, birth, 0, receive, NULL, &sent) || opened_count != 4 ||
+    if (name_folder("Cafe\xcc\x81/untitled folder", "Cafe\xcc\x81/Ne\xcc\x81", identity, birth, &sent) ||
+        opened_count != 4 ||
         strcmp(opened_names[1], "Caf\xc3\xa9") || strcmp(opened_names[2], "Caf\xc3\xa9/N\xc3\xa9") ||
         strcmp(opened_names[3], "Caf\xc3\xa9/untitled folder") || strcmp(renamed, "Caf\xc3\xa9\\N\xc3\xa9")) {
         fprintf(stderr, "composed folder name case failed\n");
         return 1;
     }
     run(NULL, 0);
-    if (tm_smb_name_folder("fixture", "share", "guest", "Cafe\xcc\x81/Ne\xcc\x81", "Caf\xc3\xa9/N\xc3\xa9",
-                           identity, birth, 0, receive, NULL, &sent) != EINVAL || sent || queued) {
+    if (name_folder("Cafe\xcc\x81/Ne\xcc\x81", "Caf\xc3\xa9/N\xc3\xa9", identity, birth, &sent) != EINVAL ||
+        sent || queued) {
         fprintf(stderr, "normalization-only folder name case failed\n");
         return 1;
     }
@@ -290,8 +322,12 @@ int main(void)
         return 1;
     }
     smb2_destroy_context(smb);
+    session = smb2_init_context();
+    if (!session) abort();
     if (check_entry_cases()) return 1;
     if (check_composed_names()) return 1;
-    puts("18 folder-create status cases passed");
+    smb2_destroy_context(session);
+    if (!closes) abort();
+    puts("folder-create status cases passed");
     return 0;
 }

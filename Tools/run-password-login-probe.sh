@@ -16,5 +16,4 @@ echo "## password, IPC\$"; run "$server" 'IPC$' "$account"
 echo "## password, domain WORKGROUP"; run "$server" "$share" "$account" WORKGROUP
 echo "## password, unrelated domain"; run "$server" "$share" "$account" OTHERDOMAIN
 echo "## password, missing share"; run "$server" tinymounter-missing "$account"
-echo "## current GSS path"; "$probe" --current "$server" "$share" "$account" 2>&1 | sed "s/$server/<server>/g"
 password=

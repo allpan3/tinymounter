@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Read-only VM check: independent connections, failure cleanup and account separation.
+"""Read-only VM check: independent connections, failure cleanup and a refused password.
 
-Usage: check-smb-concurrency.py LIBRARY SERVER OUTPUT.json
+Usage: check-smb-concurrency.py LIBRARY SERVER PASSWORD_FILE OUTPUT.json
+The file holds the fixture account's password, outside the repository.
 Uses only the disposable simplify-20261105/saves-1m/direct-64-1.bin fixture. Four connections must all
 open before any can read/close, which detects a lock held for a whole connection lifetime.
 Run with an external timeout so a regressed connection lock cannot hang the test runner.
@@ -15,15 +16,21 @@ import sys
 import threading
 
 
+class Login(C.Structure):
+    _fields_ = [('server', C.c_char_p), ('account', C.c_char_p), ('password', C.POINTER(C.c_ubyte)),
+                ('password_length', C.c_size_t)]
+
+
 def main():
-    library, server, output = sys.argv[1:]
+    library, server, secret, output = sys.argv[1:]
+    password = Path(secret).read_bytes()
     mount = Path('/Volumes/tinymounter-single')
     if Path.home() != Path('/Users/user') or not mount.is_mount() or Path(output).exists():
         raise RuntimeError('a fresh output in the mounted macOS VM fixture is required')
     lib = C.CDLL(library)
     pointer, data = C.c_void_p, C.POINTER(C.c_ubyte)
     for name, arguments, result in [
-        ('connect', [C.c_char_p, C.c_char_p, C.c_char_p, C.POINTER(C.c_int)], pointer),
+        ('connect_password', [C.POINTER(Login), C.c_char_p, C.POINTER(C.c_int), C.POINTER(C.c_uint32)], pointer),
         ('disconnect', [pointer], None),
         ('open', [pointer, C.c_char_p, C.c_uint32, C.c_uint32, data], C.c_int),
         ('read', [pointer, data, C.c_uint64, data, C.c_uint32, C.POINTER(C.c_uint32)], C.c_int),
@@ -39,13 +46,16 @@ def main():
         if code:
             raise OSError(code, 'SMB concurrency check')
 
-    def connect(account):
-        error = C.c_int()
-        context = lib.tm_edit_connect(server.encode(), b'tinymounter-single', account, C.byref(error))
+    def connect(account, secret):
+        error, status = C.c_int(), C.c_uint32()
+        buffer = (C.c_ubyte * len(secret)).from_buffer_copy(secret)
+        login = Login(server.encode(), account, buffer, len(secret))
+        context = lib.tm_edit_connect_password(C.byref(login), b'tinymounter-single', C.byref(error),
+                                               C.byref(status))
         return context, error.value
 
     def read(index, barrier):
-        context, error = connect(b'tmtest')
+        context, error = connect(b'tmtest', password)
         check(error)
         if not context:
             raise RuntimeError('no context')
@@ -76,13 +86,13 @@ def main():
             futures = [pool.submit(read, index, barrier) for index in range(4)]
             for future in futures:
                 future.result(timeout=30)
-        wrong, error = connect(b'tm-simplify-no-credential')
+        wrong, error = connect(b'tmtest', password + b'x')
         if wrong:
             lib.tm_edit_disconnect(wrong)
-            raise RuntimeError('uncached account borrowed another account credential')
+            raise RuntimeError('a wrong password signed in')
         if not error:
-            raise RuntimeError('missing account failure')
-    result = dict(concurrentReads=40, refusedAccounts=10, passed=True)
+            raise RuntimeError('missing refused-password failure')
+    result = dict(concurrentReads=40, refusedPasswords=10, passed=True)
     Path(output).write_text(json.dumps(result, indent=2))
     print(json.dumps(result))
 

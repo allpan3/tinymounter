@@ -581,12 +581,6 @@
 			"path" = "Vendor/libsmb2/lib/hmac-md5.c";
 			"sourceTree" = "<group>";
 		};
-		"7EE08BEA40AC9996F4A8B86C" = {
-			"isa" = "PBXFileReference";
-			"lastKnownFileType" = "sourcecode.c.c";
-			"path" = "Vendor/libsmb2/lib/krb5-wrapper.c";
-			"sourceTree" = "<group>";
-		};
 		"2E6BAC0796863B05047AF111" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.c.c";
@@ -1024,7 +1018,6 @@
 				"75797FF22F172B8A388C3836",
 				"D8CCA8F382CE0BAECDADE02B",
 				"FD60C40ABD779C428B8F6B7B",
-				"7EE08BEA40AC9996F4A8B86C",
 				"2E6BAC0796863B05047AF111",
 				"784E9362C512D4F02BE0BA6B",
 				"BCD2D668807D2AB64E548D10",
@@ -1233,7 +1226,6 @@
 				"GCC_PREPROCESSOR_DEFINITIONS" = (
 					"$(inherited)",
 					"HAVE_CONFIG_H=1",
-					"HAVE_LIBKRB5=1",
 					"_U_=__attribute__((unused))",
 				);
 				"HEADER_SEARCH_PATHS" = (
@@ -1242,8 +1234,6 @@
 					"$(SRCROOT)/Vendor/libsmb2/include/smb2",
 				);
 				"OTHER_LDFLAGS" = (
-					"-framework",
-					"GSS",
 					"-framework",
 					"CoreFoundation",
 				);
@@ -1266,7 +1256,6 @@
 				"GCC_PREPROCESSOR_DEFINITIONS" = (
 					"$(inherited)",
 					"HAVE_CONFIG_H=1",
-					"HAVE_LIBKRB5=1",
 					"_U_=__attribute__((unused))",
 				);
 				"HEADER_SEARCH_PATHS" = (
@@ -1275,8 +1264,6 @@
 					"$(SRCROOT)/Vendor/libsmb2/include/smb2",
 				);
 				"OTHER_LDFLAGS" = (
-					"-framework",
-					"GSS",
 					"-framework",
 					"CoreFoundation",
 				);
@@ -1342,10 +1329,6 @@
 		"F3D3923D3159690EF42FF4D5" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "FD60C40ABD779C428B8F6B7B";
-		};
-		"0ACE8ABAE6B1F3132A30D17F" = {
-			"isa" = "PBXBuildFile";
-			"fileRef" = "7EE08BEA40AC9996F4A8B86C";
 		};
 		"3D0BBB467CEB053F480DF5DE" = {
 			"isa" = "PBXBuildFile";
@@ -1535,7 +1518,6 @@
 				"E034FBB22574C12770B80E43",
 				"AB4B6DDDF6B64E507F10E13E",
 				"F3D3923D3159690EF42FF4D5",
-				"0ACE8ABAE6B1F3132A30D17F",
 				"3D0BBB467CEB053F480DF5DE",
 				"5DFB60F0E4CDA9A69AE21983",
 				"A2007AD1CA4DA4179A9B40DE",
