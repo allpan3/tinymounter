@@ -1,6 +1,8 @@
 # Connection layer for 0.2.0
 
-Date: 2026-11-08. Decision status: accepted by the user on 2026-11-08, with the
+Date: 2026-11-08. Implementation: steps 1–4 on `feat/smb-connection-layer`; Server Volume sign-in
+(Decision 1) remains ([results](results/2026-11-08-connection-layer.md)).
+Decision status: accepted by the user on 2026-11-08, with the
 [decisions](#decisions) below and the results of the
 [password login](results/2026-11-08-password-login.md) and
 [change notification](results/2026-11-08-smb-change-notify.md) spikes. UI copy is proposed for

@@ -34,7 +34,7 @@ both configurations, including across relaunch. No production code changed. See 
 - Source files opened read-only, using bounded `pread` calls; optional local staging uses exclusive creation and `pwrite` at the source offsets.
 - Full/range reads, runtime-aligned ranges, empty files, metadata fingerprint checks, progress/cancellation, and cleanup on handled failures.
 - JSONL reporting of byte range, filesystem, open/transfer/first-read time, sustained rate after the first chunk, CPU, process-lifetime peak RSS, cache label, and optional post-timing SHA-256 verification.
-- A SwiftUI app with a Settings window and a menu bar item, and a replicated File Provider extension (section 2). The app saves a share-root grant, adds and removes locations, and owns all share I/O and every catalog write: it lists folders into each location's SQLite catalog and stages file bytes with the transfer engine. The extension reads the catalog read-only to page folders, fetches full and partial ranges by item ID from the app through a restricted File Provider service, runs read-ahead per item, and supports new ordinary files/folders only in explicitly enabled locations. Initial folder naming is implemented through an app-owned SMB client; general modify/delete remain denied. Signed Finder checks pass, including file Keep Both.
+- A SwiftUI app with a Settings window and a menu bar item, and a replicated File Provider extension (section 2). The app signs in to the server with its saved password, adds and removes locations, and owns all share I/O and every catalog write: it lists folders into each location's SQLite catalog and stages file bytes with the transfer engine. The extension reads the catalog read-only to page folders, fetches full and partial ranges by item ID from the app through a restricted File Provider service, runs read-ahead per item, and supports new ordinary files/folders only in explicitly enabled locations. Initial folder naming is implemented through an app-owned SMB client; general modify/delete remain denied. Signed Finder checks pass, including file Keep Both.
 - 140 unit tests passed on 2026-10-18. They cover transfer correctness and cancellation,
   read-ahead bounds, stale requests and evictions, full-handoff cleanup, catalog and listing
   consistency, storage sums, folder completion, safe paths, mount identity, share health, error
@@ -116,51 +116,42 @@ menu bar item opens it again. Nothing migrates from phase 1: remove
 the fixture domains with the phase 1 build before the first run (D3). A domain without a catalog
 fails every request with `serverUnreachable` and never reports an item as deleted.
 
-**Servers and share grants.** Shares are added only through a location. Add Server… in the
-location's Server menu saves the address and continues to the share. Add Share… in the Share
-menu adds another share on a saved server. The app offers SMB shares already connected on this
-Mac, including hidden shares. Selecting a connection at another
-address asks for confirmation before associating it with this server. Connect Another Share…
-uses macOS's login dialog and share selector. The app never sees the password.
+**Servers, sign-in and shares.** Shares are added only through a location. Add Server… in the
+location's Server menu opens a sign-in sheet for the address, account and password. The app
+signs in with NTLMSSP over SMB 3, with signing and encryption required; there is no guest login
+and no macOS dialog. A refused password shows the refusal and saves nothing. An accepted one
+saves the server in `Application Support/tinymounter/Settings.json` in the app container, mode
+0600, and the password in a generic-password item in the login keychain: service
+`dev.tinymounter.smb`, account `name@host`. Add Share… lists the server's disk shares over that
+sign-in. Folder Select… opens a folder browser in the app that lists folders over the connection.
+No mount and no panel are used.
 
-Then `NSOpenPanel` opens on the selected share, and the user clicks Open. The app accepts only a
-mounted smbfs volume root with `MNT_LOCAL` clear whose address has an account and no password.
-It saves read-only and read-write security-scoped app-scoped bookmarks and the mount's `f_mntfromname` in
-`Application Support/tinymounter/Settings.json` in the app container, mode 0600. It never saves
-these in the App Group. Only the app has `com.apple.security.files.bookmarks.app-scope` and
-`files.user-selected.read-write`. Read sessions use the read-only bookmark. Writable locations
-reuse the share's write permission, so Add does not ask for the same root again. Each location's
-Read only control still gates mutations. Select Again… replaces both bookmarks and keeps the
-grant ID. Earlier settings can reuse a location's retained write permission for the same grant;
-if none exists, enabling writes asks once and saves the permission for that share.
+Read only is a plain setting per location; the account's permissions on the server apply. A
+share stays saved after its last location is removed. Servers lists the saved shares by server,
+with their connection state and the locations that use each one. Forget deletes an unused share;
+Forget on the password row deletes the server, its shares and its Keychain item. When the server
+refuses the saved password, every location of that server shows "Sign in again." and Sign In
+Again…, and the app makes no further logon attempt until the user enters a new password.
 
-Add and Select… connect a saved share when needed. Cancelling or failing that connection leaves
-the draft intact. A share grant stays saved after its last location is removed, so adding the
-share again does not ask for it. A location that is not connected shows Connect, and one whose
-grant no longer resolves shows Select Again…. Server volumes also have Disconnect, which ejects
-the volume. Servers lists the saved shares by server and the locations that use each one. Forget
-ejects an unused share before deleting its grant, and also deletes a server that has no other
-shares. A busy share keeps its entry and shows an error; no eject is forced.
-New File Provider support mounts request `MNT_DONTBROWSE`, which hides the volume from normal Finder browsing;
-it does not hide the NAS from Network or prevent access through `/Volumes`. Reusing a visible
-mount does not change its flags. This native mount supports credentials, permissions and
-directory notifications; the app's SMB client transfers File Provider contents.
+Server Volume is a separate whole-share location mode. It asks macOS to mount the share visibly
+and opens it in Finder, with no File Provider catalog, download cache or Read only control. macOS
+signs in with its own Keychain item or dialog; the app passes no password, and the status is
+mounted or not mounted. Native volumes reconnect at launch, wake and network changes, and respect
+an intentional eject for the current app session. Remove disconnects before forgetting the volume
+and retains the entry if the volume is busy. A share cannot have both modes, even through
+different saved accounts; remove its existing locations before switching. Server aliases are not
+resolved to detect that two differently named servers might be the same machine. In the 0.2.0 VM
+checks, a share that macOS had no session or item for failed to mount; passing the saved
+password to NetFS is the next change
+([results](results/2026-11-08-connection-layer.md)).
 
-Server Volume is a separate whole-share location mode. It requests a browsable mount and
-opens that mount in Finder, with no File Provider catalog, download cache or Read only control.
-Add safely disconnects a reused hidden mount before mounting visibly; busy mounts refuse the
-change. Native volumes reuse launch/wake/network reconnect and respect intentional eject for
-the current app session. Remove disconnects before forgetting the volume and retains the entry
-if the volume is busy. A share cannot have both modes, even through different saved accounts;
-remove its existing locations before switching. Server aliases are not resolved to detect that
-two differently named servers might be the same machine.
-
-The original grant and connection flow was verified in [M3](results/2026-10-12-share-grant.md) and
+Up to 0.1.2, shares were mounted by macOS and granted through `NSOpenPanel`. That flow was
+verified in [M3](results/2026-10-12-share-grant.md) and
 [M12](results/2026-10-18-connect-in-app.md). The
 [connection-management follow-up](results/2026-10-18-connection-management.md) passed signed VM
 checks, including migration of an existing location, busy ejects, removal and re-add, and
-reuse of a visible Finder mount. The update is installed and launches on the physical Mac;
-connection checks there remain.
+reuse of a visible Finder mount. The 0.2.0 connection layer is verified in the
+[connection-layer results](results/2026-11-08-connection-layer.md).
 
 **File Provider approval.** If macOS disables the File Provider, the location shows
 "File Provider is off." and Open System Settings…. In Extensions, open TinyMounter
@@ -170,12 +161,12 @@ the user does not need to remove the location or restart the app. The
 Mac and the new action in the signed VM build. The UI update is now installed on the physical
 Mac. After the requested reset, the user resumed Finder browsing.
 
-The app resolves the bookmark only while the mount table lists the share, once per mount session,
-with `.withoutMounting`. Per session it holds one `O_EVTONLY` share-root descriptor and one per
-location root, and it ends the session on unmount. It polls the mount table every 10 s and starts
-a session by itself when the share is mounted. **Folder** is relative to the share; empty means
-the full share. In M3, a test button listed a depth-2 folder and opened a depth-4 file before and
-after relaunch, without another panel, privacy prompt or mount. Only a healthy share was tested.
+Each operation opens its own SMB session with the saved password: each listing, transfer and
+change. `ConnectionHealth` tracks each share from the results of those calls. A refused password
+enters Sign in again. A failed connection, a request that times out after 10 s, or a call with no
+progress for 60 s makes the share unresponsive; requests then fail at once, and a probe opens a
+session after 5 s, backing off to 60 s. Wake and a returning network path probe at once.
+**Folder** is relative to the share; empty means the full share.
 
 M4 and M5 passed their runtime checks in the signed app on 2026-10-14 and 2026-10-15; see the
 [M4 and M5 results](results/2026-10-14-catalog-browsing-reads.md) for what is still unverified.
@@ -230,23 +221,20 @@ Download Now and Remove Download remain. `performAction` sends the file IDs to t
 signals the working set, and a kept file then reports `.downloadEagerlyAndKeepDownloaded`. With
 the app quit, or with no reply in 10 s, the action fails with `serverUnreachable`.
 
-Guest SMB connections are accepted after removing macOS's empty password field from the mounted
-address. The verified SMB mount identity supplies the saved address; a separate remount URL is
-not required, because manual guest mounts do not supply one. Addresses containing a password
-remain rejected. Existing grants and the saved format do not change. The signed VM app saved a
-guest grant and read files that matched the source
-([results](results/2026-10-19-guest-connections.md)).
+Guest SMB connections were accepted from 2026-10-19
+([results](results/2026-10-19-guest-connections.md)) and are removed in 0.2.0: every server needs
+an account and a password.
 
 Each new location makes macOS ask whether a test shell may access files it manages; allow it only
 for that location.
 
-This bookmark does not grant the extension Network Volumes privacy access on the tested macOS build. The main app resolves it for source reads. Both components retain the sandbox; no Full Disk Access, TCC reset, or sandbox exception is needed for this tested route.
+Only the main app connects to the share; the extension reads the catalog and staged files. Both components retain the sandbox; no Full Disk Access, TCC reset, or sandbox exception is needed for this tested route.
 
 The extension publishes a restricted File Provider service. The app connects via the domain manager and exports a per-domain reader on the resulting XPC connection, only for domains whose catalog it opened. Messages are JSON of at most 8192 bytes, including deletion event archives of at most 4096 bytes. Reads carry IDs, versions and counts. A create request also carries a validated leaf name, kind and opaque local inbox ID; source values are never logged. A list request carries a request ID and a folder's item ID; its reply, sent after the commit, carries the folder's listing generation and its entry, change and skip counts. A fetch carries a request ID, an item ID, the content version and a byte range; its receipt carries a staging leaf name and metrics. A keep request carries a request ID, at most 100 file IDs and the requested value; its reply, sent after the commit, carries the number of rows that changed. When a worker starts a fetch's transfer, the app sends a started message with the request ID; then it sends the bytes done at most every 0.5 s. Both sides check peer signing identity. At most two app transfers run concurrently for all domains, with at most four outstanding fetches per domain connection. A location queues at most 16 folders for listing, and a request for a folder that is already queued joins it. The app's own listings for Add Location and relisting run one at a time and are never refused. The app writes an exclusive staging file in the shared App Group, and the extension moves it into the provider's temporary directory before handing it to macOS. The move must remain on the same volume. No bulk bytes pass over XPC.
 
 The app retries lost connections with bounded backoff. A new per-domain extension reader service gives fetches up to 5 s from its creation for the first connection, checking cancellation every 100 ms. After attachment, losing the reader still fails at once. The deadline is shared, so subsequent requests cannot restart the wait. Never-listed folder enumeration retains its existing connection requirement. The 60 s transfer stall deadline still starts at the app’s `started` message. Closing the window is different from quitting the process; the prototype must remain running to supply missing content and to list folders that were never listed.
 
-Both targets include local-network and Network Volumes usage descriptions and the network-client entitlement. Network Volumes privacy for an existing SMB mount is distinct from Local Network permission for sockets. If macOS requests local-network access, handle it for the app and extension. Do not assume a permission granted to the app also establishes extension access.
+Both targets include local-network and Network Volumes usage descriptions and the network-client entitlement. macOS asks once per app signature for Local Network access, and until the user allows it, a connect fails with `EHOSTUNREACH`. The app then waits up to 30 s while Network framework reports `localNetworkDenied`, and connects again as soon as access is allowed, so no relaunch is needed. If access stays off, the app says that it cannot reach the local network and how to turn access on; probes recover the share once the user does.
 
 The unsigned compile check, which does not install or run the extension, is:
 
@@ -361,9 +349,9 @@ After a format change, finish or export pending changes with the old build, remo
 locations, and add them again with the new build. If that isn't possible, the new build shows
 Start Fresh… in General when it can't read the settings. It removes every location with
 macOS's option to keep changes that did not upload, opens that folder in Finder, and moves the
-earlier settings, outboxes and catalogs aside in the containers. A location's write grant
-authorizes supported changes, and an inactive grant is retained when Read only is
-enabled.
+earlier settings, outboxes and catalogs aside in the containers. It also deletes every saved
+server password: the generic-password items of the `dev.tinymounter.<protocol>` services. A
+0.1.2 `Settings.json` is refused this way.
 
 Saves use ordinary SMB writes in the [simplification branch](smb-simplification.md).
 File Provider owns pending local contents until the upload callback succeeds. TinyMounter
@@ -384,14 +372,14 @@ carry no schema version; incompatible prototype state requires Start Fresh.
 
 1. In Settings, click **Remove Location…** for each location. This removes it from Finder with its
    downloaded copies. The files on the share don't change.
-2. In Servers, click **Forget** for each share. Forget ejects the share before it deletes the
-   saved access. If an eject fails, close open files and try again.
+2. In Servers, click **Forget** next to each server's password. This deletes the server, its
+   shares and its Keychain item.
 3. In General, turn off **Open at login**.
 4. Click **Quit TinyMounter** in the menu bar item.
 5. Delete `TinyMounter.app`.
 6. Optionally, delete its data: `~/Library/Containers/<bundle ID>` and
    `~/Library/Containers/<bundle ID>.provider`, and
-   `~/Library/Group Containers/<team>.<bundle ID>`. They hold the share grant, the settings and the
+   `~/Library/Group Containers/<team>.<bundle ID>`. They hold the settings and the
    catalogs, which hold the names of the files on the share.
 
 If you delete the app first, its locations stay: Finder's sidebar keeps them, macOS keeps their
@@ -409,16 +397,16 @@ the removal.
   cannot prevent other processes from filling the disk, and OS eviction under pressure remains
   unverified. If the retry file cannot be saved, an unsaved request is lost on app relaunch.
 
-- One macOS mount grant per share, and locations that are folders on it. The app asks macOS to mount the address that the user types, with macOS's own dialogs, and hides the mount from Finder's sidebar, so that Finder shows only the locations (M12). When macOS drops a share that has locations, the app asks macOS to mount it again with the password that the user saved in the Keychain; after an eject, it waits until the share is mounted again, or until the user clicks Connect in the location (M11, M12). File Provider locations have no Disconnect; Forget in Servers ejects an unused hidden share. New locations default to writable setup with a scoped grant and safety confirmation. Existing read-only locations stay read-only. Supported writes are new files/folders, ordinary content saves, file/folder rename and move, permanent deletion and Finder file Replace.
+- One saved password per server, and locations that are folders on its shares. File Provider locations use no mount, so other apps and file managers don't see the share. File Provider locations have no Disconnect. New locations default to writable setup with a safety confirmation. Existing read-only locations stay read-only. Supported writes are new files/folders, ordinary content saves, file/folder rename and move, permanent deletion and Finder file Replace.
 - Keep Downloaded is a request for a file or folder, not proof of a download (phase 2 decision 3). M14 adds recursive folder requests, verified in the signed VM app ([results](results/2026-10-19-folder-keeps.md)). The system eagerly enumerates kept folders, and newly listed descendants inherit retention. Allow Removal cancels a request while preserving independent child requests. A folder is Available offline only if every descendant folder has an unskipped complete listing and is materialized, and every file passes the local-copy check. The system downloads an independently kept file only when its parent folder is materialized: a kept file in a folder that the system never enumerated waits until the folder is enumerated. Evicting a kept file fails; evicting its folder evicts it, and the system downloads it again at once. The location pane shows Requested, Update in progress or Available offline. It signals the working set and waits for macOS to apply provider changes, then reads fresh local metadata and rechecks catalog versions. Available offline requires current content with matching catalog size and modification date; this covers the source version last observed by the app, not live NAS freshness. The wait covers the location. Before waiting, the app rechecks previously synchronized content versions against fresh local metadata and materialization, so unrelated downloads do not reset their status. New or changed versions still need the wait; folder status uses current membership and listing completeness. Provider disablement or replacement clears remembered verification ([status-refresh results](results/2026-10-19-keep-status-refresh.md)). Signed VM checks passed, including source edits that preserved size/date ([results](results/2026-10-19-offline-versions.md)). Remove Location can save them, and a later location on the same share takes the ones inside its folder; for independently kept files outside a folder request, the app asks whether to download them now if their parent folders are not materialized (M7).
 - Pause Downloads sets `paused` in every catalog. Kept files then report `.downloadLazily`, kept folders use lazy namespace policy, and read-ahead stops. The extension cancels its running system and speculative fetches and refuses those that start while paused. A background fetch that is still waiting for the first reader connection is cancelled when the reader connects. Files that apps open, and Finder's Download Now, still download. Resume and each app launch clear Pause. Changes run one at a time, in order. A failed change shows a message, and while a catalog may still be paused, the menu bar item offers Resume Downloads. While paused, the user can also remove a kept file's download; Resume downloads it again. Whether kept files stay on disk while paused when the system needs the space is untested.
-- NAS changes in listed materialized and kept folders are discovered while the app runs. M15 uses at most 64 native SMB directory watches per mount session plus periodic reconciliation, due 60 s after a successful listing. One automatic listing runs at a time, with a one-second gap and failure backoff, so this is not a fixed latency guarantee. Unvisited unkept trees are not scanned. Launch, wake, recovery and access checks also refresh listings. A downloaded copy can stay stale between refreshes. A NAS rename is a delete plus a create, and its keep request does not follow. Signed isolated VM checks passed. The signed M15 update is installed and running on the physical Mac with the existing location retained; the user confirmed live changes work there ([results](results/2026-10-19-nas-change-discovery.md)).
+- NAS changes in listed materialized and kept folders are discovered while the app runs. Since 0.2.0, each share has one `CHANGE_NOTIFY` connection with at most 64 non-tree watches, one per discovery folder, plus periodic reconciliation, due 60 s after a successful listing. In the VM, a change three folders deep reached the catalog 1.1–1.5 s after another client made it; a missing name still waits for the 15 s confirmation below. One automatic listing runs at a time, with a one-second gap and failure backoff, so this is not a fixed latency guarantee. Unvisited unkept trees are not scanned. Launch, wake, recovery and access checks also refresh listings. A downloaded copy can stay stale between refreshes. A NAS rename is a delete plus a create, and its keep request does not follow. Signed isolated VM checks passed. The signed M15 update is installed and running on the physical Mac with the existing location retained; the user confirmed live changes work there ([results](results/2026-10-19-nas-change-discovery.md)).
 - Keep Downloaded transfers publish progress for Finder's native circle. File progress reports transferred bytes; kept ancestor folders show indeterminate progress while descendant transfers run. The circle starts with the transfer, not during earlier enumeration, and clears when it ends or fails. It is a read-only indicator; Pause Downloads remains the control for background transfers. Settings remains the check for Available offline. The signed VM comparison passed; the signed update is installed on the physical Mac ([results](results/2026-10-19-keep-status-refresh.md)).
-- Only a complete listing changes the catalog, after `fstatat` confirmed that each missing name is gone. A listing that would remove every child of a folder, remove a kept file, or change a kind is held; a listing that starts at least 15 s later applies what it finds (D5). Symlinks, special files, invalid names and name-key collisions are not shown; the listing log counts them as skipped.
+- Only a complete listing changes the catalog, after the server confirmed that each missing name is gone. A listing that would remove every child of a folder, remove a kept file, or change a kind is held; a listing that starts at least 15 s later applies what it finds (D5). Symlinks, special files, invalid names and name-key collisions are not shown; the listing log counts them as skipped.
 - Content versions are `f1:<size>:<mtime_ns>:<ctime_ns>` (D1), so a remount does not download copies again. Each transfer still checks the full snapshot, device and inode included, on its open descriptor. A change that keeps size and timestamps can't be detected.
 - Two concurrent extension fetches per domain, two app transfers for all domains, 1 MiB POSIX buffers, and a preferred 16 MiB returned extent for demand misses. OS minimum ranges may be larger. A small seek can download up to 16 MiB.
 - Read-ahead is per item: up to 8 planners, by item and content version, and the least recently used goes. It starts only when a miss continues the previous miss of the same item. It keeps one 16 MiB speculative fetch in flight, at most one chunk past the latest sequential miss, and pauses 30 ms before each chained request. Without that pause, `fileproviderd` held a waiting seek until speculation stopped. A seek cancels only its own item's speculation. A successful full handoff retires that item/version's pending speculation and cancels its running speculation; future misses after eviction can start a new run. After a reader stops, up to 16 MiB can still download. A fetch counts as speculative only if it covers the planned offset and length. A returned range never extends into bytes already delivered, and speculation skips them: rewriting them raced IINA's reads and made `fileproviderd` download the whole file. A miss in delivered bytes when no new bytes came for 10 s means macOS evicted them, so the planner starts again; before this, a file read again after Remove Downloads got 1 MiB fetches and no read-ahead (M8). A demand that overtakes a request the system hasn't delivered retires it. A 128 MiB window let a moving-boundary stress reader trigger a system materialization race and a full download in 5/5 trials; the one-chunk window avoided it in 11, which doesn't prove it gone. Items share the domain's pipeline depth of 2, so one file's read-ahead can delay another file's read. The sequential partial-read gate still fails.
-- The first request in an outage waits for the mount's own timeout, about 30 s measured. After a call fails with a timeout-class errno, or a listing or transfer makes no progress for 15 s, the share is unresponsive: requests fail at once with `serverUnreachable`, and one probe runs every 5 s until the server answers. A session start whose bookmark resolution fails while the share is mounted is handled the same way, and the probe then starts the session. A blocked SMB kernel call can't be interrupted, and a read that runs when the share stops answering fails after 30–41 s and doesn't resume. After a 70 s outage, macOS unmounted the share 17 s after the NAS answered again, and the app mounted it again in 1.5 s (M11). After a 30 s outage, the app recovered by itself 11 s after it ended (M9). Downloaded files keep working; see the [offline results](results/2026-10-11-offline-reading.md), measured with the fixture build.
+- Each SMB request times out after 10 s. After a connection fails, a request times out, or a call makes no progress for 60 s, the share is unresponsive: requests fail at once with `serverUnreachable`, and probes open a session after 5 s, backing off to 60 s, until the server answers. With the fixture's SMB service stopped, the share was unresponsive after 6 s, and it was connected 5 s after the restart, at the first probe; the pending upload then finished ([results](results/2026-11-08-connection-layer.md)). Downloaded files keep working; see the [offline results](results/2026-10-11-offline-reading.md), measured with the fixture build.
 - The main app must stay running for misses and for folders never listed. When a worker starts a fetch, the app says so and then reports progress at most every 0.5 s. From that start, the extension ends its wait after 60 s with neither progress nor a reply (D2). Before it, a fetch that waits for one of the two workers that all locations share has no deadline: only the reply, a lost connection or cancellation ends it. With the app stopped by `SIGSTOP`, a fetch failed 60.0 s after its last progress (M6). After a crash, the extension starts the app again within about 70 ms, unless the app crashed less than 60 s after its launch. A read that runs during the crash fails, or finishes if the system tries again. After Quit or Force Quit, misses fail at once until the user opens the app (M11). Not verified at runtime: whether the system cancels a waiting fetch, as it can cancel one that stops making progress ([phase 2 §9](phase2-plan.md#9-milestones)).
 - A staging URL is never changed after completion; macOS owns the handoff. App staging leases are released on completion, cancellation or connection invalidation. At launch, before any reader connects, the app deletes leftover stage files in `ReaderStaging`. Each extension process deletes the stage files in its temporary directory that were created before it started, and logs `temp_removed` and the stage files left. Runtime cancellation races, adversarial IPC requests and long-duration staging growth remain unverified.
 - Ordinary Finder deletion and file Replace are enabled after the November 6 signed VM checks.
@@ -434,7 +422,7 @@ the removal.
   dismissal/restart now pass. Retry continues an interrupted request admitted by the command.
   See the [command results](results/2026-11-03-permanent-command.md) and
   [adoption record](results/2026-11-04-adoption.md).
-- Unsupported metadata-only modifications remain local. A completed new folder can receive its initial name once; the app checks its receipt and remote identity. Create and initial naming require an explicitly enabled location and a fresh scoped write grant. Existing locations stay read-only. A reimport `createItem` (`.mayAlreadyExist`) completes with the live row of the same name and kind, and with `nil` only for a file without contents that no row matches; anything else keeps the error. A matched file with contents is downloaded again from the NAS unless its size equals the row's and its modification date is less than 1 µs from the row's, as measured between `Date`s. A NAS change that keeps the size and mtime and changes only the ctime is not found on reimport, so the old disk copy stays as the current version. Not verified at runtime: it needs a system reimport.
+- Unsupported metadata-only modifications remain local. A completed new folder can receive its initial name once; the app checks its receipt and remote identity. Create and initial naming require a location with Read only turned off. Existing locations stay read-only. A reimport `createItem` (`.mayAlreadyExist`) completes with the live row of the same name and kind, and with `nil` only for a file without contents that no row matches; anything else keeps the error. A matched file with contents is downloaded again from the NAS unless its size equals the row's and its modification date is less than 1 µs from the row's, as measured between `Date`s. A NAS change that keeps the size and mtime and changes only the ctime is not found on reimport, so the old disk copy stays as the current version. Not verified at runtime: it needs a system reimport.
 - Per-request logs record full or partial mode, demand, sequential or speculative kind, Finder (`viewer`) and system flags, queue and transfer times. They don't instrument actual player first frame or system reader resumption.
 - The measured VM Finder-launched opens waited for a full download. The physical-Mac run includes
   partial playback reads, but its exact opening routes were not recorded.

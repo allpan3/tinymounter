@@ -10,6 +10,15 @@ TinyMounter consistently. Required VM checks pass: 523 tests, one optional skip,
 warnings. QSpace Pro still lists the hidden support mount; 0.2.0 plans to remove it. See the
 [setup redesign checks](docs/results/2026-11-07-servers-redesign.md).
 
+Connection layer for 0.2.0, 2026-11-08: File Provider locations no longer use a mount. The app
+signs in with the password from its own Keychain item, opens SMB sessions itself and watches
+folders with `CHANGE_NOTIFY`. In the signed VM app, every Finder operation checked ran with no
+SMB mount; a changed password stopped logons after one refusal, and a stopped SMB service
+recovered at the first probe. Required checks pass: 517 tests, one optional skip. Server Volume
+can't mount a new share until NetFS gets the saved password, and notice-driven deletes wait for
+the 15 s confirmation. Not released. See the
+[connection-layer results](docs/results/2026-11-08-connection-layer.md).
+
 Change watching for 0.2.0, 2026-11-08: the SMB watcher for step 4 is built but not yet wired
 into the app. Against the Samba fixture in the VM, changes in watched folders, three levels
 deep included, reached it in 1.2–2.4 ms; overflow, folder deletion, an smbd restart and an

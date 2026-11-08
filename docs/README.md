@@ -28,6 +28,8 @@ it wrong.
 
 ## Results logs
 
+- [Connection layer for 0.2.0](results/2026-11-08-connection-layer.md). Steps 3 and 4: File Provider locations without a mount, password sessions, connection health and change watching in the signed VM app. Server Volume can't mount a new share until NetFS gets the saved password.
+
 - [SMB password client](results/2026-11-08-smb-password-client.md). 0.2.0 step 2: `SMBClient` signs in with a password over sealed SMB 3.1.1; wrong password, missing and denied shares, account forms, share listing and every direct-SMB operation checked on the fixture.
 
 - [Change watching for 0.2.0](results/2026-11-08-change-watching.md). Step 4 watcher against the Samba fixture: coverage and latency, overflow, deletion, restart, echo, 64-watch cap and name form. Not wired into the app yet.
