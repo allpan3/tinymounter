@@ -128,6 +128,7 @@ final class AppModel {
     private(set) var passwordMissing: Set<UUID> = []
     @ObservationIgnored private var passwordCheck = 0
     var signIn: SignInRequest?
+    var folderBrowser: FolderBrowserRequest?
     private(set) var connectionBusy = false
     private(set) var states: [UUID: LocationState] = [:]
     private(set) var shareStates: [UUID: ShareHealth.State] = [:]
@@ -1303,35 +1304,27 @@ final class AppModel {
         }
     }
 
-    /// Select… for Folder: a folder in the share. It connects the share first if necessary.
+    /// Select… for Folder: the in-app folder browser. It connects the share first if necessary.
     func selectFolder(_ id: UUID) {
         guard !connectionBusy, let grantID = grantID(id), let grant = grant(grantID) else { return }
         Task {
             if controller.mountPath(grantID) == nil {
                 guard await connectShare(grant) else { return }
             }
-            guard let mount = controller.mountPath(grantID) else { return show(UIText.cannotShow) }
-            let panel = NSOpenPanel()
-            let current = LocationRecord.normalizedFolder(folderText(id)) ?? .root
-            panel.directoryURL = URL(filePath: current.isRoot ? mount : mount + "/" + current.string,
-                                     directoryHint: .isDirectory)
-            panel.canChooseDirectories = true
-            panel.canChooseFiles = false
-            panel.canCreateDirectories = false
-            panel.allowsMultipleSelection = false
-            panel.resolvesAliases = false
-            panel.message = UIText.selectFolderMessage
-            guard await run(panel), let url = panel.url else { return }
-            let path = url.standardizedFileURL.path(percentEncoded: false)
-            let trimmed = path.count > 1 && path.hasSuffix("/") ? String(path.dropLast()) : path
-            if trimmed == mount {
-                setFolder(id, "")
-            } else if trimmed.hasPrefix(mount + "/") {
-                setFolder(id, String(trimmed.dropFirst(mount.count + 1)))
-            } else {
-                show(UIText.folderNotOnShare)
+            let controller = controller
+            // Folder completion returns at most FolderCompletion.maxSuggestions names; step 3 lists all.
+            folderBrowser = FolderBrowserRequest(
+                entryID: id, share: grant.share, start: LocationRecord.normalizedFolder(folderText(id)) ?? .root
+            ) { path in
+                await controller.folderSuggestions(grantID: grantID, typed: path.isRoot ? "" : path.string + "/")
+                    .map { RelativePath($0)?.components.last ?? $0 }
             }
         }
+    }
+
+    func chooseFolder(_ request: FolderBrowserRequest, _ folder: RelativePath) {
+        folderBrowser = nil
+        setFolder(request.entryID, folder.string)
     }
 
     // MARK: General and menu bar

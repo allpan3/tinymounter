@@ -32,6 +32,9 @@ struct SettingsView: View {
                 await model.completeSignIn(request, server: server, name: name, password: password)
             } cancel: { model.signIn = nil }
         }
+        .sheet(item: $model.folderBrowser) { request in
+            FolderBrowser(request: request) { model.chooseFolder(request, $0) } cancel: { model.folderBrowser = nil }
+        }
     }
 }
 
