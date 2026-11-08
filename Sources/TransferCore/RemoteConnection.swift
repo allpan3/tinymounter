@@ -18,6 +18,12 @@ public struct ServerAccount: Hashable, Codable, Sendable {
         self.host = host
         self.account = account
     }
+
+    /// The same sign-in: SMB host and account names don't depend on case.
+    public func matches(_ other: ServerAccount) -> Bool {
+        remoteProtocol == other.remoteProtocol && host.caseInsensitiveCompare(other.host) == .orderedSame
+            && account.caseInsensitiveCompare(other.account) == .orderedSame
+    }
 }
 
 /// Saves passwords outside Settings.json. The app keeps them in its own Keychain items.

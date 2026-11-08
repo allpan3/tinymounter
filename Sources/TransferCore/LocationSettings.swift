@@ -139,37 +139,21 @@ public struct ServerVolumeRecord: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+/// One sign-in. Two accounts on one host are two servers. The password is in the Keychain.
 public struct ServerRecord: Codable, Equatable, Identifiable, Sendable {
     public let id: UUID
-    public let address: URL
+    public let login: ServerAccount
 
-    public var host: String { URLComponents(url: address, resolvingAgainstBaseURL: false)?.host ?? "" }
-    public var account: String? { URLComponents(url: address, resolvingAgainstBaseURL: false)?.user }
-
-    public init(id: UUID = UUID(), address: ServerAddress) {
+    public init(id: UUID = UUID(), login: ServerAccount) {
         self.id = id
-        self.address = address.serverURL
-    }
-
-    public func matches(_ other: ServerAddress) -> Bool {
-        host.caseInsensitiveCompare(other.host) == .orderedSame && account?.lowercased() == other.account?.lowercased()
-    }
-
-    /// Whether a share connected through `other` can belong to this server. macOS reuses an
-    /// existing mount of a share, whichever account asked for it, so the mounted account can differ.
-    /// A server typed without an account accepts any account.
-    public func accepts(account other: String) -> Bool {
-        account.map { $0.caseInsensitiveCompare(other) == .orderedSame } ?? true
+        self.login = login
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
-        let url = try container.decode(URL.self, forKey: .address)
-        guard let parsed = ServerAddress(typed: url.absoluteString), parsed.share == nil else {
-            throw SettingsError.invalidServer
-        }
-        address = parsed.serverURL
+        login = try container.decode(ServerAccount.self, forKey: .login)
+        guard !login.host.isEmpty, !login.account.isEmpty else { throw SettingsError.invalidServer }
     }
 }
 

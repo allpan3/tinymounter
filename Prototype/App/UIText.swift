@@ -248,8 +248,6 @@ enum UIText {
     static let select = "Select…"
     static let addShare = "Add Share…"
     static let addServer = "Add Server…"
-    static let addServerTitle = "Type the address of the server."
-    static let addServerDescription = "For example, smb://server. Choose a share when you add a location."
     static let addressPlaceholder = "smb://server"
     static let noServer = "No server"
     static let connect = "Connect"
@@ -386,6 +384,8 @@ enum UIText {
     static let selectAgain = "Select Again…"
     static let notResponding = "Cannot connect"
     static let selectShareAgainShort = "Select the share again."
+    static let signInAgainShort = "Sign in again."
+    static let passwordSaved = "Password saved"
     static func accountAndShare(_ account: String, _ share: String) -> String { "\(account) · \(share)" }
     static let serversDescription = """
         TinyMounter can use these shares. To add a share, add a location and select the share there.
@@ -416,10 +416,26 @@ enum UIText {
     static func mountedShare(_ address: ShareAddress) -> String {
         "\(address.host) / \(address.share) · \(address.account)"
     }
-    static func serverAddress(_ server: ServerRecord) -> String {
-        server.account.map { "\($0)@\(server.host)" } ?? server.host
-    }
+    static func serverAddress(_ server: ServerRecord) -> String { server.login.account + "@" + server.login.host }
     static let cannotRemoveServer = "TinyMounter cannot forget this server. Try again."
+    static func forgetServerTitle(_ server: String) -> String { "Forget the server \(server)?" }
+    static let forgetServerMessage = """
+        TinyMounter disconnects the shares of this server and deletes its saved password. \
+        The files on the server do not change.
+        """
+    static let forgetServerUsedHelp = "A location uses this server. Remove the location first."
+
+    // Sign-in
+    static let signIn = "Sign In"
+    static let signInAgain = "Sign In Again…"
+    static let password = "Password"
+    static let signInTitle = "Type the server address, your name and your password."
+    static func signInAgainTitle(_ host: String) -> String { "Type your password for \(host) again." }
+    static let signInDescription = "TinyMounter keeps the password in your keychain."
+    static let signInRefused = "The server did not accept this name and password."
+    static let typeName = "Type the name of your account on the server."
+    static let cannotSavePassword = "TinyMounter cannot save the password in your keychain."
+    static let cannotDeletePassword = "TinyMounter cannot delete the saved password from your keychain. Try again."
 
     // General
     static let openAtLogin = "Open at login"

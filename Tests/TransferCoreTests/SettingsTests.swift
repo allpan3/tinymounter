@@ -14,8 +14,12 @@ final class SettingsTests: XCTestCase {
         try? FileManager.default.removeItem(at: directory)
     }
 
+    private func serverRecord(_ host: String) -> ServerRecord {
+        ServerRecord(login: ServerAccount(remoteProtocol: .smb, host: host, account: "account"))
+    }
+
     func testServerVolumeExcludesProviderLocationsAcrossAccounts() throws {
-        let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "smb://fixture")))
+        let server = serverRecord("fixture")
         let first = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//one@fixture/Share",
                                 address: try XCTUnwrap(ShareAddress("//one@fixture/Share")))
         let second = ServerGrant(serverID: server.id, bookmark: Data([2]), mountFrom: "//two@FIXTURE/share",
@@ -45,7 +49,7 @@ final class SettingsTests: XCTestCase {
     }
 
     func testServerVolumeSettingsRejectConflictingOrMissingGrants() throws {
-        let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "smb://fixture")))
+        let server = serverRecord("fixture")
         let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//one@fixture/share",
                                 address: try XCTUnwrap(ShareAddress("//one@fixture/share")))
         let volume = ServerVolumeRecord(grantID: grant.id)
@@ -61,7 +65,7 @@ final class SettingsTests: XCTestCase {
     }
 
     func testDeletionRemovesOnlyConfirmedTypedKeepsOnTheSameShare() throws {
-        let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "smb://fixture")))
+        let server = serverRecord("fixture")
         let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//account@fixture/share",
                                 address: try XCTUnwrap(ShareAddress("//account@fixture/share")))
         let other = ServerGrant(serverID: server.id, bookmark: Data([2]), mountFrom: "//account@fixture/other",
@@ -109,7 +113,7 @@ final class SettingsTests: XCTestCase {
     }
 
     func testFileMoveRewritesOnlyMatchingKeepsOnTheSameShareAndIsIdempotent() throws {
-        let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "smb://fixture")))
+        let server = serverRecord("fixture")
         let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//account@fixture/share",
                                 address: try XCTUnwrap(ShareAddress("//account@fixture/share")))
         let other = ServerGrant(serverID: server.id, bookmark: Data([2]), mountFrom: "//account@fixture/other",
@@ -139,7 +143,7 @@ final class SettingsTests: XCTestCase {
     }
 
     func testFolderMoveRewritesTypedDescendantsAndPreservesOtherShares() throws {
-        let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "smb://fixture")))
+        let server = serverRecord("fixture")
         let address = try XCTUnwrap(ShareAddress("//account@fixture/share"))
         let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//account@fixture/share",
                                 address: address)
@@ -170,7 +174,7 @@ final class SettingsTests: XCTestCase {
     }
 
     func testRootRetirementClearsSubtreeKeepsWithoutChangingAncestorsOrOtherShares() throws {
-        let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "smb://fixture")))
+        let server = serverRecord("fixture")
         let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//account@fixture/share",
                                 address: try XCTUnwrap(ShareAddress("//account@fixture/share")))
         let paths = [KeepPath(path: "Archive", kind: .folder), KeepPath(path: "Archive/Café", kind: .folder),
@@ -243,7 +247,7 @@ final class SettingsTests: XCTestCase {
     }
 
     func testShareWritePermissionSurvivesRelaunchWithoutEnablingLocations() throws {
-        let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "account@fixture")))
+        let server = serverRecord("fixture")
         let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), writeBookmark: Data([2]),
                                 mountFrom: "//account@fixture/share",
                                 address: try XCTUnwrap(ShareAddress("//account@fixture/share")))
@@ -260,7 +264,7 @@ final class SettingsTests: XCTestCase {
     }
 
     func testEarlierSettingsReuseOnlyTheSameGrantsLocationPermission() throws {
-        let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "fixture")))
+        let server = serverRecord("fixture")
         let grants = try ["//account@fixture/share", "//other@fixture/share", "//account@fixture/other"].map {
             ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: $0,
                         address: try XCTUnwrap(ShareAddress($0)))
@@ -422,17 +426,41 @@ final class SettingsTests: XCTestCase {
                                              SavedKeepList(host: "nas.local", share: "Other", paths: fileKeeps(["a.mkv"]))])
     }
 
-    func testServerAcceptsOnlyItsOwnAccount() throws {
-        let named = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "Account@nas.local")))
-        XCTAssertTrue(named.accepts(account: "account"))
-        XCTAssertFalse(named.accepts(account: "other"), "a reused mount of another account must not join this server")
-        let open = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "nas.local")))
-        XCTAssertTrue(open.accepts(account: "other"))
+    func testServerAccountsMatchWithoutCaseAndKeepAccountsApart() {
+        let account = ServerAccount(remoteProtocol: .smb, host: "NAS.local", account: "Account")
+        XCTAssertTrue(account.matches(ServerAccount(remoteProtocol: .smb, host: "nas.local", account: "account")))
+        XCTAssertFalse(account.matches(ServerAccount(remoteProtocol: .smb, host: "nas.local", account: "other")),
+                       "two accounts on one host are two servers")
+        XCTAssertFalse(account.matches(ServerAccount(remoteProtocol: .smb, host: "other.local", account: "Account")))
+    }
+
+    func testServerRecordSavesItsSignInAndNoPassword() throws {
+        let server = ServerRecord(login: ServerAccount(remoteProtocol: .smb, host: "nas.local", account: "account"))
+        let data = try JSONEncoder().encode(server)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(Set(json.keys), ["id", "login"])
+        XCTAssertEqual(json["login"] as? [String: String],
+                       ["remoteProtocol": "smb", "host": "nas.local", "account": "account"])
+        XCTAssertEqual(try JSONDecoder().decode(ServerRecord.self, from: data), server)
+    }
+
+    func testServerRecordRejectsTheEarlierAddressAndAnEmptySignIn() throws {
+        let id = UUID().uuidString
+        let earlier = #"{"id":"\#(id)","address":"smb://account@nas.local"}"#
+        XCTAssertThrowsError(try JSONDecoder().decode(ServerRecord.self, from: Data(earlier.utf8)))
+        for (host, account) in [("", "account"), ("nas.local", "")] {
+            let json = #"{"id":"\#(id)","login":{"remoteProtocol":"smb","host":"\#(host)","account":"\#(account)"}}"#
+            XCTAssertThrowsError(try JSONDecoder().decode(ServerRecord.self, from: Data(json.utf8))) {
+                XCTAssertEqual($0 as? SettingsError, .invalidServer)
+            }
+        }
+        let unknown = #"{"id":"\#(id)","login":{"remoteProtocol":"afp","host":"nas.local","account":"account"}}"#
+        XCTAssertThrowsError(try JSONDecoder().decode(ServerRecord.self, from: Data(unknown.utf8)))
     }
 
     func testSettingsRoundTripThroughAPrivateFile() throws {
         let address = try XCTUnwrap(ShareAddress("//account@nas.local/Media"))
-        let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "account@nas.local")))
+        let server = serverRecord("nas.local")
         let grant = ServerGrant(serverID: server.id, bookmark: Data([1, 2, 3]), mountFrom: "//account@nas.local/Media", address: address)
         var record = LocationRecord(name: "Movies", grantID: grant.id, folder: try XCTUnwrap(RelativePath("Movies/2024")))
         record.retiredDomainID = UUID().uuidString
@@ -486,8 +514,8 @@ final class SettingsTests: XCTestCase {
     }
 
     func testRemovingAServerInUseDoesNotChangeSettings() throws {
-        let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "nas.local")))
-        let other = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "other.local")))
+        let server = serverRecord("nas.local")
+        let other = serverRecord("other.local")
         let address = try XCTUnwrap(ShareAddress("//account@nas.local/Media"))
         let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//account@nas.local/Media", address: address)
         let record = LocationRecord(name: "Media", grantID: grant.id, folder: .root)
@@ -505,7 +533,7 @@ final class SettingsTests: XCTestCase {
     }
 
     func testForgettingAShareKeepsUsedSharesAndDropsAnEmptyServer() throws {
-        let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "nas.local")))
+        let server = serverRecord("nas.local")
         let used = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//account@nas.local/Media",
                                address: try XCTUnwrap(ShareAddress("//account@nas.local/Media")))
         let unused = ServerGrant(serverID: server.id, bookmark: Data([2]), mountFrom: "//account@nas.local/Backup",
@@ -525,7 +553,7 @@ final class SettingsTests: XCTestCase {
     }
 
     func testASeparateShareWithoutItsServerIsRejected() throws {
-        let server = ServerRecord(address: try XCTUnwrap(ServerAddress(typed: "nas.local")))
+        let server = serverRecord("nas.local")
         let address = try XCTUnwrap(ShareAddress("//account@nas.local/Media"))
         let grant = ServerGrant(serverID: server.id, bookmark: Data([1]), mountFrom: "//account@nas.local/Media", address: address)
         let invalid = AppSettings(shares: [grant])
