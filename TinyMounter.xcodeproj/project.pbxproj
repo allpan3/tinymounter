@@ -209,6 +209,12 @@
 			"path" = "Prototype/App/KeychainCredentials.swift";
 			"sourceTree" = "<group>";
 		};
+		"CF4B52E280BB4808BDA14FBD" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Prototype/App/SignInSheet.swift";
+			"sourceTree" = "<group>";
+		};
 		"B5037F6DF4FF777669B4056C" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
@@ -942,6 +948,7 @@
 				"14D65D07B2D05C965A7AFC96",
 				"A2719CDE3A399E1F95540886",
 				"46DD52C9F604C951BFA9F855",
+				"CF4B52E280BB4808BDA14FBD",
 				"B5037F6DF4FF777669B4056C",
 				"55E0B562F18AFE4D5052209D",
 				"A2719CDE3A399E1F95540886",
@@ -1824,6 +1831,10 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "46DD52C9F604C951BFA9F855";
 		};
+		"CF8235054BF119AC41723299" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "CF4B52E280BB4808BDA14FBD";
+		};
 		"5833B1B968BD345E4BCA79AD" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "B5037F6DF4FF777669B4056C";
@@ -2026,6 +2037,7 @@
 				"84AFAF25C8E82649C60660B0",
 				"5FC599E5DFC78118FAAC3D12",
 				"5E0C927C1AD6029F531BAD8B",
+				"CF8235054BF119AC41723299",
 				"5833B1B968BD345E4BCA79AD",
 				"E1600E572F47EE5AFA5F6AD0",
 				"5FC599E5DFC78118FAAC3D12",

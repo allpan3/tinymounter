@@ -20,8 +20,10 @@ covers the whole share, uses its server permissions and has no Read only or Keep
 control. Remove the share's existing locations before switching modes, including locations
 saved under another account. Add connects automatically; saved native volumes also have
 Show in Finder, Connect/Disconnect and Remove controls. On 2026-11-07 the user also accepted one
-add flow: shares are added only in a location, and Servers only lists them (section 4.3). The
-original mockup below is historical.
+add flow: shares are added only in a location, and Servers only lists them (section 4.3). On
+2026-11-08 the [connection-layer plan](connection-layer-plan.md#ui-changes) replaced the Add
+Server… address dialog with a sign-in sheet ([section 11](#11-sign-in-020)). The original mockup
+below is historical.
 
 ## 1. Principles
 
@@ -139,12 +141,14 @@ confirmation says that this removes the downloaded copies of the location from t
 the files on the server do not change. To try a different source and keep this location, use
 Duplicate instead.
 
-**Server** lists saved servers. Add Server… saves the address and continues to the share.
+**Server** lists saved servers as `account@host`. Add Server… opens the sign-in sheet
+([section 11](#11-sign-in-020)) and then continues to the share.
 **Share** lists the server's saved share grants and Add Share…. This is the only place to add a
 share. Select… connects the share first if necessary. The app offers existing SMB
 connections before asking macOS to connect another share. A connection at a different address
-needs explicit confirmation. macOS owns login and Keychain dialogs; the app never sees a password.
-Bonjour discovery remains unimplemented.
+needs explicit confirmation. Until the 0.2.0 connection layer replaces them, share connections
+still go through macOS, which shows its own login dialog when it has no password for the
+account. Bonjour discovery remains unimplemented.
 
 ### 4.2 Adding a location: Duplicate
 
@@ -183,7 +187,11 @@ the first location on a server.
   access to a share stays saved after its last location is removed, so adding it again does not
   ask again. Forget ejects an unused share and deletes its access; it is unavailable while a
   location uses the share, and it keeps the entry if the eject fails. A server without other
-  shares goes with its last share. Select Again… shows only when the access no longer resolves.
+  shares goes with its last share, and its saved password with it. Each server also has a row
+  with "Password saved", or "Sign in again." and Sign In Again… when no password is saved, and
+  Forget. Forget on a server is unavailable while a location uses it. After a confirmation, it
+  deletes the saved password, then ejects and forgets the server's shares.
+  Select Again… shows only when the access no longer resolves.
   Connection problems also show in the location's header, with Connect or Select Again….
   File Provider locations have no Disconnect: the app reconnects them automatically. Server
   volumes keep Connect and Disconnect in their own pane.
@@ -316,3 +324,37 @@ the NAS. The [follow-up](results/2026-11-04-write-confirmation.md) records the r
 Once confirmed, enabling Read only blocks new remote changes but retains the grant for later
 reuse. Refuse that change while writes are pending. Changing the source uses only the target
 share's permission, with the existing account and mount checks on every mutation.
+
+## 11. Sign-in (0.2.0)
+
+Proposed on 2026-11-08 with the [connection-layer plan](connection-layer-plan.md#ui-changes);
+built in its step 1.
+
+**Add Server…** in a location's Server menu opens a sheet: "Type the server address, your name
+and your password.", with Server (placeholder `smb://server`), Name, Password, Cancel and
+Sign In. A name in the address (`smb://name@server`) counts when Name is empty. The footer says
+"TinyMounter keeps the password in your keychain."
+
+Sign In asks the server to check the name and password before it saves anything:
+
+- A refusal shows "The server did not accept this name and password." in the sheet. The sheet
+  stays open with an empty Password field, and nothing is saved.
+- A wrong address shows "This address is not correct. Type an address such as
+  smb://server/share."; no name shows "Type the name of your account on the server."
+- Success saves the server and the password and closes the sheet. A server that is already saved
+  for the same account keeps its record and gets the new password. If the address names a share,
+  the location selects it.
+
+Until the step 2 SMB client is connected, Sign In cannot ask the server and accepts the
+password.
+
+**Sign In Again…** opens the same sheet with Server and Name fixed: "Type your password for
+home-nas again." It shows on the server's row in Servers when no password is saved, and in a
+location's header with the status "Sign in again." when the server refuses the saved password
+(step 3).
+
+The password is a generic-password item in the login keychain: service `dev.tinymounter.smb`,
+account `name@host` with the host in lowercase. Finder's own internet-password item for the
+same server never matches it, so Forget never deletes Finder's item. Settings.json holds only
+the server, `{"id", "login": {"remoteProtocol", "host", "account"}}`. A Settings.json from 0.1.2
+has no `login` and is refused; General then offers Start Fresh.

@@ -69,12 +69,14 @@ final class AppModel {
     }
 
     enum LocationState: Equatable {
-        case starting, removing, catalogUnavailable, turnedOff, needsGrant, notConnected, unresponsive, folderMissing
+        case starting, removing, catalogUnavailable, turnedOff, needsGrant, needsSignIn, notConnected, unresponsive
+        case folderMissing
         case connected(downloading: Double?)
 
         var isProblem: Bool {
             switch self {
-            case .catalogUnavailable, .turnedOff, .needsGrant, .notConnected, .unresponsive, .folderMissing: true
+            case .catalogUnavailable, .turnedOff, .needsGrant, .needsSignIn, .notConnected, .unresponsive,
+                 .folderMissing: true
             case .starting, .removing, .connected: false
             }
         }
@@ -105,6 +107,9 @@ final class AppModel {
     let controller: LocationController
     @ObservationIgnored private let store: SettingsStore
     @ObservationIgnored private let notifier = Notifier()
+    @ObservationIgnored private let credentials = KeychainCredentialStore()
+    /// Until SMBClient.shareNames lands, Sign In cannot ask the server and accepts every password.
+    @ObservationIgnored var listShares: ShareLister = { _, _ in [] }
     var selection: Pane?
     var searchText = ""
     var drafts: [Draft] = []
@@ -119,6 +124,10 @@ final class AppModel {
     private(set) var serverVolumes: [ServerVolumeRecord] = []
     private(set) var servers: [ServerRecord] = []
     private(set) var shares: [ServerGrant] = []
+    /// Servers without a saved password; they show Sign In Again….
+    private(set) var passwordMissing: Set<UUID> = []
+    @ObservationIgnored private var passwordCheck = 0
+    var signIn: SignInRequest?
     private(set) var connectionBusy = false
     private(set) var states: [UUID: LocationState] = [:]
     private(set) var shareStates: [UUID: ShareHealth.State] = [:]
@@ -206,6 +215,7 @@ final class AppModel {
         case .catalogUnavailable: UIText.catalogUnavailable
         case .turnedOff: UIText.turnedOff
         case .needsGrant: UIText.selectShareAgainShort
+        case .needsSignIn: UIText.signInAgainShort
         case .notConnected: UIText.clickConnect
         case .unresponsive: UIText.cannotConnect(host)
         case .folderMissing: UIText.folderNotOnShare
@@ -221,7 +231,7 @@ final class AppModel {
         case .connected(nil): UIText.connected
         case .starting, .notConnected, .unresponsive: UIText.notConnected
         case .removing: UIText.removalNotComplete
-        case .catalogUnavailable, .turnedOff, .needsGrant, .folderMissing: UIText.problem
+        case .catalogUnavailable, .turnedOff, .needsGrant, .needsSignIn, .folderMissing: UIText.problem
         }
     }
 
@@ -231,7 +241,7 @@ final class AppModel {
         case .connected(nil): "checkmark.circle"
         case .starting, .notConnected, .unresponsive: "bolt.horizontal.circle"
         case .removing: "trash.circle"
-        case .catalogUnavailable, .turnedOff, .needsGrant, .folderMissing: "exclamationmark.triangle"
+        case .catalogUnavailable, .turnedOff, .needsGrant, .needsSignIn, .folderMissing: "exclamationmark.triangle"
         }
     }
 
@@ -924,19 +934,100 @@ final class AppModel {
 
     func addServer(for locationID: UUID) {
         guard !connectionBusy else { return }
+        signIn = SignInRequest(purpose: .add(locationID: locationID))
+    }
+
+    func signInAgain(serverID: UUID) {
+        guard !connectionBusy, let server = servers.first(where: { $0.id == serverID }) else { return }
+        signIn = SignInRequest(purpose: .again(server))
+    }
+
+    func needsSignIn(_ serverID: UUID) -> Bool { passwordMissing.contains(serverID) }
+
+    /// Sign In: the server checks the password first, so a refusal saves nothing.
+    func completeSignIn(_ request: SignInRequest, server text: String, name: String, password: Data) async -> String? {
+        guard !connectionBusy else { return UIText.cannotDo("busy") }
+        var login: ServerAccount
+        var share: String?
+        if let fixed = request.fixed {
+            login = fixed
+        } else {
+            guard let address = ServerAddress(typed: text) else { return UIText.wrongAddress }
+            let typed = name.trimmingCharacters(in: .whitespaces)
+            guard let account = typed.isEmpty ? address.account : typed, !account.isEmpty else { return UIText.typeName }
+            login = ServerAccount(remoteProtocol: .smb, host: address.host, account: account)
+            if let saved = store.settings?.servers.first(where: { $0.login.matches(login) }) { login = saved.login }
+            share = address.share
+        }
         connectionBusy = true
+        defer { connectionBusy = false }
+        do {
+            _ = try await listShares(login, password)
+        } catch SourceFailure.notAuthenticated {
+            return UIText.signInRefused
+        } catch {
+            Self.log.error("sign_in \(logFields(error), privacy: .public)")
+            return Self.message(for: error, host: login.host)
+        }
+        let credentials = credentials
+        let isNew = store.settings?.servers.contains { $0.login == login } != true
+        do {
+            try await Task.detached { try credentials.savePassword(password, for: login) }.value
+        } catch {
+            Self.log.error("save_password \(logFields(error), privacy: .public)")
+            return UIText.cannotSavePassword
+        }
+        let serverID: UUID
+        do {
+            serverID = try saveServer(login)
+        } catch {
+            if isNew { try? await Task.detached { try credentials.deletePassword(for: login) }.value }
+            Self.log.error("save_server \(logFields(error), privacy: .public)")
+            return Self.message(for: error, host: login.host)
+        }
+        passwordMissing.remove(serverID)
+        signIn = nil
+        guard case .add(let locationID) = request.purpose else { return nil }
+        setServer(locationID, serverID)
+        if share != nil || grant(grantID(locationID))?.serverID != serverID,
+           let grantID = await acquireShare(serverID, share: share) {
+            setGrant(locationID, grantID)
+        }
+        return nil
+    }
+
+    private func saveServer(_ login: ServerAccount) throws -> UUID {
+        if let saved = store.settings?.servers.first(where: { $0.login.matches(login) }) { return saved.id }
+        let server = ServerRecord(login: login)
+        try store.update { $0.servers.append(server) }
+        refresh()
+        return server.id
+    }
+
+    /// Reads only the items' attributes, so it never shows a Keychain prompt.
+    private func checkPasswords() {
+        passwordCheck += 1
+        let check = passwordCheck
+        let logins = servers.map { ($0.id, $0.login) }
+        let credentials = credentials
         Task {
-            defer { connectionBusy = false }
-            guard let text = await askAddress() else { return }
-            guard let address = ServerAddress(typed: text) else { return show(UIText.wrongAddress) }
-            do {
-                let serverID = try controller.saveServer(address)
-                setServer(locationID, serverID)
-                if address.share != nil || grant(grantID(locationID))?.serverID != serverID,
-                   let grantID = await acquireShare(serverID, address: address) {
-                    setGrant(locationID, grantID)
-                }
-            } catch { show(error, grantID: nil) }
+            let missing = await Task.detached {
+                Set(logins.filter { (try? credentials.hasPassword(for: $0.1)) == false }.map(\.0))
+            }.value
+            if check == passwordCheck { update(\.passwordMissing, missing) }
+        }
+    }
+
+    /// False if the item remains; the caller then keeps the server.
+    private func deletePassword(_ login: ServerAccount) async -> Bool {
+        let credentials = credentials
+        do {
+            try await Task.detached { try credentials.deletePassword(for: login) }.value
+            return true
+        } catch {
+            Self.log.error("delete_password \(logFields(error), privacy: .public)")
+            show(UIText.cannotDeletePassword)
+            return false
         }
     }
 
@@ -949,13 +1040,15 @@ final class AppModel {
         }
     }
 
-    private func acquireShare(_ serverID: UUID, address: ServerAddress? = nil) async -> UUID? {
+    private func acquireShare(_ serverID: UUID, share: String? = nil) async -> UUID? {
         guard let server = servers.first(where: { $0.id == serverID }) else { return nil }
+        guard let url = Self.mountURL(server.login, share: share) else {
+            show(UIText.addressRejected)
+            return nil
+        }
         do {
             let before = try ShareAccess.connectedShares()
-            let compatible = before.filter { mount in
-                server.account.map { $0.caseInsensitiveCompare(mount.address.account) == .orderedSame } ?? true
-            }
+            let compatible = before.filter { $0.address.account.caseInsensitiveCompare(server.login.account) == .orderedSame }
             if !compatible.isEmpty {
                 switch await chooseConnectedShare(compatible, server: server) {
                 case .existing(let mount): return await selectShare(serverID: serverID, at: mount.path)
@@ -963,13 +1056,14 @@ final class AppModel {
                 case .connect: break
                 }
             }
-            let (status, paths) = await ShareAccess.mount(address?.url ?? server.address)
+            let (status, paths) = await ShareAccess.mount(url)
             guard status == 0 || status == EEXIST else {
-                if let message = Self.mountMessage(status, host: server.host) { show(message) }
+                if let message = Self.mountMessage(status, host: server.login.host) { show(message) }
                 return nil
             }
             let mounted = try ShareAccess.connectedShares()
-            let path = paths.first ?? address.flatMap { ShareAccess.mountPath(of: $0) }
+            let typed = share == nil ? nil : ServerAddress(typed: url.absoluteString)
+            let path = paths.first ?? typed.flatMap { ShareAccess.mountPath(of: $0) }
             let grantID: UUID?
             if let path {
                 grantID = await selectShare(serverID: serverID, at: path)
@@ -990,6 +1084,16 @@ final class AppModel {
             show(error, grantID: nil)
             return nil
         }
+    }
+
+    /// The account is in the URL, so macOS asks for this account's password when it has none.
+    private static func mountURL(_ login: ServerAccount, share: String?) -> URL? {
+        var components = URLComponents()
+        components.scheme = "smb"
+        components.user = login.account
+        components.host = login.host
+        if let share { components.path = "/" + share }
+        return components.url
     }
 
     func connect(_ grant: ServerGrant) {
@@ -1076,7 +1180,8 @@ final class AppModel {
                 show(UIText.otherShare)
                 return nil
             }
-            if let server = servers.first(where: { $0.id == serverID }), !server.accepts(account: grant.account) {
+            if let server = servers.first(where: { $0.id == serverID }),
+               server.login.account.caseInsensitiveCompare(grant.account) != .orderedSame {
                 show(UIText.otherAccount)
                 return nil
             }
@@ -1095,10 +1200,14 @@ final class AppModel {
         alert.informativeText = UIText.forgetShareMessage
         alert.addButton(withTitle: UIText.forget)
         alert.addButton(withTitle: UIText.cancel)
+        let lastLogin = shares.contains { $0.serverID == grant.serverID && $0.id != grant.id }
+            ? nil : servers.first { $0.id == grant.serverID }?.login
         connectionBusy = true
         Task {
             defer { connectionBusy = false }
             guard await present(alert) == .alertFirstButtonReturn else { return }
+            // The server goes with its last share, so its password goes first.
+            if let lastLogin, !(await deletePassword(lastLogin)) { return }
             do {
                 try await controller.removeShare(grant.id)
                 let serverGone = !servers.contains { $0.id == grant.serverID }
@@ -1116,12 +1225,20 @@ final class AppModel {
         }
     }
 
-    /// A saved server without shares, from an Add Server… that did not finish.
+    /// An unused server, with its shares and its password.
     func forgetServer(_ id: UUID) {
-        guard !connectionBusy, !isServerUsed(id) else { return }
+        guard !connectionBusy, !isServerUsed(id), let server = servers.first(where: { $0.id == id }) else { return }
+        let alert = NSAlert()
+        alert.messageText = UIText.forgetServerTitle(UIText.serverAddress(server))
+        alert.informativeText = UIText.forgetServerMessage
+        alert.addButton(withTitle: UIText.forget)
+        alert.addButton(withTitle: UIText.cancel)
         connectionBusy = true
         Task {
             defer { connectionBusy = false }
+            guard await present(alert) == .alertFirstButtonReturn else { return }
+            // A failed eject keeps the server, which then offers Sign In Again….
+            guard await deletePassword(server.login) else { return }
             do {
                 try await controller.removeServer(id)
                 for index in drafts.indices where drafts[index].serverID == id {
@@ -1156,25 +1273,26 @@ final class AppModel {
 
     private func chooseConnectedShare(_ mounts: [ShareAccess.ConnectedShare], server: ServerRecord) async -> ShareChoice {
         let alert = NSAlert()
-        alert.messageText = UIText.chooseShareTitle(server.host)
+        alert.messageText = UIText.chooseShareTitle(server.login.host)
         alert.informativeText = UIText.chooseShareDescription
         alert.addButton(withTitle: UIText.useShare)
         alert.addButton(withTitle: UIText.connectAnotherShare)
         alert.addButton(withTitle: UIText.cancel)
         let choices = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 420, height: 26))
         for mount in mounts { choices.addItem(withTitle: UIText.mountedShare(mount.address)) }
-        if let index = mounts.firstIndex(where: { $0.address.host.caseInsensitiveCompare(server.host) == .orderedSame }) {
+        if let index = mounts.firstIndex(where: { $0.address.host.caseInsensitiveCompare(server.login.host) == .orderedSame }) {
             choices.selectItem(at: index)
         }
         alert.accessoryView = choices
         switch await present(alert) {
         case .alertFirstButtonReturn:
             let mount = mounts[choices.indexOfSelectedItem]
-            let known = Set(shares.filter { $0.serverID == server.id }.map { $0.host.lowercased() } + [server.host.lowercased()])
+            let known = Set(shares.filter { $0.serverID == server.id }.map { $0.host.lowercased() }
+                + [server.login.host.lowercased()])
             if !known.contains(mount.address.host.lowercased()) {
                 let confirmation = NSAlert()
                 confirmation.messageText = UIText.useOtherAddressTitle
-                confirmation.informativeText = UIText.useOtherAddress(mount.address, server: server.host)
+                confirmation.informativeText = UIText.useOtherAddress(mount.address, server: server.login.host)
                 confirmation.addButton(withTitle: UIText.useShare)
                 confirmation.addButton(withTitle: UIText.cancel)
                 guard await present(confirmation) == .alertFirstButtonReturn else { return .cancel }
@@ -1264,7 +1382,9 @@ final class AppModel {
         let settings = store.settings
         update(\.records, settings?.locations ?? [])
         update(\.serverVolumes, settings?.serverVolumes ?? [])
+        let savedServers = servers
         update(\.servers, settings?.servers ?? [])
+        if servers != savedServers { checkPasswords() }
         update(\.shares, settings?.shares ?? [])
         update(\.paused, controller.paused)
         update(\.isReady, controller.isReady)
@@ -1347,20 +1467,6 @@ final class AppModel {
         }
         NSApp.activate()
         return alert.runModal()
-    }
-
-    private func askAddress() async -> String? {
-        let alert = NSAlert()
-        alert.messageText = UIText.addServerTitle
-        alert.informativeText = UIText.addServerDescription
-        alert.addButton(withTitle: UIText.add)
-        alert.addButton(withTitle: UIText.cancel)
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
-        field.placeholderString = UIText.addressPlaceholder
-        alert.accessoryView = field
-        alert.window.initialFirstResponder = field
-        guard await present(alert) == .alertFirstButtonReturn else { return nil }
-        return field.stringValue
     }
 
     /// Nil when the user clicked Cancel in macOS's dialog.

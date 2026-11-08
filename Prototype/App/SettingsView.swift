@@ -27,6 +27,11 @@ struct SettingsView: View {
             model.window = window
         })
         .onAppear { model.openSettings = { openWindow(id: SettingsWindow.id) } }
+        .sheet(item: $model.signIn) { request in
+            SignInSheet(request: request) { server, name, password in
+                await model.completeSignIn(request, server: server, name: name, password: password)
+            } cancel: { model.signIn = nil }
+        }
     }
 }
 
@@ -251,6 +256,7 @@ private struct LocationPane: View {
     private func shareAction(_ state: AppModel.LocationState, _ grant: ServerGrant) -> some View {
         switch state {
         case .needsGrant: Button(UIText.selectAgain) { model.selectAgain(grant) }
+        case .needsSignIn: Button(UIText.signInAgain) { model.signInAgain(serverID: grant.serverID) }
         case .notConnected: Button(UIText.connect) { model.connect(grant) }
         default: EmptyView()
         }
@@ -508,20 +514,32 @@ private struct ServersPane: View {
             }
             ForEach(model.servers) { server in
                 Section(UIText.serverAddress(server)) {
+                    serverRow(server)
                     let grants = model.shares.filter { $0.serverID == server.id }
-                    if grants.isEmpty {
-                        HStack {
-                            Text(UIText.noShares).foregroundStyle(.secondary)
-                            Spacer()
-                            Button(UIText.forget) { model.forgetServer(server.id) }
-                        }
-                    }
+                    if grants.isEmpty { Text(UIText.noShares).foregroundStyle(.secondary) }
                     ForEach(grants, id: \.id) { grant in shareRow(grant) }
                 }
             }
         }
         .formStyle(.grouped)
         .disabled(model.connectionBusy || !model.isReady)
+    }
+
+    private func serverRow(_ server: ServerRecord) -> some View {
+        let used = model.isServerUsed(server.id)
+        return HStack {
+            if model.needsSignIn(server.id) {
+                Label(UIText.signInAgainShort, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
+                Spacer()
+                Button(UIText.signInAgain) { model.signInAgain(serverID: server.id) }
+            } else {
+                Text(UIText.passwordSaved).foregroundStyle(.secondary)
+                Spacer()
+            }
+            Button(UIText.forget) { model.forgetServer(server.id) }
+                .disabled(used)
+                .help(used ? UIText.forgetServerUsedHelp : "")
+        }
     }
 
     private func shareRow(_ grant: ServerGrant) -> some View {
