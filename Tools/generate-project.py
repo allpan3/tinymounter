@@ -58,7 +58,7 @@ app_paths = ["Sources/TransferCore/FileRename.swift", "Sources/TransferCore/Read
              "Prototype/App/LocationFolderMoves.swift",
              "Prototype/App/TinyMounterApp.swift", "Prototype/App/SourceReaderHost.swift",
              "Prototype/App/DirectoryWatch.swift", "Sources/TransferCore/DirectoryRefresh.swift",
-             "Sources/TransferCore/RemoteConnection.swift", "Sources/TransferCore/ChangeWatching.swift",
+             "Sources/TransferCore/ChangeWatching.swift",
              "Prototype/App/SMBWatch.swift", "Prototype/App/LocationChangeWatch.swift",
              "Prototype/App/SettingsStore.swift", "Prototype/App/ShareAccess.swift",
              "Prototype/App/LocationController.swift", "Prototype/App/AppModel.swift",
