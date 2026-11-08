@@ -64,6 +64,12 @@ and update the README after the run. Leave the original NAS and physical-Mac ins
 
 ## Prepare the VM candidate
 
+0.2.0 removed this candidate. `Tools/prepare-folder-candidate.py` and its probes needed a share
+mount, a write bookmark and the pinned M21 location, which no longer exist. The signed deletion
+checks now run through Finder in the signed app; see the
+[connection-layer results](results/2026-11-08-connection-layer.md). The rest of this section
+records how the earlier checks ran.
+
 `Tools/prepare-folder-candidate.py --enable --overlap-checks --deletion-checks OUTPUT`
 reuses the existing signed folder fixture and exports deletion callbacks and both views'
 durable deletion records. Add `--enable-permanent-deletion` for the approved command. The separate
