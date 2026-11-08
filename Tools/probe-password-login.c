@@ -71,11 +71,6 @@ int probe_login(const char *server, const char *share, const char *user, const c
 }
 
 #ifdef PROBE_LOGIN_MAIN
-#ifdef PROBE_CURRENT_PATH
-void *tm_smb_begin_edit(const char *server, const char *share, const char *account, int *error);
-void tm_smb_end_edit(void *smb);
-#endif
-
 static void print(const struct probe_login_result *r)
 {
     printf("connect_result=%d error=%d(%s) status=0x%08x(%s) dialect=0x%04x sealed=%d signed=%d "
@@ -86,19 +81,6 @@ static void print(const struct probe_login_result *r)
 
 int main(int argc, char **argv)
 {
-#ifdef PROBE_CURRENT_PATH
-    if (argc == 5 && !strcmp(argv[1], "--current")) {
-        int error = 0;
-        void *smb = tm_smb_begin_edit(argv[2], argv[3], argv[4], &error);
-        // connect_folder_share leaves *error set on success; the context is the result.
-        if (smb) error = 0;
-        printf("current_path connected=%d error=%d(%s) dialect=0x%04x sealed=%d\n", smb != NULL, error,
-               error ? strerror(error) : "ok", smb ? smb2_get_dialect(smb) : 0,
-               smb ? ((struct smb2_context *)smb)->seal : 0);
-        tm_smb_end_edit(smb);
-        return error ? 1 : 0;
-    }
-#endif
     if (argc < 4 || argc > 5) {
         fputs("usage: probe-password-login <server> <share> <user> [domain] < password\n", stderr);
         return 64;

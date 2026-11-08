@@ -81,7 +81,9 @@ provider_paths = ["Prototype/Provider/CatalogItem.swift", "Prototype/Provider/En
 files = {path: ref(path, "sourcecode.swift") for path in core_paths + app_paths + provider_paths}
 smb_makefile = (ROOT / "Vendor/libsmb2/lib/Makefile.am").read_text()
 smb_sources = smb_makefile.split("libsmb2_la_SOURCES =", 1)[1].split("SOCURRENT", 1)[0]
-smb_paths = ["Vendor/libsmb2/lib/" + name for name in re.findall(r"[\w-]+\.c", smb_sources)]
+# Without HAVE_LIBKRB5 the GSS adapter has nothing to build; the app signs in with NTLMSSP.
+smb_paths = ["Vendor/libsmb2/lib/" + name for name in re.findall(r"[\w-]+\.c", smb_sources)
+             if name != "krb5-wrapper.c"]
 smb_paths.append("Prototype/SMB/SMBRename.c")
 smb_paths.append("Prototype/SMB/SMBEdit.c")
 smb_paths.append("Prototype/SMB/SMBNotify.c")
@@ -160,10 +162,10 @@ notice_phase = add("app-resources", "PBXResourcesBuildPhase", buildActionMask=21
 smb_configs = configs("smb", dict(PRODUCT_NAME="TinyMounterSMB", EXECUTABLE_PREFIX="lib", SKIP_INSTALL="YES",
     MACH_O_TYPE="mh_dylib", LD_DYLIB_INSTALL_NAME="@rpath/libTinyMounterSMB.dylib",
     GCC_C_LANGUAGE_STANDARD="gnu11", GCC_PREPROCESSOR_DEFINITIONS=["$(inherited)", "HAVE_CONFIG_H=1",
-        "HAVE_LIBKRB5=1", "_U_=__attribute__((unused))"],
+        "_U_=__attribute__((unused))"],
     HEADER_SEARCH_PATHS=["$(SRCROOT)/Vendor/libsmb2/include/apple", "$(SRCROOT)/Vendor/libsmb2/include",
         "$(SRCROOT)/Vendor/libsmb2/include/smb2"],
-    OTHER_LDFLAGS=["-framework", "GSS", "-framework", "CoreFoundation"]))
+    OTHER_LDFLAGS=["-framework", "CoreFoundation"]))
 add("smb-target", "PBXNativeTarget", name="TinyMounterSMB", productName="TinyMounterSMB",
     productType="com.apple.product-type.library.dynamic", productReference=smb_product,
     buildConfigurationList=smb_configs, buildPhases=[source_phase("smb", smb_paths)],

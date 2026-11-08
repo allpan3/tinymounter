@@ -6,7 +6,8 @@ the upstream terms. Copyright notices remain in each source file.
 
 TinyMounter builds a separate dynamic library and embeds it in Contents/Frameworks. It uses
 this library for listing, metadata, reads, uploads, ordinary overwrites and organization.
-macOS still owns mount management and credentials. Saves write the ordinary file, set its
+It signs in with the server's saved password over NTLMSSP; macOS mounts only Server Volume
+shares. Saves write the ordinary file, set its
 length, flush and close. NAS snapshots/backups own previous-version recovery.
 The checked-in source builds without network access. Release packaging must preserve the
 licence notices, source availability and the user's ability to rebuild and relink the library.
@@ -15,15 +16,14 @@ See [rebuilding and replacing the library](../../docs/release.md#rebuild-and-rep
 
 Local changes:
 
-- The GSS adapter uses Apple's cached NTLM credentials, bound to the account and server. It
-  handles completed NTLM contexts without requesting another handshake step, releases temporary
-  credential handles and reports numeric errors. It uses GSS.framework without deprecated
-  Kerberos cache APIs or password acquisition.
+- The app builds without `HAVE_LIBKRB5` and leaves out krb5-wrapper.c, the GSS adapter.
+  Its earlier local changes remain in the source: it used Apple's cached NTLM credentials, bound
+  to the account and server, handled completed NTLM contexts without another handshake step,
+  released temporary credential handles and reported numeric errors.
 - User selection does not load NTLM_USER_FILE. Password files are not part of the app's login.
-- An explicit guest session (user `guest`) disables signing after the server identifies it as
-  guest. Every other login refuses a guest session: GSS with `EACCES`, NTLMSSP as
-  `STATUS_LOGON_FAILURE`, so a server that maps an unknown account to guest can't turn a
-  refused login into a guest session.
+- Every guest session is refused as `STATUS_LOGON_FAILURE`, also for the user `guest`, so a
+  server that maps an unknown account to guest can't turn a refused login into a guest session.
+  TinyMounter has no guest sign-in.
 - `smb2_clear_password()` zeroes and frees the stored password; `smb2_set_password()` and
   `smb2_destroy_context()` call it. The NTLMSSP context zeroes its password copy, the UTF-16
   password, the NT and NTLMv2 hashes, the response and key-exchange keys and the exported
@@ -54,10 +54,11 @@ Local changes:
 Prototype/SMB/SMBRename.c is the app's restricted entry point. Authenticated connections require
 SMB encryption. It opens and checks directory handles, preserves ancestor paths against SMB
 deletion/rename while creating or naming, retains server identity and creation time, and sends a rename with
-replacement disabled. Only the app calls it, after enforcing the location's explicit write grant.
+replacement disabled. Only the app calls it, after checking that the location is not Read only.
 
 The raw I/O adapter reads the vendored context's credit count and negotiated multi-credit
 flag to cap each read/write at the server maximum, available credits and 1 MiB. There is one
 request outstanding per connection. This uses the same bounds as the library's high-level
 pread/pwrite, while retaining decoded server status for error handling. The adapter and its
-tests must use the library's `HAVE_LIBKRB5` definition so the context layout matches.
+tests must use the library's build definitions, without `HAVE_LIBKRB5`, so the context layout
+matches.

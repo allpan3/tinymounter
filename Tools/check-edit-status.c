@@ -148,15 +148,6 @@ static struct smb2_pdu *fake_set_info(struct smb2_context *smb, struct smb2_set_
     return smb2_cmd_set_info_async(smb, request, callback, context);
 }
 
-void *tm_smb_begin_edit(const char *server, const char *share, const char *account, int *error)
-{
-    (void)server;
-    (void)share;
-    (void)account;
-    (void)error;
-    abort();
-}
-
 void tm_smb_end_edit(void *smb)
 {
     (void)smb;

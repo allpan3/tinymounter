@@ -1,12 +1,8 @@
 #include "SMBRename.h"
 #include <CoreFoundation/CoreFoundation.h>
-#include <GSS/GSS.h>
-#include <dispatch/dispatch.h>
 #include <errno.h>
-#include <os/log.h>
 #include <poll.h>
 #include <pthread.h>
-#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -33,99 +29,6 @@ void tm_smb_destroy_context(void *opaque)
     pthread_mutex_lock(&context_lock);
     smb2_destroy_context(opaque);
     pthread_mutex_unlock(&context_lock);
-}
-
-struct credential_lookup {
-    atomic_int references;
-    dispatch_semaphore_t finished;
-    char *server, *account, *domain, *principal;
-    int ambiguous;
-};
-
-static void release_lookup(struct credential_lookup *lookup)
-{
-    if (atomic_fetch_sub(&lookup->references, 1) != 1) return;
-    dispatch_release(lookup->finished);
-    free(lookup->server);
-    free(lookup->account);
-    free(lookup->domain);
-    free(lookup->principal);
-    free(lookup);
-}
-
-static void credential(void *context, gss_iter_OID mechanism, gss_cred_id_t cred)
-{
-    struct credential_lookup *lookup = context;
-    if (!cred) {
-        dispatch_semaphore_signal(lookup->finished);
-        release_lookup(lookup);
-        return;
-    }
-    OM_uint32 minor;
-    gss_name_t name = GSS_C_NO_NAME;
-    gss_buffer_desc text = GSS_C_EMPTY_BUFFER;
-    if (gss_inquire_cred(&minor, cred, &name, NULL, NULL, NULL) == GSS_S_COMPLETE &&
-        gss_display_name(&minor, name, &text, NULL) == GSS_S_COMPLETE) {
-        char *value = strndup(text.value, text.length);
-        if (value) {
-            size_t length = strlen(lookup->account);
-            char *domain = strlen(value) > length && value[length] == '@' ? value + length : NULL;
-            char *host = domain ? strrchr(domain, '\\') : NULL;
-            int server_matches = host && strcasecmp(host + 1, lookup->server) == 0;
-            if (host) *host = '\0';
-            int domain_matches = !lookup->domain || (domain && !strcasecmp(domain + 1, lookup->domain));
-            if (domain) *domain = '\0';
-            if (server_matches && domain_matches && strcasecmp(value, lookup->account) == 0) {
-                char *candidate = strndup(text.value, text.length);
-                if (candidate) {
-                    if (!lookup->principal) lookup->principal = candidate;
-                    else {
-                        if (strcasecmp(candidate, lookup->principal)) lookup->ambiguous = 1;
-                        free(candidate);
-                    }
-                }
-            }
-            free(value);
-        }
-    }
-    if (text.value) gss_release_buffer(&minor, &text);
-    if (name) gss_release_name(&minor, &name);
-    gss_release_cred(&minor, &cred);
-}
-
-static char *cached_principal(const char *server, const char *account)
-{
-    struct credential_lookup *lookup = calloc(1, sizeof(*lookup));
-    if (!lookup) return NULL;
-    atomic_init(&lookup->references, 2);
-    lookup->server = strdup(server);
-    lookup->account = strdup(account);
-    char *separator = lookup->account ? strrchr(lookup->account, ';') : NULL;
-    if (!separator && lookup->account) separator = strrchr(lookup->account, '\\');
-    int explicit_domain = separator != NULL;
-    if (separator) {
-        lookup->domain = strndup(lookup->account, (size_t)(separator - lookup->account));
-        char *user = strdup(separator + 1);
-        free(lookup->account);
-        lookup->account = user;
-    }
-    lookup->finished = dispatch_semaphore_create(0);
-    if (!lookup->server || !lookup->account || !*lookup->account || !lookup->finished ||
-        (explicit_domain && !lookup->domain)) {
-        if (lookup->finished) dispatch_release(lookup->finished);
-        free(lookup->server); free(lookup->account); free(lookup->domain); free(lookup);
-        return NULL;
-    }
-    OM_uint32 minor;
-    gss_iter_creds_f(&minor, 0, GSS_NTLM_MECHANISM, lookup, credential);
-    char *principal = NULL;
-    if (!dispatch_semaphore_wait(lookup->finished, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) &&
-        !lookup->ambiguous) {
-        principal = lookup->principal;
-        lookup->principal = NULL;
-    }
-    release_lookup(lookup);
-    return principal;
 }
 
 struct reply {
@@ -336,40 +239,6 @@ static int connect_error(int connected)
     return connected == -1 ? ENOTCONN : connected < 0 ? -connected : EIO;
 }
 
-static struct smb2_context *connect_folder_share(const char *server, const char *share,
-                                                 const char *account, int *error)
-{
-    struct smb2_context *smb = create_context();
-    char *principal = cached_principal(server, account);
-    os_log_t log = os_log_create("dev.tinymounter.prototype", "smb");
-    os_log_info(log, "smb_connect cached_credential=%d", principal != NULL);
-    os_release(log);
-    *error = EAUTH;
-    if (!smb) { free(principal); *error = ENOMEM; return NULL; }
-    smb2_set_timeout(smb, 10);
-    if (principal) {
-        smb2_set_user(smb, principal);
-        smb2_set_sign(smb, 1);
-        smb2_set_seal(smb, 1);
-        smb2_set_security_mode(smb, SMB2_NEGOTIATE_SIGNING_ENABLED | SMB2_NEGOTIATE_SIGNING_REQUIRED);
-    } else if (!strcasecmp(account, "guest")) {
-        smb2_set_authentication(smb, 1);
-        smb2_set_user(smb, "guest");
-        smb2_set_password(smb, "");
-    } else goto done;
-    int connected = smb2_connect_share(smb, server, share, NULL);
-    log = os_log_create("dev.tinymounter.prototype", "smb");
-    os_log_info(log, "smb_connect result=%d", connected);
-    os_release(log);
-    if (connected) { *error = connect_error(connected); goto done; }
-    free(principal);
-    return smb;
-done:
-    tm_smb_destroy_context(smb);
-    free(principal);
-    return NULL;
-}
-
 struct smb2_context *tm_smb_connect_password(const struct tm_smb_login *login, const char *share,
                                              int *error, uint32_t *status)
 {
@@ -390,7 +259,7 @@ struct smb2_context *tm_smb_connect_password(const struct tm_smb_login *login, c
         *separator = '\0';
         domain = separator + 1;
     }
-    // The vendored library still accepts a guest session for this name, which isn't a password login.
+    // No guest sign-in: the name is refused before any request, as the library refuses guest sessions.
     if (!*user || (domain && !*domain) || !strcasecmp(user, "guest")) {
         free(account);
         *error = EACCES;
@@ -510,7 +379,7 @@ static int hold_parents(struct smb2_context *smb, const char *source, size_t par
 const char *tm_smb_folder_stage_name(int stage)
 {
     static const char *const names[] = {
-        "none", "arguments", "connect", "parent", "target", "query", "identity", "receipt", "done"
+        "none", "arguments", "parent", "target", "query", "identity", "receipt", "done"
     };
     return stage >= 0 && stage < (int)(sizeof(names) / sizeof(names[0])) ? names[stage] : "unknown";
 }
@@ -554,33 +423,6 @@ static int create_arguments(const char *path, char composed[1024], uint64_t expe
 {
     return receipt && tm_smb_compose(path, composed, 1024) && valid_path(composed) &&
         !!expected_id == !!expected_birth;
-}
-
-int tm_smb_create_folder(const char *server, const char *share, const char *account,
-                         const char *path, uint64_t expected_id, uint64_t expected_birth,
-                         tm_smb_folder_callback receipt, void *context, int *create_sent,
-                         struct tm_smb_folder_trace *trace)
-{
-    struct tm_smb_folder_trace unused;
-    int unsent;
-    if (!trace) trace = &unused;
-    if (!create_sent) create_sent = &unsent;
-    *trace = (struct tm_smb_folder_trace){ .stage = TM_FOLDER_ARGUMENTS, .error = EINVAL };
-    *create_sent = 0;
-    char composed[1024];
-    if (!server || !*server || !share || !*share || !account || !*account ||
-        !create_arguments(path, composed, expected_id, expected_birth, receipt)) return EINVAL;
-    int error;
-    trace->stage = TM_FOLDER_CONNECT;
-    struct smb2_context *smb = connect_folder_share(server, share, account, &error);
-    if (smb) {
-        error = create_folder_in(smb, composed, expected_id, expected_birth, receipt, context,
-                                 create_sent, trace);
-        tm_smb_destroy_context(smb);
-    }
-    trace->error = error;
-    trace->sent = *create_sent;
-    return error;
 }
 
 static int name_arguments(const char *source, const char *destination, char composed_source[1024],
@@ -655,26 +497,6 @@ static int name_folder_in(struct smb2_context *smb, const char *source, const ch
     return error;
 }
 
-int tm_smb_name_folder(const char *server, const char *share, const char *account,
-                       const char *source, const char *destination, uint64_t expected_id,
-                       uint64_t expected_birth, int recovery_only,
-                       tm_smb_folder_callback receipt, void *context, int *rename_sent)
-{
-    if (rename_sent) *rename_sent = 0;
-    char composed_source[1024], composed_destination[1024];
-    size_t parent_length;
-    if (!server || !*server || !share || !*share || !account || !*account ||
-        !name_arguments(source, destination, composed_source, composed_destination, expected_id,
-                        expected_birth, receipt, &parent_length)) return EINVAL;
-    int error;
-    struct smb2_context *smb = connect_folder_share(server, share, account, &error);
-    if (!smb) return error;
-    error = name_folder_in(smb, composed_source, composed_destination, parent_length, expected_id,
-                           expected_birth, recovery_only, receipt, context, rename_sent);
-    tm_smb_destroy_context(smb);
-    return error;
-}
-
 // Closes what the operation opened. Returns 1 when the connection must be dropped.
 static int end_session_link(struct smb2_context *smb, struct session_link *link)
 {
@@ -730,16 +552,6 @@ int tm_smb_session_name_folder(struct smb2_context *smb, const char *source, con
     *broken = end_session_link(smb, link);
     free(link);
     return error;
-}
-
-void *tm_smb_begin_edit(const char *server, const char *share, const char *account, int *error)
-{
-    if (!server || !*server || !share || !*share || !account || !*account || !strcasecmp(account, "guest")) {
-        *error = EACCES;
-        return NULL;
-    }
-    struct smb2_context *smb = connect_folder_share(server, share, account, error);
-    return smb;
 }
 
 void tm_smb_end_edit(void *smb)

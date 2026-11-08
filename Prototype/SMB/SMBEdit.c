@@ -28,7 +28,6 @@ struct edit_client {
     struct smb2_context *smb;
     uint32_t ntstatus;
 };
-extern void *tm_smb_begin_edit(const char *, const char *, const char *, int *);
 extern void tm_smb_end_edit(void *);
 extern void tm_smb_destroy_context(void *);
 extern int tm_smb_compose(const char *, char *, size_t);
@@ -39,16 +38,6 @@ extern int tm_smb_session_create_folder(struct smb2_context *, const char *, uin
                                         struct tm_smb_folder_trace *, int *);
 extern int tm_smb_session_name_folder(struct smb2_context *, const char *, const char *, uint64_t,
                                       uint64_t, int, tm_smb_folder_callback, void *, int *, int *);
-
-void *tm_edit_connect(const char *server, const char *share, const char *account, int *error)
-{
-    struct edit_client *client = calloc(1, sizeof(*client));
-    if (!client) { *error = ENOMEM; return NULL; }
-    client->smb = tm_smb_begin_edit(server, share, account, error);
-    if (!client->smb) { free(client); return NULL; }
-    *error = 0;
-    return client;
-}
 
 void *tm_edit_connect_password(const struct tm_smb_login *login, const char *share, int *error,
                                uint32_t *status)

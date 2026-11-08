@@ -18,13 +18,14 @@ SMB = ROOT / "Vendor/libsmb2"
 def build(output):
     makefile = (SMB / "lib/Makefile.am").read_text()
     names = re.findall(r"[\w-]+\.c", makefile.split("libsmb2_la_SOURCES =", 1)[1].split("SOCURRENT", 1)[0])
+    names.remove("krb5-wrapper.c")
     output.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run([
         "xcrun", "clang", "-std=gnu11", "-O2", "-Wall", "-Wno-unused-parameter", "-Wno-sign-compare",
-        "-DHAVE_CONFIG_H=1", "-DHAVE_LIBKRB5=1", "-D_U_=__attribute__((unused))",
+        "-DHAVE_CONFIG_H=1", "-D_U_=__attribute__((unused))",
         f"-I{SMB}/include/apple", f"-I{SMB}/include", f"-I{SMB}/include/smb2",
         *[str(SMB / "lib" / name) for name in names], str(ROOT / "Tools/check-smb-notify.c"),
-        "-framework", "GSS", "-framework", "CoreFoundation", "-o", str(output),
+        "-framework", "CoreFoundation", "-o", str(output),
     ], check=True)
 
 
