@@ -1,6 +1,6 @@
 import Foundation
 
-// Proposed 0.2.0 connection layer (docs/connection-layer-plan.md). Declarations only: no callers yet.
+// The 0.2.0 connection layer (docs/connection-layer-plan.md). Declarations only: no callers yet.
 
 /// The file-sharing protocol of a saved server. SMB is the only implementation.
 public enum RemoteProtocol: String, Codable, CaseIterable, Sendable {
@@ -52,9 +52,10 @@ public protocol RemoteClient: Sendable {
     func openSession(_ share: ShareAddress, password: String, folder: RelativePath,
                      progress: Progress) throws -> any RemoteSession
 
-    /// Watches `folder` and every folder below it until cancelled. Nil if the server can't watch.
-    func watchTree(_ share: ShareAddress, password: String, folder: RelativePath,
-                   notice: @escaping @Sendable (ChangeNotice) -> Void) throws -> (any RemoteWatch)?
+    /// Signs in on a connection of its own for change notices. It watches no folder until
+    /// `watch(_:)` names some. Nil if the server can't watch.
+    func openWatcher(_ share: ShareAddress, password: String,
+                     notice: @escaping @Sendable (ChangeNotice) -> Void) throws -> (any RemoteWatcher)?
 }
 
 /// One authenticated connection to a share, for one operation on one thread.
@@ -91,17 +92,25 @@ public protocol RemoteSession: AnyObject, UploadRemote, FileRenameRemote, Folder
     func releaseDeletionTraversal() throws
 }
 
-/// What a tree watch reports. Each notice is a hint: a listing decides what changed.
+/// What a watcher reports. Each notice is a hint: a listing decides what changed.
+/// Paths start at the share root.
 public enum ChangeNotice: Equatable, Sendable {
-    /// Entries in this folder changed. The path starts at the watched folder; root is that folder.
+    /// Entries in this watched folder changed.
     case changed(RelativePath)
-    /// The server dropped notices. Every watched folder needs a listing.
-    case lost
-    /// The watch stopped, for example on a lost connection. Its owner starts a new one later.
+    /// The server dropped notices for this watched folder; it needs a full listing.
+    case lost(RelativePath)
+    /// The watcher stopped, for example on a lost connection. Every watched folder needs a
+    /// listing, and its owner opens a new watcher later.
     case ended(SourceFailure)
 }
 
-public protocol RemoteWatch: AnyObject, Sendable {
+/// One connection that holds one watch for each folder it was last given. A watch covers only
+/// the folder's own entries, not deeper folders.
+public protocol RemoteWatcher: AnyObject, Sendable {
+    /// At most this many folders per watcher.
+    static var folderLimit: Int { get }
+    /// Replaces the watched folders. Removed folders stop at once; added folders start watching.
+    func watch(_ folders: Set<RelativePath>)
     /// After it returns, no notice is delivered.
     func cancel()
 }
