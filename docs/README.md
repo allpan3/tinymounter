@@ -20,6 +20,7 @@ it wrong.
 | [phase4-plan.md](phase4-plan.md) | Accepted M18 creation, M19 Mac-only editing, M20 file renaming with one write mode, and M21 file organization | write scope, permissions or recovery behavior changes |
 | [m24-integration-checklist.md](m24-integration-checklist.md) | Deletion gates and the signed Finder/recovery checks behind Delete Permanently… | deletion integration or its remaining checks change |
 | [pending-changes-plan.md](pending-changes-plan.md) | Accepted fix for stuck pending changes: retry signal, failure reasons and the Settings list, then evidence-based stopping and removal | pending-change recovery or its removal rule changes |
+| [connection-layer-plan.md](connection-layer-plan.md) | Proposed 0.2.0 connection layer without the macOS mount: interfaces, settings, UI, parallel steps, spike questions and the mount-dependency map | the 0.2.0 interface, step split or a spike result changes |
 | [synchronization.md](synchronization.md) | How File Provider locations stay consistent with server volumes and other writers (proposed) | the sync model, its guarantees or its tests change |
 | [ui-design.md](ui-design.md) and [ui-mockup.html](ui-mockup.html) | App and Finder interface, accepted for prototyping: its terms, its ASD-STE100 text and an interactive mockup | the interface or its copy changes |
 | [architecture-overview.html](architecture-overview.html) | The interactive data-path overview | the architecture changes visibly |

@@ -1,0 +1,107 @@
+import Foundation
+
+// Proposed 0.2.0 connection layer (docs/connection-layer-plan.md). Declarations only: no callers yet.
+
+/// The file-sharing protocol of a saved server. SMB is the only implementation.
+public enum RemoteProtocol: String, Codable, CaseIterable, Sendable {
+    case smb
+}
+
+/// One account on one server, and the key of its saved password. Host and account are private.
+public struct ServerAccount: Hashable, Codable, Sendable {
+    public let remoteProtocol: RemoteProtocol
+    public let host: String
+    public let account: String
+
+    public init(remoteProtocol: RemoteProtocol, host: String, account: String) {
+        self.remoteProtocol = remoteProtocol
+        self.host = host
+        self.account = account
+    }
+}
+
+/// Saves passwords outside Settings.json. The app keeps them in its own Keychain items.
+public protocol CredentialStore: Sendable {
+    /// Nil when no password is saved.
+    func password(for account: ServerAccount) throws -> String?
+    func savePassword(_ password: String, for account: ServerAccount) throws
+    /// Succeeds when no password is saved.
+    func deletePassword(for account: ServerAccount) throws
+}
+
+/// A share's connection state. `needsSignIn` follows `SourceFailure.notAuthenticated`.
+public enum ConnectionState: Equatable, Sendable {
+    /// Nothing has connected yet, or the network path is down. The next request tries.
+    case notConnected
+    case connected
+    /// A request stalled or timed out. Probes retry until one succeeds.
+    case unresponsive
+    /// The server refused the saved password, or none is saved. Only a new password clears it.
+    case needsSignIn
+}
+
+/// One protocol's client. Calls block the calling thread, time out per request and throw
+/// `SourceFailure`: `notAuthenticated` when the server refuses the account or password.
+public protocol RemoteClient: Sendable {
+    var remoteProtocol: RemoteProtocol { get }
+
+    /// Signs in and returns the names of the file shares that the account can see.
+    func shareNames(on server: ServerAccount, password: String) throws -> [String]
+
+    /// Signs in and connects to the share. Relative paths start at `folder`, from the share root.
+    func openSession(_ share: ShareAddress, password: String, folder: RelativePath,
+                     progress: Progress) throws -> any RemoteSession
+
+    /// Watches `folder` and every folder below it until cancelled. Nil if the server can't watch.
+    func watchTree(_ share: ShareAddress, password: String, folder: RelativePath,
+                   notice: @escaping @Sendable (ChangeNotice) -> Void) throws -> (any RemoteWatch)?
+}
+
+/// One authenticated connection to a share, for one operation on one thread.
+/// Handles it holds close when it is released.
+public protocol RemoteSession: AnyObject, UploadRemote, FileRenameRemote, FolderMoveRemote, DeletionRemote {
+    /// Payload bytes read so far, for the fetch log.
+    var readBytes: Int64 { get }
+
+    // Listing
+    func directoryIdentity(_ path: RelativePath) throws -> RemoteFileIdentity
+    func list(_ path: RelativePath, progressed: () -> Void) throws -> DirectoryListing
+    func confirmMissing(_ children: [MissingChild], in path: RelativePath, progressed: () -> Void) throws
+
+    // Reading
+    /// Holds the parent folders of `path` open until the session ends.
+    func protectAncestors(of path: String) throws
+    func readMetadata(path: String) throws -> (identity: RemoteFileIdentity, fingerprint: ContentFingerprint)
+    /// Reads `range` of a file that `readMetadata` opened into a new file in `stagingDirectory`.
+    func transfer(path: String, range: ByteRange, stagingDirectory: URL, progress: Progress,
+                  checkSpace: ((Int64) throws -> Void)?) throws -> TransferOutput
+
+    // Writing, beside the TransferCore seams
+    func overwrite(path: String, contents: URL, expected: ContentFingerprint?) throws
+        -> (fileID: UInt64, fingerprint: ContentFingerprint)
+    /// Exclusive creation; `receipt` saves the new identity before the call returns its file ID.
+    func createFolder(_ path: RelativePath, expected: RemoteFolderIdentity?,
+                      receipt: (RemoteFolderIdentity) throws -> Void) throws -> UInt64
+    /// The initial name of a new folder, without replacing a destination.
+    func nameFolder(from source: RelativePath, to destination: RelativePath, expected: RemoteFolderIdentity,
+                    recoveryOnly: Bool) throws -> UInt64
+    func renameSourceEntry(path: String) throws -> RenameDirectoryEntry?
+    func allowPublishedReads(path: String, expected: RemoteFileVersion) throws
+    func captureFolderMoveProofs(move: CatalogFolderMove, folder: RelativePath) throws -> [CatalogFolderMoveProof]
+    func releaseDeletionTraversal() throws
+}
+
+/// What a tree watch reports. Each notice is a hint: a listing decides what changed.
+public enum ChangeNotice: Equatable, Sendable {
+    /// Entries in this folder changed. The path starts at the watched folder; root is that folder.
+    case changed(RelativePath)
+    /// The server dropped notices. Every watched folder needs a listing.
+    case lost
+    /// The watch stopped, for example on a lost connection. Its owner starts a new one later.
+    case ended(SourceFailure)
+}
+
+public protocol RemoteWatch: AnyObject, Sendable {
+    /// After it returns, no notice is delivered.
+    func cancel()
+}
