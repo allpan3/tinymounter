@@ -28,6 +28,8 @@ it wrong.
 
 ## Results logs
 
+- [SMB password client](results/2026-11-08-smb-password-client.md). 0.2.0 step 2: `SMBClient` signs in with a password over sealed SMB 3.1.1; wrong password, missing and denied shares, account forms, share listing and every direct-SMB operation checked on the fixture.
+
 - [SMB2 CHANGE_NOTIFY through libsmb2](results/2026-11-08-smb-change-notify.md). 0.2.0 spike: coverage, latency, overflow, connection model, cancellation and timeouts on Samba; per-folder watches recommended.
 
 - [App-owned SMB password login](results/2026-11-08-password-login.md). 0.2.0 spike: libsmb2 password login without a mount, Keychain item and entitlement limits, error mapping and memory hygiene. File-based keychain accepted.
