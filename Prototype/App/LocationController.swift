@@ -1608,11 +1608,13 @@ final class LocationController {
         }
     }
 
-    /// Unreadable settings are from an earlier build, which nothing migrates: remove every domain and
-    /// set the earlier data aside, then launch as a new installation. Returns where macOS kept the
-    /// changes that had not uploaded.
+    /// Unreadable settings are from an earlier build, which nothing migrates: delete the saved
+    /// passwords, remove every domain and set the earlier data aside, then launch as a new
+    /// installation. Returns where macOS kept the changes that had not uploaded.
     func startFresh() async throws -> [URL] {
         guard problem == .settingsUnreadable else { return [] }
+        // First, so that a failure changes nothing: the earlier passwords belong to earlier servers.
+        try credentials.deleteAll()
         var preserved: [URL] = []
         for domain in try await NSFileProviderManager.domains() {
             if let url = try await NSFileProviderManager.remove(domain, mode: .preserveDirtyUserData) {
