@@ -1,6 +1,6 @@
 import Foundation
 
-// The 0.2.0 connection layer (docs/connection-layer-plan.md). Declarations only: no callers yet.
+// The 0.2.0 connection layer (docs/connection-layer-plan.md). Declarations only.
 
 /// The file-sharing protocol of a saved server. SMB is the only implementation.
 public enum RemoteProtocol: String, Codable, CaseIterable, Sendable {
@@ -21,10 +21,11 @@ public struct ServerAccount: Hashable, Codable, Sendable {
 }
 
 /// Saves passwords outside Settings.json. The app keeps them in its own Keychain items.
+/// Passwords are UTF-8 bytes, never a `String`, so callers can pass them to C and clear them.
 public protocol CredentialStore: Sendable {
     /// Nil when no password is saved.
-    func password(for account: ServerAccount) throws -> String?
-    func savePassword(_ password: String, for account: ServerAccount) throws
+    func password(for account: ServerAccount) throws -> Data?
+    func savePassword(_ password: Data, for account: ServerAccount) throws
     /// Succeeds when no password is saved.
     func deletePassword(for account: ServerAccount) throws
 }
