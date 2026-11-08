@@ -14,9 +14,9 @@ Connection layer for 0.2.0, 2026-11-08: File Provider locations no longer use a 
 signs in with the password from its own Keychain item, opens SMB sessions itself and watches
 folders with `CHANGE_NOTIFY`. In the signed VM app, every Finder operation checked ran with no
 SMB mount; a changed password stopped logons after one refusal, and a stopped SMB service
-recovered at the first probe. Required checks pass: 517 tests, one optional skip. Server Volume
-can't mount a new share until NetFS gets the saved password, and notice-driven deletes wait for
-the 15 s confirmation. Not released. See the
+recovered at the first probe. Server Volume mode now mounts with the same saved password, and a
+refused password stops after one logon for both modes. Required checks pass: 520 tests, one
+optional skip. Notice-driven deletes wait for the 15 s confirmation. Not released. See the
 [connection-layer results](docs/results/2026-11-08-connection-layer.md).
 
 Change watching for 0.2.0, 2026-11-08: the SMB watcher for step 4 is built but not yet wired

@@ -263,17 +263,21 @@ See [replacement observations](results/2026-11-03-editor-replacement.md) and
 
 ## 9. Server volume mode
 
-The implemented mode uses public `NetFSMountURLAsync` and the existing share health and
-remount policy. It mounts visibly during Add and reconnects on app launch, wake and network
-return. Open at Login uses the existing app setting; pre-login mounting is future scope.
-Native volumes have separate saved records and create no provider domains or catalogs.
+The implemented mode uses public `NetFSMountURLSync` and the existing remount policy. Before each
+mount, the app signs in with its SMB client and the saved password through the server's
+`ServerSignIn`, then passes the name and password to NetFS with no UI. The client sign-in is
+needed because smbfs reports a refused password as `ENOENT`, the same as a missing share. It
+mounts visibly during Add and reconnects on app launch, wake and network return. Open at Login
+uses the existing app setting; pre-login mounting is future scope. Native volumes have separate
+saved records and create no provider domains or catalogs.
 
-Remount attempts back off after network failures. Authentication failures stop until conditions
-change or the user connects again. An intentional eject holds reconnect during the current app
-session. A safe unmount must succeed before removal forgets the record; no force option is used.
-Credentials remain in macOS Keychain. `NWPathMonitor` reporting a usable path does not prove that
-the server is reachable [N1–N3]; mount results determine success. Trusted-network, VPN and wired
-preference policies remain future work.
+Remount attempts back off after network failures. Authentication failures stop until the user
+types a new password; other failures stop until conditions change or the user connects again. An
+intentional eject holds reconnect during the current app session. A safe unmount must succeed
+before removal forgets the record; no force option is used. Credentials are the app's own Keychain
+item, shared with File Provider locations. `NWPathMonitor` reporting a usable path does not prove
+that the server is reachable [N1–N3]; mount results determine success. Trusted-network, VPN and
+wired preference policies remain future work.
 
 An Ethernet/Wi-Fi change is not a reason to forcibly unmount every open file. Apple's SMB Multichannel can supply redundancy and choose interfaces when supported [N2]. Let healthy native sessions recover; remount when needed and safe. TinyMounter cannot promise seamless migration of every existing file descriptor across every path change. Do not globally rewrite `nsmb.conf` to implement a per-connection preference.
 

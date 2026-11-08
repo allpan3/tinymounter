@@ -134,16 +134,17 @@ refuses the saved password, every location of that server shows "Sign in again."
 Again…, and the app makes no further logon attempt until the user enters a new password.
 
 Server Volume is a separate whole-share location mode. It asks macOS to mount the share visibly
-and opens it in Finder, with no File Provider catalog, download cache or Read only control. macOS
-signs in with its own Keychain item or dialog; the app passes no password, and the status is
-mounted or not mounted. Native volumes reconnect at launch, wake and network changes, and respect
-an intentional eject for the current app session. Remove disconnects before forgetting the volume
-and retains the entry if the volume is busy. A share cannot have both modes, even through
-different saved accounts; remove its existing locations before switching. Server aliases are not
-resolved to detect that two differently named servers might be the same machine. In the 0.2.0 VM
-checks, a share that macOS had no session or item for failed to mount; passing the saved
-password to NetFS is the next change
-([results](results/2026-11-08-connection-layer.md)).
+and opens it in Finder, with no File Provider catalog, download cache or Read only control. The
+app signs in with the server's saved name and password, then passes them to NetFS; macOS shows no
+dialog. One sign-in serves the server's File Provider locations and volumes, so a refused password
+shows Sign In Again… on both. The status is mounted or not mounted. Native volumes reconnect at
+launch, wake and network changes, and respect an intentional eject for the current app session.
+Remove disconnects before forgetting the volume and retains the entry if the volume is busy. A
+share cannot have both modes, even through different saved accounts; remove its existing locations
+before switching. Server aliases are not resolved to detect that two differently named servers
+might be the same machine. Show in Finder opens the share's `smb://` address, which Finder
+resolves to the mounted volume
+([results](results/2026-11-08-connection-layer.md#server-volume-sign-in)).
 
 Up to 0.1.2, shares were mounted by macOS and granted through `NSOpenPanel`. That flow was
 verified in [M3](results/2026-10-12-share-grant.md) and

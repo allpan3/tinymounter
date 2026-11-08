@@ -1,7 +1,8 @@
 # Connection layer for 0.2.0
 
 Date: 2026-11-08. Implementation: steps 1–4 on `feat/smb-connection-layer`; Server Volume sign-in
-(Decision 1) remains ([results](results/2026-11-08-connection-layer.md)).
+(Decision 1) on `feat/server-volume-netfs-signin`
+([results](results/2026-11-08-connection-layer.md)).
 Decision status: accepted by the user on 2026-11-08, with the
 [decisions](#decisions) below and the results of the
 [password login](results/2026-11-08-password-login.md) and
@@ -365,7 +366,9 @@ In the signed VM app, with changes made on the fixture by another client:
 Accepted by the user on 2026-11-08:
 
 1. **Server Volume sign-in.** NetFS gets the saved name and password, so one sign-in serves both
-   modes. A separate small change after step 3.
+   modes. A separate small change after step 3. Implemented: the app signs in with its SMB
+   client first, because smbfs reports a refused password as a missing share
+   ([results](results/2026-11-08-connection-layer.md#server-volume-sign-in)).
 2. **Server Volume status.** Without the grant, a server volume shows only mounted or not
    mounted, with no unresponsive state. Finder reports a stalled volume itself.
 3. **Folder Select….** An in-app folder browser replaces the panel (step 1 builds it, step 3
