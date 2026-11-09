@@ -44,6 +44,7 @@ app_paths = ["Sources/TransferCore/FileRename.swift", "Sources/TransferCore/Read
              "Sources/TransferCore/CatalogFolderMove.swift",
              "Sources/TransferCore/RenameDirectoryEntry.swift", "Prototype/App/LocationRenames.swift",
              "Sources/TransferCore/Upload.swift", "Sources/TransferCore/FolderNaming.swift",
+             "Sources/TransferCore/Activity.swift", "Prototype/App/UploadRecovery.swift",
              "Sources/TransferCore/RemoteFile.swift",
              "Prototype/App/SMBEdit.swift", "Prototype/App/SMBClient.swift",
              "Sources/TransferCore/RemoteConnection.swift", "Sources/TransferCore/SMBSignIn.swift",
