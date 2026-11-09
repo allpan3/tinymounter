@@ -34,6 +34,7 @@ static uint32_t sent_disposition, sent_access, sent_sharing, sent_options;
 static int inspect_write;
 static uint8_t sent_write[48], sent_payload[1024 * 1024];
 static uint32_t sent_length;
+static struct smb2_file_basic_info sent_basic;
 static uint16_t sent_charge;
 
 // Real request encoders feed deterministic callbacks; no request reaches a socket.
@@ -145,6 +146,8 @@ static struct smb2_pdu *fake_set_info(struct smb2_context *smb, struct smb2_set_
         const struct smb2_file_rename_info *info = request->input_data;
         snprintf(sent_name, sizeof(sent_name), "%s", (const char *)info->file_name);
     }
+    if (request->file_info_class == SMB2_FILE_BASIC_INFORMATION)
+        memcpy(&sent_basic, request->input_data, sizeof(sent_basic));
     return smb2_cmd_set_info_async(smb, request, callback, context);
 }
 
@@ -224,6 +227,10 @@ static void local_failures(void)
     result("invalid size", tm_edit_set_size(&client, file, UINT64_MAX), EINVAL, 0);
     client.ntstatus = SMB2_STATUS_DELETE_PENDING;
     result("invalid rename", tm_edit_rename(&client, file, "/file"), EINVAL, 0);
+    client.ntstatus = SMB2_STATUS_DELETE_PENDING;
+    result("unset write time", tm_edit_set_write_time(&client, file, 0), EINVAL, 0);
+    client.ntstatus = SMB2_STATUS_DELETE_PENDING;
+    result("write time past FILETIME", tm_edit_set_write_time(&client, file, UINT64_MAX / 10), EINVAL, 0);
     prepare();
     fail_create = 1;
     result("request allocation failure", tm_edit_open(&client, "file", 0, 0, file), EIO, 0);
@@ -286,6 +293,7 @@ static void disconnected(void)
     DISCONNECTED("disconnected directory", tm_edit_open_directory(&client, "", 0, 0, file));
     DISCONNECTED("disconnected list", tm_edit_list(&client, file, 1, buffer, 80, &count, &finished));
     DISCONNECTED("disconnected size", tm_edit_set_size(&client, file, 1));
+    DISCONNECTED("disconnected write time", tm_edit_set_write_time(&client, file, 1));
     DISCONNECTED("disconnected info", tm_edit_info(&client, file, values));
     DISCONNECTED("disconnected read", tm_edit_read(&client, file, 0, buffer, 1, &count));
     DISCONNECTED("disconnected write", tm_edit_write(&client, file, 0, buffer, 1, &count));
@@ -475,6 +483,20 @@ static void exclusive_uploads(void)
     }
 }
 
+// Only LastWriteTime goes to the server; the save time is microseconds since 1970.
+static void write_time(void)
+{
+    prepare();
+    memset(&sent_basic, 0xff, sizeof(sent_basic));
+    result("write time", tm_edit_set_write_time(&client, file, 1762600000123457ULL), 0, 0);
+    expect(sent_basic.last_write_time.tv_sec == 1762600000 && sent_basic.last_write_time.tv_usec == 123457,
+           "write time", "LastWriteTime changed");
+    expect(!sent_basic.creation_time.tv_sec && !sent_basic.creation_time.tv_usec
+           && !sent_basic.last_access_time.tv_sec && !sent_basic.last_access_time.tv_usec
+           && !sent_basic.change_time.tv_sec && !sent_basic.change_time.tv_usec && !sent_basic.file_attributes,
+           "write time", "another field set");
+}
+
 int main(void)
 {
     server_failures();
@@ -486,6 +508,7 @@ int main(void)
     file_writes();
     payload_limits();
     composed_names();
+    write_time();
     exclusive_uploads();
     if (client.smb) smb2_destroy_context(client.smb);
     if (failures) {

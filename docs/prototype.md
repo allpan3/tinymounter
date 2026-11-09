@@ -488,10 +488,24 @@ then overwrite it; a failed callback retains pending local contents. No custom r
 copies or edit bases remain. Reads and writes use at most 1 MiB per request, capped by server
 limits and available credits; short replies advance only by the confirmed byte count.
 
+After the last write of a new file or a save, the app sets the file's LastWriteTime on the
+server to the modification time that macOS reported for that version, with an SMB2 SET_INFO
+of FileBasicInformation that leaves the other times and the attributes unchanged. The handle
+that writes the data also asks for write-attributes access for it. Finder does the same when it
+copies to SMB. The content version (D1) is read after that request, so a kept
+file saved on this Mac matches the catalog and becomes Available offline, and the NAS shows the
+save time, also for an offline save uploaded later. A new file's pending record keeps the time
+for retries after a relaunch; macOS sends a save's time again with each retry. The time is
+rounded to the nearest microsecond, because libsmb2 reads and writes SMB times in microseconds.
+The local and catalog times then differ by at most 0.75 µs for dates before 2038, within the 1 µs
+status tolerance. If the server refuses the request, the upload still succeeds with the server's
+own time, as before, and the log records the error code. A lost connection fails the close that
+follows, so the upload is retried. Uploads without a reported time keep the server's time.
+
 Rename intents retain affected catalog IDs and settle each view after the server operation.
 Directory enumeration verifies stored spelling, including case-only changes. Metadata indicates
 whether contents changed; it is not a full-content proof. TextEdit's encoding attribute, last-used
-date and explicit modification date are not uploaded. Metadata-only retries return unsupported
+date and a modification date changed without new contents are not uploaded. Metadata-only retries return unsupported
 fields through File Provider's documented contract without claiming remote synchronization.
 
 ## Name spelling over SMB

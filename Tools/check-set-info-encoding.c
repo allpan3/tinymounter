@@ -104,6 +104,28 @@ static void check_end_of_file(struct smb2_context *smb)
     smb2_free_pdu(smb, pdu);
 }
 
+// Only LastWriteTime is set; zero times and attributes ask the server to leave them unchanged.
+static void check_write_time(struct smb2_context *smb, const char *name, time_t seconds, long microseconds)
+{
+    static const uint8_t zero[8];
+    struct smb2_file_basic_info info = {0};
+    info.last_write_time.tv_sec = seconds;
+    info.last_write_time.tv_usec = microseconds;
+    struct smb2_pdu *pdu = encode(smb, SMB2_FILE_BASIC_INFORMATION, &info);
+    cases++;
+    expect(pdu != NULL, name, "encoding failed");
+    if (!pdu) return;
+    if (check_request(name, pdu, SMB2_FILE_BASIC_INFORMATION, 40)) {
+        const uint8_t *body = pdu->out.iov[2].buf;
+        uint64_t expected = (uint64_t)seconds * 10000000 + 116444736000000000ULL + (uint64_t)microseconds * 10;
+        expect(!memcmp(body, zero, 8) && !memcmp(body + 8, zero, 8), name, "CreationTime or LastAccessTime set");
+        expect(le64(body + 16) == expected, name, "LastWriteTime differs from the FILETIME");
+        expect(!memcmp(body + 24, zero, 8), name, "ChangeTime set");
+        expect(le32(body + 32) == 0 && le32(body + 36) == 0, name, "FileAttributes or Reserved set");
+    }
+    smb2_free_pdu(smb, pdu);
+}
+
 int main(void)
 {
     struct smb2_context *smb = smb2_init_context();
@@ -130,6 +152,9 @@ int main(void)
     check_ascii_rename(smb, "long name", long_name);
 
     check_end_of_file(smb);
+    check_write_time(smb, "write time", 1762600000, 123457);
+    check_write_time(smb, "write time, last microsecond", 1762600000, 999999);
+    check_write_time(smb, "write time after 2038", 4102444800, 1);
 
     smb2_destroy_context(smb);
     if (failures) {

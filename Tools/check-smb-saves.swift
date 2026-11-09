@@ -22,7 +22,8 @@ import Foundation
                                                  folder: RelativePath("simplify-20261105/" + evidence.lastPathComponent)!,
                                                  progress: Progress())
         let connected = ContinuousClock.now
-        let written = try remote.overwrite(path: "direct-\(mib)-\(round).bin", contents: input, expected: nil)
+        let written = try remote.overwrite(path: "direct-\(mib)-\(round).bin", contents: input,
+                                           expected: nil, modified: nil)
         let completed = ContinuousClock.now
         guard written.fingerprint.size == Int64(mib) << 20 else { throw CocoaError(.fileWriteUnknown) }
         let result: [String: Any] = ["label": "direct", "mib": mib, "round": round,

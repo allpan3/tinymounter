@@ -64,6 +64,17 @@ public struct ContentFingerprint: Hashable, Sendable {
                   ctimeNs: Int64(changedMicroseconds) * 1_000)
     }
 
+    /// A save time to set on the server, to the nearest microsecond since 1970. libsmb2 reads and
+    /// writes SMB times as microseconds, so this value comes back unchanged in every version.
+    /// Nil before 1970 or after the year 5000, where the server keeps its own time.
+    public static func smbMicroseconds(_ date: Date) -> UInt64? {
+        let seconds = date.timeIntervalSince1970
+        guard seconds.isFinite, seconds > 0, seconds < 95_617_584_000 else { return nil }
+        // The fraction alone scales without the rounding error that seconds * 1e6 adds.
+        let whole = seconds.rounded(.down)
+        return UInt64(whole) * 1_000_000 + UInt64(((seconds - whole) * 1_000_000).rounded())
+    }
+
     /// At most 65 UTF-8 bytes, within File Provider's 128-byte version limit.
     public var contentVersion: String { "f1:\(size):\(mtimeNs):\(ctimeNs)" }
 

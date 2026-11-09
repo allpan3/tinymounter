@@ -2,10 +2,13 @@ import CryptoKit
 import Darwin
 import Foundation
 
+/// `modified` is the local save time that the server should keep after the last write; nil keeps the
+/// server's own time.
 public protocol UploadRemote {
     func createUpload(path: String) throws -> RemoteFileIdentity
-    func writeUpload(path: String, contents: URL) throws -> RemoteFileVersion
-    func resumeUpload(path: String, contents: URL, identity: RemoteFileIdentity) throws -> RemoteFileVersion
+    func writeUpload(path: String, contents: URL, modified: Date?) throws -> RemoteFileVersion
+    func resumeUpload(path: String, contents: URL, identity: RemoteFileIdentity,
+                      modified: Date?) throws -> RemoteFileVersion
     func inspectUpload(path: String) throws -> RemoteFileVersion
 }
 
@@ -34,6 +37,8 @@ public struct PendingUpload: Codable, Sendable {
     public var initialName: InitialFolderName?
     public var serverFolder: RemoteFolderIdentity?
     public var serverFile: RemoteFileIdentity?
+    /// The modification time that macOS reported, so a retry after a relaunch keeps the save time.
+    public var modified: Date?
 
     public var isPending: Bool { ![.completed, .stopped].contains(state) || initialName?.isPending == true }
     /// Nothing reached the server: no create was sent, or the server refused it, or the name was taken.
@@ -142,7 +147,8 @@ public final class UploadOutbox {
         try file?.validateUnchanged()
         var record = PendingUpload(id: id, template: request.template, parent: request.parent, name: request.name,
                                    path: path.string, kind: request.kind, size: size, digest: digest,
-                                   state: request.kind == .file ? .staging : .prepared)
+                                   state: request.kind == .file ? .staging : .prepared,
+                                   modified: request.kind == .file ? request.modified : nil)
         try save(record)
         if request.kind == .file {
             try stage(record, contents: contents, progress: progress, checkSpace: checkSpace)
@@ -327,13 +333,15 @@ public final class UploadOutbox {
             record.state = .created
             try save(record)
             try checkpoint(.created)
-            version = try remote.writeUpload(path: record.path, contents: contentURL(record.id))
+            version = try remote.writeUpload(path: record.path, contents: contentURL(record.id),
+                                             modified: record.modified)
         } else {
             guard [.created, .verified].contains(record.state), record.serverFile != nil else {
                 throw UploadError.unresolved
             }
             if record.state == .created, let identity = record.serverFile {
-                version = try remote.resumeUpload(path: record.path, contents: contentURL(record.id), identity: identity)
+                version = try remote.resumeUpload(path: record.path, contents: contentURL(record.id), identity: identity,
+                                                  modified: record.modified)
             } else {
                 version = try remote.inspectUpload(path: record.path)
             }

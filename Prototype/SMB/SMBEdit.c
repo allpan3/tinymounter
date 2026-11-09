@@ -283,6 +283,26 @@ int tm_edit_set_size(void *opaque, uint8_t *file, uint64_t size)
     return wait_reply(client, smb2_cmd_set_info_async(smb, &request, done, &reply), &reply);
 }
 
+int tm_edit_set_write_time(void *opaque, uint8_t *file, uint64_t microseconds)
+{
+    struct edit_client *client = opaque;
+    client->ntstatus = 0;
+    struct smb2_context *smb = client->smb;
+    if (!smb) return EIO;
+    // libsmb2 encodes zero as "unchanged" and computes the FILETIME in signed 64 bits.
+    if (!microseconds || microseconds > (uint64_t)(INT64_MAX - 116444736000000000LL) / 10) return EINVAL;
+    struct smb2_file_basic_info basic = {0};
+    basic.last_write_time.tv_sec = (time_t)(microseconds / 1000000);
+    basic.last_write_time.tv_usec = (long)(microseconds % 1000000);
+    struct smb2_set_info_request request = {0};
+    request.info_type = SMB2_0_INFO_FILE;
+    request.file_info_class = SMB2_FILE_BASIC_INFORMATION;
+    request.input_data = &basic;
+    memcpy(request.file_id, file, SMB2_FD_SIZE);
+    struct tm_edit_reply reply = {0};
+    return wait_reply(client, smb2_cmd_set_info_async(smb, &request, done, &reply), &reply);
+}
+
 static uint64_t microseconds(struct smb2_timeval value)
 {
     return value.tv_sec > 0 && value.tv_usec < 1000000

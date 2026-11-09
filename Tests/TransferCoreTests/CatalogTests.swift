@@ -87,6 +87,53 @@ final class CatalogTests: XCTestCase {
         }
     }
 
+    func testSaveTimeSetOnTheServerMatchesTheLocalTimeInTheCatalog() throws {
+        XCTAssertEqual(ContentFingerprint.smbMicroseconds(Date(timeIntervalSince1970: 1_762_600_000.123_456_7)),
+                       1_762_600_000_123_457)
+        for invalid in [0, -1, 95_617_584_000, .infinity, .nan] as [TimeInterval] {
+            XCTAssertNil(ContentFingerprint.smbMicroseconds(Date(timeIntervalSince1970: invalid)))
+        }
+        let catalog = try makeCatalog()
+        try reconcile(catalog, [file("data")])
+        let id = try child(catalog, "data").id
+        var generator = SystemRandomNumberGenerator()
+        let edges: [Int64] = [0, 1, 499, 500, 501, 499_999, 500_000, 999_999_499, 999_999_500, 999_999_999]
+        for index in 0..<2_000 {
+            // A local time as APFS keeps it and Foundation reports it, from 2000 to 2100.
+            let seconds = Int64.random(in: 946_684_800...4_102_444_800, using: &generator)
+            let nanoseconds = index < edges.count ? edges[index] : Int64.random(in: 0..<1_000_000_000, using: &generator)
+            let local = Date(timeIntervalSince1970: Double(seconds) + Double(nanoseconds) / 1e9)
+            let microseconds = try XCTUnwrap(ContentFingerprint.smbMicroseconds(local))
+            // libsmb2's FILETIME for the SET_INFO, as the next listing returns it.
+            let listed = try XCTUnwrap(RenameDirectoryEntry.parse(listingEntry(writeTime: microseconds * 10
+                + 116_444_736_000_000_000)).first)
+            try catalog.updateFingerprint(item: id, fingerprint: listed.fingerprint, fileID: 7)
+            let row = try child(catalog, "data")
+            // Double's steps are 0.24 µs until 2038 and 0.48 µs after it.
+            let bound = seconds < 1 << 31 ? 0.75e-6 : 1e-6
+            XCTAssertLessThan(abs(local.timeIntervalSince(row.modificationDate)), bound, "\(seconds).\(nanoseconds)")
+            XCTAssertEqual(OfflineState(status: .current, downloading: false, ubiquitous: true, size: 10,
+                                        modified: local, expectedSize: row.size, expectedModified: row.modificationDate),
+                           .availableOffline)
+        }
+    }
+
+    private func listingEntry(writeTime: UInt64) -> [UInt8] {
+        var bytes = [UInt8](repeating: 0, count: 88)
+        func set(_ offset: Int, _ value: UInt64) {
+            for index in 0..<8 { bytes[offset + index] = UInt8(truncatingIfNeeded: value >> (index * 8)) }
+        }
+        set(8, writeTime)
+        set(24, writeTime)
+        set(32, writeTime)
+        set(40, 10)
+        set(56, 0x20)
+        set(60, 2)
+        set(72, 7)
+        bytes[80] = UInt8(ascii: "d")
+        return bytes
+    }
+
     func testSaveRefusesReadOnlyDeletedAndReplacedBindings() throws {
         let catalog = try makeCatalog()
         try reconcile(catalog, [file("data")])

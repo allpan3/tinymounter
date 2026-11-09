@@ -445,7 +445,8 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                     }
                     let message = try CreateRequest(template: itemTemplate.itemIdentifier.rawValue,
                                                     parent: itemTemplate.parentItemIdentifier.rawValue,
-                                                    name: itemTemplate.filename, kind: kind, staging: stagingID)
+                                                    name: itemTemplate.filename, kind: kind, staging: stagingID,
+                                                    modified: itemTemplate.contentModificationDate ?? nil)
                     let receipt = try sourceReader.create(message, progress: progress)
                     let row = try catalog.liveRow(receipt.item)
                     progress.completedUnitCount = progress.totalUnitCount
@@ -641,7 +642,8 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 }
                 let message = try EditRequest(item: row.id, parent: item.parentItemIdentifier.rawValue,
                                                name: item.filename, baseVersion: base, staging: id,
-                                               failOnConflict: options.contains(.failOnConflict))
+                                               failOnConflict: options.contains(.failOnConflict),
+                                               modified: item.contentModificationDate ?? nil)
                 let receipt = try sourceReader.edit(message, progress: progress)
                 let current = try catalog.liveRow(receipt.item)
                 progress.completedUnitCount = progress.totalUnitCount

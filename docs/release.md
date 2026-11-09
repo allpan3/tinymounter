@@ -61,8 +61,10 @@ before then. This is not a Developer ID distribution build; other Macs have not 
 Browse in Finder, open files on demand, and use Keep Downloaded for offline access. Enable
 writes only for locations you want to edit. Ordinary saves, file/folder organization, Finder
 file and folder Replace, permanent deletion and offline edits have signed VM checks on 0.2.0;
-Preview and Xcode saves were checked on 0.1.x. Keep NAS snapshots or backups: TinyMounter does
-not keep previous remote versions or a Trash.
+Preview and Xcode saves were checked on 0.1.x. A file that you save or copy in keeps its
+modification time on the server, as with Finder's own SMB copies, and a saved kept file shows
+Available offline again. Keep NAS snapshots or backups: TinyMounter does not keep previous
+remote versions or a Trash.
 
 Other file managers, such as QSpace Pro, no longer list a hidden volume for File Provider
 locations. A change that another device makes in a folder you have open usually shows in a few
@@ -88,8 +90,6 @@ Known limits for this release:
   client before macOS mounts it, which is one extra logon per mount.
 - A second TinyMounter build with a different signature, such as a test build, uses the same
   keychain item. macOS then asks for the login keychain password before that build can read it.
-- A kept file that you save on this Mac shows Update in progress in the Keep Downloaded list
-  instead of Available offline, although its copy is current. This was also true of 0.1.x.
 - Wake and network-change reconnection of 0.2.0 sessions, and a server with change
   notification turned off, have not had VM checks.
 - There is no automatic updater. Install later releases by replacing the app after uploads finish.

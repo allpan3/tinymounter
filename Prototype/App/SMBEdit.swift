@@ -29,7 +29,8 @@ final class SMBEdit: FileRenameRemote, UploadRemote {
     /// Set when a deletion traversal starts; that session never deletes.
     private var deletionTraversalFiles: [String: Handle]?
     private static let read: UInt32 = 0x20081
-    private static let write: UInt32 = 2
+    /// Data and attributes: the save time is a SET_INFO on the handle that wrote the data.
+    private static let write: UInt32 = 0x102
     private static let delete: UInt32 = 0x10000
     private static let statusKey = "tinymounter.smb.ntstatus"
 
@@ -296,9 +297,10 @@ final class SMBEdit: FileRenameRemote, UploadRemote {
         return try RemoteFileIdentity(fileID: values[0], birthMicroseconds: values[1])
     }
 
-    func writeUpload(path: String, contents: URL) throws -> RemoteFileVersion {
+    func writeUpload(path: String, contents: URL, modified: Date?) throws -> RemoteFileVersion {
         guard let handle = handles[path] else { throw UploadError.unresolved }
         try writeContents(handle, contents: contents)
+        keepSaveTime(handle, modified)
         let written = try version(handle)
         return try closeWritten(path: path, version: written)
     }
@@ -308,7 +310,8 @@ final class SMBEdit: FileRenameRemote, UploadRemote {
         return try readVersion(path: path)
     }
 
-    func resumeUpload(path: String, contents: URL, identity: RemoteFileIdentity) throws -> RemoteFileVersion {
+    func resumeUpload(path: String, contents: URL, identity: RemoteFileIdentity,
+                      modified: Date?) throws -> RemoteFileVersion {
         guard handles[path] == nil, let entry = try renameSourceEntry(path: path),
               entry.identity == identity, entry.name.utf8.elementsEqual(RelativePath(path)!.components.last!.utf8)
         else { throw UploadError.unresolved }
@@ -316,6 +319,7 @@ final class SMBEdit: FileRenameRemote, UploadRemote {
         handles[path] = handle
         guard try version(handle).identity == identity else { throw UploadError.unresolved }
         try writeContents(handle, contents: contents)
+        keepSaveTime(handle, modified)
         return try closeWritten(path: path, version: version(handle))
     }
 
@@ -329,7 +333,7 @@ final class SMBEdit: FileRenameRemote, UploadRemote {
             modifiedMicroseconds: values[1], changedMicroseconds: values[2], attributes: UInt32(values[4]))
     }
 
-    func overwrite(path: String, contents: URL, expected: ContentFingerprint? = nil) throws
+    func overwrite(path: String, contents: URL, expected: ContentFingerprint? = nil, modified: Date?) throws
         -> (fileID: UInt64, fingerprint: ContentFingerprint) {
         let input = try ReadOnlyFile(url: contents)
         let fork = fgetxattr(input.descriptor, "com.apple.ResourceFork", nil, 0, 0, 0)
@@ -337,7 +341,7 @@ final class SMBEdit: FileRenameRemote, UploadRemote {
         guard fork == 0 || errno == ENOATTR else { throw posixError("inspect upload metadata") }
         try cancellation()
         try protectAncestors(of: path)
-        let handle = try open(path: path, access: 0x82, sharing: 1)
+        let handle = try open(path: path, access: 0x80 | Self.write, sharing: 1)
         handles[path] = handle
         let before = try info(handle)
         guard before[2] <= Int64.max, before[3] == 1, before[4] & 0x450 == 0 else {
@@ -348,6 +352,7 @@ final class SMBEdit: FileRenameRemote, UploadRemote {
         guard expected == nil || expected == current else { throw UploadError.editConflict }
         progress.totalUnitCount = max(1, input.snapshot.size)
         try writeContents(handle, contents: contents)
+        keepSaveTime(handle, modified)
         var closed = [UInt64](repeating: 0, count: 5)
         try handle.use { try check(tm_edit_close_info(client, $0, &closed)) }
         handles[path] = nil
@@ -387,6 +392,17 @@ final class SMBEdit: FileRenameRemote, UploadRemote {
         try input.validateUnchanged()
         try handle.use { try check(tm_edit_set_size(client, $0, UInt64(input.snapshot.size))) }
         try handle.use { try check(tm_edit_flush(client, $0)) }
+    }
+
+    /// The server keeps the local save time, as when Finder copies to SMB. The bytes are written
+    /// already, so a refusal keeps the server's time; a lost connection fails the close that follows.
+    private func keepSaveTime(_ handle: Handle, _ modified: Date?) {
+        guard let modified, let microseconds = ContentFingerprint.smbMicroseconds(modified) else { return }
+        let code = handle.use { tm_edit_set_write_time(client, $0, microseconds) }
+        guard code != 0 else { return }
+        let status = tm_edit_last_ntstatus(client)
+        Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
+            .error("save_time failed errno=\(code) status=\(status)")
     }
 
     func move(source: String, destination: String) throws {
