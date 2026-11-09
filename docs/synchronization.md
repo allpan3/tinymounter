@@ -62,8 +62,10 @@ Use several triggers, each cheap. None is trusted alone.
 | Periodic reconciliation with backoff; pinned trees on a slower budget | Silent servers, missed notifications | minutes |
 
 Unverified assumptions, to test before relying on them: that FSEvents reports this Mac's own writes
-on an SMB mount, and that Samba delivers `CHANGE_NOTIFY` for the user's share. Neither is relied on
-for correctness; revalidation on access and reconciliation remain the safety net.
+on an SMB mount, and that the user's NAS delivers `CHANGE_NOTIFY`. Samba 4.19 delivers it to
+0.2.0's watches ([results](results/2026-11-08-release-checks.md#new-behaviour)); the NAS is
+untested. Neither is relied on for correctness; revalidation on access and reconciliation remain
+the safety net.
 
 ## 5. Applying changes
 
@@ -150,8 +152,8 @@ signed VM browsing and reads passed [runtime checks](results/2026-10-14-catalog-
 Phase 3 extends that subset with verified offline status, folder keeps and change discovery.
 
 - **Tracked per item:** section 3's fields, in one SQLite catalog per File Provider location. The
-  content version is size, mtime and ctime (D1); each transfer still checks device and inode on
-  its open descriptor.
+  content version is size, mtime and ctime (D1); since 0.2.0 each transfer also checks the SMB
+  file ID before it reads.
 - **Rules 1 and 3:** only the app writes the catalog, only from a complete listing of the share,
   and only after the server confirmed each missing name gone. Timeouts, permission errors, a
   lost connection and a stopped app change nothing. A listing that would leave a folder with
@@ -168,7 +170,8 @@ Phase 3 extends that subset with verified offline status, folder keeps and chang
 - **Phase 3 additions:** M13 verifies local availability after provider synchronization; M14
   adds recursive folder requests and aggregate status. M15 adds native SMB directory watches
   through public Dispatch sources, periodic reconciliation and wake refresh. It covers listed
-  materialized and kept folders and parents of kept files. Watches are bounded to 64 per session;
+  materialized and kept folders and parents of kept files. Since 0.2.0 the watches are SMB2
+  `CHANGE_NOTIFY` requests on one connection per share, with no mount. Watches are bounded to 64 per session;
   scheduled listings run one at a time, due 60 s after success, with failure backoff. These are
   scheduling policies, not the latency targets proposed in section 4. See the
   [M15 plan](phase3-plan.md#m15-discover-nas-changes-while-the-app-runs) and
