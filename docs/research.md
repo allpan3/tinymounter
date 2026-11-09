@@ -18,25 +18,25 @@ Reviewed 2026-10-10. These notes distinguish documented behavior, user observati
 
 ## Runtime follow-up, 2026-10-10
 
-The [signed-provider experiment](results/2026-10-10-provider-runtime.md) now distinguishes three permission layers: shared App Group access, source bookmark scope, and Network Volumes privacy. A team-prefixed macOS App Group plus read-only document-scoped bookmarks passed local fetching. Foreground saved-bookmark access to the NAS passed, while the extension's source open was denied by TCC, which explicitly reported that this extension point cannot prompt. This is direct evidence from this VM, not an assertion about every macOS/NAS configuration.
+The signed-provider experiment now distinguishes three permission layers: shared App Group access, source bookmark scope, and Network Volumes privacy. A team-prefixed macOS App Group plus read-only document-scoped bookmarks passed local fetching. Foreground saved-bookmark access to the NAS passed, while the extension's source open was denied by TCC, which explicitly reported that this extension point cannot prompt. This is direct evidence from this VM, not an assertion about every macOS/NAS configuration.
 
 The installed SDK documents that app-scoped bookmarks grant access only to their creating sandboxed app; document-scoped bookmarks can be used by another sandboxed app with access to both bookmark and owning document. Keep that owning document stable across pin metadata updates [A6–A7]. Public process I/O policy controls whether ordinary reads can materialize dataless content [A8]. Neither source permissions nor download policy establishes network throughput.
 
-The subsequently approved [app-owned reader experiment](results/2026-10-10-app-reader.md) uses a restricted File Provider service to connect the main app and extension [A9]. The app reads the NAS; the extension hands staged bytes to macOS. NAS checksums and app-relaunch recovery now pass without broader privacy access. Short File Provider reads remain slow, improving from a 6.3 MB/s median at 4 MiB extents to 23.1 MB/s at 16 MiB. This locates an integration cost in this prototype/VM; it neither establishes an unavoidable Apple limit nor diagnoses competitor code.
+The subsequently approved app-owned reader experiment uses a restricted File Provider service to connect the main app and extension [A9]. The app reads the NAS; the extension hands staged bytes to macOS. NAS checksums and app-relaunch recovery now pass without broader privacy access. Short File Provider reads remain slow, improving from a 6.3 MB/s median at 4 MiB extents to 23.1 MB/s at 16 MiB. This locates an integration cost in this prototype/VM; it neither establishes an unavoidable Apple limit nor diagnoses competitor code.
 
 ## Delay follow-up, 2026-10-11
 
-[Per-read tracing](results/2026-10-11-provider-delay.md) correlates local and NAS reader stalls with `fileproviderd`'s “Materialization or eviction waiting for flush” and subsequent database batch timer. Reads resume about 2–4 ms after its flush-complete event. This is observed behavior on this VM/build, not a documented universal API latency. Larger returned extents improve throughput at the expense of first-byte delay; the signed prototype has been restored to 16 MiB after the diagnostic controls.
+Per-read tracing correlates local and NAS reader stalls with `fileproviderd`'s “Materialization or eviction waiting for flush” and subsequent database batch timer. Reads resume about 2–4 ms after its flush-complete event. This is observed behavior on this VM/build, not a documented universal API latency. Larger returned extents improve throughput at the expense of first-byte delay; the signed prototype has been restored to 16 MiB after the diagnostic controls.
 
-The public manager API can request a particular range to be downloaded [A10]. Its completion acknowledges scheduling, not hydration completion. The [read-ahead experiment](results/2026-10-11-player-readahead.md) used it: `fileproviderd` delivered speculative fetches about 50 ms after each request, flagged as system requests. It held a pending seek for as long as speculative requests for that file kept arriving back to back, up to about 2.7 s, and delivered it about 0.1 s after they paused. One reader fault that coincided with a finishing speculative materialization made `fileproviderd` log `materializationFailed`, fail the read and fall back to a full download. These are observations on this build, not documented behaviour. No supported API to bypass the observed internal database flush was found in the reviewed headers.
+The public manager API can request a particular range to be downloaded [A10]. Its completion acknowledges scheduling, not hydration completion. The read-ahead experiment used it: `fileproviderd` delivered speculative fetches about 50 ms after each request, flagged as system requests. It held a pending seek for as long as speculative requests for that file kept arriving back to back, up to about 2.7 s, and delivered it about 0.1 s after they paused. One reader fault that coincided with a finishing speculative materialization made `fileproviderd` log `materializationFailed`, fail the read and fall back to a full download. These are observations on this build, not documented behaviour. No supported API to bypass the observed internal database flush was found in the reviewed headers.
 
 `fetchPartialContents` documentation also describes `NSFileProviderExtensionNonMaterializingProcessNames`, a UserDefaults key naming processes whose POSIX or coordinated reads must not fetch content [A2]. With Finder listed, Finder's coordinated open failed with `EPERM` and Finder didn't launch the app, so the key can't turn a Finder open into a streamed one. Listing `ScopedBookmarkAgent` instead stops its recent-file bookmark resolution from downloading whole files, and the bookmarks still resolve (M5 follow-up, 2026-10-15).
 
 ## Recovery and race follow-up, 2026-10-15
 
-The [runtime follow-up](results/2026-10-15-runtime-followup.md) reproduced the materialization
+The runtime follow-up reproduced the materialization
 race in 5/5 moving-boundary reads with the approved 128 MiB window. A temporary 16 MiB window
-had 0/5 failures. The [window comparison](results/2026-10-15-read-ahead-window.md) added 0/6
+had 0/5 failures. The window comparison added 0/6
 and adopted the 16 MiB window. This is a stress workload in the VM, not a real-player failure
 rate or proof that one chunk eliminates the race.
 
@@ -112,7 +112,7 @@ No reviewed page establishes ≥90% native throughput for an offline-caching SMB
 - **A1:** [NSFileProviderPartialContentFetching](https://developer.apple.com/documentation/fileprovider/nsfileproviderpartialcontentfetching) — availability, POSIX limitation, video example. Read the official DocC payload at `https://developer.apple.com/tutorials/data/documentation/fileprovider/nsfileproviderpartialcontentfetching.json`.
 - **A2:** [fetchPartialContents](https://developer.apple.com/documentation/fileprovider/nsfileproviderpartialcontentfetching/fetchpartialcontents(for:version:request:minimalrange:aligningto:options:completionhandler:)) and installed Xcode 27 SDK headers: `FileProvider.framework/Headers/NSFileProviderReplicatedExtension.h`, `NSFileProviderDefines.h`, `NSFileProviderItem.h`, `NSFileProviderManager.h`. Local headers supplied the detailed same-volume layout, handoff, alignment, cancellation, strict-version, and pipeline-depth contracts. The DocC payload documents `NSFileProviderExtensionNonMaterializingProcessNames` and its coverage of coordinated reads since macOS 11.4.
 - **A3:** [WWDC21: Sync files to the cloud with FileProvider on macOS](https://developer.apple.com/videos/play/wwdc2021/10182/) — official transcript read; APFS materialization, subsequent local reads, uploads, eviction, working set, sync anchors. This older talk predates the partial-content API; use A1/A2 for current range support.
-- **A4:** [NSFileProviderContentPolicy](https://developer.apple.com/documentation/fileprovider/nsfileprovidercontentpolicy), [NSFileProviderNamespacePolicy](https://developer.apple.com/documentation/fileprovider/nsfileprovidernamespacepolicy) — content-policy documentation plus installed SDK header definitions; namespace API availability in the SDK is macOS 27.0. `downloadEagerlyAndKeepDownloaded` prevents disk-pressure eviction; `materializeEagerly` controls eager folder enumeration. Reviewed again on 2026-10-19; M14 verified automatic nested-folder enumeration and file downloads in the signed VM app ([results](results/2026-10-19-folder-keeps.md)).
+- **A4:** [NSFileProviderContentPolicy](https://developer.apple.com/documentation/fileprovider/nsfileprovidercontentpolicy), [NSFileProviderNamespacePolicy](https://developer.apple.com/documentation/fileprovider/nsfileprovidernamespacepolicy) — content-policy documentation plus installed SDK header definitions; namespace API availability in the SDK is macOS 27.0. `downloadEagerlyAndKeepDownloaded` prevents disk-pressure eviction; `materializeEagerly` controls eager folder enumeration. Reviewed again on 2026-10-19; in the signed VM app, kept folders enumerate nested folders and download their files automatically.
 - **A5:** [Synchronizing files using file provider extensions](https://developer.apple.com/documentation/fileprovider/synchronizing-files-using-file-provider-extensions) — official sample documentation read; App Groups/team setup, domains, enumeration, change anchors, domain removal, target organization. Useful starting reference, not a production SMB sync engine.
 
 - **A6:** [App Groups entitlement](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.application-groups) — macOS supports `<team identifier>.<group name>` without registering that form in the Developer portal. Runtime group-container diagnostics confirmed the prefix requirement for the tested signing configuration.
@@ -123,7 +123,7 @@ No reviewed page establishes ≥90% native throughput for an offline-caching SMB
 - **A11:** Installed Xcode 27 SDK `FileProvider.framework/Headers/NSFileProviderManager.h`, reviewed 2026-10-15 — working-set-only signaling for replicated providers, `signalErrorResolved` removes throttling, and directory `requestDownloadForItem` performs one-level enumeration. The reimport API can widen its scope and restarts the extension; it is not a targeted Finder error reset.
 
 - **A12:** Installed Xcode 27 `FileProvider.framework/Headers/NSFileProviderManager.h` and `Foundation.framework/Headers/NSURL.h`, reviewed 2026-10-19. `getUserVisibleURL` returns security scope; content reads and child listings require file coordination. The materialized-set notification supports local-copy refresh. `URLUbiquitousItemDownloadingStatus.current` means the latest version known to the device, not a live source check. The signed VM probe found that returned materialized items' download flags and content versions cannot establish completeness; public URL metadata distinguished a complete file from a partial file. The manager's public `waitForStabilization` waits for filesystem changes and provider changes up to the call to be applied. It supplies a consistency barrier before querying local-copy metadata; it is not a live source scan.
-- **A13:** Installed Xcode 27 `Foundation.framework/Headers/NSProgress.h` and `FileProvider.framework/Headers/NSFileProviderItem.h`, reviewed 2026-10-19. A published file progress with a file URL can be observed by other processes; downloading is a public file-operation kind. Replicated providers' item downloaded/downloading flags are ignored. A signed VM comparison verified that progress publication displays Finder's native circle during kept transfers ([results](results/2026-10-19-keep-download-progress.md)); the headers alone do not promise that UI.
+- **A13:** Installed Xcode 27 `Foundation.framework/Headers/NSProgress.h` and `FileProvider.framework/Headers/NSFileProviderItem.h`, reviewed 2026-10-19. A published file progress with a file URL can be observed by other processes; downloading is a public file-operation kind. Replicated providers' item downloaded/downloading flags are ignored. In the signed VM app, progress publication displays Finder's native circle during kept transfers; the headers alone do not promise that UI.
 
 ### Vendors and SMB implementations
 
@@ -154,7 +154,7 @@ No reviewed page establishes ≥90% native throughput for an offline-caching SMB
 - **W1:** Installed Xcode 27 SDK `sys/stdio.h`, `sys/attr.h` and Foundation `NSURL.h`, reviewed
   2026-10-23. `RENAME_EXCL` and `VOL_CAP_INT_RENAME_EXCL` describe exclusive rename support.
   Apple's [volumeSupportsExclusiveRenaming](https://developer.apple.com/documentation/foundation/urlresourcevalues/volumesupportsexclusiverenaming)
-  property reflects support for that rename option. The [VM fixture check](results/2026-10-23-upload-publication.md)
+  property reflects support for that rename option. The VM fixture check
   found the capability absent on native SMB and present on APFS; these are runtime results for
   that fixture, not a compatibility claim about every server.
 - **W2:** Microsoft's [FileRenameInformation for SMB2](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/52aa0b70-8094-4971-862d-79793f41e6a8),
@@ -172,12 +172,12 @@ No reviewed page establishes ≥90% native throughput for an offline-caching SMB
   and without-overwriting. The published [FileManager move implementation](https://github.com/swiftlang/swift-foundation/blob/main/Sources/FoundationEssentials/FileManager/FileOperations.swift)
   performs a preflight check followed by ordinary rename. An isolated probe of the installed
   Foundation confirmed that a competing create between these steps can be overwritten on SMB
-  and APFS. See the [follow-up results](results/2026-10-23-upload-publication.md#native-api-follow-up).
+  and APFS.
 
 - **W5:** `libsmb2-6.3` [rename implementation](https://github.com/sahlberg/libsmb2/blob/libsmb2-6.3/lib/libsmb2.c)
   sets `replace_if_exist` to zero. Its [COPYING](https://github.com/sahlberg/libsmb2/blob/libsmb2-6.3/COPYING)
   assigns LGPL-2.1-or-later to the core library and headers. An isolated client with a guest-session
-  signing fix passed the [folder rename checks](results/2026-10-23-initial-folder-naming.md).
+  signing fix passed the folder rename checks.
   Installed Xcode 27 `GSS.framework` headers expose credential iteration and acquisition without
   password export. Metadata probes did not establish reuse of the mounted NAS credentials.
 
@@ -214,7 +214,7 @@ configuration, app installation or remote content changed.
 - **W10:** Samba's [share-mode checks](https://github.com/samba-team/samba/blob/master/source3/smbd/open.c),
   reviewed 2026-10-27. share_conflict considers data read/write/append, execution and deletion
   access. WRITE_DAC, WRITE_OWNER, WRITE_ATTRIBUTES and WRITE_EA are outside that mask. Stronger
-  share modes therefore do not establish metadata exclusion. The [disposable Samba check](results/2026-10-27-edit-publication.md)
+  share modes therefore do not establish metadata exclusion. The disposable Samba check
   confirmed concurrent DACL, modification-time and nonempty named-stream changes even with all
   sharing denied. This does not authorize relaxing the accepted preservation requirement.
 
@@ -250,7 +250,7 @@ These findings support a proposed experiment, not an implemented or verified sav
 
 ### Samba folder creation review, 2026-10-31
 
-The [everyday-use review](results/2026-10-31-everyday-use-review.md) reproduced failed directory
+The everyday-use review reproduced failed directory
 creation through the production adapter and native SMB on the disposable Samba 4.25.1 fixture.
 The sources below explain a plausible Darwin-specific failure path. A supported configuration
 comparison fixes both clients, but no captured server log confirms the exact fallback branch.
@@ -302,9 +302,7 @@ comparison fixes both clients, but no captured server log confirms the exact fal
   removes that entry before deletion, with a comment citing immediate ID reuse by Samba and
   NetApp. A failed delete reinserts it. A direct SMB mutation does not execute this native
   vnode operation. These public sources explain the isolated wrong-path metadata probe;
-  they are not a verified match to the installed macOS kernel. The
-  [November 3 results](results/2026-11-02-samba-names-and-uploads.md#native-cache-investigation-2026-11-03)
-  separate runtime observations from source-based interpretation.
+  they are not a verified match to the installed macOS kernel.
 
 ### Samba hidden attributes during save, 2026-11-03
 
@@ -316,8 +314,7 @@ reads attributes after changing the handle's name, then writes them with the arc
 also sets archive status on writes. This can persist name-derived hidden status on an existing
 file. A rename-only disposable-fixture control reproduces the effect. Removing the leading
 dot from the work name avoids it without rewriting user metadata. Private-stage conflict
-publication does not retain hidden status in the tested configuration. See the
-[folder/save results](results/2026-11-03-folder-organization.md#save-work-name-and-hidden-attributes).
+publication does not retain hidden status in the tested configuration.
 
 ### Finder replacement callbacks, 2026-11-03
 
@@ -326,9 +323,9 @@ deletion options. Its reimport flag, `mayAlreadyExist`, is not replacement autho
 `NSFileProviderRequest.h` explicitly excludes create/modify/delete from the valid uses of
 `isSystemRequest` and `isFileViewerRequest`. The request's domain version identifies when the
 system observed an event, not its purpose. These headers were read on 2026-11-03. The signed
-[Finder observation](results/2026-11-03-editor-replacement.md) sent separate delete/create
+Finder observation sent separate delete/create
 callbacks for Replace; no supported intent/base binding was found in the reviewed interfaces.
 
 ## Research limitations
 
-Live web documentation and current SDK headers establish API contracts, not actual throughput. Search was unreliable, and several sites initially failed the VM's DNS resolution; direct HTTPS retrieval with explicitly resolved public addresses succeeded. No VM DNS settings were changed. Subsequent work measured native SMB and short NAS-backed provider reads and ran signed correctness checks; dated results logs record those separately. Competitor installations, the player matrix, large-file throughput acceptance, and controlled failure experiments remain incomplete, as described in the benchmark plan.
+Live web documentation and current SDK headers establish API contracts, not actual throughput. Search was unreliable, and several sites initially failed the VM's DNS resolution; direct HTTPS retrieval with explicitly resolved public addresses succeeded. No VM DNS settings were changed. Subsequent work measured native SMB and short NAS-backed provider reads and ran signed correctness checks. Competitor installations, the player matrix, large-file throughput acceptance, and controlled failure experiments remain incomplete, as described in the benchmark plan.
