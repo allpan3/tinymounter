@@ -54,7 +54,60 @@ Keep Downloaded lists hold typed file and folder requests.
 
 **TinyMounterFileProvider.appex** owns the File Provider callbacks: item lookup, paginated enumeration, working-set changes, full and partial fetches, cancellation, progress, and error translation. It must work when the settings window is closed. Cached reads must not depend on the app being alive. Do not remove/re-add domains to implement reconnect.
 
-**Current approved experiment:** the main app owns source reads, because direct extension access to the existing NAS mount was denied by Network Volumes privacy. The extension vends a restricted `NSFileProviderServiceSource`; the app connects through its domain manager and exports a reader over duplex XPC. Both peers require the same signing team and the exact counterpart bundle ID. Read requests contain an item ID, a content version and a range, never a pathname. In the phase 2 build (M4 and M5), the app resolves a saved share-root grant once per mount session and owns all share I/O and every catalog write. It lists folders into one SQLite catalog per domain, builds each file's path from that catalog beneath the location root, compares the file's fingerprint with the catalog row, and stages read-only POSIX reads in the shared App Group. The extension reads the catalog read-only and never touches the share. The extension moves the completed file into its File Provider temporary directory using an exclusive same-volume rename, then hands it to macOS. Payload bytes are never serialized across XPC [A9]. Since 0.2.0 the app reads the share through its own SMB sessions, not a granted mount. No separate helper or daemon was added. The [phase 2 plan](phase2-plan.md#3-architecture) gives the processes and flows.
+**Processes.** The main app owns every connection to the share. This started because Network
+Volumes privacy denied the extension access to the NAS mount; the app now also holds the password
+and runs the only SMB client.
+
+| Process | Owns | Never |
+| --- | --- | --- |
+| `TinyMounter.app`, a sandboxed app with a Dock icon and a menu bar item | settings, sign-in and saved passwords, SMB sessions and change watches, all share I/O, every catalog write, domain add and remove, staging files, relisting, notifications, UI | logs names or paths |
+| `TinyMounterFileProvider.appex`, one process per domain | File Provider callbacks, catalog reads, staging handoff, per-item read-ahead, Finder actions | connects to the share, creates or writes a catalog |
+| `fileproviderd` | the replica, materialization, Finder integration | — |
+
+The extension vends a restricted `NSFileProviderServiceSource`; the app connects through its
+domain manager and exports a reader over duplex XPC, only for domains whose catalog it opened.
+Both peers require the same signing team and the exact counterpart bundle ID. Requests carry item
+IDs, content versions and ranges, never a pathname. Payload bytes are never serialized across XPC
+[A9]. Both ends ship in one bundle and domain IDs are never reused, so the XPC protocol has no
+version handshake. No separate helper or daemon exists.
+
+The main flows:
+
+1. **Browse.** `enumerateItems(folder)` → XPC `list(folder)` → the app lists the folder over SMB →
+   `Catalog.reconcile` in one transaction → a reply with counts → the extension pages from the
+   catalog. If rows changed, the app signals `.workingSet`, debounced by 200 ms.
+2. **Read.** `fetchPartialContents` or `fetchContents` → catalog row and strict version check →
+   XPC `fetch(item, version, range)` → the app builds the path from its catalog, compares the
+   server file's fingerprint with the row and stages the bytes in the App Group → the extension
+   renames the staged file into `temporaryDirectoryURL()` and completes.
+3. **Keep.** Finder action → `performAction` → XPC `keep(ids, value)` → the app sets the explicit
+   request and inherited retention, with new metadata sequences, and signals `.workingSet`. Kept
+   folders report eager namespace policy and kept files `.downloadEagerlyAndKeepDownloaded`, so
+   the system's full fetch takes flow 2.
+4. **Recovery.** When a share becomes healthy again, the app calls `signalErrorResolved` for each
+   error that its requests returned, retries pending creates, renames and deletions, signals
+   `.workingSet` for each domain on that share and starts flow 5. When a reader session connects,
+   the app does the same for that domain with `.serverUnreachable` only, and does not start flow 5.
+5. **Relist.** At launch and after each recovery, the app reads each domain's materialized set
+   with `enumeratorForMaterializedItems` and lists each materialized folder again, one at a time,
+   except the system's own Trash folder. The system never enumerates a materialized folder again
+   by itself, so relisting only those folders keeps the NAS load in proportion to what is on this
+   Mac.
+
+The app signals only `.workingSet`: replicated domains ignore other containers
+(`NSFileProviderManager.h`).
+
+**Restart after a crash.** The extension starts the app again after a crash, and only then. The
+app keeps its run state (`running`, `stopped` or `crashed`) and its launch time in `RunState` in
+the App Group. `applicationWillTerminate`, which runs for Quit, logout and shutdown, writes
+`stopped`. A handler for SIGSEGV, SIGBUS, SIGILL, SIGTRAP, SIGABRT and SIGFPE writes `crashed`
+with `pwrite` to a descriptor opened at launch, resets the signal to its default action itself and
+raises it again, so the crash report stays the same; macOS ignores `SA_RESETHAND` for SIGILL and
+SIGTRAP. Force Quit and a kill for memory leave `running`, so nothing restarts the app. When an
+extension starts or loses the app's reader and reads `crashed`, it waits until Launch Services no
+longer lists the crashed app, up to 5 s, then opens the app without activating it. If the app
+crashed less than 60 s after its launch, the extension does not restart it, so a crash at launch
+cannot loop.
 
 The app must remain running for cache misses and for folders that were never listed; cached reads and listed folders work after it quits. Full app-independent fetching, crash recovery and shipping lifecycle are still gates. The first reader experiment verified NAS access and checksums but had a large throughput gap; it did not select the production transport.
 
@@ -152,6 +205,48 @@ only after matching the recorded server identity; an uncertain create never over
 unrelated destination. Local retained contents have integrity checks, but the remote upload is
 not read back in full. Existing-file saves use ordinary overwrite semantics.
 
+### Sign-in and connection
+
+One protocol-neutral layer, declared in
+[`RemoteConnection.swift`](../Sources/TransferCore/RemoteConnection.swift), carries sign-in,
+connection state, listing, reading, writing and change watching. SMB is its only implementation,
+and nothing in it is built for a second protocol. `RemoteClient` lists a server's share names,
+opens a `RemoteSession` for one operation and opens a `RemoteWatcher` for change notices.
+`CredentialStore` saves and reads passwords. Errors stay `SourceFailure`: a refused account or
+password is `notAuthenticated`, an unknown share `missing`, and a share that the account may not
+open `noPermission`.
+
+The app keeps one `ShareConnection` per saved share. It opens a session for each operation and
+records each result in `ConnectionHealth`, whose states are not connected, connected,
+unresponsive and needs sign-in. Probes back off from 5 s to at most 60 s and start at once on wake
+or when the network path returns. Without a network path, requests fail at once with
+`notConnected`. Proofs that need a stable location folder compare its server identity
+(`directoryIdentity`); there is no mount identity.
+
+Rules that the connection keeps:
+
+- **No repeated failed logins.** Each operation opens its own session, so a wrong password would
+  otherwise fail once per request and could lock the NAS account. The first `notAuthenticated`
+  enters needs sign-in, which refuses every request for that server without I/O until a new
+  password is saved. Only `STATUS_LOGON_FAILURE`, `STATUS_PASSWORD_EXPIRED` and
+  `STATUS_PASSWORD_MUST_CHANGE` do this, because a new password fixes them. libsmb2 reports a
+  logon failure as `-ECONNREFUSED`, so classification reads `smb2_get_nterror()`. A locked or
+  disabled account is `noPermission` and also stops retries until the user acts.
+- **The password stays out of everything else.** It never reaches `Settings.json`, logs, process
+  arguments, URLs or XPC, and the extension never reads it. It goes from the Keychain bytes to C
+  without a Swift `String` and is read again for each connection; the vendored
+  `smb2_clear_password()` zeroes libsmb2's copies right after connect. Logs name servers and
+  shares by record ID only.
+- **The Keychain item** is a `kSecClassGenericPassword` item in the login (file-based) keychain:
+  service `dev.tinymounter.<protocol>`, account `<account>@<host>` with the host in lowercase,
+  not synchronizable, with no new entitlement. The data protection keychain needs a provisioning
+  profile, which the Personal Team build lacks, so the login keychain stays until a paid
+  membership provides one. A generic-password item never matches Finder's internet-password item
+  for the same server, so a read never returns Finder's password and Forget never deletes it.
+- **SMB 3 only**, with signing and encryption required and no guest session: the vendored libsmb2
+  refuses every guest session and treats an `ntlm:<hex>` password as an ordinary password
+  ([Vendor/libsmb2](../Vendor/libsmb2/README.md)).
+
 ### Selection rule
 
 Keep the native bridge if it meets the throughput gate and works cleanly under the shipping permissions/lifecycle model. Prefer direct SMB if it is comparably fast and materially simpler to deploy/recover. If direct SMB is slow while native-backed File Provider is fast, optimize or replace the SMB transport. If both provider paths are slow but their staging controls are fast, investigate provider scheduling and materialization. Do not switch frameworks solely because one first implementation is slow.
@@ -170,7 +265,11 @@ A kept-downloaded file stays readable while the NAS is unreachable, with the app
 
 Use `NSFileProviderContentPolicy.downloadEagerlyAndKeepDownloaded` for pins. On macOS 27, combine it with `NSFileProviderNamespacePolicy.materializeEagerly` for pinned folders so unvisited subfolders also enumerate. Track pin intent separately from observed hydration status. Earlier-OS support, if later added, needs a deliberate bounded recursive enumeration strategy [A4].
 
-Folder pinning has a byte/item budget, free-space reserve, progress, and cancellation. M16 implements a shared 2 GiB local reserve with conservative staging/handoff reservations and retry after space returns. The reserve is an admission policy; other processes can still consume local space. Configurable folder budgets remain planned. Never label a budget-limited or failed tree fully available offline. Retain complete already-downloaded files during a network outage. A sparse file's apparent logical size does not prove offline availability. Remote changes and partial materialization need version-aware invalidation, not unconditional removal of every local copy on reconnect.
+Folder pinning has a byte/item budget, free-space reserve, progress, and cancellation. M16 implements a shared 2 GiB local reserve with conservative staging/handoff reservations and retry after space returns. The reserve is an admission policy; other processes can still consume local space.
+
+**Download space.** One app-owned budget covers concurrent requests across locations. Admission needs room for twice the requested payload plus 64 KiB of metadata, for staging and the provider handoff, counting range payload bytes rather than a sparse file's logical end. Reservations last until release, and written staging bytes reduce them. The app checks capacity again every 16 MiB, reading fresh available capacity without assuming that macOS will purge other data. Missing capacity fails the download, and a disk-full error crosses XPC as Cocoa's `fileWriteOutOfSpace`, never as a remote or connection failure. While the app runs, it checks blocked kept files every 30 s and requests their download through File Provider's public API once their payload fits with another 64 MiB of headroom; `signalErrorResolved` does not cover local disk-full errors. A paused, disconnected, disabled or removing location is not retried. Blocked requests are saved in `BlockedDownloads.json` in the App Group, with opaque IDs, versions and ranges only, and each retry checks the current keep intent and source version.
+
+**Folder keeps.** The catalog stores each explicit request separately from effective retention. A parent listing that reports a changed child folder makes that child's earlier complete listing incomplete; its next connected enumeration serves cached pages and lists it in the background. Folder status stays unconfirmed until a complete listing is observed. Configurable folder budgets remain planned. Never label a budget-limited or failed tree fully available offline. Retain complete already-downloaded files during a network outage. A sparse file's apparent logical size does not prove offline availability. Remote changes and partial materialization need version-aware invalidation, not unconditional removal of every local copy on reconnect.
 
 The OS owns the main content cache. TinyMounter owns temporary transfer files and their crash cleanup, metadata, and pin policy. Cache limits are best-effort controls over evictable content, not a promise of an exact private cache size. Never edit the OS's internal File Provider database or cache directories directly.
 
@@ -212,6 +311,151 @@ A save writes directly through an SMB handle, sets the final length, flushes and
 The File Provider callback completes only after that succeeds; macOS retains failed uploads.
 Previous-version recovery belongs to NAS snapshots/backups. There is no remote
 stage/backup/work transaction, persistent edit base or read proof.
+
+### Catalog
+
+Each File Provider domain has one SQLite catalog, `Catalogs/<domain ID>.sqlite` in the App
+Group. The app creates it before `NSFileProviderManager.add`, and creation fails if the file
+exists; the app deletes it after the domain is removed. The app is the only writer, keep requests
+included, so no process waits for another's write lock. The extension opens the catalog with
+`SQLITE_OPEN_READONLY`, and neither open ever creates one. Both opens check the `meta` row, the
+epoch, the domain, the counters and a live root folder with no parent. Any failure is "catalog
+unavailable", so damage never crashes the writer or expires every anchor. The catalog uses WAL;
+the writer adds `synchronous=FULL` and `fullfsync=ON`, because delivered anchors must survive
+power loss and a plain `fsync` does not flush the drive's cache. Writes use `BEGIN IMMEDIATE` and
+never hold share I/O inside. The schema is in [`Catalog.swift`](../Sources/TransferCore/Catalog.swift).
+It has no schema version and no migration: a catalog with an earlier schema fails to open.
+
+**Item IDs.** A `UUID().uuidString` is assigned the first time a complete listing shows a live
+`(parent_id, name_key)` that has no row. IDs hold no names, because they can appear in system
+logs. The same parent, name key and kind keep the ID across relistings, restarts and
+reconnects. A case-only rename keeps the ID and stores the new exact name. A kind change
+tombstones the old row and inserts a new ID, because File Provider does not support type
+changes. Any other external change, including a NAS rename or move, is delete plus create; the
+SMB file ID is stored only as evidence. TinyMounter's own renames and moves keep the ID (§8).
+Two locations on the same folder have separate catalogs and separate IDs.
+
+**Name collisions.** A case-sensitive NAS can hold names with the same name key. The existing
+name wins: a live row pairs with the listed name whose exact bytes equal its stored name. Only if
+no listed name has those bytes is it a case-only or normalization-only rename, and the first name
+in byte order wins once the stored name is confirmed absent. A key with no live row takes the
+first name in byte order. The other names are skipped and counted, and a row is never tombstoned
+as missing while any name with its key is listed.
+
+**Versions and cursors.** A file's `contentVersion` is `f1:<size>:<mtime_ns>:<ctime_ns>`; folders
+use `d1`. The device and inode stay out, because they change with each connection and every copy
+would download again. `metadataVersion` is the row's `change_seq`. No cursor holds a name:
+
+| Cursor | Bytes | Content |
+| --- | --- | --- |
+| Sync anchor | 25 | `0x01`, epoch (16), `change_seq` (Int64, big-endian) |
+| Folder page | 9 | `0x02`, last row (Int64); the next page reads that row's immutable `enumeration_key` |
+| Working-set page | 9 | `0x03`, last row (Int64) |
+
+Folder pages use keyset paging in name order. The immutable enumeration key keeps a cursor valid
+across reconciles and renames. `OFFSET` paging with `pageExpired` was rejected: that error makes
+the system synchronize again from scratch.
+
+**Writers.** Rows are never removed: a tombstone sets `deleted`, from a complete listing or a
+settled TinyMounter operation. Every visible change takes
+`last_seq + 1`, so a change batch can never end inside a group of equal sequences. Tombstones stay
+for the catalog's life, which is the domain's life.
+
+### Enumeration
+
+`enumerator(for:)` does one primary-key lookup and no share I/O:
+
+| Identifier | Result |
+| --- | --- |
+| `.workingSet` | working-set enumerator |
+| `.trashContainer` | an empty enumerator |
+| root, or a live folder | folder enumerator |
+| a live file | item enumerator: that one item, because the system enumerates single documents |
+| a tombstone | throws `noSuchItem` |
+| an unknown ID | an enumerator whose calls fail with `CocoaError(.fileReadUnknown)` (transient) |
+| catalog unavailable | throws `serverUnreachable` |
+
+**First page of a folder.** A folder listed before comes from the catalog at once; if its listing
+is older than 60 s, the extension also asks the app to list it, and differences arrive through the
+working set. For a folder never listed, the extension asks the app to list it and waits at most
+5 s. At the deadline it finishes with `serverUnreachable`; the app finishes the listing, and the
+extension calls `signalErrorResolved` when the late reply succeeds. A reply carries the folder's
+listing generation, and the extension serves the page only if its own connection sees at least
+that value. With no reader, a never-listed folder fails with `serverUnreachable` at once.
+
+**Pages and changes.** Pages hold `suggestedPageSize` rows, or 200, at most 1,000; later pages
+never call the app. A malformed token, or one whose row is not a child of the folder, gives
+`pageExpired`. `enumerateChanges(from:)` reads rows with `change_seq` above the anchor in one read
+transaction: live rows go to `didUpdate`, tombstones to `didDeleteItems`, and each tombstoned
+descendant has its own row. A full batch finishes at its last sequence with `moreComing`;
+otherwise the batch finishes at `last_seq`, so an up-to-date client gets its own anchor back. An
+anchor expires only if it is malformed, has another epoch or is above `last_seq`.
+
+### Listing and reconciliation
+
+A listing reads a folder over SMB and commits whole, in one transaction after it completes;
+streamed batches would let the system see children of a folder whose listing is not complete.
+
+1. The app lists every entry of the folder. If the folder's identity or times change during the
+   listing, it starts again, at most three times; then the listing is incomplete. More than
+   100,000 entries fail the listing. Nothing is written for a failed listing.
+2. Entries that are not regular files or folders (reparse points, such as symbolic links, and
+   devices), invalid names and name-key collisions are skipped and counted. An entry whose
+   attributes can't be read leaves its row as it was: its name proves that it exists, so it does
+   not fail the listing.
+3. For each live child that the listing lacks, the app lists the folder again. Only a second
+   listing without it confirms the absence; a name that is still there gives `listingIncomplete`,
+   and the folder is listed again later.
+4. `Catalog.reconcile` inserts new entries, updates changed ones with a new sequence, and
+   tombstones each confirmed-missing child with its live descendants.
+5. Before the commit, the app refuses a plan that removes every child of a folder that had
+   children, or removes a kept file (a kind change and a kept file below a removed folder count
+   too). A listing that starts at least 15 s later applies what it finds. There is no holding
+   area: that listing deletes a kept file's local copy.
+
+**Doubt never deletes.** Tombstones come only from a complete listing in which the server
+confirmed each missing name gone. Timeouts, permission errors, a lost connection, a stopped app,
+a rejected path, a name that is still there and per-entry errors all end before `reconcile`, or
+leave rows as they were. Only a tombstone gives `noSuchItem`, because that error makes the system
+delete local copies.
+
+### Change watching
+
+`SMBWatch` keeps one `CHANGE_NOTIFY` connection and thread per share, signed in as every session
+is. It holds one watch without `WATCH_TREE` per folder, because a tree watch misses content writes
+below the watched folder. The filter is `0xF5F` and the buffer 64 KiB. libsmb2's request timeout
+is cleared on notify requests, which stay pending until a change, and each completion re-arms its
+watch. An asynchronous echo every 60 s keeps the connection checked; libsmb2's synchronous
+`smb2_echo()` is broken. Closing a handle stops its watch.
+
+`STATUS_NOTIFY_ENUM_DIR` relists that folder. Any other completion that the app did not cause
+reconnects with backoff from 5 s to 60 s and relists every watched folder. Notices name the
+watched path, which the app maps back to catalog IDs. Before a folder move or deletion, the app
+reserves the paths and closes every watch at or below them; the watcher waits up to 10 s for the
+server to close those handles, and otherwise ends its connection. Notices and the app's own
+changes coalesce, with at least 2 s between listings of one folder.
+
+### Provider errors
+
+`SourceFailure` classifies share I/O failures, and only domain and code cross XPC. The extension
+maps catalog and SQLite errors itself, into `NSCocoaErrorDomain` or `NSFileProviderErrorDomain`
+only.
+
+| Condition | Extension returns | Location status |
+| --- | --- | --- |
+| Reader not connected (app quit or starting) | listed folders from the catalog; fetches wait only within the first 5 s of the reader service, then `serverUnreachable` | — |
+| No network path, a stalled or timed-out request, or an unresponsive share | `serverUnreachable`, at once while unresponsive | "TinyMounter cannot connect to <host>. Make sure that <host> is on. Make sure that this Mac is on the same network." |
+| The server refuses the saved password | `notAuthenticated`, with no I/O until a new password | "Sign in again." |
+| No permission on an item, or a path rejected by containment | `fileReadNoPermission` | — |
+| A missing item, or one that is no longer a regular file | `fileReadNoSuchFile` (transient), and a relist of the parent | — |
+| Location folder not on the share | `fileReadNoSuchFile`; the root is never tombstoned | "This folder is not on the share." |
+| Version changed | `versionNoLongerAvailable` | — |
+| Tombstone | `noSuchItem`, the only case | — |
+| Unknown ID, a folder over 100,000 entries, an incomplete listing | `CocoaError(.fileReadUnknown)` (transient); nothing written | — |
+| Catalog missing, unreadable, damaged, or of another schema or domain | `serverUnreachable`; never created again | "TinyMounter cannot read the data for this location. Remove the location. Then add it again." |
+| Malformed page token or anchor | `pageExpired` or `syncAnchorExpired` | — |
+| Local disk full | `fileWriteOutOfSpace` | "Not sufficient space" for an affected keep request |
+| Domain turned off by the user | the system returns `domainDisabled` | "File Provider is off." |
 
 ## 8. Writes and offline editing, later
 
@@ -260,6 +504,18 @@ within the same set of overlapping registered roots, and every affected catalog 
 available. Cross-filesystem errors and incompatible open handles fail clearly. There is no
 copy/delete fallback, permission rewrite or automatic movement of configured roots.
 
+A rename or move holds the ancestor folders of both paths and a source handle that prevents
+competing writes, deletion and renaming. It durably records the item, both parents, the exact
+names and the server identities before one handle-based SMB rename with replacement disabled. A
+destination collision is refused, never replaced or renamed automatically. Success needs the
+destination's exact name, the original identity and matching metadata; the catalog then keeps the
+item ID, enumeration key and content version. An explicit Keep Downloaded request follows the
+item; inherited retention follows the destination folder. After a lost reply or a crash, the app
+checks both paths again: it completes only when the destination holds the recorded object, and
+retries only when the source still holds it and the destination is free. It never renames a
+competing object back, infers success from a missing old name or searches the share. Otherwise
+the operation stays pending and visible in Settings.
+
 **Deletion.** Deletion is permanent: there is no TinyMounter Trash and no hidden retention copy,
 and the app does not advertise Move to Trash or Put Back. Deleting a file removes its contents
 and attached data, including attached data that another device adds while the deletion runs;
@@ -297,7 +553,8 @@ mounts visibly during Add and reconnects on app launch, wake and network return.
 uses the existing app setting; pre-login mounting is future scope. Native volumes have separate
 saved records and create no provider domains or catalogs.
 
-Remount attempts back off after network failures. Authentication failures stop until the user
+Remount attempts back off after network failures, from 10 s, doubling, to at most 5 min, one
+attempt at a time. Authentication failures stop until the user
 types a new password; other failures stop until conditions change or the user connects again. An
 intentional eject holds reconnect during the current app session. A safe unmount must succeed
 before removal forgets the record; no force option is used. Credentials are the app's own Keychain

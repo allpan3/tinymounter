@@ -21,6 +21,14 @@ only in a location, and Servers only lists them (section 4.3). The
 Server… address dialog with a sign-in sheet and the Folder Select… panel with a folder browser
 ([section 11](#11-sign-in-and-folder-browser-020)). The original mockup below is historical.
 
+The current build leaves out the Locations folder and Open Locations Folder (Finder's sidebar
+already shows each location), the "Keep this much disk space free" control and Export
+Diagnostics; About shows diagnostic counts with Copy. Its menu bar item is a menu-style
+`MenuBarExtra`, which shows only menu items, so a location shows "42% downloaded" instead of a
+progress bar. All UI text is in `Prototype/App/UIText.swift`, so the STE checker reads one file.
+Folder completion lists the typed parent folder 150 ms after the last keystroke and suggests at
+most 50 subfolders.
+
 ## 1. Principles
 
 - **Finder is the main interface.** Users browse, open, download and keep files offline in Finder

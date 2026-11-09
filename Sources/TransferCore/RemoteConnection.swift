@@ -1,6 +1,6 @@
 import Foundation
 
-// The 0.2.0 connection layer (docs/connection-layer-plan.md). Declarations only.
+// The connection layer (docs/architecture.md §5, "Sign-in and connection"). Declarations only.
 
 /// The file-sharing protocol of a saved server. SMB is the only implementation.
 public enum RemoteProtocol: String, Codable, CaseIterable, Sendable {

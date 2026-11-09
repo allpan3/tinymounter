@@ -1,5 +1,5 @@
 // Spike probe for the 0.2.0 password login: libsmb2 NTLMSSP with an explicit password.
-// See docs/connection-layer-plan.md, "Spike answers". Not part of the product build.
+// See docs/prototype.md, "SMB sign-in, Keychain and CHANGE_NOTIFY". Not part of the product build.
 #define __STDC_WANT_LIB_EXT1__ 1
 #include "probe-password-login.h"
 #include <errno.h>

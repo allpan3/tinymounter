@@ -1,5 +1,5 @@
 // Spike probe for the 0.2.0 password login, run as a signed sandboxed app in the VM.
-// See docs/connection-layer-plan.md, "Spike answers". Not part of the product build.
+// See docs/prototype.md, "SMB sign-in, Keychain and CHANGE_NOTIFY". Not part of the product build.
 // Usage: probe <command> <server> <account> [share] [--file] [--inet] [--group <access group>]
 import Foundation
 import Security

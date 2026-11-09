@@ -156,8 +156,15 @@ asks for the new version. A missing file fails with the transient `fileReadNoSuc
 app lists its parent again.
 
 **Finder actions (M3, M6).** The extension declares Keep Downloaded and Allow Removal under
-`NSExtension` › `NSExtensionFileProviderActions`, with the identifiers and rules of
-[phase 2 §8](phase2-plan.md#8-ui). Each file publishes `userInfo["keep"]` from its catalog row.
+`NSExtension` › `NSExtensionFileProviderActions`:
+
+| Identifier | Name | Activation rule |
+| --- | --- | --- |
+| `dev.tinymounter.action.keep-downloaded` | Keep Downloaded | `SUBQUERY(fileproviderItems, $i, $i.userInfo.keep == 0).@count > 0 AND SUBQUERY(fileproviderItems, $i, $i.userInfo.keep == nil).@count == 0` |
+| `dev.tinymounter.action.allow-removal` | Allow Removal | the same, with `keepRequested == 1` |
+
+Each file and folder publishes the effective `userInfo["keep"]` and the explicit
+`userInfo["keepRequested"]` from its catalog row; inherited retention has no Allow Removal.
 Finder shows the matching custom action near the bottom of its context menu after the item is
 republished. Finder's own Keep Downloaded was absent;
 Download Now and Remove Download remain. `performAction` sends the file IDs to the app, at most
@@ -437,3 +444,53 @@ POSIX permissions, read-only parent folders and both provider/app mutation guard
 tested macOS build, omitting that capability makes exported copies immutable and breaks
 Finder Keep Both. With the capability, Keep Both completes, and a TextEdit save back to the
 read-only location is refused. Rename capability remains absent.
+
+## Platform findings
+
+The design relies on these findings from macOS 27 in the VM. The File Provider findings come
+from the signed, sandboxed app.
+
+### File Provider and Finder
+
+- The extension's read-only WAL connection sees the app's commits while Finder pages another
+  folder. It opens the catalog after a clean app quit and after an extension kill.
+- Read-only `fileSystemFlags` on folders do not disturb materialization.
+- Finder does not retry a failed folder after the app relaunches and signals `serverUnreachable`
+  resolved. It shows "Your device couldn't connect to the server" with Try Again until the user
+  clicks it.
+- Domain removal with `.preserveDownloadedUserData` moves fully downloaded files, not partly
+  downloaded ones, into a dated, read-only (`uchg`) folder next to the location in CloudStorage.
+  TinyMounter therefore removes domains with `.preserveDirtyUserData`, which keeps only changes
+  that did not upload.
+- A Name change, as a root update in the working set plus `add` with the new `displayName`,
+  renames the CloudStorage folder at once. macOS drops spaces from the folder name.
+- A Dock click does not open a closed `Window` scene by itself, so the app opens it in
+  `applicationShouldHandleReopen`.
+- The materialized set holds complete downloads only. `NSFileProviderMaterializedSetDidChange`
+  reaches the app for an eviction from outside it. Evicting an open file fails with EBUSY.
+- Eager Keep Downloaded fetches are system requests (`request.isSystemRequest`); Finder's
+  Download Now and a file that an app opens are not. Pause Downloads relies on this.
+
+Not established: whether the system calls `enumerateChanges` on folder or item enumerators in a
+replicated domain (both implement it); whether macOS also removes partly downloaded files under
+disk pressure; whether server file IDs survive a server restart, a rename or a replacement; and
+whether two domains on the same folder, or on nested folders, never affect each other.
+
+### SMB sign-in, Keychain and CHANGE_NOTIFY
+
+These findings come from the login probes (`Tools/probe-password-login.c`,
+`Tools/probe-keychain-login.swift`) and the `CHANGE_NOTIFY` probe (`Tools/check-smb-notify.c`)
+against the VM's Samba fixture.
+
+- **Login.** libsmb2's own NTLMSSP signs in with the password and seals SMB 3.1.1 with no mount
+  and no GSS credential cache. A wrong password gives `STATUS_LOGON_FAILURE`; a locked account
+  gives `STATUS_ACCOUNT_LOCKED_OUT`.
+- **Keychain.** The data protection keychain needs a provisioning profile, which the Personal
+  Team build lacks. A generic-password item in the login keychain works from the sandboxed app
+  with no new entitlement. A build signed by another certificate makes macOS ask once for the
+  login keychain password.
+- **Change notification.** A tree watch misses content writes below the watched folder, so the
+  app holds one non-tree watch per folder. A pending notify does not block other requests on its
+  connection. 64 and 1,024 watches on one connection worked; 4,000 exhausted the fixture's notify
+  process. `STATUS_NOTIFY_ENUM_DIR` means "list this folder again". libsmb2's request timeout must
+  be cleared on notify requests, and its synchronous `smb2_echo()` is broken.
