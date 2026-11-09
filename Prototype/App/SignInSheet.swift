@@ -21,7 +21,7 @@ struct SignInRequest: Identifiable {
 /// `SourceFailure.notAuthenticated`. The bytes are UTF-8.
 typealias ShareLister = @Sendable (ServerAccount, Data) async throws -> [String]
 
-/// Connection-layer plan, UI changes: Server, Name, Password, Cancel and Sign In.
+/// docs/ui-design.md §11: Server, Name, Password, Cancel and Sign In.
 struct SignInSheet: View {
     let request: SignInRequest
     /// Nil when the sign-in is saved, else the text to show in the sheet.

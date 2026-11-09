@@ -6,7 +6,8 @@ enum LocationError: Error {
     case catalogClosed
 }
 
-/// One per added location: its writer catalog, listings and reads on the share (plan §5, §6).
+/// One per added location: its writer catalog, listings and reads on the share
+/// (docs/architecture.md §7).
 final class LocationSource: @unchecked Sendable {
     typealias Reply = @Sendable (Result<ListReceipt, Error>) -> Void
     typealias RenameReply = @Sendable (Result<CreateReceipt, Error>) -> Void
@@ -50,11 +51,11 @@ final class LocationSource: @unchecked Sendable {
     private let lock = NSLock()
     /// Folders with a listing queued or running, and the replies that wait for it.
     private var waiting: [String: [Reply]] = [:]
-    /// D5: when a listing first held each folder's plan.
+    /// When a listing first held each folder's plan, for the 15 s confirmation.
     private var heldSince: [String: ContinuousClock.Instant] = [:]
     private var confirmations: Set<String> = []
     private var signalScheduled = false
-    /// The last root listing found no location folder (plan §7, "This folder is not on the share").
+    /// The last root listing found no location folder ("This folder is not on the share").
     private var rootMissing = false
     private var changeHandler: (@Sendable () -> Void)?
     private static let listingLog = Logger(subsystem: "dev.tinymounter.prototype", category: "listing")
@@ -247,7 +248,7 @@ final class LocationSource: @unchecked Sendable {
                               fileSize: row.size)
     }
 
-    /// Plan §6 step 4: the version, the share state, the catalog path, the file, its fingerprint.
+    /// A fetch checks the version, the share state, the catalog path, the file, its fingerprint.
     func transfer(_ request: SourceReadRequest, progress: Progress, stagingDirectory: URL,
                   checkSpace: ((Int64) throws -> Void)? = nil) throws -> TransferOutput {
         try directTransfer(request, progress: progress, stagingDirectory: stagingDirectory, checkSpace: checkSpace)
@@ -357,7 +358,7 @@ final class LocationSource: @unchecked Sendable {
         for reply in replies { reply(result) }
     }
 
-    /// D5: a listing that starts 15 s after the hold applies what it finds.
+    /// A listing that starts 15 s after the hold applies what it finds.
     private func scheduleConfirmation(_ folderID: String) {
         let delay = DispatchTimeInterval.seconds(Int(Catalog.confirmationDelay.components.seconds))
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay) { [weak self] in

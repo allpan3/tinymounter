@@ -145,16 +145,16 @@ periods:
 
 ## 10. What phase 2 implements
 
-The [phase 2 plan](phase2-plan.md) builds a read-only subset of this model in M4 and M5.
+Phase 2 built a read-only subset of this model in M4 and M5.
 Phase 3 extends that subset with verified offline status, folder keeps and change discovery.
 
 - **Tracked per item:** section 3's fields, in one SQLite catalog per File Provider location. The
-  content version is size, mtime and ctime (D1); since 0.2.0 each transfer also checks the SMB
+  content version is size, mtime and ctime; since 0.2.0 each transfer also checks the SMB
   file ID before it reads.
 - **Rules 1 and 3:** only the app writes the catalog, only from a complete listing of the share,
   and only after the server confirmed each missing name gone. Timeouts, permission errors, a
   lost connection and a stopped app change nothing. A listing that would leave a folder with
-  children empty, or remove a kept file, waits for a complete listing at least 15 s later (D5).
+  children empty, or remove a kept file, waits for a complete listing at least 15 s later.
   A listing with any name in it is not held for an empty folder, so renaming a folder's only
   child shows at once. There is no holding area: that listing deletes a kept file's local copy.
 - **Rule 2, for fetches:** each fetch compares the file's fingerprint with the catalog row before
@@ -163,15 +163,15 @@ Phase 3 extends that subset with verified offline status, folder keeps and chang
 - **Triggers built:** revalidation on access, and reconciliation at app launch and after each
   share recovery. A folder is listed when the system enumerates it: before the first page if it
   was never listed, in the background if its last listing is over 60 s old. Launch and recovery
-  list the materialized folders only, one at a time (D6). Each fetch checks the fingerprint.
+  list the materialized folders only, one at a time. Each fetch checks the fingerprint.
 - **Phase 3 additions:** M13 verifies local availability after provider synchronization; M14
   adds recursive folder requests and aggregate status. M15 adds native SMB directory watches
   through public Dispatch sources, periodic reconciliation and wake refresh. It covers listed
   materialized and kept folders and parents of kept files. Since 0.2.0 the watches are SMB2
   `CHANGE_NOTIFY` requests on one connection per share, with no mount. Watches are bounded to 64 per session;
   scheduled listings run one at a time, due 60 s after success, with failure backoff. These are
-  scheduling policies, not the latency targets proposed in section 4. See the
-  [M15 plan](phase3-plan.md#m15-discover-nas-changes-while-the-app-runs).
+  scheduling policies, not the latency targets proposed in section 4. See
+  [architecture §7](architecture.md#change-watching).
 - **Writes:** M18 adds new files/folders and receipt-backed initial folder naming. Existing-file
   saves now use ordinary overwrites with File Provider retaining pending contents, as described
   in section 6. Each content upload then sets the server's modification time to the local save

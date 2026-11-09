@@ -4,7 +4,7 @@ Decision status: accepted and implemented. Read-performance targets remain unmet
 
 TinyMounter follows ordinary SMB file-operation semantics. This replaces the earlier custom
 recovery requirement. NAS snapshots and backups own previous-version recovery. This decision supersedes the stronger save,
-conflict-preservation and replacement guarantees in the earlier milestone plans.
+conflict-preservation and replacement guarantees of the earlier designs, which Git history keeps.
 
 ## Contract
 

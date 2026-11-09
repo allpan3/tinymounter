@@ -43,7 +43,7 @@ public struct ListRequest: Codable, Equatable, Sendable {
 }
 
 public struct ListReceipt: Codable, Equatable, Sendable {
-    /// The folder row's `list_gen` after the listing; unchanged if the app held the plan (D5).
+    /// The folder row's `list_gen` after the listing; unchanged if the app held the plan.
     public let generation: Int64
     /// The folder's live children after the listing.
     public let entries: Int
@@ -101,7 +101,7 @@ public struct SourceReadRequest: Codable, Equatable, Sendable {
     }
 }
 
-/// A worker began the fetch's transfer in the app, so the extension's `StallDeadline` starts (D2).
+/// A worker began the fetch's transfer in the app, so the extension's `StallDeadline` starts.
 public struct SourceReadStarted: Codable, Equatable, Sendable {
     public let id: UUID
 

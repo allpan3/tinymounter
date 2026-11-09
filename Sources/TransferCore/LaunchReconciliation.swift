@@ -1,6 +1,6 @@
 import Foundation
 
-/// Finishes the domain steps that a crash interrupted (plan §7). The app runs the steps.
+/// Finishes the domain steps that a crash interrupted. The app runs the steps.
 public enum LaunchReconciliation {
     public enum Step: Equatable, Sendable {
         /// Only for a registered domain; the app removes it with `.removeAll`.

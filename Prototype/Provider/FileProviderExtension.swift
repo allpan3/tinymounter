@@ -294,7 +294,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         }
     }
 
-    /// Plan §7: only files from an earlier process, so none of this process's handoffs.
+    /// Only files from an earlier process, so none of this process's handoffs.
     private func removeLeftoverStageFiles(createdBefore cutoff: Date) {
         do {
             guard let manager = NSFileProviderManager(for: domain) else { throw CocoaError(.fileReadUnknown) }
@@ -309,7 +309,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         }
     }
 
-    /// Plan §6: the app set `paused` before it sent this, so fetches that start later stop too.
+    /// The app set `paused` before it sent this, so fetches that start later stop too.
     private func cancelBackgroundFetches(reason: String) {
         let cancels = lock.withLock { background.compactMap { active[$0] } }
         cancels.forEach { $0.cancel() }
@@ -321,7 +321,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         cancelBackgroundFetches(reason: "reader_connected_paused")
     }
 
-    /// Keep Downloaded and Allow Removal record a request through the app (plan §8).
+    /// Keep Downloaded and Allow Removal record a request through the app.
     func performAction(identifier actionIdentifier: NSFileProviderExtensionActionIdentifier,
                        onItemsWithIdentifiers itemIdentifiers: [NSFileProviderItemIdentifier],
                        completionHandler: @escaping (Error?) -> Void) -> Progress {

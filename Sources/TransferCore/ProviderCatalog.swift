@@ -1,6 +1,6 @@
 import Foundation
 
-/// One page of an enumeration and the token of the next (plan §5); `next` nil ends it.
+/// One page of an enumeration and the token of the next; `next` nil ends it.
 public struct CatalogPage: Sendable {
     public static let defaultSize = 200
     public static let maxSize = 1000
@@ -17,7 +17,7 @@ public struct CatalogPage: Sendable {
     }
 }
 
-/// A reimport `createItem` with `.mayAlreadyExist` (plan §7).
+/// A reimport `createItem` with `.mayAlreadyExist`.
 public enum ReimportDecision: Sendable {
     /// The disk item is this live row's copy; `fetchContent` when its data may be another version.
     case existing(CatalogRow, fetchContent: Bool)

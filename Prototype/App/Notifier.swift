@@ -2,7 +2,7 @@ import Foundation
 import OSLog
 import UserNotifications
 
-/// Plan §7 notifications: one per share per outage, never at launch and never with a file name.
+/// Notifications: one per share per outage, never at launch and never with a file name.
 @MainActor
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     static let enabledKey = "notifications"

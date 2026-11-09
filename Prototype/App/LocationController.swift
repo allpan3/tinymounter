@@ -5,7 +5,7 @@ import Foundation
 import OSLog
 import UniformTypeIdentifiers
 
-/// Domain steps, launch reconciliation, recovery signals and relisting (plan §3 and §7).
+/// Domain steps, launch reconciliation, recovery signals and relisting (docs/architecture.md §3).
 @MainActor
 final class LocationController {
     enum Problem: Equatable {
@@ -26,7 +26,7 @@ final class LocationController {
     private(set) var problem: Problem?
     /// Until launch reconciliation ends, a new catalog could look like one without a record.
     private(set) var isReady = false
-    /// Pause Downloads, for every location. Each launch starts with it off (plan §7).
+    /// Pause Downloads, for every location. Each launch starts with it off.
     private(set) var paused = false
     /// The latest Pause Downloads change.
     private var pauseChange: Task<Bool, Never>?
@@ -163,10 +163,10 @@ final class LocationController {
     /// Servers that refused the saved password, or have none, for a location or a Server Volume.
     var refusedServers: Set<UUID> { Set(signIns.filter { $0.value.isRefused }.keys) }
 
-    /// Nil for a record without an open catalog: "catalog unavailable" (plan §7).
+    /// Nil for a record without an open catalog: "catalog unavailable" (docs/architecture.md §7).
     func isRootMissing(_ record: LocationRecord) -> Bool? { sources[record.domainID]?.isRootMissing }
 
-    /// Plan §7 app launch: the staging sweep before any reader connects, then the domain steps.
+    /// App launch: the staging sweep before any reader connects, then the domain steps.
     func launch() async {
         do { spaceBlocked = try DownloadRecovery.load(from: SharedContainer.url().appending(path: DownloadRecovery.fileName)) }
         catch { Self.readerLog.error("space_state_load \(logFields(error), privacy: .public)") }
@@ -344,8 +344,8 @@ final class LocationController {
         onChange?()
     }
 
-    /// Plan §7: create the catalog, list the root into it, save the record, then add the domain.
-    /// The record takes the saved Keep Downloaded paths inside its folder (plan §4). A copy goes
+    /// Create the catalog, list the root into it, save the record, then add the domain.
+    /// The record takes the saved Keep Downloaded paths inside its folder. A copy goes
     /// below its original (design §4.2).
     func add(id: UUID, name: String, folder: RelativePath, shareID: UUID,
              after original: UUID? = nil, readOnly: Bool) async throws -> LocationRecord {
@@ -519,7 +519,7 @@ final class LocationController {
         return try await Self.offMain { try source.pendingUploads() }
     }
 
-    /// Plan §8 Name: a unique name in the record and the root row, then `add` again with the same ID.
+    /// Name: a unique name in the record and the root row, then `add` again with the same ID.
     func rename(_ recordID: UUID, to name: String) async throws -> String {
         guard isReady, let settings = store.settings,
               var record = settings.locations.first(where: { $0.id == recordID }), !record.removing else {
@@ -541,7 +541,7 @@ final class LocationController {
         return unique
     }
 
-    /// Plan §7 Apply: a new catalog with its root listed, the record with both domain IDs, the old
+    /// Apply: a new catalog with its root listed, the record with both domain IDs, the old
     /// domain removed, then the new one added. Kept paths inside the new source stay pending on the
     /// location; the others go to the old share's saved list.
     func apply(_ recordID: UUID, shareID: UUID, folder: RelativePath) async throws -> LocationRecord {
@@ -613,7 +613,7 @@ final class LocationController {
         try await Self.offMain { try LocationSource.removalItems(domainID: record.domainID) }
     }
 
-    /// Plan §7: save the kept paths if asked, mark the record, remove the domain, delete the
+    /// Save the kept paths if asked, mark the record, remove the domain, delete the
     /// catalog, delete the record. `stopping` is what the user confirmed would stop.
     func remove(_ recordID: UUID, saveKeeps: Bool, stopping: [String] = []) async throws {
         guard isReady, let settings = store.settings, let record = settings.locations.first(where: { $0.id == recordID }) else {
@@ -653,7 +653,7 @@ final class LocationController {
         onChange?()
     }
 
-    /// Plan §6: Keep Downloaded downloads and read-ahead stop; a file that the user opens downloads.
+    /// Pause: Keep Downloaded downloads and read-ahead stop; a file that the user opens downloads.
     /// Returns false if a catalog kept its earlier state.
     func setPaused(_ paused: Bool) async -> Bool {
         // Each change waits for the one before it, so the last request is the state that stays.
@@ -810,7 +810,7 @@ final class LocationController {
         onChange?()
     }
 
-    /// Plan §4: lists the parent folders of each pending path, as flow 1 does, and keeps the files
+    /// Lists the parent folders of each pending path, as flow 1 does, and keeps the files
     /// it finds. A path that a complete listing of its parent lacks is not on the server; one that
     /// can't be checked yet stays for the next recovery.
     func restorePendingKeeps(_ recordID: UUID) async {
@@ -935,7 +935,7 @@ final class LocationController {
             """)
     }
 
-    /// Plan §8 folder completion: lists the typed parent folder unless the last listing was of it.
+    /// Folder completion: lists the typed parent folder unless the last listing was of it.
     /// It never lists more than one folder at a time, and a cancelled request lists nothing.
     func folderSuggestions(shareID: UUID, typed: String) async -> [String] {
         guard let query = FolderCompletion(typed: typed), let connection = connection(for: shareID) else { return [] }
@@ -978,7 +978,7 @@ final class LocationController {
         completion = nil
     }
 
-    /// Plan §8 Storage: the catalog sizes of the materialized files; nil if they can't be read.
+    /// Storage: the catalog sizes of the materialized files; nil if they can't be read.
     func storage(_ record: LocationRecord) async -> StorageUsage? {
         guard let source = sources[record.domainID], let manager = manager(for: record) else { return nil }
         do {
@@ -990,7 +990,7 @@ final class LocationController {
         }
     }
 
-    /// Plan §8 Remove Downloads: evicts the materialized files that are not kept. A file that an app
+    /// Remove Downloads: evicts the materialized files that are not kept. A file that an app
     /// has open stays. Returns the files removed and the files that stayed; nil if none were read.
     func removeDownloads(_ record: LocationRecord) async -> (removed: Int, stayed: Int)? {
         guard let source = sources[record.domainID], let manager = manager(for: record) else { return nil }
@@ -1027,7 +1027,7 @@ final class LocationController {
         return (removed, stayed)
     }
 
-    /// Plan §7 diagnostics: counts only.
+    /// Diagnostics: counts only.
     func diagnostics() async -> Diagnostics {
         let sources = Array(sources.values)
         let shares = Array(connections.values)
@@ -1437,7 +1437,7 @@ final class LocationController {
         return volume
     }
 
-    /// Phase 3 plan §1: macOS mounts again only the share of a Server Volume.
+    /// macOS mounts again only the share of a Server Volume (docs/architecture.md §9).
     private func updateRemountWanted() {
         let wanted = Set(store.settings?.serverVolumes.map(\.shareID) ?? [])
         for (id, volume) in volumes { volume.setRemountWanted(wanted.contains(id)) }
@@ -1492,7 +1492,8 @@ final class LocationController {
         onChange?()
     }
 
-    /// Plan §3 flow 4: the system retries what failed, then flow 5 lists materialized folders again.
+    /// Recovery (docs/architecture.md §3, flow 4): the system retries what failed, then flow 5
+    /// lists materialized folders again.
     private func recovered(_ shareID: UUID, _ failures: [SourceFailure]) async {
         let affected = sources.values.filter { $0.connection.shareID == shareID }.map(\.domainID)
         Self.shareLog.info("""
@@ -1544,7 +1545,7 @@ final class LocationController {
         }
     }
 
-    /// D6: the system never enumerates a materialized folder again, so the app lists it again.
+    /// The system never enumerates a materialized folder again, so the app lists it again.
     private func relistMaterialized(_ source: LocationSource) async {
         guard let domain = domains[source.domainID], let manager = NSFileProviderManager(for: domain) else { return }
         let started = ContinuousClock.now

@@ -4,7 +4,7 @@ import Observation
 import OSLog
 import ServiceManagement
 
-/// The state of the Settings window and the menu bar item (plan §8).
+/// The state of the Settings window and the menu bar item (docs/ui-design.md).
 @MainActor
 @Observable
 final class AppModel {
@@ -356,7 +356,7 @@ final class AppModel {
 
     func hasEdit(_ id: UUID) -> Bool { edits[id] != nil }
 
-    /// Plan §8: the subfolders of the typed folder; the view calls it 150 ms after the last change.
+    /// The subfolders of the typed folder; the view calls it 150 ms after the last change.
     func suggestFolders(_ id: UUID) async {
         guard let shareID = shareID(id) else { return update(\.folderSuggestions, []) }
         let suggestions = await controller.folderSuggestions(shareID: shareID, typed: folderText(id))
@@ -874,7 +874,7 @@ final class AppModel {
         !(storage[recordID]?.removable.isEmpty ?? true) && !busy.contains(recordID)
     }
 
-    /// Plan §8: evicts the downloaded files that are not kept, after a confirmation.
+    /// Evicts the downloaded files that are not kept, after a confirmation.
     func confirmRemoveDownloads(_ recordID: UUID) {
         guard let record = record(recordID), canRemoveDownloads(recordID) else { return }
         Task {

@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-/// Phase 3 plan §2: how the app's last run ended, so that the extension restarts it after a crash.
+/// How the app's last run ended, so that the extension restarts it after a crash.
 public enum RunState: String, Sendable {
     case running, crashed, stopped
 

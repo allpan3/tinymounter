@@ -2,11 +2,9 @@
 
 Decision status: accepted for prototyping. The user evaluates it again on the prototype. Section
 10 lists the decisions that are still open. Sections 4 and 5 hold the user's decisions on
-Duplicate, overlapping locations, saved Keep Downloaded lists and Pause Downloads. Phase 2 builds the
-subset in [phase2-plan.md](phase2-plan.md#1-decisions); M7 built the Settings window, the menu
-bar item and notifications, and M8 the Storage pane and folder completion, with the changes that
-[phase 2 §8](phase2-plan.md#8-ui) records. Connecting in the app
-(M12, [phase 3 §4](phase3-plan.md#4-connect-in-the-app-m12)) changes Servers, section 4.3.
+Duplicate, overlapping locations, saved Keep Downloaded lists and Pause Downloads. Phase 2 built a
+subset: M7 built the Settings window, the menu bar item and notifications, and M8 the Storage
+pane and folder completion, with the changes listed below.
 M14 adds recursive folder requests and aggregate offline status.
 M16 adds Not sufficient space, a free-space instruction and automatic kept-download recovery.
 Interactive mockup: [ui-mockup.html](ui-mockup.html).
@@ -16,9 +14,8 @@ covers the whole share, uses its server permissions and has no Read only or Keep
 control. Remove the share's existing locations before switching modes, including locations
 saved under another account. Add connects automatically; saved native volumes also have
 Show in Finder, Connect/Disconnect and Remove controls. There is one add flow: shares are added
-only in a location, and Servers only lists them (section 4.3). The
-[connection-layer plan](connection-layer-plan.md#ui-changes) replaced the Add
-Server… address dialog with a sign-in sheet and the Folder Select… panel with a folder browser
+only in a location, and Servers only lists them (section 4.3). In 0.2.0 a sign-in sheet
+replaced the Add Server… address dialog, and a folder browser replaced the Folder Select… panel
 ([section 11](#11-sign-in-and-folder-browser-020)). The original mockup below is historical.
 
 The current build leaves out the Locations folder and Open Locations Folder (Finder's sidebar
@@ -324,7 +321,7 @@ share's permission, with the existing account and mount checks on every mutation
 
 ## 11. Sign-in and folder browser (0.2.0)
 
-Proposed with the [connection-layer plan](connection-layer-plan.md#ui-changes); built in 0.2.0.
+Built in 0.2.0.
 
 **Add Server…** in a location's Server menu opens a sheet: "Type the server address, your name
 and your password.", with Server (placeholder `smb://server`), Name, Password, Cancel and
@@ -345,10 +342,9 @@ Sign In asks the server to check the name and password before it saves anything:
 
 **Sign In Again…** opens the same sheet with Server and Name fixed: "Type your password for
 home-nas again." It shows on the server's row in Servers when no password is saved, and in a
-location's header with the status "Sign in again." when the server refuses the saved password
-(step 3).
+location's header with the status "Sign in again." when the server refuses the saved password.
 
-A server volume signs in with the same saved password (plan Decision 1). When the server
+A server volume signs in with the same saved password. When the server
 refuses it, the volume shows "Not mounted" with Sign In Again… in place of Connect, and every
 location of that server shows Sign in again. Connect or Show in Finder then shows "home-nas did
 not accept the saved password. If the password has expired, change it on the server. Then click
@@ -375,6 +371,4 @@ name, and the folders of one folder at a time, in Finder's order. As in Finder, 
 names start with "." don't show; the Folder field still takes them. Double-click opens a folder.
 Choose sets Folder to the selected folder, or to the folder that the list shows when none is
 selected; Cancel changes nothing. An empty folder shows "No folders"; a failed listing shows
-"TinyMounter cannot show the folders. Make sure that the share is connected." Until step 3
-connects it to the share connection, the browser lists through folder completion, which
-returns at most 50 folders and shows a failed listing as "No folders".
+"TinyMounter cannot show the folders. Make sure that the share is connected."

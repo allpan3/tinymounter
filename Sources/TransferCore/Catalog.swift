@@ -395,7 +395,7 @@ public final class Catalog {
         try items("SELECT \(CatalogRow.columns) FROM items WHERE keep = 1 AND deleted = 0 ORDER BY row")
     }
 
-    /// The space of the files among these materialized item IDs, from their rows (plan §8).
+    /// The space of the files among these materialized item IDs, from their rows.
     public func storage(materialized ids: [String]) throws -> StorageUsage {
         let list = String(decoding: try JSONEncoder().encode(ids), as: UTF8.self)
         return StorageUsage(try items("""
