@@ -421,14 +421,18 @@ enum UIText {
     static let signInTitle = "Type the server address, your name and your password."
     static func signInAgainTitle(_ host: String) -> String { "Type your password for \(host) again." }
     static func signInAgainMessage(_ host: String) -> String {
-        "\(host) did not accept the saved password. Click Sign In Again… and type the password."
+        "\(host) did not accept the saved password. If the password has expired, change it on the server. " +
+            "Then click Sign In Again… and type the password."
     }
     static let localNetworkDenied = """
         TinyMounter cannot reach the local network. In System Settings › Privacy & Security › Local Network, \
         turn on TinyMounter. Then try again.
         """
     static let signInDescription = "TinyMounter keeps the password in your keychain."
-    static let signInRefused = "The server did not accept this name and password."
+    static let signInRefused = """
+        The server did not accept this name and password. If the password has expired, change it on the \
+        server first.
+        """
     static let typeName = "Type the name of your account on the server."
     static let cannotSavePassword = "TinyMounter cannot save the password in your keychain."
     static let cannotDeletePassword = "TinyMounter cannot delete the saved password from your keychain. Try again."

@@ -125,8 +125,9 @@ Rules the implementation must keep:
   after connect.
 - SMB 3 only, signing and encryption required, and no guest session: the vendored libsmb2 refuses
   a guest fallback and drops the `ntlm:<hex>` password form.
-- Only `STATUS_LOGON_FAILURE` enters `needsSignIn`. libsmb2 reports it as `-ECONNREFUSED`, so
-  classification reads `smb2_get_nterror()`. A locked or disabled account is `noPermission` and
+- Only `STATUS_LOGON_FAILURE`, `STATUS_PASSWORD_EXPIRED` and `STATUS_PASSWORD_MUST_CHANGE` enter
+  `needsSignIn` (the user, 2026-11-08: a new password fixes these). libsmb2 reports a logon
+  failure as `-ECONNREFUSED`, so classification reads `smb2_get_nterror()`. A locked or disabled account is `noPermission` and
   also stops retries until the user acts.
 - When the network path is not satisfied, requests fail at once with `notConnected`.
 

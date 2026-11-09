@@ -10,8 +10,8 @@ final class SMBSignInTests: XCTestCase {
             (0xC000_006D, ECONNREFUSED, .notAuthenticated), // LOGON_FAILURE, also a refused guest session
             (0xC000_0234, EIO, .noPermission), // ACCOUNT_LOCKED_OUT
             (0xC000_0072, EACCES, .noPermission), // ACCOUNT_DISABLED
-            (0xC000_0071, EACCES, .noPermission), // PASSWORD_EXPIRED
-            (0xC000_0224, EIO, .noPermission), // PASSWORD_MUST_CHANGE
+            (0xC000_0071, EACCES, .notAuthenticated), // PASSWORD_EXPIRED
+            (0xC000_0224, EIO, .notAuthenticated), // PASSWORD_MUST_CHANGE
             (0xC000_006F, EACCES, .noPermission), // INVALID_LOGON_HOURS
             (0xC000_00CC, ENOENT, .missing), // BAD_NETWORK_NAME at tree connect
             (0xC000_0022, EACCES, .noPermission), // ACCESS_DENIED at tree connect

@@ -336,16 +336,15 @@ Sign In. A name in the address (`smb://name@server`) counts when Name is empty. 
 
 Sign In asks the server to check the name and password before it saves anything:
 
-- A refusal shows "The server did not accept this name and password." in the sheet. The sheet
-  stays open with an empty Password field, and nothing is saved.
+- A refusal shows "The server did not accept this name and password. If the password has
+  expired, change it on the server first." in the sheet. The sheet stays open with an empty
+  Password field, and nothing is saved. An expired password, or one the server says must
+  change, counts as a refusal. A locked or disabled account does not.
 - A wrong address shows "This address is not correct. Type an address such as
   smb://server/share."; no name shows "Type the name of your account on the server."
 - Success saves the server and the password and closes the sheet. A server that is already saved
   for the same account keeps its record and gets the new password. If the address names a share,
   the location selects it.
-
-Until the step 2 SMB client is connected, Sign In cannot ask the server and accepts the
-password.
 
 **Sign In Again…** opens the same sheet with Server and Name fixed: "Type your password for
 home-nas again." It shows on the server's row in Servers when no password is saved, and in a
@@ -355,7 +354,8 @@ location's header with the status "Sign in again." when the server refuses the s
 A server volume signs in with the same saved password (plan Decision 1). When the server
 refuses it, the volume shows "Not mounted" with Sign In Again… in place of Connect, and every
 location of that server shows Sign in again. Connect or Show in Finder then shows "home-nas did
-not accept the saved password. Click Sign In Again… and type the password." with Sign In Again…
+not accept the saved password. If the password has expired, change it on the server. Then click
+Sign In Again… and type the password." with Sign In Again…
 and Cancel. A refused automatic reconnect posts the server's sign-in notification. Other mount
 failures show:
 
