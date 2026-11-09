@@ -24,8 +24,8 @@ pending operations. Settings reads macOS's pending-item enumerator, including ch
 outbox record. It shows the item's path and failure, offers Show in Finder, and reports an
 incomplete or unavailable pending list instead of treating it as empty.
 
-Direct writes do not reopen the location through a native path, and the mutation error mapper
-keeps connection failures retryable, so a complete local edit uploads again after an app or
+Writes go only through the app's SMB sessions, and the mutation error mapper keeps connection
+failures retryable, so a complete local edit uploads again after an app or
 provider restart.
 
 <a id="decisions"></a>

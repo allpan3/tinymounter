@@ -28,13 +28,13 @@ The modes have different paths and semantics. Do not silently change a File Prov
 | --- | --- | --- |
 | macOS integration | `NSFileProviderReplicatedExtension` plus `NSFileProviderPartialContentFetching` | Native integration with Finder and other file managers, local APFS materialization, offline reads, range requests |
 | Implementation | Swift app and core libraries; SwiftUI/AppKit where appropriate; C interop for a direct SMB library | Small native macOS application; no UI runtime in the byte path |
-| First transport prototype | Native SMB mount, read using POSIX APIs | Holds the SMB implementation constant against Finder to isolate integration cost |
+| First transport prototype | Native SMB mount, read using POSIX APIs | Held the SMB implementation constant against Finder to isolate integration cost; replaced by the direct transport |
 | Selected SMB transport | Direct `libsmb2` for sign-in, remote I/O and change notification; NetFS mounts only for Server Volume | Adopted after the single-client experiments; the File Provider mount was removed in 0.2.0; distribution and performance gates remain |
 | Metadata | Per-domain SQLite database in an App Group, WAL, short transactions | Stable identities, directory snapshots, ordered changes, pins, restart recovery |
 | Downloaded content | OS-managed materialized files; short-lived staging in the provider's temporary directory | Avoid an unnecessary second permanent content cache |
 | Credentials | One generic-password item per server in the login keychain, service `dev.tinymounter.smb` | Separate connection records by account; never put passwords in URLs, settings, logs or process arguments |
 | Distribution | Signed development builds first; Developer ID/notarized beta proposed | Prove real extension behavior and entitlements early; App Store remains a separate packaging gate |
-| Future mount management | NetFS APIs, per-user login component, `NWPathMonitor` plus actual SMB reachability | Native mounts and reconnection without inventing a filesystem |
+| Server Volume mounts | NetFS with the saved password; `NWPathMonitor` plus actual mount results (§9) | Native mounts and reconnection without inventing a filesystem |
 
 File Provider, cache ownership, metadata architecture and the direct SMB transport are selected.
 Parts of §4 and §5 describe the earlier native-transport design and its measurements.
@@ -109,29 +109,17 @@ longer lists the crashed app, up to 5 s, then opens the app without activating i
 crashed less than 60 s after its launch, the extension does not restart it, so a crash at launch
 cannot loop.
 
-The app must remain running for cache misses and for folders that were never listed; cached reads and listed folders work after it quits. Full app-independent fetching, crash recovery and shipping lifecycle are still gates. The first reader experiment verified NAS access and checksums but had a large throughput gap; it did not select the production transport.
+The app must remain running for cache misses and for folders that were never listed; cached reads and listed folders work after it quits. Full app-independent fetching and shipping lifecycle are still gates. The first reader experiment verified NAS access and checksums but had a large throughput gap; it did not select the production transport.
 
-For the read-only milestone, advertise only applicable read/enumeration capabilities and reject remote create/modify/delete/rename callbacks with the appropriate permission error. Enforce this through provider behavior and a read-only NAS account/internal mount, not only by hiding UI controls. Check enforcement using POSIX operations as well as Finder. The phase 2 build returns `fileWriteNoPermission` and counts these calls in its log; only a reimport `createItem`, which is identity matching, completes with the existing item.
+A location with Read only on advertises no create, rename, move or delete capability and read-only POSIX permissions, and the extension and the app both refuse its create, modify, delete and rename callbacks with `fileWriteNoPermission`. Enforcement does not depend on hiding UI controls, and the account's permissions on the server still apply. Files keep the File Provider write capability so that copies made from them are not immutable. Only a reimport `createItem`, which is identity matching, completes with the existing item.
 
-**TinyMounterCore** contains domain records, metadata reconciliation, version mapping, scheduler, pins, and transport-neutral contracts. Begin with an internal interface specific to SMB's needs; do not build an elaborate universal protocol framework before a second protocol exists.
+**TransferCore** contains domain records, metadata reconciliation, version mapping, scheduling, pins, and the transport-neutral contracts. Its interface is specific to SMB's needs; there is no universal protocol framework before a second protocol exists.
 
-**SMB transport** implements `connect`, `list`, `stat`, `openRead`, `readRange`, `close`, and capability discovery. Optional change watches complement reconciliation. Calls carry cancellation, priorities, version context, and byte-progress reporting. Keep the data path off the main actor and separate from serialized metadata writes.
+**SMB transport** implements the `RemoteSession` and `RemoteWatcher` interfaces (§5): sign-in, listing, metadata, ranged reads, writes and change watches. Change watches complement reconciliation. Calls carry cancellation, priorities, version context, and byte-progress reporting. Keep the data path off the main actor and separate from serialized metadata writes.
 
 **Per-user background component**, if needed, owns long-lived change watches and later automount. Registration and actual lifecycle must be tested. The File Provider process can be suspended or restarted, so perpetual sockets in the extension are not a sufficient background-refresh strategy. Driio's release notes report this exact lifecycle issue [D2]. A background watcher is an optimization: on-demand fetch and reconnect reconciliation must work without it.
 
-**Native bridge worker**, only if that transport ships, owns TinyMounter's internal SMB mounts and potentially blocking POSIX I/O. It hands over file descriptors or writes into an authorized staging file rather than serializing large `Data` objects across XPC. Each share gets bounded isolation so an unreachable mount cannot starve all domains.
-
-Proposed source layout once implementation begins:
-
-```text
-Apps/TinyMounter/                 setup, menu bar, domain management
-Extensions/TinyMounterProvider/   OS callbacks and item adapters
-Packages/TinyMounterCore/         metadata, scheduler, reconciliation
-Packages/SMBTransport/            transport contract and selected backend
-Helpers/NativeSMBWorker/          only if justified by the transport gate
-Tools/TransferBench/              native, direct-SMB, and provider measurements
-Tests/Integration/               signed-extension and failure-recovery tests
-```
+**Code layout.** [AGENTS.md](../AGENTS.md#where-things-are) lists the folders. Shared code goes into the `TransferCore` package target: Xcode compiles sources directly into each app target, so a second module would add entries without isolation. The package deploys on macOS 27, like every Xcode target, because `O_NOFOLLOW_ANY` and `O_RESOLVE_BENEATH` have no availability annotations. The C adapter over libsmb2 is in `Prototype/SMB`, and libsmb2 itself in `Vendor/libsmb2`.
 
 ## 4. First-read and streaming path
 
@@ -457,7 +445,7 @@ only.
 | Local disk full | `fileWriteOutOfSpace` | "Not sufficient space" for an affected keep request |
 | Domain turned off by the user | the system returns `domainDisabled` | "File Provider is off." |
 
-## 8. Writes and offline editing, later
+## 8. Writes and offline editing
 
 The [ordinary SMB contract](smb-simplification.md) governs existing-file saves. File Provider owns
 pending local contents and retries; the app never acknowledges an unfinished remote write.
@@ -575,7 +563,7 @@ criteria and parallel worktree ownership. Each implementation still has to pass 
 
 1. **Feasibility harness.** Signed File Provider with a small local fixture; full/range fetching; cancellation; local-network permissions tested for both app and extension; native SMB baseline; native-backed provider; async SMB comparator. Exit: attribution of throughput overhead, player matrix, and transport/permissions decision. Follow [benchmark-plan.md](benchmark-plan.md). Do this before the full UI.
 2. **Read-only vertical slice.** One SMB share, persistent IDs/database, lazy directory enumeration, range/full reads, Keychain, meaningful offline/auth errors, safe restart. Exit: real Finder browsing and media reading without memory growth or leaked mounts/staging files. It started before phase 1's exit, on the native transport, with the user's Finder connection standing in for Keychain until the transport decision. It ends with M9, exit validation in the VM, and M10, daily use on the physical Mac: updates keep locations, removal steps, and a signature that lasts.
-3. **Offline and NAS changes you can trust.** It starts with reconnection, because in M9 macOS dropped the Finder connection after a 70 s outage and the user had to connect again. After an outage, sleep or a network change, the app asks macOS to mount the share again with the password that the user saved in the Keychain, and it leaves an intentional eject alone. A VM spike showed that the sandboxed app can mount. After a crash, the extension starts the app again, but not after the user quits it ([§3](#3-components-and-ownership)). The user then connects in the app, with macOS's own login dialog, and Finder shows only the locations (M12). M13 verifies kept-file offline status after a public File Provider stabilization barrier, against the catalog version observed by the app. M14 adds recursive folder requests, inherited retention and aggregate offline status. M15 adds bounded directory watches and periodic discovery in materialized and kept folders while the app runs. M16 adds a shared local-space budget with a 2 GiB reserve, disk-full status and persisted retry that respects Pause. M17 verifies location-change ordering, interrupted Apply/Remove and provider disablement with two locations. Full restart and OS eviction under pressure remain unverified. Exit: the share comes back by itself after an outage, and an eject stays; the app comes back after a crash, and a Quit stays; pinned files survive disconnect/reboot and hashes match; incomplete files are never represented as available offline; a NAS change in a listed folder shows without a relaunch. Testing NAS changes needs an isolated writable share.
+3. **Offline and NAS changes you can trust.** It starts with reconnection, because in M9 macOS dropped the Finder connection after a 70 s outage and the user had to connect again. After an outage, sleep or a network change, the app asks macOS to mount the share again with the password that the user saved in the Keychain, and it leaves an intentional eject alone; since 0.2.0, only Server Volume mode mounts (phase 5). A VM spike showed that the sandboxed app can mount. After a crash, the extension starts the app again, but not after the user quits it ([§3](#3-components-and-ownership)). The user then connects in the app, with macOS's own login dialog, and Finder shows only the locations (M12). M13 verifies kept-file offline status after a public File Provider stabilization barrier, against the catalog version observed by the app. M14 adds recursive folder requests, inherited retention and aggregate offline status. M15 adds bounded directory watches and periodic discovery in materialized and kept folders while the app runs. M16 adds a shared local-space budget with a 2 GiB reserve, disk-full status and persisted retry that respects Pause. M17 verifies location-change ordering, interrupted Apply/Remove and provider disablement with two locations. Full restart and OS eviction under pressure remain unverified. Exit: the share comes back by itself after an outage, and an eject stays; the app comes back after a crash, and a Quit stays; pinned files survive disconnect/reboot and hashes match; incomplete files are never represented as available offline; a NAS change in a listed folder shows without a relaunch. Testing NAS changes needs an isolated writable share.
 4. **Writable synchronization.** Ordinary SMB operations, durable pending local uploads, correct catalog settlement and verified offline retry. NAS snapshots/backups own previous-version recovery. It needs change discovery from phase 3, and an isolated writable share for its tests. M18 to M21 add new files and folders, editing, renaming and file organization (§8). Exclusive creation exposes a new file remotely during upload; that visibility tradeoff is accepted.
 5. **Own connection.** Credentials that the app keeps in the Keychain, and an SMB connection of its own instead of the macOS mount, if phase 1's transport decision chooses one. Done in 0.2.0 ([§5](#sign-in-and-connection)).
 6. **Release hardening.** Multiple shares/accounts, several locations on one folder, load and failure testing, app-closed behavior, signing/notarization, clean install/update/uninstall, accessibility and diagnostics. Performance gates must pass on the physical Mac/NAS pair. Add broader NAS coverage before broad compatibility claims.

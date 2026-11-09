@@ -134,8 +134,8 @@ Retry continues an unsettled recorded request. Stop Deleting ends further attemp
 active node ends. Neither action can restore deleted content. Dismiss Notice is available only
 after every affected location finishes settlement, and keeps the replay record. Remove Location
 names pending deletions that block removal. Transient failure reasons last for the app process;
-durable node outcomes remain available after restart. Normal builds offer only the confirmed
-**Delete Permanently…** command; ordinary Finder deletion and Replace stay refused.
+durable node outcomes remain available after restart. Normal builds enable ordinary
+Finder deletion and Replace, and the confirmed **Delete Permanently…** command.
 
 A change to Name applies immediately. A change to Source or Connection Mode shows Revert and Apply
 in a bar at the bottom of the pane. Apply replaces the location's File Provider domain. A
@@ -290,34 +290,21 @@ forms. Check Reduce Transparency and Increase Contrast.
 - Whether Storage shows each file, or only totals per location.
 
 
-## M18 creation access
+## Write mode
 
-Creation access required a location's scoped write grant until 0.2.0. Pending uploads retain their full
-local copies and prevent location removal or source changes. Other devices can see a new file
-before its upload finishes. The controls are now defined by the unified write mode below. The
-[pending-changes plan](pending-changes-plan.md) changed the removal rule: pending
-items that never reached the server no longer prevent removal, because macOS keeps them.
+Each File Provider location has one Read only toggle in its Access section. It is off for a new
+location; a duplicate takes the original's setting. All supported writes use this one mode:
+new files and folders, saves, rename, move and deletion. Do not add another feature switch.
+Turning Read only off asks for nothing: there is no share permission or grant, and the
+account's permissions on the server apply. The setup has no SMB-only warning or technical
+details. Concurrent edits are a synchronization concern; setup must not ask users to certify how
+every other app accesses the NAS. The Access section's footer says what writes do, including that
+deletion and Finder Replace cannot be undone.
 
-## Unified write mode
-
-M20 replaces separate creation and editing controls with one Read only toggle. It defaults off
-for a new location; a duplicate retains the original's mode. Initial share selection retains the
-macOS read and write permissions for reuse by its locations. All supported write operations use
-that mode, including M20 file renaming. Unsupported operations
-remain unavailable. Do not add another feature switch. Since 0.2.0 there is no share permission
-or grant: Read only is a plain setting, and the account's permissions on the server apply. The
-permission rules below describe 0.1.2.
-
-Add connects a saved share when needed, then reuses its permission without another picker.
-Cancelling or failing the connection leaves the draft intact. Enabling writes also reuses permission.
-Earlier settings reuse an existing location's write permission for the same grant, or ask once
-if none exists. This flow has no SMB-only warning or technical details. Concurrent edits
-are a synchronization concern; setup must not ask users to certify how every other app accesses
-the NAS.
-
-Once confirmed, enabling Read only blocks new remote changes but retains the grant for later
-reuse. Refuse that change while writes are pending. Changing the source uses only the target
-share's permission, with the existing account and mount checks on every mutation.
+Turning Read only on blocks new remote changes, and is refused while changes are pending. Other
+devices can see a new file before its upload finishes. New items that never reached the server
+do not prevent removal, because macOS keeps them
+([pending-change contract](pending-changes-plan.md)).
 
 ## 11. Sign-in and folder browser (0.2.0)
 

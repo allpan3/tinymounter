@@ -18,7 +18,7 @@ conflict-preservation and replacement guarantees of the earlier designs, which G
   TinyMounter does not hash whole files or retain block proofs to defend against other writers.
 - Rename, move and deletion use server operations and metadata. Preserve stable File Provider
   identities and correct directory reconciliation without reading file contents.
-- Keep scoped access, path containment, account separation, server permissions, accurate errors,
+- Keep the Read only setting, path containment, account separation, server permissions, accurate errors,
   cancellation and complete-range checks. These remain correctness requirements.
 
 File Provider is a local synchronization interface. It cannot reproduce a live SMB descriptor's
@@ -30,7 +30,7 @@ The client serializes only libsmb2 context creation/destruction, whose context l
 Each connection owns its requests and credentials; unrelated payload I/O can run concurrently.
 Reads and writes are capped at 1 MiB, the server maximum and available SMB credits.
 
-Direct SMB mutations do not look up the location folder through a native path. Transport resets
+No operation looks up the location folder through a native path: there is no mount. Transport resets
 are classified as connection failures and returned as retryable provider errors.
 
 ## Audit decisions

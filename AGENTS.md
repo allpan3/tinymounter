@@ -83,9 +83,9 @@ Never break these without an explicit task to do so.
   Physical-Mac installation and publication remain separate decisions.
 - **Never present incomplete data as complete.** An uncached range fails clearly and is never filled
   with zeroes. A requested pin is not "available offline" until the download is verified.
-- **No secrets in the repo, logs or chat.** Credentials go through Keychain or the user's own Finder
-  connection. Signing material is never committed. Logs never include source names or paths.
-  Sanitize `results/` before sharing it.
+- **No secrets in the repo, logs or chat.** Passwords go only into TinyMounter's own login-keychain
+  item, never into settings, logs, arguments or XPC. Signing material is never committed. Logs
+  never include source names or paths. Sanitize `results/` before sharing it.
 - **Never weaken the sandbox to make a test pass.** Record the actual error, then design a supported
   route.
 - **No migrations before release.** This is a prototype. Design every format and setup flow for a

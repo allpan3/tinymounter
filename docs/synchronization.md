@@ -25,8 +25,8 @@ safely. If that works, mounting a folder both ways needs no guard, as the user p
 
 ## 2. Rules
 
-1. **The NAS is the truth.** A File Provider location never invents remote state, and in the
-   read-only phase it never writes to the NAS.
+1. **The NAS is the truth.** A File Provider location never invents remote state, and it writes
+   to the NAS only when Read only is off.
 2. **Never show stale or mixed content as current.** A file is served only at a version the
    extension can still validate. Ranges from two versions are never combined.
 3. **Uncertainty is never deletion.** A timeout, permission error or partial listing never
@@ -34,8 +34,8 @@ safely. If that works, mounting a folder both ways needs no guard, as the user p
 4. **"Available offline" means verified.** A kept file is available offline only after its
    current version is fully downloaded and checked. A kept file whose remote version changed shows
    "Update in progress", not "Available offline", until the new version is complete.
-5. **Later, with writes: conflicts become copies.** Two edits are never silently merged, and the
-   NAS copy is never overwritten when it changed since our base.
+5. **Writes follow ordinary SMB semantics.** Two edits are never merged; the last save wins, and
+   NAS snapshots and backups own previous versions (section 6).
 
 ## 3. What a File Provider location tracks
 
@@ -168,7 +168,7 @@ Phase 3 extends that subset with verified offline status, folder keeps and chang
   adds recursive folder requests and aggregate status. M15 adds native SMB directory watches
   through public Dispatch sources, periodic reconciliation and wake refresh. It covers listed
   materialized and kept folders and parents of kept files. Since 0.2.0 the watches are SMB2
-  `CHANGE_NOTIFY` requests on one connection per share, with no mount. Watches are bounded to 64 per session;
+  `CHANGE_NOTIFY` requests on one connection per share, with no mount. Watches are bounded to 64 per share;
   scheduled listings run one at a time, due 60 s after success, with failure backoff. These are
   scheduling policies, not the latency targets proposed in section 4. See
   [architecture §7](architecture.md#change-watching).
