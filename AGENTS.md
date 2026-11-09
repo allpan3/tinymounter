@@ -14,20 +14,10 @@ current status.
 - **Prefer the simplest correct solution.** Add an abstraction only when it removes more
   complexity than it adds. Prefer modern Apple APIs. A deprecated API is a defect. Don't add
   compatibility layers or speculative fallbacks.
-- **Dependencies need a decision.** The user accepted a limited `libsmb2` prototype for M18
-  exclusive folder creation and initial naming after the safety checks and licence review.
-  Reads and new-file uploads stay native. On 2026-11-02 the user approved uploading private
-  save-stage files through the existing protected SMB handle after the file-ID reuse probe.
-  On 2026-11-03 the user authorized all work needed in the VM, including a separate
-  single-client prototype for remote listing, metadata, reads and writes and its correctness
-  and performance checks. Do not ask again for VM implementation or experiment approval.
-  On 2026-11-04 the user adopted the single-client transport, accepted its writable
-  partial-read speed and approved installing the merged build on the physical Mac with Start
-  Fresh. Publication remains a separate decision.
-  Further dependencies need a user decision after measurement and a licence review ([architecture.md §5](docs/architecture.md#5-native-smb-versus-direct-smb)).
-  On 2026-11-04 the user approved the [SMB simplification](docs/smb-simplification.md):
-  ordinary SMB save/conflict behavior replaces custom remote recovery. Implementation and VM
-  validation are authorized; publication and a new physical-Mac installation are separate.
+- **Dependencies need a decision.** `libsmb2` is the accepted SMB client: it signs in, lists,
+  reads, writes and watches for changes, with the [ordinary SMB semantics](docs/smb-simplification.md)
+  for saves and conflicts. Further dependencies need a user decision after measurement and a
+  licence review ([architecture.md §5](docs/architecture.md#5-native-smb-versus-direct-smb)).
 
 ## Where things are
 
@@ -81,22 +71,16 @@ Spotlight even after LaunchServices unregisters them.
 
 Never break these without an explicit task to do so.
 
-- **The network disk is the source of truth and is read-only.** No code path writes, renames or
-  deletes remote content by default. M18 explicitly permits creating new files/folders only after
-  per-location write opt-in, with no overwrite. Runtime writes in development use only the approved
-  disposable VM fixture; the original NAS stays read-only. Run disruptive tests only within an
-  agreed isolated scope.
-  The accepted [SMB simplification](docs/smb-simplification.md) permits ordinary overwrites,
-  rename, move, deletion and replacement in writable locations. NAS snapshots/backups own
-  previous-version recovery. Remove custom recovery guarantees and redundant content proofs;
-  preserve pending local uploads, server errors, containment and account isolation. Enable
-  changed provider operations after their VM checks. Existing read-only locations remain
-  read-only. On 2026-10-31 the
-  user granted standing permission for all work inside
-  the VM, including new fixture sessions, mounts, service/settings changes, restarts, network
-  interruption and test installations. Do not ask again for VM-operation approval. Preserve
-  evidence and restore temporary test state. Physical-Mac installation and publication remain
-  separate decisions; the original NAS stays read-only.
+- **The network disk is the source of truth.** TinyMounter changes remote content only in a
+  location with Read only turned off, and only with ordinary SMB operations: create, save,
+  rename, move, replace and delete. New-file creation never overwrites. NAS snapshots/backups
+  own previous-version recovery. Preserve pending local uploads, server errors, containment and
+  account isolation. Runtime writes in development use only the disposable VM fixture; the
+  original NAS stays read-only. Run disruptive tests only within an agreed isolated scope.
+  All work inside the VM has standing permission, including implementation, experiments,
+  fixture sessions, mounts, service/settings changes, restarts, network interruption and test
+  installations. Do not ask again for it. Preserve evidence and restore temporary test state.
+  Physical-Mac installation and publication remain separate decisions.
 - **Never present incomplete data as complete.** An uncached range fails clearly and is never filled
   with zeroes. A requested pin is not "available offline" until the download is verified.
 - **No secrets in the repo, logs or chat.** Credentials go through Keychain or the user's own Finder
