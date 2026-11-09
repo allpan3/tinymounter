@@ -4,7 +4,8 @@
 Run it on the Samba fixture: `tcpdump -i any -s 0 -w CAPTURE tcp port 445`, run the client, stop
 tcpdump, then pass CAPTURE ACCOUNT. Session setup precedes encryption, so the NTLMSSP
 AUTHENTICATE message (with the account name) and the server's status are readable. Prints
-counts only: no addresses, names or secrets.
+counts only: no addresses, names or secrets. Other refusals, such as PASSWORD_EXPIRED, are
+counted by their NT status in `otherStatuses`.
 """
 import json
 import struct
@@ -39,6 +40,7 @@ def main():
     capture, account = sys.argv[1:]
     name = account.encode('utf-16-le')
     attempts, refused, accepted = 0, 0, 0
+    other = {}
     pending = {}
     for stream, payload in packets(capture):
         start = payload.find(b'\xfeSMB')
@@ -54,8 +56,11 @@ def main():
                 pending[stream] -= 1
                 refused += status == LOGON_FAILURE
                 accepted += status == 0
+                if status not in (0, LOGON_FAILURE):
+                    other[f'0x{status:08X}'] = other.get(f'0x{status:08X}', 0) + 1
             start = payload.find(b'\xfeSMB', start + 4)
-    print(json.dumps({'attempts': attempts, 'logonFailures': refused, 'accepted': accepted}))
+    print(json.dumps({'attempts': attempts, 'logonFailures': refused, 'accepted': accepted,
+                      'otherStatuses': other}))
 
 
 if __name__ == '__main__':
