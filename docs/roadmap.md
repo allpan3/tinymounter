@@ -10,30 +10,6 @@ server. No server component is required. One Read only control governs all suppo
 
 ## Planned work
 
-### Menu bar activity and notification settings, 0.3.0
-
-The user asked for a Google Drive–like status view in the menu bar and control over which events
-reach macOS notifications. The accepted scope:
-
-- **Menu bar panel**, replacing the current menu: each location's state (connected, offline,
-  Sign In Again… or paused); current uploads and downloads with name, location and progress;
-  recent activity (finished uploads, downloads and Keep Downloaded, failures marked, with Retry);
-  and actions to open a location in Finder, Pause, Retry Pending Changes and open Settings.
-- **Notification settings** per event kind: macOS notification, panel only, both or none. Kinds:
-  sign-in needed, connection lost or restored, upload failed, kept conflict copy, Keep Downloaded
-  finished, low disk space. By default, problems that need the user's action use both; all other
-  events use the panel only.
-- **History:** the last 100 events are kept across a relaunch.
-- **Interrupted uploads recover by themselves.** After a network loss, a server can keep the old
-  session's open file locked, so a resumed upload fails with "Text file busy" and waits for Retry
-  Pending Changes ([known limits](release.md#what-to-expect)). 0.3.0 resumes or retries it
-  without user action.
-
-Not in 0.3.0: changes made on the NAS by other devices in the activity list (frequent, and Finder
-already shows them); SMB session reuse to reduce logons (internal, later); the
-[Locations folder](ui-design.md#7-locations-folder-one-place-to-navigate) of aliases (not needed
-now).
-
 ### Daily-use validation (M27)
 
 Check the combined features on one candidate and close the earlier correctness gaps. Include
@@ -60,6 +36,14 @@ beta ready, choose distribution signing, satisfy dependency licensing and relink
 and verify clean install, update and uninstall. Broader OS/NAS compatibility needs its own
 evidence. A ready package is not permission to install, notarize, publish or buy a developer
 account.
+
+### Not scheduled
+
+- Changes made on the NAS by other devices in Recent Activity (frequent, and Finder already
+  shows them).
+- SMB session reuse to reduce logons (internal).
+- The [Locations folder](ui-design.md#7-locations-folder-one-place-to-navigate) of aliases (not
+  needed now).
 
 ## Delivery and approval
 
