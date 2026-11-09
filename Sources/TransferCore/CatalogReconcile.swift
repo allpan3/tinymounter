@@ -8,7 +8,9 @@ public struct ReconcilePlan: Equatable, Sendable {
     public let updated: Int
     /// Children whose key the listing lacks or whose kind changed, and all their live descendants.
     public let tombstoned: Int
-    public let removesEveryChild: Bool
+    /// The folder had children and the listing has none. A listing with any name in it is not
+    /// an empty-listing error, so renaming a folder's only child doesn't wait for D5.
+    public let emptiesFolder: Bool
     public let keptFilesRemoved: Int
     /// New entries whose attributes couldn't be read. An existing row for such an entry stays.
     public let unreadableSkipped: Int
@@ -108,7 +110,7 @@ extension Catalog {
 
     /// D5: a refused plan waits for a second complete listing, which the app applies as it is.
     public static func needsConfirmation(_ plan: ReconcilePlan) -> Bool {
-        plan.removesEveryChild || plan.keptFilesRemoved > 0
+        plan.emptiesFolder || plan.keptFilesRemoved > 0
     }
 
     /// nil if `accept` refused the plan, and then nothing is written.
@@ -146,7 +148,7 @@ extension Catalog {
             let inserted = changes.filter { $0.row == nil }.count
             let plan = ReconcilePlan(
                 inserted: inserted, updated: changes.count - inserted, tombstoned: tombstones.count,
-                removesEveryChild: childCount > 0 && removed.count == childCount,
+                emptiesFolder: childCount > 0 && removed.count == childCount && listing.firsts.isEmpty,
                 keptFilesRemoved: tombstones.filter(\.keep).count, unreadableSkipped: unreadableSkipped)
             guard accept(plan) else { return nil }
 

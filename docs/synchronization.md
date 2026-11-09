@@ -152,11 +152,12 @@ Phase 3 extends that subset with verified offline status, folder keeps and chang
 - **Tracked per item:** section 3's fields, in one SQLite catalog per File Provider location. The
   content version is size, mtime and ctime (D1); each transfer still checks device and inode on
   its open descriptor.
-- **Rules 1 and 3:** only the app writes the catalog, only from a complete listing of a verified
-  mount, and only after `fstatat` showed each missing name gone. Timeouts, permission errors, a
-  missing mount and a stopped app change nothing. A listing that would remove every child of a
-  folder, remove a kept file or change a kind waits for a complete listing at least 15 s later
-  (D5). There is no holding area: that listing deletes a kept file's local copy.
+- **Rules 1 and 3:** only the app writes the catalog, only from a complete listing of the share,
+  and only after the server confirmed each missing name gone. Timeouts, permission errors, a
+  lost connection and a stopped app change nothing. A listing that would leave a folder with
+  children empty, or remove a kept file, waits for a complete listing at least 15 s later (D5).
+  A listing with any name in it is not held for an empty folder, so renaming a folder's only
+  child shows at once. There is no holding area: that listing deletes a kept file's local copy.
 - **Rule 2, for fetches:** each fetch compares the file's fingerprint with the catalog row before
   it reads, and checks the snapshot again after. A change fails the fetch with
   `versionNoLongerAvailable` and updates the row. Ranges from two versions are never combined.
