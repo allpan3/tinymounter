@@ -39,7 +39,8 @@ and the [release checks](results/2026-11-08-release-checks.md) pass in the signe
 version is 0.2.0 (build 6). Tagging, packaging and physical-Mac installation wait for the user's
 approval. Updating from 0.1.x needs Start Fresh and an eject of the old hidden mount
 ([release notes](release.md#update-from-01x-start-fresh-is-required)). The activity panel stays
-in 0.3.0.
+in 0.3.0. The kept-file status defect from the release checks is fixed: uploads keep the local
+save time on the server ([save-time checks](results/2026-11-08-save-time.md)).
 
 ### One add flow and a simpler Servers pane, accepted 2026-11-07
 
