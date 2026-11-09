@@ -1,6 +1,6 @@
 # Performance and reliability validation plan
 
-This document defines the proposed validation program. As of 2026-10-11, [native SMB/staging](results/2026-10-10-native-smb.md), [local File Provider correctness](results/2026-10-10-provider-runtime.md), the approved [app-owned NAS reader](results/2026-10-10-app-reader.md), [per-read delay tracing](results/2026-10-11-provider-delay.md), [verified NAS/local cache measurements](results/2026-10-11-cache-states.md), and [player launch paths with bounded read-ahead](results/2026-10-11-player-readahead.md) have run. Full-download medians exceed 90% of native in both verified NAS cache states; the complete sequential range-read, latency and reliability gates have not passed. See [architecture.md](architecture.md) for the implementation design and [research.md](research.md) for sources.
+This document defines the proposed validation program. Full-download medians exceed 90% of native in both verified NAS cache states; the complete sequential range-read, latency and reliability gates have not passed. See [architecture.md](architecture.md) for the implementation design and [research.md](research.md) for sources.
 
 ## 1. What we need to prove
 
@@ -43,8 +43,7 @@ Interleave configurations to reduce thermal/cache-order bias. Run at least five 
 
 ### Fixed regression set during implementation
 
-Use this set at integration checkpoints, starting with the
-[2026-10-31 review](results/2026-10-31-everyday-use-review.md). Compare a reproducible earlier
+Use this set at integration checkpoints. Compare a reproducible earlier
 signed Release build, the current read-only location and the current writable location in the
 same VM, with separate state and matched native controls. Reuse `transfer-bench`,
 `Tools/run-native-series.py` for native sink/staging pairs, and the existing provider measurement
@@ -66,17 +65,11 @@ These workflow checks complement throughput samples; they are not statistical la
 Writable and read-only locations share the same metadata-checked read path. Record network
 bytes and provider materialization separately; a local cache hit is not an SMB throughput sample.
 
-The separate single-client VM prototype emits `direct_read` with request ID, payload bytes,
-completion phase and total time. Native SMB session counters do not count those reads. Its
-[November 3 series](results/2026-11-02-samba-names-and-uploads.md#read-measurements-2026-11-03)
-starts with five provider full-fetch callbacks and native staging controls with unverified cache
-residency. Its follow-up includes five coordinated full downloads and five partial-read pairs
-with verified empty Linux file cache and independent server traffic counters. The full comparison
-passes for that VM setup. The [November 4 candidate](results/2026-11-04-candidate-validation.md)
-raises read-only partial throughput to a ratio of medians of 0.917 (median paired ratio 0.901);
-writable partial reads remain below target at a median paired ratio of 0.725. The later writable full and
-fully local comparisons also pass for their stated VM/cache setups. Native session counters alone
-cannot judge this transport. Fully hot server cache and physical-Mac checks remain unverified.
+The direct SMB client emits `direct_read` with request ID, payload bytes, completion phase and
+total time. Native SMB session counters do not count those reads, so they alone cannot judge this
+transport; use independent server traffic counters. In the VM, full downloads and read-only
+partial reads meet their targets, and the writable full and fully local comparisons pass for
+their VM setups. Writable partial reads stay below target, at about 0.73 of native. Fully hot server cache and physical-Mac checks remain unverified.
 
 Keep setup, security settings, run order and all four cache states with the samples. A single
 pilot can identify a delay to investigate, but cannot establish a regression. Separate changes
@@ -89,7 +82,7 @@ local APFS parity and media latency. This set does not replace the larger accept
 Use the existing release benchmark and provider helper in the VM. Compare full downloads,
 512 MiB fresh partial ranges and fully local reads against the same VM's native controls.
 Use five alternating-order pairs; verify hashes outside timing and record provider allocation,
-returned extents, callback time and `direct_read` bytes. The 2026-11-05 save comparison uses
+returned extents, callback time and `direct_read` bytes. The save comparison uses
 `Tools/check-smb-saves.py` and the production Swift overwrite path at 1 and 64 MiB. Connection
 setup is reported separately from write/size/flush/close; neither is editor Save latency.
 
@@ -103,8 +96,7 @@ mid-write disconnection, app/provider restart and automatic retry. Verify comple
 before retry and exact remote bytes afterwards. Partial remote contents are an accepted failed-write
 outcome. Do not count a queued callback or local Save as successful server completion.
 
-The historical proof-cache experiments remain in the dated results. They are not requirements
-for the simplified implementation. All cache-state and physical-Mac qualifications above still
+The earlier proof-cache experiments are not requirements for the simplified implementation. All cache-state and physical-Mac qualifications above still
 apply; this change does not relax throughput targets.
 
 ## 4. Factor the data path

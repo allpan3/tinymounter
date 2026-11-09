@@ -1,27 +1,23 @@
 # User interface design
 
-Date: 2026-10-11, revised three times the same day after the user's review. Decision status:
-accepted for prototyping on 2026-10-11. The user evaluates it again on the prototype. Section 10
-lists the decisions that are still open. On 2026-10-12 the user decided Duplicate, overlapping
-locations, saved Keep Downloaded lists and Pause Downloads (sections 4 and 5). Phase 2 builds the
+Decision status: accepted for prototyping. The user evaluates it again on the prototype. Section
+10 lists the decisions that are still open. Sections 4 and 5 hold the user's decisions on
+Duplicate, overlapping locations, saved Keep Downloaded lists and Pause Downloads. Phase 2 builds the
 subset in [phase2-plan.md](phase2-plan.md#1-decisions); M7 built the Settings window, the menu
 bar item and notifications, and M8 the Storage pane and folder completion, with the changes that
-[phase 2 §8](phase2-plan.md#8-ui) records. On 2026-10-18 the user approved connecting in the app
-(M12, [phase 3 §4](phase3-plan.md#4-connect-in-the-app-m12)), with the Servers change in
-section 4.3.
-M14 adds recursive folder requests and aggregate offline status, verified in the signed VM app
-on 2026-10-19 ([results](results/2026-10-19-folder-keeps.md)).
-M16 adds Not sufficient space, a free-space instruction and automatic kept-download recovery,
-verified in the signed VM on 2026-10-22 ([results](results/2026-10-21-disk-space-protection.md)).
+[phase 2 §8](phase2-plan.md#8-ui) records. Connecting in the app
+(M12, [phase 3 §4](phase3-plan.md#4-connect-in-the-app-m12)) changes Servers, section 4.3.
+M14 adds recursive folder requests and aggregate offline status.
+M16 adds Not sufficient space, a free-space instruction and automatic kept-download recovery.
 Interactive mockup: [ui-mockup.html](ui-mockup.html).
 
-Current setup, 2026-11-07: Add offers File Provider or Server Volume. A native volume
+Current setup: Add offers File Provider or Server Volume. A native volume
 covers the whole share, uses its server permissions and has no Read only or Keep Downloaded
 control. Remove the share's existing locations before switching modes, including locations
 saved under another account. Add connects automatically; saved native volumes also have
-Show in Finder, Connect/Disconnect and Remove controls. On 2026-11-07 the user also accepted one
-add flow: shares are added only in a location, and Servers only lists them (section 4.3). On
-2026-11-08 the [connection-layer plan](connection-layer-plan.md#ui-changes) replaced the Add
+Show in Finder, Connect/Disconnect and Remove controls. There is one add flow: shares are added
+only in a location, and Servers only lists them (section 4.3). The
+[connection-layer plan](connection-layer-plan.md#ui-changes) replaced the Add
 Server… address dialog with a sign-in sheet and the Folder Select… panel with a folder browser
 ([section 11](#11-sign-in-and-folder-browser-020)). The original mockup below is historical.
 
@@ -218,18 +214,13 @@ Problem status takes precedence. macOS supplies the light/dark menu-bar tint. Th
 - Keep Downloaded transfers publish file progress for Finder's native circle. Files report bytes;
   kept ancestor folders use an indeterminate circle while descendant transfers run. The circle
   clears at transfer completion or failure. This does not establish offline availability.
-  The signed VM comparison passed on 2026-10-19 ([results](results/2026-10-19-keep-download-progress.md));
-  the update is installed on the physical Mac ([installation](results/2026-10-19-keep-status-refresh.md)).
 - The context menu adds **Keep Downloaded** and **Allow Removal** as File Provider custom actions.
-  In the macOS 27.0.1 VM on 2026-10-12, Finder showed one as a separate item near the bottom of the
-  context menu, after the fixture item was republished with `userInfo.keep`. The harness's keep
-  state switched the label. Finder's own Keep Downloaded was absent; its Download Now and Remove
-  Download stay. An Allow Removal click reached the extension, which only logs in the M3 spike.
-  Action effects and decorations remain unverified. See the
-  [M3 results](results/2026-10-12-share-grant.md).
+  Finder shows one as a separate item near the bottom of the context menu, after the item is
+  republished with `userInfo.keep`; the keep state switches the label. Finder's own Keep
+  Downloaded is absent; its Download Now and Remove Download stay.
 - In the measured VM configurations, double-clicking an uncached file in Finder downloaded it
-  fully first. The [physical-Mac run](results/2026-10-19-physical-mac-use.md) includes partial
-  playback reads, but its exact opening routes were not recorded. Large full downloads show
+  fully first. On the physical Mac, playback used partial reads, but the opening routes were not
+  recorded. Large full downloads show
   progress in Finder and in the menu bar item.
 - A partly downloaded file can still show Download Now. Playback caches requested ranges and
   limited read-ahead; this does not promise a complete copy after the player closes.
@@ -242,7 +233,7 @@ TinyMounter keeps one Finder alias per location there, in either connection mode
 their own subfolders and aliases. The app changes only the aliases that it made, and repairs them
 if the path of a location changes.
 
-Tested on 2026-10-11 in the VM: an alias to a folder on a mounted SMB share and an alias to a File
+Tested in the VM: an alias to a folder on a mounted SMB share and an alias to a File
 Provider location both open in place in Finder. A video opened through the SMB alias started
 immediately. An alias to a server volume cannot point to something that is not on the NAS. What an
 alias does when its server is offline (connect again, or fail clearly) is not tested.
@@ -294,15 +285,15 @@ forms. Check Reduce Transparency and Increase Contrast.
 - Whether Storage shows each file, or only totals per location.
 
 
-## M18 creation access, accepted 2026-10-23
+## M18 creation access
 
 Creation access required a location's scoped write grant until 0.2.0. Pending uploads retain their full
 local copies and prevent location removal or source changes. Other devices can see a new file
-before its upload finishes. The controls are now defined by the unified write mode below. On
-2026-11-02 the [pending-changes plan](pending-changes-plan.md) changed the removal rule: pending
+before its upload finishes. The controls are now defined by the unified write mode below. The
+[pending-changes plan](pending-changes-plan.md) changed the removal rule: pending
 items that never reached the server no longer prevent removal, because macOS keeps them.
 
-## Unified write mode, accepted 2026-10-29
+## Unified write mode
 
 M20 replaces separate creation and editing controls with one Read only toggle. It defaults off
 for a new location; a duplicate retains the original's mode. Initial share selection retains the
@@ -315,10 +306,9 @@ permission rules below describe 0.1.2.
 Add connects a saved share when needed, then reuses its permission without another picker.
 Cancelling or failing the connection leaves the draft intact. Enabling writes also reuses permission.
 Earlier settings reuse an existing location's write permission for the same grant, or ask once
-if none exists. On 2026-11-04, the user removed the SMB-only warning and technical details from
-this flow. Concurrent edits
+if none exists. This flow has no SMB-only warning or technical details. Concurrent edits
 are a synchronization concern; setup must not ask users to certify how every other app accesses
-the NAS. The [follow-up](results/2026-11-04-write-confirmation.md) records the remaining save race.
+the NAS.
 
 Once confirmed, enabling Read only blocks new remote changes but retains the grant for later
 reuse. Refuse that change while writes are pending. Changing the source uses only the target
@@ -326,8 +316,7 @@ share's permission, with the existing account and mount checks on every mutation
 
 ## 11. Sign-in and folder browser (0.2.0)
 
-Proposed on 2026-11-08 with the [connection-layer plan](connection-layer-plan.md#ui-changes);
-built in its step 1.
+Proposed with the [connection-layer plan](connection-layer-plan.md#ui-changes); built in 0.2.0.
 
 **Add Server…** in a location's Server menu opens a sheet: "Type the server address, your name
 and your password.", with Server (placeholder `smb://server`), Name, Password, Cancel and

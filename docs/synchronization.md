@@ -1,10 +1,9 @@
 # Synchronization between File Provider locations and server volumes
 
 The [accepted SMB simplification](smb-simplification.md) replaces custom remote recovery and
-content proofs. Implementation and signed VM checks are complete; read-performance targets
-remain unmet. Earlier dated milestones remain historical evidence.
+content proofs.
 
-Date: 2026-10-11. Decision status: proposed. The user wants this model settled before deciding on
+Decision status: proposed. The user wants this model settled before deciding on
 any guard against mounting the same folder both ways. Components follow
 [architecture.md](architecture.md); identity and change discovery there (§7) remain the baseline.
 Terms follow [ui-design.md §2](ui-design.md#2-terms).
@@ -63,8 +62,7 @@ Use several triggers, each cheap. None is trusted alone.
 
 Unverified assumptions, to test before relying on them: that FSEvents reports this Mac's own writes
 on an SMB mount, and that the user's NAS delivers `CHANGE_NOTIFY`. Samba 4.19 delivers it to
-0.2.0's watches ([results](results/2026-11-08-release-checks.md#new-behaviour)); the NAS is
-untested. Neither is relied on for correctness; revalidation on access and reconciliation remain
+0.2.0's watches; the NAS is untested. Neither is relied on for correctness; revalidation on access and reconciliation remain
 the safety net.
 
 ## 5. Applying changes
@@ -147,8 +145,7 @@ periods:
 
 ## 10. What phase 2 implements
 
-The [phase 2 plan](phase2-plan.md) builds a read-only subset of this model in M4 and M5. Its
-signed VM browsing and reads passed [runtime checks](results/2026-10-14-catalog-browsing-reads.md).
+The [phase 2 plan](phase2-plan.md) builds a read-only subset of this model in M4 and M5.
 Phase 3 extends that subset with verified offline status, folder keeps and change discovery.
 
 - **Tracked per item:** section 3's fields, in one SQLite catalog per File Provider location. The
@@ -174,8 +171,7 @@ Phase 3 extends that subset with verified offline status, folder keeps and chang
   `CHANGE_NOTIFY` requests on one connection per share, with no mount. Watches are bounded to 64 per session;
   scheduled listings run one at a time, due 60 s after success, with failure backoff. These are
   scheduling policies, not the latency targets proposed in section 4. See the
-  [M15 plan](phase3-plan.md#m15-discover-nas-changes-while-the-app-runs) and
-  [signed VM results](results/2026-10-19-nas-change-discovery.md).
+  [M15 plan](phase3-plan.md#m15-discover-nas-changes-while-the-app-runs).
 - **Writes:** M18 adds new files/folders and receipt-backed initial folder naming. Existing-file
   saves now use ordinary overwrites with File Provider retaining pending contents, as described
   in section 6. Each content upload then sets the server's modification time to the local save
@@ -199,13 +195,13 @@ of NAS freshness. The broader latency targets in section 4 remain proposed.
 - Overlapping File Provider locations: warn or block.
 - A scratch folder on the NAS for these tests: which path, and permission to write there.
 
-## M20 known renames (accepted 2026-10-29)
+## M20 known renames
 
 A protected same-folder rename keeps each affected location's item ID, content version and
 keep request. The app records those views before publication and updates them under the shared
 namespace lock. This applies across saved accounts on the same server/share. Pending renames
 block reconciliation and source removal for every recorded view until fresh evidence resolves
 them. Unavailable overlapping catalogs or mismatched path spellings refuse a new rename.
-External renames still follow the existing discovery rules. Signed VM interruption checks
-preserve both overlapping catalogs and their downloaded copies; uncertain recovery blocks both
-participants until evidence resolves it. See the [M20 results](results/2026-10-29-file-renaming.md).
+External renames still follow the existing discovery rules. An interrupted rename preserves
+both overlapping catalogs and their downloaded copies; uncertain recovery blocks both
+participants until evidence resolves it.
