@@ -234,6 +234,11 @@ Rules that the connection keeps:
 - **SMB 3 only**, with signing and encryption required and no guest session: the vendored libsmb2
   refuses every guest session and treats an `ntlm:<hex>` password as an ordinary password
   ([Vendor/libsmb2](../Vendor/libsmb2/README.md)).
+- **A dropped session is ended by the next one.** When a request fails with the connection (reset,
+  timeout), the session closes for good and the share remembers its ID in memory. The share's next
+  session sends one such ID as SESSION_SETUP's PreviousSessionId, oldest first, so the server ends
+  that session and closes its open files at once instead of when it notices the lost connection.
+  Only sessions that this process dropped are named; Samba honours it for the same user only.
 
 ### Selection rule
 

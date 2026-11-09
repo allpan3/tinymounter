@@ -35,10 +35,11 @@ final class SMBEdit: FileRenameRemote, UploadRemote {
     private static let statusKey = "tinymounter.smb.ntstatus"
 
     /// Throws `SourceFailure`.
-    init(share: ShareAddress, password: Data, folder: RelativePath, progress: Progress) throws {
+    init(share: ShareAddress, password: Data, folder: RelativePath, previousSession: UInt64?,
+         progress: Progress) throws {
         var error: Int32 = 0, status: UInt32 = 0
         guard let client = SMBClient.withLogin(host: share.host, account: share.account, password: password, {
-            tm_edit_connect_password($0, share.share, &error, &status)
+            tm_edit_connect_password($0, share.share, previousSession ?? 0, &error, &status)
         }) else {
             throw SMBSignIn.failure(status: status, errno: error)
         }
@@ -49,6 +50,11 @@ final class SMBEdit: FileRenameRemote, UploadRemote {
     }
 
     deinit { tm_edit_disconnect(client) }
+
+    var droppedSessionID: UInt64? {
+        let id = tm_edit_dropped_session(client)
+        return id == 0 ? nil : id
+    }
 
     func protectAncestors(of path: String) throws {
         let full = try remotePath(path)

@@ -30,7 +30,8 @@ def main():
     lib = C.CDLL(library)
     pointer, data = C.c_void_p, C.POINTER(C.c_ubyte)
     for name, arguments, result in [
-        ('connect_password', [C.POINTER(Login), C.c_char_p, C.POINTER(C.c_int), C.POINTER(C.c_uint32)], pointer),
+        ('connect_password', [C.POINTER(Login), C.c_char_p, C.c_uint64, C.POINTER(C.c_int), C.POINTER(C.c_uint32)],
+         pointer),
         ('disconnect', [pointer], None),
         ('open', [pointer, C.c_char_p, C.c_uint32, C.c_uint32, data], C.c_int),
         ('read', [pointer, data, C.c_uint64, data, C.c_uint32, C.POINTER(C.c_uint32)], C.c_int),
@@ -50,7 +51,7 @@ def main():
         error, status = C.c_int(), C.c_uint32()
         buffer = (C.c_ubyte * len(secret)).from_buffer_copy(secret)
         login = Login(server.encode(), account, buffer, len(secret))
-        context = lib.tm_edit_connect_password(C.byref(login), b'tinymounter-single', C.byref(error),
+        context = lib.tm_edit_connect_password(C.byref(login), b'tinymounter-single', 0, C.byref(error),
                                                C.byref(status))
         return context, error.value
 

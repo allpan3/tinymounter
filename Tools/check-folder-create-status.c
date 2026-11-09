@@ -225,7 +225,7 @@ static int check_entry_cases(void)
         connect_result = connects[i].result;
         int error = 0;
         uint32_t status = 1;
-        struct smb2_context *smb = tm_smb_connect_password(&login, "share", &error, &status);
+        struct smb2_context *smb = tm_smb_connect_password(&login, "share", 0, &error, &status);
         if (smb || error != connects[i].error || queued) {
             fprintf(stderr, "password connect case %zu failed\n", i);
             return 1;
@@ -238,7 +238,7 @@ static int check_entry_cases(void)
         struct tm_smb_login login = {"fixture", guests[i], password, sizeof(password)};
         int error = 0;
         uint32_t status = 1;
-        if (tm_smb_connect_password(&login, "share", &error, &status) || error != EACCES || status) {
+        if (tm_smb_connect_password(&login, "share", 0, &error, &status) || error != EACCES || status) {
             fprintf(stderr, "guest sign-in case %zu failed\n", i);
             return 1;
         }

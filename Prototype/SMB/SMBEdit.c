@@ -15,7 +15,7 @@
 #include "SMBRename.h"
 
 struct tm_edit_reply {
-    int done, error;
+    int done, error, local;
     uint32_t ntstatus;
     smb2_file_id file;
     uint64_t values[8];
@@ -27,25 +27,26 @@ struct tm_edit_reply {
 struct edit_client {
     struct smb2_context *smb;
     uint32_t ntstatus;
+    uint64_t dropped_session;
 };
 extern void tm_smb_end_edit(void *);
 extern void tm_smb_destroy_context(void *);
 extern int tm_smb_compose(const char *, char *, size_t);
-extern struct smb2_context *tm_smb_connect_password(const struct tm_smb_login *, const char *, int *,
-                                                    uint32_t *);
+extern struct smb2_context *tm_smb_connect_password(const struct tm_smb_login *, const char *, uint64_t,
+                                                    int *, uint32_t *);
 extern int tm_smb_session_create_folder(struct smb2_context *, const char *, uint64_t, uint64_t,
                                         tm_smb_folder_callback, void *, int *,
                                         struct tm_smb_folder_trace *, int *);
 extern int tm_smb_session_name_folder(struct smb2_context *, const char *, const char *, uint64_t,
                                       uint64_t, int, tm_smb_folder_callback, void *, int *, int *);
 
-void *tm_edit_connect_password(const struct tm_smb_login *login, const char *share, int *error,
-                               uint32_t *status)
+void *tm_edit_connect_password(const struct tm_smb_login *login, const char *share,
+                               uint64_t previous_session, int *error, uint32_t *status)
 {
     struct edit_client *client = calloc(1, sizeof(*client));
     *status = 0;
     if (!client) { *error = ENOMEM; return NULL; }
-    client->smb = tm_smb_connect_password(login, share, error, status);
+    client->smb = tm_smb_connect_password(login, share, previous_session, error, status);
     if (!client->smb) { free(client); return NULL; }
     return client;
 }
@@ -55,6 +56,12 @@ void tm_edit_disconnect(void *opaque)
     struct edit_client *client = opaque;
     tm_smb_end_edit(client->smb);
     free(client);
+}
+
+uint64_t tm_edit_dropped_session(void *opaque)
+{
+    struct edit_client *client = opaque;
+    return client->dropped_session;
 }
 
 uint32_t tm_edit_last_ntstatus(void *opaque)
@@ -72,6 +79,7 @@ static void done(struct smb2_context *smb, int status, void *data, void *context
     int server_failure = data && (raw & SMB2_STATUS_SEVERITY_MASK) >= SMB2_STATUS_SEVERITY_WARNING
         && !(raw & 0x10000000);
     reply->ntstatus = server_failure ? raw : 0;
+    reply->local = status && !data;
     reply->done = 1;
 }
 
@@ -81,6 +89,7 @@ static void drop_connection(struct edit_client *client)
     struct linger reset = {.l_onoff = 1, .l_linger = 0};
     t_socket connection = smb2_get_fd(client->smb);
     if (connection >= 0) (void)setsockopt(connection, SOL_SOCKET, SO_LINGER, &reset, sizeof(reset));
+    client->dropped_session = smb2_get_session_id(client->smb);
     // Destroy queued callbacks while their reply storage is still alive.
     tm_smb_destroy_context(client->smb);
     client->smb = NULL;
@@ -100,9 +109,11 @@ static int wait_reply(struct edit_client *client, struct smb2_pdu *pdu, struct t
         clock_gettime(CLOCK_MONOTONIC, &now);
         if (!reply->done && now.tv_sec - start.tv_sec >= 12) { error = ETIMEDOUT; break; }
     }
-    if (error) {
+    // libsmb2 ends a request itself after its 10-second timeout. Without a server reply, the
+    // request can still complete later, so the connection is as unusable as after our timeout.
+    if (error || reply->local) {
         drop_connection(client);
-        return error;
+        return error ? error : reply->error;
     }
     client->ntstatus = reply->error ? reply->ntstatus : 0;
     return reply->error;

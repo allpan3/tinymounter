@@ -57,7 +57,8 @@ public protocol RemoteClient: Sendable {
     func shareNames(on server: ServerAccount, password: Data) throws -> [String]
 
     /// Signs in and connects to the share. Relative paths start at `folder`, from the share root.
-    func openSession(_ share: ShareAddress, password: Data, folder: RelativePath,
+    /// `previousSession` is a dropped session's `droppedSessionID`; the server ends that session.
+    func openSession(_ share: ShareAddress, password: Data, folder: RelativePath, previousSession: UInt64?,
                      progress: Progress) throws -> any RemoteSession
 
     /// Signs in on a connection of its own for change notices. It watches no folder until
@@ -71,6 +72,8 @@ public protocol RemoteClient: Sendable {
 public protocol RemoteSession: AnyObject, UploadRemote, FileRenameRemote, FolderMoveRemote, DeletionRemote {
     /// Payload bytes read so far, for the fetch log.
     var readBytes: Int64 { get }
+    /// Set when a request failed with the connection, which the session then closed for good.
+    var droppedSessionID: UInt64? { get }
 
     // Listing
     func directoryIdentity(_ path: RelativePath) throws -> RemoteFileIdentity

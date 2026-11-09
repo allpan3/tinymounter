@@ -24,7 +24,7 @@
 
 extern int tm_smb_compose(const char *path, char *composed, size_t capacity);
 extern struct smb2_context *tm_smb_connect_password(const struct tm_smb_login *login, const char *share,
-                                                    int *error, uint32_t *status);
+                                                    uint64_t previous_session, int *error, uint32_t *status);
 
 struct watch {
     struct watch *next;
@@ -70,7 +70,7 @@ static struct smb2_context *connect_share(const char *server, const char *share,
 {
     struct tm_smb_login login = { .server = server, .account = account, .password = password,
                                   .password_length = length };
-    return tm_smb_connect_password(&login, share, error, ntstatus);
+    return tm_smb_connect_password(&login, share, 0, error, ntstatus);
 }
 
 static void deliver(struct tm_notify *n, int event, uint64_t token, uint32_t status,

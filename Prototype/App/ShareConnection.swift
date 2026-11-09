@@ -88,6 +88,7 @@ final class ShareConnection: @unchecked Sendable {
     private let tick: DispatchSourceTimer
     private let lock = NSLock()
     private var health = ConnectionHealth()
+    private var previousSessions = PreviousSessions()
     private var stateHandler: (@Sendable (ConnectionState) -> Void)?
     private var connecting = false
     /// Set by the first `connect()`: a returning network path or wake then connects again.
@@ -159,7 +160,7 @@ final class ShareConnection: @unchecked Sendable {
         let session: any RemoteSession
         do {
             session = try signIn.signIn { password in
-                try client.openSession(address, password: password, folder: folder, progress: progress)
+                try openSession(password: password, folder: folder, progress: progress)
             }
             changeHealth { $0.end(connecting) }
         } catch {
@@ -175,8 +176,12 @@ final class ShareConnection: @unchecked Sendable {
         let observation = progress.observe(\.completedUnitCount) { _, _ in progressed() }
         defer { observation.invalidate() }
         do {
-            return try body(session, progressed)
+            let result = try body(session, progressed)
+            ended(session)
+            return result
         } catch {
+            // Before the failure changes the health, which can open the next session.
+            ended(session)
             failed(error)
             throw error
         }
@@ -226,6 +231,31 @@ final class ShareConnection: @unchecked Sendable {
         DispatchQueue.global(qos: .utility).async { [changeWatch] in changeWatch.cancel() }
     }
 
+    /// Names one dropped session as the previous session, so the server releases its open files.
+    private func openSession(password: Data, folder: RelativePath, progress: Progress) throws -> any RemoteSession {
+        let previous = lock.withLock { previousSessions.take() }
+        do {
+            let session = try client.openSession(address, password: password, folder: folder,
+                                                 previousSession: previous, progress: progress)
+            if let previous {
+                Self.logger.info("share=\(self.shareID.uuidString, privacy: .public) previous_session=\(Self.hex(previous), privacy: .public)")
+            }
+            return session
+        } catch {
+            if let previous { lock.withLock { previousSessions.unsent(previous) } }
+            throw error
+        }
+    }
+
+    /// A session that lost its connection is never used again, so the next one can end it.
+    private func ended(_ session: any RemoteSession) {
+        guard let id = session.droppedSessionID else { return }
+        lock.withLock { previousSessions.dropped(id) }
+        Self.logger.info("share=\(self.shareID.uuidString, privacy: .public) session_dropped=\(Self.hex(id), privacy: .public)")
+    }
+
+    private static func hex(_ id: UInt64) -> String { "0x" + String(id, radix: 16) }
+
     private func succeeded() {
         let recovered = changeHealth { $0.succeeded() }
         if !recovered.isEmpty { onRecovery(recovered) }
@@ -262,8 +292,9 @@ final class ShareConnection: @unchecked Sendable {
             var succeeded = false
             do {
                 let session = try signIn.signIn { password in
-                    try client.openSession(address, password: password, folder: .root, progress: Progress())
+                    try openSession(password: password, folder: .root, progress: Progress())
                 }
+                defer { ended(session) }
                 _ = try session.directoryIdentity(.root)
                 succeeded = true
             } catch {

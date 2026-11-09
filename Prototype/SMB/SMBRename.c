@@ -32,7 +32,7 @@ void tm_smb_destroy_context(void *opaque)
 }
 
 struct reply {
-    int done, error, queued, queried;
+    int done, error, queued, queried, local;
     uint32_t status;
     smb2_file_id file;
     uint64_t identity, birth;
@@ -52,6 +52,8 @@ static void finished(struct smb2_context *smb, int status, void *data, void *con
     struct reply *reply = context;
     reply->status = (uint32_t)status;
     reply->error = status ? nterror_to_errno((uint32_t)status) : 0;
+    // libsmb2's own timeout and shutdown end a request without a server reply.
+    reply->local = status && !data;
     reply->done = 1;
 }
 
@@ -111,6 +113,7 @@ static int perform(struct smb2_context *smb, struct smb2_pdu *pdu, struct reply 
     reply->done = 0;
     reply->error = 0;
     reply->status = 0;
+    reply->local = 0;
     smb2_queue_pdu(smb, pdu);
     struct timespec start, now;
     clock_gettime(CLOCK_MONOTONIC, &start);
@@ -123,7 +126,7 @@ static int perform(struct smb2_context *smb, struct smb2_pdu *pdu, struct reply 
         if (now.tv_sec - start.tv_sec >= 12 && !reply->done) { error = ETIMEDOUT; break; }
     }
     // A request without a reply can still complete later, so its connection is unusable.
-    if (error && session_link) session_link->failed = 1;
+    if ((error || reply->local) && session_link) session_link->failed = 1;
     return error ? error : reply->error;
 }
 
@@ -240,7 +243,7 @@ static int connect_error(int connected)
 }
 
 struct smb2_context *tm_smb_connect_password(const struct tm_smb_login *login, const char *share,
-                                             int *error, uint32_t *status)
+                                             uint64_t previous_session, int *error, uint32_t *status)
 {
     *status = 0;
     *error = EINVAL;
@@ -286,6 +289,7 @@ struct smb2_context *tm_smb_connect_password(const struct tm_smb_login *login, c
     smb2_set_sign(smb, 1);
     smb2_set_seal(smb, 1);
     smb2_set_security_mode(smb, SMB2_NEGOTIATE_SIGNING_ENABLED | SMB2_NEGOTIATE_SIGNING_REQUIRED);
+    smb2_set_previous_session_id(smb, previous_session);
     int connected = smb2_connect_share(smb, login->server, share, NULL);
     smb2_clear_password(smb);
     if (connected) {
@@ -335,7 +339,7 @@ int tm_smb_share_names(const struct tm_smb_login *login, tm_smb_share_callback e
 {
     int error;
     if (!each) return EINVAL;
-    struct smb2_context *smb = tm_smb_connect_password(login, "IPC$", &error, status);
+    struct smb2_context *smb = tm_smb_connect_password(login, "IPC$", 0, &error, status);
     if (!smb) return error;
     struct share_listing listing = { .each = each, .context = context };
     error = smb2_share_enum_async(smb, SHARE_INFO_1, shares_listed, &listing);
