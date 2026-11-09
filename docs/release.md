@@ -98,6 +98,10 @@ Known limits for this release:
   fails with "Text file busy" and retries by itself, with delays that grow to 5 minutes, until
   the server notices the lost connection (on Samba's defaults, up to about 2 hours). The data
   stays on this Mac.
+- While macOS retries an upload that the server refuses, such as a new file in a folder without
+  write access, the location's Keep Downloaded items can show Requested for up to about
+  25 minutes, and Kept downloaded shows late. The check waits until macOS has no work left for
+  the location, and macOS waits longer between attempts until it stops trying.
 - Wake and network-change reconnection of 0.2.0 sessions, and a server with change
   notification turned off, have not had VM checks.
 - There is no automatic updater. Install later releases by replacing the app after uploads finish.
