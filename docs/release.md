@@ -15,6 +15,8 @@ are not supported by this package. Download it while signed in to the private Gi
 4. Open TinyMounter from Applications. If macOS blocks it because Apple cannot verify it,
    use **System Settings → Privacy & Security → Open Anyway**, confirm Open Anyway again,
    and authenticate with your Mac administrator account if asked.
+   If Open Anyway is not offered, remove the download quarantine from this app only, in Terminal:
+   `xattr -dr com.apple.quarantine /Applications/TinyMounter.app`. Then open it again.
    Do not turn off Gatekeeper or change system security settings.
 5. If macOS asks, enable TinyMounter under **General → Login Items & Extensions → File Providers**.
    In the new location, choose Add Server… in the Server menu. Type the server address, your
