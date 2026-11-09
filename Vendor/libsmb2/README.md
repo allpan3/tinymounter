@@ -64,3 +64,7 @@ request outstanding per connection. This uses the same bounds as the library's h
 pread/pwrite, while retaining decoded server status for error handling. The adapter and its
 tests must use the library's build definitions, without `HAVE_LIBKRB5`, so the context layout
 matches.
+- `smb2_set_previous_session_id()` sets SESSION_SETUP's PreviousSessionId, which upstream always
+  sent as 0, and `smb2_get_session_id()` returns the session's ID. The server then ends that
+  earlier session of the same user and closes its open files, so an upload cut off by a network
+  loss can open its file again at once.

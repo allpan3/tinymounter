@@ -827,6 +827,7 @@ send_session_setup_request(struct smb2_context *smb2,
         /* Session setup request. */
         memset(&req, 0, sizeof(struct smb2_session_setup_request));
         req.security_mode = (uint8_t)smb2->security_mode;
+        req.previous_session_id = smb2->previous_session_id;
 
         if (smb2->sec == SMB2_SEC_NTLMSSP) {
                 /*ntlmssp_set_spnego_wrapping(c_data->auth_data, 1);*/

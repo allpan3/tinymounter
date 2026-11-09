@@ -714,6 +714,16 @@ void smb2_set_timeout(struct smb2_context *smb2, int seconds)
         smb2->timeout = seconds;
 }
 
+void smb2_set_previous_session_id(struct smb2_context *smb2, uint64_t id)
+{
+        smb2->previous_session_id = id;
+}
+
+uint64_t smb2_get_session_id(struct smb2_context *smb2)
+{
+        return smb2->session_id;
+}
+
 void smb2_set_version(struct smb2_context *smb2,
                       enum smb2_negotiate_version version)
 {

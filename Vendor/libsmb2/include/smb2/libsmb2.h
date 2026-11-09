@@ -268,6 +268,19 @@ int smb2_service_fd(struct smb2_context *smb2, t_socket fd, int revents);
 void smb2_set_timeout(struct smb2_context *smb2, int seconds);
 
 /*
+ * Set the PreviousSessionId of the next session setup. The server then ends
+ * that session of the same user, and closes its open files.
+ *
+ * Default is 0: No previous session.
+ */
+void smb2_set_previous_session_id(struct smb2_context *smb2, uint64_t id);
+
+/*
+ * The session ID that the server assigned, or 0 before a session is set up.
+ */
+uint64_t smb2_get_session_id(struct smb2_context *smb2);
+
+/*
  * Set passthrough-enable.  Passthrough allows command packers
  * and unpackers to keep the extra data on complex commands
  * in its on-the-wire format without any interpretation. this

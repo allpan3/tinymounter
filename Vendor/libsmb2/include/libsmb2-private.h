@@ -177,6 +177,8 @@ struct smb2_context {
         int  tree_id_cur;
         uint64_t message_id;
         uint64_t session_id;
+        /* Sent in SESSION_SETUP so the server ends that earlier session. */
+        uint64_t previous_session_id;
         uint8_t *session_key;
         uint8_t session_key_size;
 
