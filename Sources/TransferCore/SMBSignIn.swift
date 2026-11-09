@@ -2,8 +2,12 @@ import Darwin
 
 /// What a refused SMB sign-in or share connection means, from the server's NTSTATUS.
 public enum SMBSignIn {
-    /// The server refused the account name or password; only this enters Sign In Again….
-    static let logonFailure: UInt32 = 0xC000_006D
+    /// The server refused the password, or wants a new one: these enter Sign In Again….
+    static let passwordRefused: Set<UInt32> = [
+        0xC000_006D, // LOGON_FAILURE: wrong name or password
+        0xC000_0071, // PASSWORD_EXPIRED
+        0xC000_0224, // PASSWORD_MUST_CHANGE
+    ]
     /// The account can't sign in now. Retrying can lock it, and a new password doesn't help.
     static let accountRefused: Set<UInt32> = [
         0xC000_0234, // ACCOUNT_LOCKED_OUT
@@ -12,8 +16,6 @@ public enum SMBSignIn {
         0xC000_006E, // ACCOUNT_RESTRICTION
         0xC000_006F, // INVALID_LOGON_HOURS
         0xC000_0070, // INVALID_WORKSTATION
-        0xC000_0071, // PASSWORD_EXPIRED
-        0xC000_0224, // PASSWORD_MUST_CHANGE
     ]
     static let shareRefused: Set<UInt32> = [
         0xC000_0022, // ACCESS_DENIED
@@ -24,7 +26,7 @@ public enum SMBSignIn {
     /// `status` is the NTSTATUS of the refused step, or 0 when no server reply decided it.
     /// libsmb2 reports LOGON_FAILURE as ECONNREFUSED, so the status decides first.
     public static func failure(status: UInt32, errno code: Int32) -> SourceFailure {
-        if status == logonFailure { return .notAuthenticated }
+        if passwordRefused.contains(status) { return .notAuthenticated }
         if accountRefused.contains(status) || shareRefused.contains(status) { return .noPermission }
         if status == badNetworkName { return .missing }
         return SourceFailure.classify(errno: code, context: .listing)
