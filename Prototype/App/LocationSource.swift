@@ -316,8 +316,12 @@ final class LocationSource: @unchecked Sendable {
                     return confirmations.insert(folderID).inserted
                 }
                 if confirm { scheduleConfirmation(folderID) }
-                if changed > 0 { scheduleSignal() }
-                if applied { lock.withLock { changeHandler }?() }
+                // A listing that changed nothing must not report a change: the keep check runs
+                // again at each change, and the share's folders are listed again every minute.
+                if changed > 0 {
+                    scheduleSignal()
+                    lock.withLock { changeHandler }?()
+                }
                 if folderID == Catalog.rootItemID { setRootMissing(false) }
                 let done = ContinuousClock.now
                 Self.listingLog.info("""
