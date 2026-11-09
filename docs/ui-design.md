@@ -20,9 +20,9 @@ replaced the Add Server… address dialog, and a folder browser replaced the Fol
 
 The current build leaves out the Locations folder and Open Locations Folder (Finder's sidebar
 already shows each location), the "Keep this much disk space free" control and Export
-Diagnostics; About shows diagnostic counts with Copy. Its menu bar item is a menu-style
-`MenuBarExtra`, which shows only menu items, so a location shows "42% downloaded" instead of a
-progress bar. All UI text is in `Prototype/App/UIText.swift`, so the STE checker reads one file.
+Diagnostics; About shows diagnostic counts with Copy. Its menu bar item opens a window-style
+`MenuBarExtra` panel (section 5). All UI text is in `Prototype/App/UIText.swift`, so the STE
+checker reads one file.
 Folder completion lists the typed parent folder 150 ms after the last keystroke and suggests at
 most 50 subfolders.
 
@@ -78,7 +78,7 @@ writes them.
 
 | Surface | Purpose |
 | --- | --- |
-| Menu bar item | Status, transfers and quick actions. It keeps the reader running, which reads of data that isn't downloaded need. |
+| Menu bar item | Status, transfers, recent activity and quick actions. It keeps the reader running, which reads of data that isn't downloaded need. |
 | Settings window | Locations, servers, offline storage, general settings, diagnostics |
 | Finder | Locations in the sidebar, status decorations, Keep Downloaded and Allow Removal |
 | Notifications | The event kinds that General turns on (section 4.3). By default: sign-in problems, failed uploads and downloads, conflict copies and low disk space |
@@ -211,13 +211,37 @@ the first location on a server.
 
 The icon is a monochrome outline of the selected drive-and-network logo, without the TM.
 An arrow inside the drive indicates downloads; an exclamation mark indicates a problem.
-Problem status takes precedence. macOS supplies the light/dark menu-bar tint. The menu shows:
+Problem status takes precedence. macOS supplies the light/dark menu-bar tint. A click opens a
+panel about 340 points wide, in the native look of a window-style `MenuBarExtra`. From top to
+bottom:
 
-- one line per location, with its state, and a progress bar for active transfers;
-- Open Locations Folder (⌘O) and Pause Downloads. Pause stops Keep Downloaded downloads and
-  read-ahead; a file that the user opens still downloads;
-- Settings… and Quit TinyMounter. Quit warns during downloads, and says that files that are not
-  downloaded cannot open until TinyMounter starts again.
+- **Locations:** one row for each location and Server Volume, with a status dot, the name and
+  the state in secondary text: Connected, Paused, 42% downloaded, Offline (the server does not
+  answer), Not connected, Cannot sign in to home-nas, or the problem that the location pane
+  shows. A click shows the location in Finder. Under the pointer the row highlights like a menu
+  item and shows Show in Finder. A row with a problem shows its action instead, as
+  accent-colored text: Sign In Again…, which opens Settings with the sign-in sheet, or Connect.
+  A Server Volume shows Mounted or Not mounted, with Connect or Sign In Again… when it is not
+  mounted. A settings problem shows above the rows, and "No locations" when there are none.
+- **Transfers,** only while something transfers: each upload (a new file or a save) and each
+  complete-file download, with ↑ or ↓, the name, "Documents · 3.1 of 8.4 MB" and a thin progress
+  bar. Range reads for playback and Quick Look are not listed. An upload that macOS sends again
+  by itself (`UploadRecovery.retriesByItself`) shows "Waiting for home-nas". The app reads the
+  progress twice a second.
+- **Recent Activity:** the newest events first, with the name, what happened, the location and
+  the relative time. Six rows show; more scroll. Problem rows have a red symbol. Upload failed
+  shows Retry, which runs Retry Pending Changes for that location: macOS releases failed uploads
+  only for a whole location.
+- **Actions,** as full-width rows that highlight like menu items: Pause Downloads or Resume
+  Downloads; Retry Pending Changes with the number of pending changes in all locations,
+  unavailable when there are none; Settings… (⌘,) and Quit TinyMounter (⌘Q). Pause stops Keep
+  Downloaded downloads and read-ahead; a file that the user opens still downloads. Quit warns
+  during downloads, and says that files that are not downloaded cannot open until TinyMounter
+  starts again.
+
+Like a menu, the panel closes when an action opens another window: Show in Finder, Settings… and
+Sign In Again…. Pause, Retry, Retry Pending Changes and Connect keep it open, so that their result
+shows in it.
 
 The events, as Recent Activity names them:
 
