@@ -17,8 +17,10 @@ public struct ActivityEvent: Codable, Equatable, Identifiable, Sendable {
     public let name: String
     /// A short reason for a failure, as UI text.
     public let detail: String?
+    /// The File Provider item of an upload, which relates its failure to a later success.
+    public let item: String?
 
-    public init(kind: Kind, domain: String?, name: String, detail: String? = nil,
+    public init(kind: Kind, domain: String?, name: String, detail: String? = nil, item: String? = nil,
                 date: Date = .now, id: UUID = UUID()) {
         self.id = id
         self.date = date
@@ -26,6 +28,7 @@ public struct ActivityEvent: Codable, Equatable, Identifiable, Sendable {
         self.domain = domain
         self.name = name
         self.detail = detail
+        self.item = item
     }
 
     /// The setting that routes this event; nil for finished uploads and downloads, which only
@@ -84,6 +87,14 @@ public struct ActivityHistory: Equatable, Sendable {
     public mutating func add(_ event: ActivityEvent) {
         events.insert(event, at: events.firstIndex { $0.date <= event.date } ?? events.endIndex)
         if events.count > Self.limit { events.removeLast(events.count - Self.limit) }
+    }
+
+    /// True when the item's newest upload outcome is a failure. macOS sends a failed upload
+    /// again, also after a relaunch, and the failure is listed once until the upload succeeds.
+    public func uploadFailed(domain: String, item: String) -> Bool {
+        events.first {
+            $0.domain == domain && $0.item == item && [.uploaded, .uploadFailed, .conflictCopy].contains($0.kind)
+        }?.kind == .uploadFailed
     }
 
     /// A removed location takes its names with it.

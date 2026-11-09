@@ -445,7 +445,26 @@ enum UIText {
         The menu bar item keeps TinyMounter open. TinyMounter must be open to read data that is not downloaded.
         """
     static let notifications = "Notifications"
-    static let notificationsDescription = "Show a notification when a share disconnects or a download cannot start."
+    static let notificationsDescription = """
+        Select where TinyMounter shows each event. When both are off, TinyMounter does not show the event.
+        """
+    static let menuBarOffNote = "The menu bar item is off. You cannot see the events for the panel."
+    static let event = "Event"
+    static let notification = "Notification"
+    static let panel = "Panel"
+    static func notificationName(_ kind: NotificationKind) -> String {
+        switch kind {
+        case .signInNeeded: "Sign-in needed"
+        case .uploadFailed: "Upload failed"
+        case .downloadFailed: "Download failed"
+        case .conflictCopy: "Kept a conflict copy"
+        case .lowDiskSpace: "Low disk space"
+        case .connection: "Connection lost or restored"
+        case .keepDownloaded: "Keep Downloaded finished"
+        }
+    }
+    static func notifyLabel(_ kind: NotificationKind) -> String { "\(notificationName(kind)): notification" }
+    static func panelLabel(_ kind: NotificationKind) -> String { "\(notificationName(kind)): panel" }
 
     // Storage
     static let notAvailable = "Not available"
@@ -508,7 +527,16 @@ enum UIText {
     static func cannotConnectTitle(_ host: String) -> String { "TinyMounter cannot connect to \(host)" }
     static func cannotSignInTitle(_ host: String) -> String { "TinyMounter cannot sign in to \(host)" }
     static let signInAgainInSettings = "Open TinyMounter Settings. Then click Sign In Again…"
-    static let downloadFailedTitle = "A file cannot download"
+    static func downloadFailedTitle(_ name: String) -> String { "“\(name)” cannot download" }
+    static func uploadFailedTitle(_ name: String) -> String { "“\(name)” did not upload" }
+    static func connectedAgainTitle(_ host: String) -> String { "TinyMounter is connected to \(host) again" }
+    static func conflictTitle(_ name: String) -> String { "“\(name)” changed on the server" }
+    static let conflictMessage = "Your save did not replace the file on the server. macOS keeps your version as a copy."
+    static let lowSpaceTitle = "There is not sufficient disk space"
+    static func lowSpaceMessage(_ name: String) -> String {
+        "“\(name)” cannot download. Make more space available on this Mac."
+    }
+    static func keptTitle(_ name: String) -> String { "“\(name)” is available offline" }
     static func onSameNetwork(_ host: String) -> String {
         "Make sure that \(host) is on. Make sure that this Mac is on the same network."
     }

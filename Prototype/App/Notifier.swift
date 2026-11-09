@@ -2,17 +2,21 @@ import Foundation
 import OSLog
 import UserNotifications
 
-/// Notifications: one per share per outage, never at launch and never with a file name.
+/// Sends each event to the panel, a notification, both or neither, as Settings › General says.
+/// Notifications hold file names. Connection and sign-in events come once per outage, not at launch.
 @MainActor
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
-    static let enabledKey = "notifications"
-    /// Shares and servers with a notification in this outage; a connection ends the outage.
-    private var notified: Set<UUID> = []
+    private let activity: ActivityLog
+    /// Shares that lost their connection in this outage; a connection ends the outage.
+    private var lost: Set<UUID> = []
+    /// Servers that refused the saved password since it was saved or a share connected.
+    private var refused: Set<UUID> = []
+    /// Shares with a failed download in this outage.
+    private var failedDownloads: Set<UUID> = []
     nonisolated private static let log = Logger(subsystem: "dev.tinymounter.prototype", category: "share")
 
-    private var isEnabled: Bool { UserDefaults.standard.object(forKey: Self.enabledKey) as? Bool ?? true }
-
-    override init() {
+    init(activity: ActivityLog) {
+        self.activity = activity
         super.init()
         UNUserNotificationCenter.current().delegate = self
     }
@@ -30,53 +34,67 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    /// Posts when a share that has locations stops answering, and once per server that refuses the
-    /// saved password. A lost network needs no notification: the share connects again by itself.
+    /// A share that has locations stops answering, connects again, or its server refuses the
+    /// saved password. A lost network is no event: the share connects again by itself.
     func shareChanged(_ share: ShareRecord, host: String, from before: ConnectionState, to state: ConnectionState,
                       hasLocations: Bool) {
         switch (before, state) {
         case (_, .connected):
-            notified.remove(share.id)
-            notified.remove(share.serverID)
+            refused.remove(share.serverID)
+            failedDownloads.remove(share.id)
+            guard lost.remove(share.id) != nil else { return }
+            report(ActivityEvent(kind: .connectionRestored, domain: nil, name: host),
+                   title: UIText.connectedAgainTitle(host), body: "", id: "share-\(share.id.uuidString)")
         case _ where !hasLocations:
             break
         case (.connected, .unresponsive):
-            post(share.id, title: UIText.cannotConnectTitle(host), body: UIText.onSameNetwork(host))
+            guard lost.insert(share.id).inserted else { return }
+            report(ActivityEvent(kind: .connectionLost, domain: nil, name: host),
+                   title: UIText.cannotConnectTitle(host), body: UIText.onSameNetwork(host),
+                   id: "share-\(share.id.uuidString)")
         case (_, .needsSignIn):
-            post(share.serverID, title: UIText.cannotSignInTitle(host), body: UIText.signInAgainInSettings)
+            signInRefused(share, host: host)
         default:
             break
         }
     }
 
-    /// A Server Volume did not mount again because the server refused the saved password.
+    /// Once per server, also when a Server Volume did not mount again for this reason.
     func signInRefused(_ share: ShareRecord, host: String) {
-        post(share.serverID, title: UIText.cannotSignInTitle(host), body: UIText.signInAgainInSettings)
+        guard refused.insert(share.serverID).inserted else { return }
+        report(ActivityEvent(kind: .signInNeeded, domain: nil, name: host),
+               title: UIText.cannotSignInTitle(host), body: UIText.signInAgainInSettings,
+               id: "server-\(share.serverID.uuidString)")
     }
 
-    /// Sign In Again… saved a new password: the next refusal notifies again.
-    func signedIn(_ serverID: UUID) { notified.remove(serverID) }
+    /// Sign In Again… saved a new password: the next refusal is an event again.
+    func signedIn(_ serverID: UUID) { refused.remove(serverID) }
 
     /// A download that the user started failed because the share is not connected or does not respond.
-    func downloadFailed(_ share: ShareRecord, host: String, _ failure: SourceFailure) {
+    func downloadFailed(_ share: ShareRecord, host: String, domain: String, name: String, _ failure: SourceFailure) {
+        guard failedDownloads.insert(share.id).inserted else { return }
         let body = switch failure {
         case .notConnected: UIText.connectInLocation
         case .localNetworkDenied: UIText.localNetworkDenied
         default: UIText.onSameNetwork(host)
         }
-        post(share.id, title: UIText.downloadFailedTitle, body: body)
+        report(ActivityEvent(kind: .downloadFailed, domain: domain, name: name, detail: body),
+               title: UIText.downloadFailedTitle(name), body: body)
     }
 
-    /// `id` is a share's, or a server's for sign-in; it has one notification per outage.
-    private func post(_ id: UUID, title: String, body: String) {
-        guard isEnabled, notified.insert(id).inserted else { return }
+    /// `id` replaces an earlier notification with the same ID; finished transfers only go to the panel.
+    func report(_ event: ActivityEvent, title: String = "", body: String = "", id: String? = nil) {
+        let route = event.notification?.route(in: .standard) ?? NotificationRoute(notify: false, panel: true)
+        if route.panel { activity.add(event) }
+        guard route.notify else { return }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
-        let request = UNNotificationRequest(identifier: "share-\(id.uuidString)", content: content, trigger: nil)
+        let request = UNNotificationRequest(identifier: id ?? event.id.uuidString, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request) { error in
             Self.log.info("""
-                notification share=\(id.uuidString, privacy: .public) posted=\(error == nil)
+                notification kind=\(event.kind.rawValue, privacy: .public) \
+                event=\(event.id.uuidString, privacy: .public) posted=\(error == nil)
                 """)
         }
     }

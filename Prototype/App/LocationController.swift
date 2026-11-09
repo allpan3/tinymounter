@@ -33,8 +33,10 @@ final class LocationController {
     var onChange: (() -> Void)?
     /// A share's state changed: the share, the state before and the state now.
     var onShareState: ((UUID, ConnectionState, ConnectionState) -> Void)?
-    /// A fetch that a user waits for failed on its share: the share and the failure.
-    var onUserFetchFailed: ((UUID, SourceFailure) -> Void)?
+    /// A transfer ended, or a user's fetch failed on its share: the domain and the outcome.
+    var onActivity: ((String, ReaderActivity) -> Void)?
+    /// A file's download first stopped for want of disk space: the domain and the file's name.
+    var onLowSpace: ((String, String) -> Void)?
     /// A Server Volume's share did not mount again: the server refused the saved password.
     var onVolumeSignInRefused: ((UUID) -> Void)?
     /// Saved Keep Downloaded paths became kept files: the record and the item IDs.
@@ -104,11 +106,8 @@ final class LocationController {
         reader.onConnected = { [weak self] domainID in
             Task { await self?.signalResolved(domainID, [.serverUnreachable]) }
         }
-        reader.onUserFetchFailed = { [weak self] domainID, failure in
-            guard let self, let shareID = sources[domainID]?.connection.shareID else { return }
-            onUserFetchFailed?(shareID, failure)
-        }
-        reader.onSpaceChange = { [weak self] domainID, request, blocked in
+        reader.onActivity = { [weak self] in self?.onActivity?($0, $1) }
+        reader.onSpaceChange = { [weak self] domainID, request, blocked, name in
             guard let self, self.sources[domainID] != nil else { return }
             let before = self.spaceBlocked[domainID]?[request.item]
             if blocked {
@@ -123,6 +122,7 @@ final class LocationController {
             if self.spaceBlocked[domainID]?[request.item] != before {
                 self.saveSpaceBlockedDownloads()
                 self.onLocationChange?(domainID)
+                if before == nil, let name { self.onLowSpace?(domainID, name) }
             }
         }
     }
@@ -706,13 +706,15 @@ final class LocationController {
         }
     }
 
-    func offlineStates(_ record: LocationRecord, update: ([String: OfflineState]) -> Void) async {
+    /// True when a synchronized check delivered the states, so they are verified.
+    @discardableResult
+    func offlineStates(_ record: LocationRecord, update: ([String: OfflineState]) -> Void) async -> Bool {
         guard let source = sources[record.domainID], let manager = manager(for: record),
               !record.removing, !turnedOff.contains(record.domainID) else {
             offlineVerification[record.domainID] = nil
             offlineGeneration[record.domainID] = nil
             update([:])
-            return
+            return false
         }
         let generation = UUID()
         offlineGeneration[record.domainID] = generation
@@ -720,11 +722,11 @@ final class LocationController {
             let snapshot = try await Self.offMain { try source.keepSnapshot() }
             guard !Task.isCancelled, sources[record.domainID] === source,
                   offlineGeneration[record.domainID] == generation,
-                  !turnedOff.contains(record.domainID) else { return }
+                  !turnedOff.contains(record.domainID) else { return false }
             guard !snapshot.requests.isEmpty else {
                 offlineVerification[record.domainID] = nil
                 update([:])
-                return
+                return false
             }
             for synchronized in [false, true] {
                 if synchronized {
@@ -733,7 +735,7 @@ final class LocationController {
                         try await manager.waitForStabilization()
                     } catch {
                         // A blocked download cannot invalidate other versions already checked locally.
-                        if DownloadSpace.isFull(error), spaceBlocked[record.domainID]?.isEmpty == false { return }
+                        if DownloadSpace.isFull(error), spaceBlocked[record.domainID]?.isEmpty == false { return false }
                         throw error
                     }
                 }
@@ -741,10 +743,10 @@ final class LocationController {
                 let current = try await Self.offMain { try source.keepSnapshot() }
                 guard !Task.isCancelled, sources[record.domainID] === source,
                       offlineGeneration[record.domainID] == generation,
-                      !turnedOff.contains(record.domainID) else { return }
+                      !turnedOff.contains(record.domainID) else { return false }
                 guard current == snapshot else {
                     update([:])
-                    return
+                    return false
                 }
                 var verification = offlineVerification[record.domainID] ?? OfflineVerification()
                 let blocked = Set(snapshot.items.filter {
@@ -756,12 +758,14 @@ final class LocationController {
                 offlineVerification[record.domainID] = verification
                 update(states)
             }
+            return true
         } catch {
             guard !Task.isCancelled, sources[record.domainID] === source,
-                  offlineGeneration[record.domainID] == generation else { return }
+                  offlineGeneration[record.domainID] == generation else { return false }
             offlineVerification[record.domainID] = nil
             update([:])
             Self.catalogLog.error("offline_state domain=\(record.domainID, privacy: .public) \(logFields(error), privacy: .public)")
+            return false
         }
     }
 

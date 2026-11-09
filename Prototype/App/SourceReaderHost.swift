@@ -2,6 +2,23 @@ import Darwin
 import FileProvider
 import OSLog
 
+/// A finished transfer: the item (an upload's template or an item ID), its name and the outcome.
+struct ReaderActivity: Sendable {
+    enum Outcome: Sendable {
+        case uploaded, downloaded
+        /// `UploadRecovery` says macOS sends it again, so it is not a failure yet.
+        case uploadWaiting
+        case uploadFailed(reason: String)
+        case conflict
+        case downloadFailed(SourceFailure)
+    }
+
+    let item: String
+    let name: String
+    let size: Int64
+    let outcome: Outcome
+}
+
 @MainActor
 final class SourceReaderHost {
     /// The domain's location when its session starts; nil fails every request of that session.
@@ -19,12 +36,13 @@ final class SourceReaderHost {
     }()
     /// A domain's extension took this app's reader (docs/architecture.md §3, flow 4).
     var onConnected: ((String) -> Void)?
-    /// A fetch that a user waits for failed because the share is down: the domain and the failure.
-    var onUserFetchFailed: ((String, SourceFailure) -> Void)?
+    /// A transfer finished, or a fetch that a user waits for failed because the share is down.
+    var onActivity: ((String, ReaderActivity) -> Void)?
     let downloadSpace = DownloadSpace {
         try DownloadSpace.available(at: SharedContainer.stagingDirectory())
     }
-    var onSpaceChange: ((String, SourceReadRequest, Bool) -> Void)?
+    /// The domain, the request, whether it is blocked now, and the file's name when it is.
+    var onSpaceChange: ((String, SourceReadRequest, Bool, String?) -> Void)?
 
     func update(_ current: [NSFileProviderDomain]) {
         domains = Dictionary(uniqueKeysWithValues: current.map { ($0.identifier.rawValue, $0) })
@@ -32,6 +50,11 @@ final class SourceReaderHost {
             connections.removeValue(forKey: id)?.invalidate()
         }
         for domain in current { connect(domain) }
+    }
+
+    private func finished(_ domain: String, _ activity: ReaderActivity) {
+        if case .uploadWaiting = activity.outcome { return }
+        onActivity?(domain, activity)
     }
 
     private func connect(_ domain: NSFileProviderDomain) {
@@ -49,10 +72,10 @@ final class SourceReaderHost {
                                                   space: downloadSpace, confirmDeletion: { [weak self] request, progress in
                     guard let confirm = await self?.confirmDeletion else { throw UploadError.readOnly }
                     try await confirm(id, request, progress)
-                }, spaceChanged: { [weak self] request, blocked in
-                    Task { @MainActor in self?.onSpaceChange?(id, request, blocked) }
-                }) { [weak self] failure in
-                    Task { @MainActor in self?.onUserFetchFailed?(id, failure) }
+                }, spaceChanged: { [weak self] request, blocked, name in
+                    Task { @MainActor in self?.onSpaceChange?(id, request, blocked, name) }
+                }) { [weak self] activity in
+                    Task { @MainActor in self?.finished(id, activity) }
                 }
                 session.connection = connection
                 connection.setCodeSigningRequirement(try SourceReaderBridge.requirement(forProvider: true))
@@ -125,10 +148,10 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
     private let domainID: String
     private let source: LocationSource?
     private let queue: OperationQueue
-    private let userFetchFailed: @Sendable (SourceFailure) -> Void
+    private let finished: @Sendable (ReaderActivity) -> Void
     private let space: DownloadSpace
     private let confirmDeletion: @Sendable (DeleteItemRequest, Progress) async throws -> Void
-    private let spaceChanged: @Sendable (SourceReadRequest, Bool) -> Void
+    private let spaceChanged: @Sendable (SourceReadRequest, Bool, String?) -> Void
     private let progressQueue = DispatchQueue(label: "dev.tinymounter.prototype.reader-progress", qos: .utility)
     /// Set before the connection activates; progress messages go through it.
     weak var connection: NSXPCConnection?
@@ -141,16 +164,32 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
 
     init(domainID: String, source: LocationSource?, queue: OperationQueue, space: DownloadSpace,
          confirmDeletion: @escaping @Sendable (DeleteItemRequest, Progress) async throws -> Void,
-         spaceChanged: @escaping @Sendable (SourceReadRequest, Bool) -> Void,
-         userFetchFailed: @escaping @Sendable (SourceFailure) -> Void) {
+         spaceChanged: @escaping @Sendable (SourceReadRequest, Bool, String?) -> Void,
+         finished: @escaping @Sendable (ReaderActivity) -> Void) {
         self.domainID = domainID
         self.source = source
         self.queue = queue
-        self.userFetchFailed = userFetchFailed
+        self.finished = finished
         self.space = space
         prefetch = ReadPrefetch(space: space)
         self.confirmDeletion = confirmDeletion
         self.spaceChanged = spaceChanged
+    }
+
+    /// A Stop or a lost waiter is no failure; the other outcomes go to the panel.
+    private static func uploadOutcome(_ error: Error) -> ReaderActivity.Outcome? {
+        if error as? TransferError == .cancelled || error as? UploadError == .excluded { return nil }
+        if error as? UploadError == .editConflict { return .conflict }
+        return UploadRecovery.retriesByItself(error) ? .uploadWaiting : .uploadFailed(reason: UIText.uploadFailure(error))
+    }
+
+    private func uploadFinished<T>(item: String, name: String, size: Int64, _ result: Result<T, Error>) {
+        switch result {
+        case .success: finished(ReaderActivity(item: item, name: name, size: size, outcome: .uploaded))
+        case .failure(let error):
+            guard let outcome = Self.uploadOutcome(error) else { return }
+            finished(ReaderActivity(item: item, name: name, size: size, outcome: outcome))
+        }
     }
 
     func list(_ data: Data, reply: @escaping (Data?, NSError?) -> Void) {
@@ -196,14 +235,16 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
             }
             guard accepted else { throw CocoaError(.fileReadUnknown) }
             let contents: URL?
+            let size: Int64
             do {
                 contents = try request.staging.map { try SharedContainer.uploadInbox($0) }
-                let size = try contents.map { try ReadOnlyFile(url: $0).snapshot.size } ?? 0
+                size = try contents.map { try ReadOnlyFile(url: $0).snapshot.size } ?? 0
                 try space.begin(request.id, bytes: size)
             } catch {
                 release(request.id.uuidString)
                 throw error
             }
+            let isFile = request.kind == .file
             let timer = progressTimer(request.id, job)
             source.create(request, contents: contents, progress: job.progress, started: { [weak self] in
                 try? self?.registration()?.started(ReaderMessage.encode(SourceReadStarted(id: request.id)))
@@ -213,6 +254,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
                 timer.cancel()
                 space.end(request.id)
                 lock.withLock { jobs[request.id] = nil }
+                if isFile { uploadFinished(item: request.template, name: request.name, size: size, result) }
                 do { reply(try ReaderMessage.encode(result.get()), nil) }
                 catch {
                     reply(nil, Self.mutationError(error))
@@ -233,9 +275,10 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
             }
             guard accepted else { throw CocoaError(.fileReadUnknown) }
             let contents: URL
+            let size: Int64
             do {
                 contents = try SharedContainer.uploadInbox(request.staging)
-                _ = try ReadOnlyFile(url: contents)
+                size = try ReadOnlyFile(url: contents).snapshot.size
             } catch {
                 release(request.id.uuidString)
                 throw error
@@ -246,6 +289,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
             }) { [self] result in
                 timer.cancel()
                 lock.withLock { jobs[request.id] = nil }
+                uploadFinished(item: request.item, name: request.name, size: size, result)
                 do { reply(try ReaderMessage.encode(result.get()), nil) }
                 catch {
                     reply(nil, Self.mutationError(error))
@@ -500,12 +544,15 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
         let timer = progressTimer(request.id, job)
         defer { timer.cancel() }
         var staged: URL?
+        // Playback and Quick Look read ranges; only a complete-file download is an event.
+        let target = try? source.readTarget(request).0
+        let file = target.flatMap { $0.size == request.range.length && request.range.offset == 0 ? $0 : nil }
         do {
             // D2: the extension's deadline starts here, so time queued for a shared worker is no stall.
             try registration()?.started(ReaderMessage.encode(SourceReadStarted(id: request.id)))
             guard !job.progress.isCancelled else { throw TransferError.cancelled }
             try space.begin(request.id, bytes: request.range.length)
-            spaceChanged(request, false)
+            spaceChanged(request, false, nil)
             let prefetched = prefetch.claim(request, isCancelled: { job.progress.isCancelled })
             let output = try prefetched ?? source.transfer(request, progress: job.progress,
                                              stagingDirectory: SharedContainer.stagingDirectory()) { [space] completed in
@@ -528,6 +575,10 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
                 prefetched=\(prefetched != nil)
                 """)
             reply(receipt, nil)
+            // Keep Downloaded reports a kept file when it is verified available offline instead.
+            if let file, !file.keep {
+                finished(ReaderActivity(item: file.id, name: file.name, size: file.size, outcome: .downloaded))
+            }
             prefetch.completed(request, next: { source.nextExtent(after: request) },
                                enqueue: { [queue] in queue.addOperation($0) }) { [space] next, progress in
                 try source.transfer(next, progress: progress, stagingDirectory: SharedContainer.stagingDirectory()) {
@@ -537,15 +588,17 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
         } catch {
             if let staged { try? FileManager.default.removeItem(at: staged) }
             release(request.id.uuidString)
-            if DownloadSpace.isFull(error) { spaceChanged(request, true) }
+            if DownloadSpace.isFull(error) { spaceChanged(request, true, target?.name) }
             let failure = Self.replyError(error)
             logger.error("""
                 request=\(request.id.uuidString, privacy: .public) domain=\(self.domainID, privacy: .public) \
                 item=\(request.item, privacy: .public) failed \(logFields(error), privacy: .public) \
                 reply_domain=\(failure.domain, privacy: .public) reply_code=\(failure.code)
                 """)
-            if !request.background, let share = error as? SourceFailure, [.notConnected, .serverUnreachable, .localNetworkDenied].contains(share) {
-                userFetchFailed(share)
+            if !request.background, let target, let share = error as? SourceFailure,
+               [.notConnected, .serverUnreachable, .localNetworkDenied].contains(share) {
+                finished(ReaderActivity(item: target.id, name: target.name, size: target.size,
+                                        outcome: .downloadFailed(share)))
             }
             reply(nil, failure)
         }
