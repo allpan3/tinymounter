@@ -425,6 +425,12 @@
 			"path" = "Prototype/App/Notifier.swift";
 			"sourceTree" = "<group>";
 		};
+		"F0A9D071FBE9A1F4FE2332EC" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Prototype/App/ActivityLog.swift";
+			"sourceTree" = "<group>";
+		};
 		"EF7ED7961485AAA76432CC95" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
@@ -1002,6 +1008,7 @@
 				"8C0544DE6E753E6B1463BC74",
 				"CBE57BE4ABF4B06010FAFFA9",
 				"1AAD80DB936D27C960F568C1",
+				"F0A9D071FBE9A1F4FE2332EC",
 				"EF7ED7961485AAA76432CC95",
 				"E0D0F31049776327EFD0CC7C",
 				"A8F0B07464CAD3955282D04E",
@@ -1985,6 +1992,10 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "1AAD80DB936D27C960F568C1";
 		};
+		"227C3CC76D09911CC57478C7" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "F0A9D071FBE9A1F4FE2332EC";
+		};
 		"F7D62D9E46785C06BEE2020C" = {
 			"isa" = "PBXBuildFile";
 			"fileRef" = "EF7ED7961485AAA76432CC95";
@@ -2099,6 +2110,7 @@
 				"B8D4B1475854BF2127F73A38",
 				"B5CFDEF30E899AC5AA29703F",
 				"25801110F7643601847CA1C2",
+				"227C3CC76D09911CC57478C7",
 				"F7D62D9E46785C06BEE2020C",
 				"16E8F4249027EFD399CD72FA",
 				"77260875D0C27D8F4CCB4745",

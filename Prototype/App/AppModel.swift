@@ -105,8 +105,9 @@ final class AppModel {
     }
 
     let controller: LocationController
+    @ObservationIgnored let activity: ActivityLog
     @ObservationIgnored private let store: SettingsStore
-    @ObservationIgnored private let notifier = Notifier()
+    @ObservationIgnored private let notifier: Notifier
     @ObservationIgnored private let credentials = KeychainCredentialStore()
     @ObservationIgnored private let client: any RemoteClient = SMBClient()
     var selection: Pane?
@@ -136,6 +137,11 @@ final class AppModel {
     private(set) var states: [UUID: LocationState] = [:]
     private(set) var shareStates: [UUID: ConnectionState] = [:]
     private(set) var keepRows: [UUID: [KeepRow]] = [:]
+    @ObservationIgnored private var keepReloads: [UUID: (key: KeepKey, task: Task<Void, Never>)] = [:]
+    /// Kept items verified available offline in this run; nil until a record's first verified check.
+    @ObservationIgnored private var keptOffline: [UUID: Set<String>] = [:]
+    /// Uploads, by domain and item, with an Upload failed event since their last success.
+    @ObservationIgnored private var failedUploads: Set<String> = []
     private(set) var notOnServer: [UUID: Set<KeepPath>] = [:]
     private(set) var keepRevision: [UUID: Int] = [:]
     @ObservationIgnored private var keepGeneration: [UUID: Int] = [:]
@@ -165,10 +171,14 @@ final class AppModel {
 
     init() {
         store = SettingsStore()
+        let activity = ActivityLog()
+        self.activity = activity
+        notifier = Notifier(activity: activity)
         controller = LocationController(store: store)
         controller.onChange = { [weak self] in self?.refresh() }
         controller.onShareState = { [weak self] shareID, before, state in self?.shareChanged(shareID, before, state) }
-        controller.onUserFetchFailed = { [weak self] shareID, failure in self?.downloadFailed(shareID, failure) }
+        controller.onActivity = { [weak self] domainID, activity in self?.readerActivity(domainID, activity) }
+        controller.onLowSpace = { [weak self] domainID, name in self?.lowSpace(domainID, name) }
         controller.onVolumeSignInRefused = { [weak self] shareID in self?.volumeSignInRefused(shareID) }
         controller.onKeepsRestored = { [weak self] record, ids in self?.keepsRestored(record, ids) }
         controller.onLocationChange = { [weak self] domainID in self?.locationChanged(domainID) }
@@ -178,6 +188,7 @@ final class AppModel {
             await self?.confirmPermanentDeletion(selection, progress: progress) ?? false
         }
         refresh()
+        watchKeeps()
         if let first = entries.first { selection = .location(first.id) } else { newLocation() }
         Task { await controller.launch() }
     }
@@ -747,7 +758,7 @@ final class AppModel {
 
     // MARK: Keep Downloaded
 
-    func keepKey(_ record: LocationRecord) -> KeepKey {
+    private func keepKey(_ record: LocationRecord) -> KeepKey {
         KeepKey(domainID: record.domainID,
                 unavailable: !isReady || record.removing || states[record.id] == .turnedOff
                     || states[record.id] == .catalogUnavailable,
@@ -761,7 +772,7 @@ final class AppModel {
         return false
     }
 
-    func reloadKeeps(_ recordID: UUID) async {
+    private func reloadKeeps(_ recordID: UUID) async {
         guard let record = record(recordID) else { return }
         let key = keepKey(record)
         let generation = (keepGeneration[recordID] ?? 0) + 1
@@ -787,7 +798,7 @@ final class AppModel {
                 KeepRow(target: .saved(path), path: path.below(folder)?.string ?? path.path,
                         kind: path.kind, notOnServer: missing.contains(path))
             }
-        await controller.offlineStates(record) { states in
+        let verified = await controller.offlineStates(record) { states in
             guard self.keepGeneration[recordID] == generation, !Task.isCancelled,
                   let current = self.record(recordID), self.keepKey(current) == key else { return }
             self.keepRows[recordID] = self.keepRows[recordID]?.map { row in
@@ -795,6 +806,43 @@ final class AppModel {
                 if case .item(let id) = row.target { row.availability = states[id] ?? .requested }
                 return row
             }
+        }
+        if verified, !key.unavailable, keepGeneration[recordID] == generation, !Task.isCancelled {
+            reportKeptOffline(record)
+        }
+    }
+
+    /// Every location's Keep Downloaded rows stay current, so a finished keep shows in the panel.
+    private func watchKeeps() {
+        let keys = withObservationTracking {
+            Dictionary(uniqueKeysWithValues: records.map { ($0.id, keepKey($0)) })
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.watchKeeps() }
+        }
+        for (id, reload) in keepReloads where keys[id] == nil {
+            reload.task.cancel()
+            keepReloads[id] = nil
+            keptOffline[id] = nil
+        }
+        for (id, key) in keys where keepReloads[id]?.key != key {
+            keepReloads[id]?.task.cancel()
+            keepReloads[id] = (key, Task { await reloadKeeps(id) })
+        }
+    }
+
+    /// The first verified check after launch is the baseline: a kept item reports when it becomes
+    /// available offline after that, or again after an update or a lack of space.
+    private func reportKeptOffline(_ record: LocationRecord) {
+        let rows = (keepRows[record.id] ?? []).filter { if case .item = $0.target { true } else { false } }
+        let offline = Set(rows.filter { $0.availability == .availableOffline }.map(\.id))
+        let known = keptOffline[record.id]
+        let unavailable = Set(rows.filter { [.updateInProgress, .notSufficientSpace].contains($0.availability) }.map(\.id))
+        keptOffline[record.id] = (known ?? []).union(offline).intersection(rows.map(\.id)).subtracting(unavailable)
+        guard let known else { return }
+        for row in rows where offline.contains(row.id) && !known.contains(row.id) {
+            let name = (row.path as NSString).lastPathComponent
+            notifier.report(ActivityEvent(kind: .keptDownloaded, domain: record.domainID, name: name),
+                            title: UIText.keptTitle(name))
         }
     }
 
@@ -1226,6 +1274,8 @@ final class AppModel {
         refreshLoginStatus()
     }
 
+    func record(domain: String) -> LocationRecord? { records.first { $0.domainID == domain } }
+
     func togglePause() {
         let pause = !paused
         Task {
@@ -1277,6 +1327,8 @@ final class AppModel {
         update(\.mountedVolumes, controller.mountedVolumes)
         update(\.refusedServers, controller.refusedServers)
         update(\.states, Dictionary(uniqueKeysWithValues: records.map { ($0.id, computeState($0)) }))
+        // A removed location's events go with it, and with them its file names.
+        if settings != nil { activity.keep(domains: Set(records.map(\.domainID))) }
         let ids = Set(records.map(\.id) + serverVolumes.map(\.id))
         if edits.keys.contains(where: { !ids.contains($0) }) { edits = edits.filter { ids.contains($0.key) } }
         if drafts.contains(where: { ids.contains($0.id) }) { drafts.removeAll { ids.contains($0.id) } }
@@ -1311,9 +1363,39 @@ final class AppModel {
         notifier.signInRefused(share, host: address.host)
     }
 
-    private func downloadFailed(_ shareID: UUID, _ failure: SourceFailure) {
-        guard let share = share(shareID), let address = address(shareID) else { return }
-        notifier.downloadFailed(share, host: address.host, failure)
+    private func readerActivity(_ domainID: String, _ activity: ReaderActivity) {
+        let key = domainID + "/" + activity.item
+        let name = activity.name
+        switch activity.outcome {
+        case .uploaded:
+            failedUploads.remove(key)
+            notifier.report(ActivityEvent(kind: .uploaded, domain: domainID, name: name, item: activity.item))
+        case .downloaded:
+            notifier.report(ActivityEvent(kind: .downloaded, domain: domainID, name: name))
+        case .uploadFailed(let reason):
+            // macOS sends a failed upload again, so it reports once until it succeeds. The history
+            // covers a relaunch; the set covers a failure that the panel doesn't list.
+            guard failedUploads.insert(key).inserted,
+                  !self.activity.history.uploadFailed(domain: domainID, item: activity.item) else { return }
+            notifier.report(ActivityEvent(kind: .uploadFailed, domain: domainID, name: name, detail: reason,
+                                          item: activity.item),
+                            title: UIText.uploadFailedTitle(name), body: reason)
+        case .conflict:
+            failedUploads.remove(key)
+            notifier.report(ActivityEvent(kind: .conflictCopy, domain: domainID, name: name, item: activity.item),
+                            title: UIText.conflictTitle(name), body: UIText.conflictMessage)
+        case .downloadFailed(let failure):
+            guard let record = record(domain: domainID), let share = share(record.shareID),
+                  let address = address(record.shareID) else { return }
+            notifier.downloadFailed(share, host: address.host, domain: domainID, name: name, failure)
+        case .uploadWaiting:
+            break
+        }
+    }
+
+    private func lowSpace(_ domainID: String, _ name: String) {
+        notifier.report(ActivityEvent(kind: .lowDiskSpace, domain: domainID, name: name),
+                        title: UIText.lowSpaceTitle, body: UIText.lowSpaceMessage(name))
     }
 
     // MARK: Alerts

@@ -29,6 +29,20 @@ final class ActivityTests: XCTestCase {
         XCTAssertEqual(history.events.map(\.domain), [nil, "B"])
     }
 
+    func testAFailedUploadStaysFailedUntilItSucceeds() {
+        func upload(_ kind: ActivityEvent.Kind, _ item: String, at seconds: TimeInterval) -> ActivityEvent {
+            ActivityEvent(kind: kind, domain: "A", name: "file", item: item, date: Date(timeIntervalSince1970: seconds))
+        }
+        var history = ActivityHistory(events: [upload(.uploadFailed, "1", at: 1), upload(.uploaded, "2", at: 2)])
+        XCTAssertTrue(history.uploadFailed(domain: "A", item: "1"))
+        XCTAssertFalse(history.uploadFailed(domain: "B", item: "1"))
+        XCTAssertFalse(history.uploadFailed(domain: "A", item: "2"))
+        history.add(event(.connectionLost, at: 3, domain: nil))
+        XCTAssertTrue(history.uploadFailed(domain: "A", item: "1"))
+        history.add(upload(.uploaded, "1", at: 4))
+        XCTAssertFalse(history.uploadFailed(domain: "A", item: "1"))
+    }
+
     func testSurvivesARelaunch() throws {
         let url = FileManager.default.temporaryDirectory.appending(path: "activity-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: url) }

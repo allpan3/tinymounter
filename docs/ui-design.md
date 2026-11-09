@@ -81,7 +81,7 @@ writes them.
 | Menu bar item | Status, transfers and quick actions. It keeps the reader running, which reads of data that isn't downloaded need. |
 | Settings window | Locations, servers, offline storage, general settings, diagnostics |
 | Finder | Locations in the sidebar, status decorations, Keep Downloaded and Allow Removal |
-| Notifications | Sign-in problems, no connection during a download, low disk space for kept files |
+| Notifications | The event kinds that General turns on (section 4.3). By default: sign-in problems, failed uploads and downloads, conflict copies and low disk space |
 
 ## 4. Settings window
 
@@ -112,7 +112,8 @@ Selecting a location shows one grouped form with all of its settings:
    Allow Removal cancels that request and preserves independently kept descendants. Inherited
    retention has no separate Allow Removal action. A folder stays Requested if a descendant
    listing is incomplete or has unsupported contents. M15 refreshes listed materialized and kept
-   folders while the app runs, with directory watches and scheduled listings.
+   folders while the app runs, with directory watches and scheduled listings. The app checks the
+   kept items of every location while it runs, not only of the location that the pane shows.
 5. **Remove Location.** A destructive button. Its confirmation says that the files on the server do
    not change and that the downloaded copies are removed from this Mac. It also asks whether to save
    the Keep Downloaded list. A saved list comes back when the user adds a location on the same share
@@ -176,6 +177,14 @@ the first location on a server.
 - **General:** Open at login, Show in menu bar, Notifications, and the Locations folder (section 7).
   When the settings file is from an earlier version and can't be read, General also shows the
   problem and Start Fresh…, which removes all locations after a confirmation.
+  Notifications is a grid with the columns Event, Notification and Panel, and one switch in each
+  cell. Notification posts a macOS notification; Panel adds the event to Recent Activity in the
+  menu bar panel. The rows are Sign-in needed, Upload failed, Download failed, Kept a conflict
+  copy, Low disk space, Connection lost or restored, and Keep Downloaded finished. The first five
+  use both by default; the last two use the panel only. With both off, the event shows nowhere.
+  Finished uploads and downloads always show in the panel and never post. When Show in menu bar
+  is off, a note says that panel events are not visible. Notifications include the file name, or
+  the server name for sign-in and connection events.
 - **Storage:** disk space used per location, the total available offline, "Keep this much disk space
   free" for kept downloads, and Remove Downloads for downloads that the user does not keep.
   M16 uses a fixed 2 GiB reserve and explains temporary download space; the reserve control
@@ -209,6 +218,24 @@ Problem status takes precedence. macOS supplies the light/dark menu-bar tint. Th
   read-ahead; a file that the user opens still downloads;
 - Settings… and Quit TinyMounter. Quit warns during downloads, and says that files that are not
   downloaded cannot open until TinyMounter starts again.
+
+The events, as Recent Activity names them:
+
+| Event | When |
+| --- | --- |
+| Uploaded, Upload failed | A new file or a save finishes or fails. A failure that macOS sends again by itself is no event, and a failed upload reports once until it succeeds. Stop Uploading is no failure. |
+| Downloaded | A complete-file download of a file that is not kept |
+| Kept downloaded | A kept file or folder is verified available offline. The first check after launch only records what is already available offline. |
+| Download failed | A download that the user started fails because the share is not connected, once per share per outage |
+| Saved a conflict copy | A save that asks to fail on a conflict finds the file changed on the server. TinyMounter makes no conflict copies itself; macOS resolves the conflict. |
+| Low disk space | A download first stops because this Mac has not sufficient space |
+| Cannot sign in | A server refuses the saved password, once until a new password or a connection |
+| Connection lost, Connected again | A share with locations stops answering, and later connects again, once per outage. A lost network is no event: the share connects again by itself. |
+
+The history keeps the newest 100 events across a relaunch, in
+`Application Support/tinymounter/Activity.json` in the app's container. It holds file names, so it
+is not in the App Group, the logs or Export Diagnostics. Removing a location removes its events.
+An unreadable file is logged and the history starts empty.
 
 ## 6. Finder
 

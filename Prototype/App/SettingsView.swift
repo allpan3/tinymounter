@@ -127,7 +127,6 @@ private struct LocationPane: View {
         Group {
             if let record = model.record(id) {
                 form(record: record, draft: nil)
-                    .task(id: model.keepKey(record)) { await model.reloadKeeps(record.id) }
             } else if let volume = model.serverVolume(id) {
                 serverVolumeForm(volume)
             } else if let draft = model.draft(id) {
@@ -422,7 +421,6 @@ private struct LocationPane: View {
 private struct GeneralPane: View {
     @Bindable var model: AppModel
     @AppStorage(MenuBarSettings.showKey) private var showMenuBar = true
-    @AppStorage(Notifier.enabledKey) private var notifications = true
 
     var body: some View {
         Form {
@@ -446,13 +444,52 @@ private struct GeneralPane: View {
                 Text(UIText.menuBarDescription).foregroundStyle(.secondary)
             }
             Section {
-                Toggle(UIText.notifications, isOn: $notifications)
+                Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 8) {
+                    GridRow {
+                        Text(UIText.event)
+                        Text(UIText.notification).gridColumnAlignment(.center)
+                        Text(UIText.panel).gridColumnAlignment(.center)
+                    }
+                    .foregroundStyle(.secondary)
+                    ForEach(NotificationKind.allCases, id: \.self) { kind in
+                        GridRow {
+                            Text(UIText.notificationName(kind)).frame(maxWidth: .infinity, alignment: .leading)
+                            RouteSwitch(key: kind.notifyKey, defaultValue: kind.needsAction,
+                                        label: UIText.notifyLabel(kind))
+                            RouteSwitch(key: kind.panelKey, defaultValue: true, label: UIText.panelLabel(kind))
+                        }
+                    }
+                }
+            } header: {
+                Text(UIText.notifications)
             } footer: {
-                Text(UIText.notificationsDescription).foregroundStyle(.secondary)
+                VStack(alignment: .leading) {
+                    Text(UIText.notificationsDescription)
+                    if !showMenuBar { Text(UIText.menuBarOffNote) }
+                }
+                .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
         .onAppear(perform: model.refreshLoginStatus)
+    }
+}
+
+/// One cell of the Notifications grid; the key's default is `NotificationKind.route(in:)`'s.
+private struct RouteSwitch: View {
+    @AppStorage private var isOn: Bool
+    let label: String
+
+    init(key: String, defaultValue: Bool, label: String) {
+        _isOn = AppStorage(wrappedValue: defaultValue, key)
+        self.label = label
+    }
+
+    var body: some View {
+        Toggle(label, isOn: $isOn)
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .controlSize(.mini)
     }
 }
 
