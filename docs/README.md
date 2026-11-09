@@ -28,6 +28,8 @@ it wrong.
 
 ## Results logs
 
+- [Save time kept on the server](results/2026-11-08-save-time.md). The fix for the kept-file status defect: online, offline and relaunched saves, a Finder copy and an interrupted upload keep the local save time and show Available offline.
+
 - [0.2.0 release checks](results/2026-11-08-release-checks.md). Start Fresh from a real 0.1.2 setup (the hidden mount stays), M23/M25/M26 with password sessions, the only-child rename, an expired password and a regression pass with no File Provider mount.
 
 - [Connection layer for 0.2.0](results/2026-11-08-connection-layer.md). Steps 3 and 4: File Provider locations without a mount, password sessions, connection health and change watching in the signed VM app. Server Volume sign-in with the saved password.

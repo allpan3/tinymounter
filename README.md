@@ -16,7 +16,9 @@ mode uses the same password. Updating from 0.1.x needs Start Fresh, and the old 
 stays until it is ejected or the Mac restarts. Release checks in the signed VM app pass,
 including Start Fresh from 0.1.2, M23/M25/M26 with password sessions and an expired password;
 521 tests, one optional skip. See the [release checks](docs/results/2026-11-08-release-checks.md)
-and [install notes](docs/release.md).
+and [install notes](docs/release.md). A kept file saved on this Mac now becomes Available
+offline: uploads keep the local save time on the server; 525 tests, one optional skip. See the
+[save-time checks](docs/results/2026-11-08-save-time.md).
 
 Connection layer for 0.2.0, 2026-11-08: File Provider locations no longer use a mount. The app
 signs in with the password from its own Keychain item, opens SMB sessions itself and watches
