@@ -134,7 +134,8 @@ final class ServerVolumeMount: @unchecked Sendable {
         let failure: SourceFailure?
         do {
             try signIn.signIn { password in
-                _ = try client.openSession(address, password: password, folder: .root, progress: Progress())
+                _ = try client.openSession(address, password: password, folder: .root, previousSession: nil,
+                                           progress: Progress())
                 let result = Self.mount(url, user: address.account, password: password)
                 status = result
                 if let failure = RemountPolicy.failure(status: result) { throw failure }

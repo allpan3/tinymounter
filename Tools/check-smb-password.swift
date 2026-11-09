@@ -81,7 +81,7 @@ extension CatalogRow {
     static func session(_ share: String, folder: RelativePath = .root, account: String = account,
                         password: Data = password) throws -> any RemoteSession {
         try SMBClient().openSession(address(share, account: account), password: password, folder: folder,
-                                    progress: Progress())
+                                    previousSession: nil, progress: Progress())
     }
 
     static func signIn(share: String) throws -> Int {

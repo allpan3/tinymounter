@@ -14,9 +14,12 @@ struct tm_smb_login {
 };
 
 // On failure, *status is the server's NTSTATUS for the refused step, or 0 if none arrived.
-void *tm_edit_connect_password(const struct tm_smb_login *login, const char *share, int *error,
-                               uint32_t *status);
+// previous_session, unless 0, is a session this process dropped: the server ends it and its opens.
+void *tm_edit_connect_password(const struct tm_smb_login *login, const char *share,
+                               uint64_t previous_session, int *error, uint32_t *status);
 void tm_edit_disconnect(void *opaque);
+// The ID of the session that a failed request dropped with its connection; 0 while it is open.
+uint64_t tm_edit_dropped_session(void *opaque);
 // Zero means the preceding operation had no failure with a decoded server reply.
 // Copy immediately: the next operation clears this, including successful cleanup closes.
 uint32_t tm_edit_last_ntstatus(void *opaque);

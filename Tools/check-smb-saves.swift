@@ -20,7 +20,7 @@ import Foundation
         let remote = try SMBClient().openSession(ShareAddress("//tmtest@\(server)/tinymounter-single")!,
                                                  password: password,
                                                  folder: RelativePath("simplify-20261105/" + evidence.lastPathComponent)!,
-                                                 progress: Progress())
+                                                 previousSession: nil, progress: Progress())
         let connected = ContinuousClock.now
         let written = try remote.overwrite(path: "direct-\(mib)-\(round).bin", contents: input,
                                            expected: nil, modified: nil)

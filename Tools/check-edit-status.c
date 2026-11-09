@@ -331,9 +331,18 @@ static void transport_failures(void)
         delivery = modes[i];
         response_status = SMB2_STATUS_OBJECT_NAME_NOT_FOUND;
         response_data = &error_reply;
+        client.smb->session_id = 0x1000 + i;
         result("transport failure", tm_edit_delete(&client, file), errors[i], 0);
         expect(destroyed == 1 && !client.smb, "transport failure", "context survived");
+        expect(tm_edit_dropped_session(&client) == 0x1000 + i, "transport failure", "session ID lost");
     }
+    prepare();
+    client.smb->session_id = 0x2000;
+    response_status = SMB2_STATUS_SHARING_VIOLATION;
+    response_data = &error_reply;
+    result("server failure keeps the session", tm_edit_delete(&client, file), ETXTBSY,
+           SMB2_STATUS_SHARING_VIOLATION);
+    expect(tm_edit_dropped_session(&client) == 0, "server failure keeps the session", "session dropped");
 }
 
 static void close_attributes(void)

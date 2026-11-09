@@ -26,10 +26,11 @@ struct SMBClient: RemoteClient {
         return SMBSignIn.diskShareNames(listing.shares)
     }
 
-    func openSession(_ share: ShareAddress, password: Data, folder: RelativePath,
+    func openSession(_ share: ShareAddress, password: Data, folder: RelativePath, previousSession: UInt64?,
                      progress: Progress) throws -> any RemoteSession {
         try Self.connecting(share.host) {
-            try SMBEdit(share: share, password: password, folder: folder, progress: progress)
+            try SMBEdit(share: share, password: password, folder: folder, previousSession: previousSession,
+                        progress: progress)
         }
     }
 
