@@ -10,6 +10,14 @@ TinyMounter consistently. Required VM checks pass: 523 tests, one optional skip,
 warnings. QSpace Pro still lists the hidden support mount; 0.2.0 plans to remove it. See the
 [setup redesign checks](docs/results/2026-11-07-servers-redesign.md).
 
+TinyMounter 0.2.0, 2026-11-08, release pending: File Provider locations use no mount. Add
+Server… asks for the name and password once and keeps them in a Keychain item; Server Volume
+mode uses the same password. Updating from 0.1.x needs Start Fresh, and the old hidden mount
+stays until it is ejected or the Mac restarts. Release checks in the signed VM app pass,
+including Start Fresh from 0.1.2, M23/M25/M26 with password sessions and an expired password;
+521 tests, one optional skip. See the [release checks](docs/results/2026-11-08-release-checks.md)
+and [install notes](docs/release.md).
+
 Connection layer for 0.2.0, 2026-11-08: File Provider locations no longer use a mount. The app
 signs in with the password from its own Keychain item, opens SMB sessions itself and watches
 folders with `CHANGE_NOTIFY`. In the signed VM app, every Finder operation checked ran with no

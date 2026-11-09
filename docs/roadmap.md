@@ -20,7 +20,7 @@ compatibility claim or an estimate of delivery time.
 
 ## Milestones and dependencies
 
-### App-owned SMB login for File Provider locations, planned for 0.2.0
+### App-owned SMB login for File Provider locations, 0.2.0, release pending
 
 Decided by the user on 2026-11-07 after the physical-Mac test. File Provider locations still
 need a hidden macOS mount for the login, folder watches and the share-access grant. Finder
@@ -33,6 +33,13 @@ This reverses "macOS owns passwords". On 2026-11-08 the user accepted the
 keychain, no guest login, Start Fresh instead of a settings conversion, one change-notification
 watch per discovery folder, an in-app folder browser, and a protocol-neutral layer with SMB as its
 only implementation. The menu bar activity panel moves to 0.3.0.
+
+Implemented and checked on 2026-11-08: the [connection layer](results/2026-11-08-connection-layer.md)
+and the [release checks](results/2026-11-08-release-checks.md) pass in the signed VM app. The
+version is 0.2.0 (build 6). Tagging, packaging and physical-Mac installation wait for the user's
+approval. Updating from 0.1.x needs Start Fresh and an eject of the old hidden mount
+([release notes](release.md#update-from-01x-start-fresh-is-required)). The activity panel stays
+in 0.3.0.
 
 ### One add flow and a simpler Servers pane, accepted 2026-11-07
 
