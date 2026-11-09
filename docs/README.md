@@ -12,7 +12,8 @@ the current truth: test evidence goes in the PR description, raw evidence stays 
 | --- | --- | --- |
 | [smb-simplification.md](smb-simplification.md) | Accepted ordinary SMB semantics and the simplification audit | ordinary SMB save, conflict or replacement behavior changes |
 | [architecture.md](architecture.md) | Product contract, decisions, components, phases and exit criteria, open decisions | the user makes a decision, or an owner, boundary or phase changes |
-| [roadmap.md](roadmap.md) | Accepted remaining milestones, completion criteria, dependencies and parallel worktree ownership | the forward scope, order or integration plan changes |
+| [roadmap.md](roadmap.md) | Planned work that is not done yet, delivery rules, completion criteria and parallel worktree ownership | planned work is added, changed or finished, or the delivery or integration rules change |
+| [release.md](release.md) | How to install and update the current release, its known limits, and its source and licences | a release ships, or an install step or known limit changes |
 | [benchmark-plan.md](benchmark-plan.md) | What must be proven, cache states, acceptance targets, failure matrix | a method changes, or the user agrees to a target change |
 | [prototype.md](prototype.md) | How to build, sign and run the current prototype, and its deliberate limits | a setup step, command or limitation changes |
 | [research.md](research.md) | External findings, competitors and the source register | you start relying on a new external fact |
