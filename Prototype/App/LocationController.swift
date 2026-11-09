@@ -416,8 +416,10 @@ final class LocationController {
         return try await Self.offMain { try source.savedChangeBytes() }
     }
 
-    func retryPending(_ record: LocationRecord) {
-        guard let source = sources[record.domainID] else { return }
+    func retryPending(_ record: LocationRecord) { retryPending(domainID: record.domainID) }
+
+    private func retryPending(domainID: String) {
+        guard let source = sources[domainID] else { return }
         let shared = sources.values.filter { $0.editNamespace === source.editNamespace }
         for candidate in shared { candidate.retryRenames() }
         Task { for candidate in shared { await resumeCreates(candidate.domainID) } }
@@ -1157,6 +1159,8 @@ final class LocationController {
             try await self.commitDeletionSettings(deletion, paths: paths, owner: domainID, shareID: shareID)
         }, deletionRecovered: { [weak self] in
             Task { await self?.resumeCreates(domainID) }
+        }, retryPending: { [weak self] in
+            Task { @MainActor in self?.retryPending(domainID: domainID) }
         }) { folders in
             for item in Set(folders.map { NSFileProviderItemIdentifier($0) } + [.workingSet]) {
                 NSFileProviderManager(for: domain)?.signalEnumerator(for: item) { error in
@@ -1501,6 +1505,7 @@ final class LocationController {
             resolved=\(failures.map { "\($0)" }.joined(separator: ","), privacy: .public)
             """)
         for domainID in affected {
+            sources[domainID]?.uploadRetry.connected()
             sources[domainID]?.retryRenames()
             sources[domainID]?.retryDeletions()
             await signalResolved(domainID, failures)

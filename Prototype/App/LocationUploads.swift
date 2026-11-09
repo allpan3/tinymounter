@@ -91,6 +91,7 @@ extension LocationSource {
                 scheduleSignal()
             }
             noteCreate(request, result: result)
+            uploadRetry.finished("create:" + request.template, result: result)
             Self.uploadLog.info("upload request=\(request.id.uuidString, privacy: .public) domain=\(self.domainID, privacy: .public) ok=\((try? result.get()) != nil ? 1 : 0)")
             reply(result)
         }

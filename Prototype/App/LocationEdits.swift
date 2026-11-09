@@ -53,6 +53,7 @@ extension LocationSource {
             } else {
                 logger.info("edit request=\(request.id.uuidString, privacy: .public) completed")
             }
+            uploadRetry.finished("edit:" + request.item, result: result)
             scheduleSignal()
             reply(result)
         }

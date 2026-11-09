@@ -239,6 +239,12 @@ Rules that the connection keeps:
   session sends one such ID as SESSION_SETUP's PreviousSessionId, oldest first, so the server ends
   that session and closes its open files at once instead of when it notices the lost connection.
   Only sessions that this process dropped are named; Samba honours it for the same user only.
+- **Transient upload failures retry by themselves.** A create or save that fails with the
+  connection, a timeout or a sharing violation (`ETXTBSY`) is retried through the location's Retry
+  Pending Changes: at once when the share's recovery runs, otherwise after 2 s, doubling to at most
+  5 minutes while such failures recur, and no longer once none is left. Other failures, such as
+  Read only, a name collision, a refused permission, a full disk or an edit conflict, still wait
+  for the user.
 
 ### Selection rule
 
