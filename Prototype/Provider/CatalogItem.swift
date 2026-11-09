@@ -56,7 +56,7 @@ final class CatalogItem: NSObject, NSFileProviderItem {
         if isFolder { return row.allowsWriting ? [.userReadable, .userWritable, .userExecutable] : [.userReadable, .userExecutable] }
         return allowsEditing ? [.userReadable, .userWritable] : .userReadable
     }
-    /// While paused, kept files are lazy, so the system starts no eager downloads (plan §6).
+    /// While paused, kept files are lazy, so the system starts no eager downloads.
     var contentPolicy: NSFileProviderContentPolicy {
         row.keep && !row.paused ? .downloadEagerlyAndKeepDownloaded : .downloadLazily
     }
@@ -89,7 +89,7 @@ final class CatalogReader: @unchecked Sendable {
 
     init(domainID: String) { self.domainID = domainID }
 
-    /// A failed open or read is "catalog unavailable" (plan §7); `body`'s own errors pass through.
+    /// A failed open or read is "catalog unavailable"; `body`'s own errors pass through.
     func read<T>(_ body: (Catalog) throws -> T) throws -> T {
         try lock.withLock {
             let catalog: Catalog
@@ -117,7 +117,7 @@ final class CatalogReader: @unchecked Sendable {
         }
     }
 
-    /// Only a tombstone gives `noSuchItem`; an unknown ID is transient (plan §7).
+    /// Only a tombstone gives `noSuchItem`; an unknown ID is transient.
     func liveRow(_ id: String) throws -> CatalogRow {
         guard let row = try read({ try $0.item(id: id) }) else { throw CocoaError(.fileReadUnknown) }
         guard !row.deleted else { throw NSFileProviderError(.noSuchItem) }

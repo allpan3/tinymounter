@@ -1,6 +1,6 @@
 import Foundation
 
-/// Folder field completion (plan §8): the folder to list, and the subfolders to suggest in it.
+/// Folder field completion: the folder to list, and the subfolders to suggest in it.
 public struct FolderCompletion: Equatable, Sendable {
     public static let maxSuggestions = 50
 

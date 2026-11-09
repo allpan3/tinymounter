@@ -183,7 +183,7 @@ No reviewed page establishes ≥90% native throughput for an offline-caching SMB
 
 ### M19 source review, 2026-10-27
 
-The following sources support the [M19 design](phase4-plan.md#m19-online-editing),
+The following sources support the [M19 design](smb-simplification.md),
 not a runtime claim. SDK inspection and public HTTPS retrieval ran in macOS VM 1. No share
 configuration, app installation or remote content changed.
 

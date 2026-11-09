@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-/// Phase 3 plan §1: when the app asks macOS to mount a share again. Times are monotonic.
+/// When the app asks macOS to mount a share again. Times are monotonic.
 public struct RemountPolicy: Sendable {
     public enum Outcome: Equatable, Sendable {
         case mounted

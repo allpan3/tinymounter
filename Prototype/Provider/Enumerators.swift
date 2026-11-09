@@ -1,7 +1,8 @@
 import FileProvider
 import OSLog
 
-/// Folders, single files and the working set, all paged from the catalog (plan §5).
+/// Folders, single files and the working set, all paged from the catalog
+/// (docs/architecture.md §7).
 final class CatalogEnumerator: NSObject, NSFileProviderEnumerator {
     enum Target {
         case folder(String), item(String), workingSet

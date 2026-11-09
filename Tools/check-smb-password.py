@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check 0.2.0 password sessions (plan step 2) against the disposable VM Samba fixture.
+"""Check 0.2.0 password sessions against the disposable VM Samba fixture.
 
 Run it in the VM after Tools/run-checks.sh built the library. Pass SERVER ACCOUNT PASSWORD_FILE
 SHARE DENIED_SHARE NEW_EVIDENCE_DIRECTORY. The password file lies outside the repository and

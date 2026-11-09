@@ -2,7 +2,7 @@ import AppKit
 import OSLog
 import SwiftUI
 
-/// Plan §8: a Dock icon, the menu bar item and the Settings window.
+/// A Dock icon, the menu bar item and the Settings window.
 @main
 struct TinyMounterApp: App {
     @NSApplicationDelegateAdaptor private var delegate: AppDelegate
@@ -62,7 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = AppModel()
     private static let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "app")
 
-    /// Phase 3 plan §2: the extension restarts the app only if this run ends in a crash.
+    /// docs/architecture.md §3: the extension restarts the app only if this run ends in a crash.
     func applicationWillFinishLaunching(_ notification: Notification) {
         do {
             let url = try SharedContainer.url().appending(path: RunState.fileName)

@@ -63,7 +63,7 @@ struct tm_notify {
 
 // MARK: Connection
 
-// Step 2's password connect, so the watcher signs in, seals and refuses as every session does.
+// The sessions' password connect, so the watcher signs in, seals and refuses as every session does.
 static struct smb2_context *connect_share(const char *server, const char *share, const char *account,
                                           const uint8_t *password, size_t length, int *error,
                                           uint32_t *ntstatus)

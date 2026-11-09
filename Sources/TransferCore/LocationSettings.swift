@@ -352,7 +352,7 @@ extension AppSettings {
         }
     }
 
-    /// Plan §4: a new location takes the saved paths inside its folder out of the share's list.
+    /// A new location takes the saved paths inside its folder out of the share's list.
     public mutating func takeSavedKeeps(host: String, share: String, inside folder: RelativePath) -> [KeepPath] {
         var taken: [KeepPath] = []
         for index in savedKeeps.indices where savedKeeps[index].isFor(host: host, share: share) {

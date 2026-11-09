@@ -184,7 +184,7 @@ final class ServerVolumeMount: @unchecked Sendable {
         if !listed { mountAgain() }
     }
 
-    /// Phase 3 plan §1: the share mounts again with the saved password and shows no dialog.
+    /// The share mounts again with the saved password and shows no dialog.
     private func mountAgain() {
         guard lock.withLock({ remount.startMount(now: Self.uptime()) }) else { return }
         mounter.async { [self] in

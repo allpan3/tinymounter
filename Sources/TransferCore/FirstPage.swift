@@ -1,6 +1,7 @@
 import Foundation
 
-/// The folder enumerator's first page (plan §5). Later pages come from the catalog only.
+/// The folder enumerator's first page (docs/architecture.md §7). Later pages come from the
+/// catalog only.
 public enum FirstPage {
     /// A listing older than this is listed again in the background.
     public static let relistAge: TimeInterval = 60

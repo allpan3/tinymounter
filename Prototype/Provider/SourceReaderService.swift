@@ -27,7 +27,7 @@ final class SourceReaderService: NSObject, NSFileProviderServiceSource, NSXPCLis
         restartAppAfterCrash(reason: "extension_start")
     }
 
-    /// Phase 3 plan §2: only a crash, not Quit or Force Quit, starts the app again.
+    /// docs/architecture.md §3: only a crash, not Quit or Force Quit, starts the app again.
     private func restartAppAfterCrash(reason: String) {
         guard let url = try? SharedContainer.url().appending(path: RunState.fileName),
               let record = RunState.read(url), record.state == .crashed else { return }

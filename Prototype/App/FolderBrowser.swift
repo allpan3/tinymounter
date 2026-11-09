@@ -15,7 +15,7 @@ struct FolderBrowserError: Error {
     let message: String
 }
 
-/// Connection-layer plan decision 3: lists a share's folders one level at a time, in the app.
+/// docs/ui-design.md §11: lists a share's folders one level at a time, in the app.
 struct FolderBrowser: View {
     let request: FolderBrowserRequest
     let choose: (RelativePath) -> Void

@@ -45,7 +45,7 @@ public struct FileSnapshot: Codable, Equatable, Sendable {
     }
 }
 
-/// The fields of a published content version: unlike `FileSnapshot`, no device or inode (D1).
+/// The fields of a published content version: unlike `FileSnapshot`, no device or inode.
 public struct ContentFingerprint: Hashable, Sendable {
     public let size: Int64
     public let mtimeNs: Int64

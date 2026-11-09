@@ -17,7 +17,7 @@ final class SourceReaderHost {
         queue.qualityOfService = .userInitiated
         return queue
     }()
-    /// A domain's extension took this app's reader (plan §3 flow 4).
+    /// A domain's extension took this app's reader (docs/architecture.md §3, flow 4).
     var onConnected: ((String) -> Void)?
     /// A fetch that a user waits for failed because the share is down: the domain and the failure.
     var onUserFetchFailed: ((String, SourceFailure) -> Void)?
@@ -571,7 +571,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
         connection?.remoteObjectProxyWithErrorHandler { _ in } as? SourceReaderRegistration
     }
 
-    /// Only domain and code cross XPC. Catalog failures are "catalog unavailable" (plan §7).
+    /// Only domain and code cross XPC. Catalog failures are "catalog unavailable".
     private static func replyError(_ error: Error) -> NSError {
         switch error {
         case CatalogError.notALiveFolder, CatalogError.notALiveFile: CocoaError(.fileReadUnknown) as NSError

@@ -456,7 +456,7 @@ private struct GeneralPane: View {
     }
 }
 
-/// Plan §8: the disk space of each location's downloaded files, then the total.
+/// Storage: the disk space of each location's downloaded files, then the total.
 private struct StoragePane: View {
     @Bindable var model: AppModel
 

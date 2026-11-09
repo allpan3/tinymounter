@@ -73,13 +73,14 @@ enum SourceReaderBridge {
         return try SharedContainer.stagingDirectory().appending(path: name, directoryHint: .notDirectory)
     }
 
-    /// Only domain and code cross XPC. Classify share I/O in its own context first (plan §7).
+    /// Only domain and code cross XPC. Classify share I/O in its own context first.
     static func error(_ error: Error) -> NSError {
         if DownloadSpace.isFull(error) { return CocoaError(.fileWriteOutOfSpace) as NSError }
         return providerError(SourceFailure.classify(error, context: .fetch))
     }
 
-    /// Plan §7. `unknown` keeps its domain and code; the extension maps it further.
+    /// docs/architecture.md §7, "Provider errors". `unknown` keeps its domain and code; the
+    /// extension maps it further.
     static func providerError(_ failure: SourceFailure) -> NSError {
         switch failure {
         case .serverUnreachable, .notConnected, .localNetworkDenied: NSFileProviderError(.serverUnreachable) as NSError
