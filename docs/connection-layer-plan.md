@@ -1,14 +1,8 @@
 # Connection layer for 0.2.0
 
-Date: 2026-11-08. Implementation: steps 1–4 on `feat/smb-connection-layer`; Server Volume sign-in
-(Decision 1) on `feat/server-volume-netfs-signin`
-([results](results/2026-11-08-connection-layer.md)).
-Decision status: accepted by the user on 2026-11-08, with the
-[decisions](#decisions) below and the results of the
-[password login](results/2026-11-08-password-login.md) and
-[change notification](results/2026-11-08-smb-change-notify.md) spikes. UI copy is proposed for
-[ui-design.md](ui-design.md) review. See the
-[roadmap](roadmap.md#app-owned-smb-login-for-file-provider-locations-planned-for-020).
+Status: implemented in 0.2.0, including Server Volume sign-in (Decision 1). Decision status:
+accepted, with the [decisions](#decisions) below and the [spike answers](#spike-answers). UI copy
+is proposed for [ui-design.md](ui-design.md) review.
 
 File Provider locations stop using the hidden macOS SMB mount. TinyMounter signs in with a
 password that it keeps in its own Keychain item, opens its own SMB sessions for every operation,
@@ -126,7 +120,7 @@ Rules the implementation must keep:
 - SMB 3 only, signing and encryption required, and no guest session: the vendored libsmb2 refuses
   a guest fallback and drops the `ntlm:<hex>` password form.
 - Only `STATUS_LOGON_FAILURE`, `STATUS_PASSWORD_EXPIRED` and `STATUS_PASSWORD_MUST_CHANGE` enter
-  `needsSignIn` (the user, 2026-11-08: a new password fixes these). libsmb2 reports a logon
+  `needsSignIn` (a new password fixes these). libsmb2 reports a logon
   failure as `-ECONNREFUSED`, so classification reads `smb2_get_nterror()`. A locked or disabled account is `noPermission` and
   also stops retries until the user acts.
 - When the network path is not satisfied, requests fail at once with `notConnected`.
@@ -255,7 +249,7 @@ sequential plan (login, then notifications, then health) so that agents own sepa
 | 1. Sign-in and credentials | New `Prototype/App/KeychainCredentials.swift`, `Prototype/App/SignInSheet.swift`, `Prototype/App/FolderBrowser.swift` (takes a `folderNames` closure; step 3 supplies the connection); `SettingsView.swift`; `UIText.swift`; the Servers section of `AppModel.swift`; `ServerRecord` in `LocationSettings.swift`; `SettingsTests.swift`; `ui-design.md` | 0; merges after 2 |
 | 2. SMB client | `Prototype/SMB/SMBRename.c`, `SMBEdit.c`, both headers; `Prototype/App/SMBEdit.swift`; new `Prototype/App/SMBClient.swift`; a `Tools/` check against the built library | 0 |
 | 3. Connection layer and mount removal | `ShareAccess.swift` split into `ShareConnection.swift`, `LocationSource.swift`, `ServerVolumeMount.swift`; `ShareHealth.swift` → `ConnectionHealth.swift`; `ShareMount.swift`; `DirectoryListing.swift`; the rest of `LocationSettings.swift`; every `Location*.swift`; `LocationController.swift` except discovery; `AppModel.swift` location actions; `Notifier.swift`; `App.entitlements`; their tests; `architecture.md`, `prototype.md` | 1, 2 |
-| 4. Change watching | New `Prototype/SMB/SMBNotify.c` and header (one connection and thread per share, non-tree watches, filter `0xF5F`, 64 KiB buffer, request timeout cleared, re-arm in the completion, asynchronous echo every 60 s, handle close to stop), `Prototype/App/SMBWatch.swift`, `Prototype/App/LocationChangeWatch.swift`; `DirectoryWatch.swift` deletion; discovery in `LocationController.swift`; a path-to-folder lookup in `Catalog.swift`; `DirectoryRefresh.swift`; results log and README status | 0 for the C and watch code; 3 for wiring |
+| 4. Change watching | New `Prototype/SMB/SMBNotify.c` and header (one connection and thread per share, non-tree watches, filter `0xF5F`, 64 KiB buffer, request timeout cleared, re-arm in the completion, asynchronous echo every 60 s, handle close to stop), `Prototype/App/SMBWatch.swift`, `Prototype/App/LocationChangeWatch.swift`; `DirectoryWatch.swift` deletion; discovery in `LocationController.swift`; a path-to-folder lookup in `Catalog.swift`; `DirectoryRefresh.swift`; the docs | 0 for the C and watch code; 3 for wiring |
 
 Each step that adds files runs `python3 Tools/generate-project.py` and commits the project with
 them; the first step that uses `RemoteConnection.swift` adds it to `app_paths`. After step 3,
@@ -320,8 +314,7 @@ In the signed VM app, with changes made on the fixture by another client:
 
 ### Step 4 wiring after step 3
 
-`SMBNotify.c`, `SMBWatch` and `LocationChangeWatch` are built and checked against the fixture
-([results](results/2026-11-08-change-watching.md)); nothing calls them yet. Wiring them:
+Wiring `SMBNotify.c`, `SMBWatch` and `LocationChangeWatch`:
 
 1. `SMBClient.openWatcher` returns `SMBWatch(share:password:notice:)` with the Keychain bytes.
    `connect_share` in `SMBNotify.c` and `SMBWatch.connectFailure` switch to step 2's shared
@@ -351,11 +344,11 @@ In the signed VM app, with changes made on the fixture by another client:
 
 ## Spike answers
 
-- **Login** ([results](results/2026-11-08-password-login.md)): libsmb2's own NTLMSSP signs in
+- **Login:** libsmb2's own NTLMSSP signs in
   with the password and seals SMB 3.1.1 with no mount and no GSS cache, so `-framework GSS` can
   go. Wrong password: `STATUS_LOGON_FAILURE`; locked account: `STATUS_ACCOUNT_LOCKED_OUT`. Account
   forms and share enumeration (`IPC$` filtering) are step 2 checks.
-- **Change notifications** ([results](results/2026-11-08-smb-change-notify.md)): a tree watch
+- **Change notifications:** a tree watch
   misses content writes below the watched folder, so step 4 uses one non-tree watch per discovery
   folder. A pending notify does not block other requests on its connection; 64 and 1,024 watches
   per connection worked, 4,000 exhausted the fixture's notify process. `STATUS_NOTIFY_ENUM_DIR`
@@ -364,12 +357,11 @@ In the signed VM app, with changes made on the fixture by another client:
 
 ## Decisions
 
-Accepted by the user on 2026-11-08:
+Accepted:
 
 1. **Server Volume sign-in.** NetFS gets the saved name and password, so one sign-in serves both
    modes. A separate small change after step 3. Implemented: the app signs in with its SMB
-   client first, because smbfs reports a refused password as a missing share
-   ([results](results/2026-11-08-connection-layer.md#server-volume-sign-in)).
+   client first, because smbfs reports a refused password as a missing share.
 2. **Server Volume status.** Without the grant, a server volume shows only mounted or not
    mounted, with no unresponsive state. Finder reports a stalled volume itself.
 3. **Folder Select….** An in-app folder browser replaces the panel (step 1 builds it, step 3
