@@ -1,6 +1,6 @@
 import Foundation
 
-// The pure parts of change watching (docs/connection-layer-plan.md, step 4).
+// The pure parts of change watching (docs/architecture.md §7, "Change watching").
 
 /// One SMB2 CHANGE_NOTIFY completion: MS-SMB2 2.2.36 with MS-FSCC 2.4.42 entries.
 public enum SMBNotifyCompletion: Equatable, Sendable {

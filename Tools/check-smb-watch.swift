@@ -1,6 +1,7 @@
-// Fixture check for change watching (docs/connection-layer-plan.md, step 4). It drives the app's
-// SMBWatch and LocationChangeWatch over the built libTinyMounterSMB and changes the share from a
-// second connection. Run it through Tools/check-smb-watch.py; output is JSON lines without names.
+// Fixture check for change watching (docs/architecture.md §7, "Change watching"). It drives
+// the app's SMBWatch and LocationChangeWatch over the built libTinyMounterSMB and changes the
+// share from a second connection. Run it through Tools/check-smb-watch.py; output is JSON
+// lines without names.
 import Foundation
 
 struct Fixture {
