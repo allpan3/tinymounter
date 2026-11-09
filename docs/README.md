@@ -28,6 +28,8 @@ it wrong.
 
 ## Results logs
 
+- [0.2.0 release checks](results/2026-11-08-release-checks.md). Start Fresh from a real 0.1.2 setup (the hidden mount stays), M23/M25/M26 with password sessions, the only-child rename, an expired password and a regression pass with no File Provider mount.
+
 - [Connection layer for 0.2.0](results/2026-11-08-connection-layer.md). Steps 3 and 4: File Provider locations without a mount, password sessions, connection health and change watching in the signed VM app. Server Volume sign-in with the saved password.
 
 - [SMB password client](results/2026-11-08-smb-password-client.md). 0.2.0 step 2: `SMBClient` signs in with a password over sealed SMB 3.1.1; wrong password, missing and denied shares, account forms, share listing and every direct-SMB operation checked on the fixture.
