@@ -1,24 +1,19 @@
 # Phase 4: write support
 
-The [accepted SMB simplification](smb-simplification.md) replaces custom remote recovery and
-content proofs. Implementation and signed VM checks are complete; read-performance targets
-remain unmet. Earlier dated implementation notes describe their historical builds.
+Status: M18 to M21 are implemented. The [accepted SMB simplification](smb-simplification.md)
+replaces the custom remote recovery and content proofs that this plan first described;
+read-performance targets remain unmet.
 
-Date: 2026-10-23. Decision status: accepted. M18 starts phase 4 of
+Decision status: accepted. M18 starts phase 4 of
 [architecture §10](architecture.md#10-implementation-sequence-and-exit-criteria) with new files
-and folders, then adds editing and conflict handling in later milestones. The remaining phase 3
-checks are still open; starting this design does not mark them passed.
+and folders; M19 to M21 add editing, renaming and file organization. The standing VM permission
+in [AGENTS.md](../AGENTS.md#non-negotiables) supersedes the per-session VM approval limits
+recorded below; feature and safety gates still apply.
 
-The [remaining roadmap](roadmap.md), accepted on 2026-10-29, sets the full sequence after M20
-and its parallel workstreams. The accepted M18 to M20 contracts below still apply.
-The user's [standing VM permission](roadmap.md#delivery-and-approval), granted on 2026-10-31,
-supersedes the per-session VM approval limits recorded below; feature and safety gates still apply.
-
-Native upload decision, 2026-10-23: the user accepted exclusive creation through native SMB.
-Other devices can see a new file while it uploads, including a partial file after interruption.
-Keep the complete local pending copy until remote completion is verified. Existing destinations
-must remain untouched. The [API checks](results/2026-10-23-upload-publication.md) explain why
-exclusive creation replaces the earlier temporary-sibling publication design.
+Native upload decision: new files use exclusive creation through SMB. Other devices can see a
+new file while it uploads, including a partial file after interruption. Keep the complete local
+pending copy until remote completion is verified. Existing destinations must remain untouched.
+Exclusive creation replaces the earlier temporary-sibling publication design.
 
 ## First milestone: create files and folders
 
@@ -29,8 +24,7 @@ once when writes are enabled. Passwords still belong to macOS and Keychain.
 The first implementation and all destructive checks use disposable VM data, not the user's NAS.
 
 Limit the first milestone to creating ordinary files and folders, including the initial naming
-step after Finder creates an untitled folder. The user accepted that extension on 2026-10-23.
-Replacing or editing existing files, general renaming, moving and deleting come later. A name
+step after Finder creates an untitled folder. Replacing or editing existing files, general renaming, moving and deleting come later. A name
 collision fails without changing the existing item. Do not make an editor's save look successful
 when it requires an operation that this milestone does not support.
 
@@ -73,8 +67,6 @@ there is no remote full-file readback. Never overwrite an unrelated destination 
 Use a dedicated writable SMB fixture in macOS VM 1. Temporarily enable only that test share,
 snapshot its settings, and restore them after removing all test data. The original NAS remains
 read-only. Do not restart the VM, cut its network or stop shared system services.
-The user separately approved one File Provider daemon restart for the stale-state diagnostic
-on 2026-10-23. That restart is complete; it does not authorize other service restarts.
 
 Verify a new file and folder in the signed sandboxed app, then compare the complete local and
 remote file contents. Test same-name collisions, read-only locations and denied grants. Interrupt
@@ -83,74 +75,35 @@ The resumed operation must finish or remain clearly pending without losing the c
 copy or overwriting an unrelated destination. Test removal/source-change refusal with pending
 writes. Record matched before/after Finder actions.
 
-Run Tools/run-checks.sh in the VM, update affected reference docs, and finish with a dated result
-and README status. A physical-Mac install, publication and real-NAS write tests need separate
+Run Tools/run-checks.sh in the VM, update affected reference docs, and put the evidence in the
+PR. A physical-Mac install, publication and real-NAS write tests need separate
 approval. This approval does not authorize them.
 
-## Implementation status, 2026-10-23
+## Implementation notes
 
-Creation, explicit write grants, migrations and durable pending copies are implemented. All 208
-VM tests and required checks passed. Signed extension callbacks through authenticated IPC passed
-file/folder creation, and signed app stops checked recovery and pending-write lifecycle guards.
-After the approved daemon restart, normal Finder file and nested-folder uploads passed with
-matching hashes and native progress. Initial naming now passes the signed follow-up below;
-file Keep Both now passes the signed follow-up at the end of this plan. See the
-[results](results/2026-10-23-create-items.md).
-
-Initial folder naming, decision status: accepted, 2026-10-23. The user approved handling the
-initial name of a newly created folder. General renaming remains a later milestone. Native
-exclusive folder rename failed, and a create/delete alternative deleted another client's
-replacement folder in a controlled race. Neither route is suitable. An isolated direct SMB
-client passed collision and competing-create checks. The authentication follow-up below resolved
-the credential-probe defect. The initial naming callback, durable recovery state and signed
-Finder checks pass. See the
-[naming investigation](results/2026-10-23-initial-folder-naming.md).
-
-Next step, decision status: accepted, 2026-10-23. After the dependency explanation, the user
-asked to continue the fix. Prototype `libsmb2` for folder creation and initial naming, keeping native
-reads and file uploads. The corrected credential probe and a signed sandboxed connection passed
-without password acquisition. The [authentication follow-up](results/2026-10-23-folder-naming-authentication.md)
-records the earlier probe defect and the LGPL-2.1-or-later obligations. Preserve the macOS-managed password contract.
-Catalog version 4 separates the current lookup key from the immutable enumeration key, keeping
-existing cursors and item IDs across naming. Migrations from versions 1, 2 and 3 preserve user
-state. The final client passed read-only credential/identity checks on the NAS, signed fixture
-creation/naming and interrupted recovery. All 230 tests and required checks passed with no Swift
-warnings. File Keep Both now passes the follow-up below.
-
-Folder-creation transport, decision status: accepted, 2026-10-23. Read-only NAS checks found
-that native inodes are name hashes while direct SMB returns the server's object identifiers.
-The earlier comparison therefore refused naming. Use direct SMB for exclusive folder creation
-as well as initial naming, retaining the server identity from creation and keeping native catalog
-identity separate. File uploads and reads remain native. The user approved this extension.
+**Initial folder naming.** Native exclusive folder rename failed, and a create/delete alternative
+deleted another client's replacement folder in a controlled race, so neither route is used.
+Direct SMB (`libsmb2`) creates folders exclusively and gives them their initial name, retaining
+the server identity from creation and keeping native catalog identity separate: native inodes
+are name hashes, while direct SMB returns the server's object identifiers. Catalog version 4
+separates the current lookup key from the immutable enumeration key, keeping existing cursors
+and item IDs across naming.
 The client holds directory handles against replacement while recording the server identifier
 and creation time, then binds native metadata to the receipt. Recovery checks that server
 identity and creation time; a native name hash cannot prove ownership. Older folder receipts
 without server proof remain readable but cannot authorize naming. Initial naming finishes before
 TinyMounter creates children in that folder. A folder with child creation receipts cannot start
 another naming operation, which would move those saved paths and become general renaming.
-Signed verification passed on the disposable VM fixture; real-NAS writes remain unverified.
-See the [identity findings](results/2026-10-23-folder-naming-fix.md#native-identifier-mismatch).
+Real-NAS writes remain unverified.
 
-Keep Both follow-up, 2026-10-25: signed VM trials isolated Finder's need for rename capability
-before it chooses the incoming copy's name. The implementation enables that capability in
-locations with changes enabled. Finder also offers ordinary Rename, which the backend still
-refuses. The accepted transport and create-only boundaries remain in force. Definite collisions
-now include the existing catalog item in the error; uncertain uploads cannot change names.
-All 232 VM tests and required checks passed. Final signed file Keep Both, repeated-collision,
-byte-preservation, folder-copy and read-only Finder checks passed. The fixture is removed and
-sharing is restored. The VM create checks are complete; physical-Mac writes remain unverified.
-See the [results](results/2026-10-25-keep-both.md).
-
-Physical-Mac installation, 2026-10-27: the user approved installing M18. The app and provider run
-from Applications with the existing catalog ID and diagnostic counts retained. The location
-remains read-only. Physical-Mac writes await the user's run; see the
-[installation results](results/2026-10-25-keep-both.md#physical-mac-installation-2026-10-27).
+**Keep Both.** Finder needs rename capability before it chooses the incoming copy's name, so
+writable locations advertise it. Definite collisions include the existing catalog item in the
+error; uncertain uploads cannot change names.
 
 ## M19: online editing
 
-Decision status: the ordinary SMB design was accepted on 2026-11-04. It replaces the earlier
-remote recovery transactions. See [SMB simplification](smb-simplification.md) for the contract
-and [VM results](results/2026-11-05-smb-simplification.md) for current evidence.
+Decision status: accepted and implemented. The ordinary SMB design replaces the earlier remote
+recovery transactions. See [SMB simplification](smb-simplification.md) for the contract.
 
 ### Supported saves and boundaries
 
@@ -185,16 +138,13 @@ behavior and physical-Mac performance need their own evidence with this implemen
 
 ### Revised Mac-only save proposal
 
-The October 28 transaction and November 4 rechecks are historical designs, superseded above.
-Their protocol and runtime evidence remains in [same-object saves](results/2026-10-28-same-object-save.md)
-and [save rechecks](results/2026-11-04-save-recheck.md).
+The earlier Mac-only save transaction and its rechecks are superseded by the ordinary SMB
+design above. Git history keeps them.
 
 ## M20: file renaming
 
-Proposed 2026-10-28; accepted 2026-10-29, including the disposable VM fixture. The user also
-approved replacing the separate creation and editing controls with one Read only toggle.
-Implementation and signed VM verification are complete. The [results](results/2026-10-29-file-renaming.md)
-record Finder behavior, recovery, preservation checks and remaining limits. The historical result describes that build; current validation is linked above.
+Decision status: accepted and implemented. One Read only toggle replaces the separate creation
+and editing controls.
 
 ### What the user gets
 
@@ -210,8 +160,8 @@ Folder organization follows M22. Finder Replace and combined rename/content call
 outside the verified capability set. M18 initial folder naming continues unchanged.
 
 Creation, editing and renaming use one write mode. A Read only toggle defaults off for new
-locations. Adding a writable location obtains the macOS share grant. The 2026-11-04 UI decision
-removes the SMB-only eligibility warning; ordinary overwrite races are accepted.
+locations. Adding a writable location obtains the macOS share grant. The UI has no SMB-only
+eligibility warning; ordinary overwrite races are accepted.
 Existing read-only locations remain read-only. Already confirmed M19 write access also permits the supported M20 rename.
 Legacy creation-only grants retain their existing access and pending work until the user
 completes the one-time write confirmation; they do not silently acquire editing permission.
@@ -257,7 +207,7 @@ user-requested file rename. Reuse its existing protected opens, identity/readbac
 no-replace rename. The adopted direct client also handles reads and uploads. macOS credentials,
 encryption requirements, dynamic linkage and licence obligations stay the same.
 
-The user approved a fresh disposable loopback-only Samba session in macOS VM 1,
+The checks use a fresh disposable loopback-only Samba session in macOS VM 1,
 with the same bounded synthetic files, temporary dependencies and private Keychain credential
 used for M19. Do not create a macOS account, register a service or change Apple's sharing settings.
 Snapshot the affected state, then remove the fixture, credential and temporary dependencies and
@@ -274,16 +224,14 @@ safety gate needs a design decision before proceeding.
 Then test the signed Finder workflow, repeated renames, refusal of unverified files, read-only
 and opt-in enforcement, interaction with pending saves, overlapping locations, restart recovery,
 and preserved IDs, keeps, downloads and pagination. Use fresh state when persistent formats
-change. Record matched before/after Finder actions, run Tools/run-checks.sh in the VM, and update
-the affected docs, results log and README in the implementation commits.
+change. Record matched before/after Finder actions, run Tools/run-checks.sh in the VM, update
+the affected docs in the implementation commits and put the evidence in the PR.
 
 ## M21: organize ordinary files
 
-Date: 2026-10-29. Decision status: accepted. The [remaining roadmap](roadmap.md) expands the
-earlier verified-file move proposal to online rename and move for ordinary files, including
-files never downloaded. The identity gate below is part of this milestone. The user approved
-the scope and first disposable VM protocol session. Later signed organization results are linked
-from the roadmap; the physical Mac retains the pre-simplification build.
+Decision status: accepted and implemented. This milestone expands the earlier verified-file
+move proposal to online rename and move for ordinary files, including files never downloaded.
+The identity gate below is part of this milestone.
 
 ### What the user gets
 
@@ -353,23 +301,19 @@ until release, locations are added again after a format change.
 
 The SMB rename wrapper accepts a destination path with replacement disabled. The provider,
 durable intent and catalog now support parent changes. The installed File Provider SDK exposes
-allowsReparenting for moving an item between folders. The integrated implementation passes
-required VM checks; signed Finder checks remain. Cross-folder publication and recorded directory
-recovery identities passed the isolated protocol checks below. Current organization uses server
+allowsReparenting for moving an item between folders. Current organization uses server
 identity and metadata, with no payload hashing. Folder moves still inspect descendant metadata;
 no constant-time or large-tree performance claim is made.
 
-The isolated Tools/check-file-organization.py probe passes all nine cases in the
-[VM protocol run](results/2026-10-29-file-organization-protocol.md), including protected file/parent
-identities, full bytes, permission and stream preservation, collisions, replacement races and
-interrupted publication. A passing protocol run alone cannot prove the
+A protocol probe of protected file/parent identities, full bytes, permission and stream
+preservation, collisions, replacement races and interrupted publication cannot prove the
 historical identity of a legacy catalog row: those rows have no recorded server identity, and
 native lookup IDs can be derived from names. A replacement with identical metadata can therefore
-match an old row. On 2026-10-29 the user accepted binding unverified files and selected parents
+match an old row. The accepted admission rule binds unverified files and selected parents
 to the current objects at admission, after matching known details. Record protected identity
 and metadata evidence for the operation and retry; preserve the evidence level of local
 copies. Observed files retain their identity and metadata checks. This boundary is
-implemented; signed Finder verification remains.
+implemented.
 
 This accepted scope expands libsmb2 use to user-requested cross-folder moves and the protected parent
 identity queries needed for recovery. It adds no dependency or server component. The existing
@@ -388,7 +332,7 @@ local and remote identities and full downloaded bytes before and after, includin
 neighbor. Record matched M20/M21
 workflows and run Tools/run-checks.sh in macOS VM 1.
 
-The approved fixture is a new session of the disposable loopback-only Samba setup used for
+The fixture is a new session of the disposable loopback-only Samba setup used for
 M20, with synthetic files, temporary dependencies and a private disposable Keychain credential.
 Do not create a macOS account, alter Apple's sharing settings, restart a shared daemon or VM,
 or cut the network. Snapshot affected state, then remove task-owned server processes, mounts,

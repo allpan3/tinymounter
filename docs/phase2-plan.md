@@ -1,22 +1,8 @@
 # Phase 2: read-only vertical slice
 
-Date: 2026-10-12. Decision status: accepted. The user started phase 2 on 2026-10-11 and made the
-decisions in section 1 on 2026-10-12. Done: M1, the core library, with its read-only [NAS
-listing](results/2026-10-12-nas-listing.md); M2's first remount round, which [decided
-D1](results/2026-10-12-remount-identity.md). M3's [share grant and Finder
-spikes](results/2026-10-12-share-grant.md), verified in the signed app, with its regression read
-passing on 2026-10-13. M4 and M5 [passed their runtime checks](results/2026-10-14-catalog-browsing-reads.md)
-on 2026-10-14 and 2026-10-15. The follow-up on 2026-10-15 fixed IINA's full-download fallbacks
-and read-ahead stalls, and Remove Location now deletes downloaded copies. A system race that caused
-fallbacks was avoided in 11 stress trials after the window became one chunk
-([comparison](results/2026-10-15-read-ahead-window.md)). M6 [passed its runtime
-checks](results/2026-10-16-keep-pause.md) on 2026-10-16, which also verified the D2 deadline.
-M7 and M8 passed theirs on 2026-10-16 and 2026-10-18 ([M7](results/2026-10-16-settings-window.md),
-[M8](results/2026-10-18-storage-pane.md)). On 2026-10-18, M9 [showed exit criteria 1 to
-6](results/2026-10-18-exit-validation.md) in the VM, and M10's VM part passed. M10's run on the
-physical Mac is in progress. On 2026-10-19 the user reported the supplied daily-use checks passed
-except macOS restart; [physical-Mac results](results/2026-10-19-physical-mac-use.md). The full
-physical-Mac acceptance series is not complete.
+Status: complete. M1 to M9 are implemented and checked in the VM; the full physical-Mac
+acceptance series is not complete. Later phases replaced the transport and the connection that
+this plan describes ([architecture.md](architecture.md)). Decision status: accepted.
 
 This is phase 2 of [architecture §10](architecture.md#10-implementation-sequence-and-exit-criteria).
 It starts before phase 1's exit and keeps the current transport. The phase 1 sequential
@@ -42,7 +28,7 @@ The user's decisions:
 3. **Keep Downloaded is a request.** Finder gets Keep Downloaded and Allow Removal. The location
    pane listed requests as "Requested" in phase 2. Since M13, it verifies local availability
    ([phase 3](phase3-plan.md#m13-verified-offline-status-for-kept-files)). M14 adds recursive folder
-   requests ([results](results/2026-10-19-folder-keeps.md)).
+   requests.
 4. **UI.** Build the accepted [ui-design.md](ui-design.md) and [mockup](ui-mockup.html), with the
    phase 2 scope in decision 5: a Settings window with a sidebar (Locations; then General,
    Storage, Servers, About), one pane per location, adding by Duplicate into a "Not added" draft,
@@ -80,7 +66,7 @@ The agent's decisions, which the user can change:
 - **D2.** Progress messages and a 60 s no-progress deadline replace the absolute 300 s reply
   wait. Otherwise a Keep Downloaded download that takes over 300 s fails and starts again.
 - **D3.** The six fixture domains (about 2.9 GiB downloaded) are removed with `.removeAll`: they
-  hold only test copies of NAS files. Remove Location also uses `.removeAll` (user, 2026-10-15):
+  hold only test copies of NAS files. Remove Location also uses `.removeAll`, by the user's decision:
   `.preserveDownloadedUserData` left 4.9 GiB of read-only copies in CloudStorage in M4.
 - **D5.** A mass-deletion guard (section 5, reconcile step 4). Without a holding area, a kept file's
   local copy is deleted once a second complete listing confirms that the NAS removed it.
@@ -125,8 +111,8 @@ Choices this plan makes where the reviewed designs disagreed, one reason each:
 
 Decisions 3 to 6 add Keep Downloaded requests, the UI and relisting.
 
-**Exit criteria.** M9 shows criteria 1 to 6 with dated evidence in a results log. The new phase
-order of 2026-10-18 ([architecture §10](architecture.md#10-implementation-sequence-and-exit-criteria))
+**Exit criteria.** M9 shows criteria 1 to 6 in the VM. The later phase
+order ([architecture §10](architecture.md#10-implementation-sequence-and-exit-criteria))
 moved criterion 7 to phase 6, and criterion 8 to phase 3, whose tests need a writable share:
 
 1. Real Finder browsing at least 3 folder levels deep. Child counts equal a native listing minus
@@ -653,7 +639,7 @@ only, as today.
 **Unresponsive share.** A blocked kernel SMB call can't be cancelled [V]. `ShareHealth` marks the
 share unresponsive when a lane operation or a transfer makes no progress for 15 s, or a call fails
 with a timeout-class errno. A call of TinyMounter's own SMB client, which times out each request
-itself, has 60 s, so a slow connection setup is not a stall (added 2026-11-02). A listing makes
+itself, has 60 s, so a slow connection setup is not a stall. A listing makes
 progress with each `getattrlistbulk` batch, and a
 confirmation (listing step 6) with each `fstatat`. Otherwise a large folder or a large removal would
 count as one long call: at the measured cold rate (169 entries in 39.6 ms), 100,000 entries take
@@ -673,8 +659,8 @@ fail with `serverUnreachable`. Nothing is invented: rows come only from complete
 
 **Failed folder recovery.** `signalErrorResolved` lifts error throttling; it does not promise
 that Finder retries an enumeration. Replicated extensions signal `.workingSet`; the SDK says
-individual folder signals are ignored. In the [October 15 follow-up](results/2026-10-15-runtime-followup.md),
-a diagnostic one-level directory download request repopulated all children, but Finder retained
+individual folder signals are ignored. In a diagnostic,
+a one-level directory download request repopulated all children, but Finder retained
 the error banner even after another resolution signal and a folder metadata update. The pending
 set did not expose the failed folder. No automatic recovery workaround or notification is installed.
 
@@ -859,7 +845,7 @@ the reworded usage descriptions. Status text names the grant's host, never a fix
 | M10 | Daily use on the physical Mac | Does an update keep the locations, and what removes TinyMounter cleanly? How long does the signature last? Do criteria 1 to 6 hold on the physical Mac? | M9; the user, for the physical Mac |
 
 Reads are unavailable between M4 and M5, so M4 and M5 land together. Every milestone ends with
-the AGENTS.md checks, the docs it made wrong fixed, and its results in writing.
+the AGENTS.md checks, the docs it made wrong fixed, and its evidence in writing.
 
 M5's runtime check also covers the D2 deadline (section 6, step 5), which no unit test reaches
 from end to end:
@@ -870,8 +856,7 @@ from end to end:
 - A transfer that stops after `started` logs `stalled=1` about 60 s after its last progress. A
   share outage doesn't show this, because the mount's own timeout (about 30 s) makes the app reply
   first, so stop the app's process with `SIGSTOP` during a transfer, then continue it. M6 ran
-  this check on 2026-10-16: `stalled=1` came 60.0 s after the stop
-  ([results](results/2026-10-16-keep-pause.md)).
+  this check.
 
 M1 also built `setKeep`, `setPaused`, `keptItems` and `ShareHealth`, which belong to M6 and M4.
 They stay in M1: D5's kept-file rule needs `keep` in its tests. M4 extends `ShareHealth` with the
@@ -879,108 +864,41 @@ needs-grant state (`notAuthenticated`) and with the errors that each recovery re
 
 ## 10. Unverified assumptions and open questions
 
-### Verified in M3
+### Platform behaviour found in the VM
 
-On 2026-10-12 in the signed, sandboxed app on macOS 27.0.1 in the VM:
+The milestone checks in the signed, sandboxed app found this behaviour of macOS 27:
 
-- The saved app-scoped share-root grant listed a depth-2 folder and three child folders, and
-  opened a file at depth 4. It worked after relaunch, with one resolution per session, no new
-  privacy prompt and no new mount. Only a healthy share was tested.
-- Finder showed Keep Downloaded or Allow Removal as a separate context-menu item after the
-  fixture item was republished with `userInfo.keep`. The rule switched with the harness's keep
-  state. Finder's own Keep Downloaded was absent; its Download Now and Remove Download remain.
-  An Allow Removal click reached the extension. The spike logs only; M6 implements the action.
-- Count Downloads read the materialized set (3 items, including 2 folders) and download progress
-  (1 of 1). Active progress updates and disk-space accounting remain unverified.
-
-See the [M3 results](results/2026-10-12-share-grant.md).
-
-### Verified in M4 and M5
-
-On 2026-10-14 and 2026-10-15 in the signed app in the VM ([M4 and M5
-results](results/2026-10-14-catalog-browsing-reads.md)):
-
-- The read-only WAL connection in the extension saw the app's commits while Finder paged another
-  folder, and opened the catalog after a clean app quit and an extension kill.
-- Read-only `fileSystemFlags` on folders did not disturb materialization. Terminal writes in the
-  location failed with EPERM before any mutation call reached the extension.
-- First listings stayed far below the 5 s wait. All 24 finished in time; the longest wait was
-  259.5 ms (613 entries, queued behind another listing). The slowest listing was a launch relist
-  of 2,001 entries: 379.7 ms.
+- A saved app-scoped share-root grant works after relaunch, with one resolution per session, no
+  new privacy prompt and no new mount.
+- Finder shows Keep Downloaded or Allow Removal as a separate context-menu item after the item is
+  republished with `userInfo.keep`. Finder's own Keep Downloaded is absent; its Download Now and
+  Remove Download remain.
+- The extension's read-only WAL connection sees the app's commits while Finder pages another
+  folder, and opens the catalog after a clean app quit and an extension kill.
+- Read-only `fileSystemFlags` on folders do not disturb materialization. Terminal writes in the
+  location fail with EPERM before any mutation call reaches the extension.
 - Finder does **not** retry a failed folder after the app relaunches and signals
   `serverUnreachable` resolved. It shows "Your device couldn't connect to the server" with Try
   Again until the user clicks it.
-- Remove Location with `.preserveDownloadedUserData` moved the 5 fully downloaded files, not the
-  partly downloaded ones, into a dated, read-only (`uchg`) folder next to the location in
-  CloudStorage. Remove Location now uses `.removeAll` (D3).
-- A one-chunk (16 MiB) read-ahead window avoided the system materialization race in 0/11
-  moving-boundary stress trials, against 5/5 failures at 128 MiB. IINA's playback and seeks were
-  unchanged, and it fetched less data that IINA never read
-  ([comparison](results/2026-10-15-read-ahead-window.md)).
-
-### Verified in M6
-
-On 2026-10-16 in the signed app in the VM ([M6 results](results/2026-10-16-keep-pause.md)):
-
-- Keep Downloaded and Allow Removal changed one row each and switched the Finder action. All 6
-  completed eager downloads of kept files were system requests. With the app quit, the action
-  failed with `serverUnreachable`.
-- Pause cancelled a running 2.74 GB eager download in the same millisecond as its commit, and the
-  system's retry failed at once. A user read and Finder's Download Now still downloaded, and
-  read-ahead stopped and started again with Resume. Resume and a relaunch downloaded the files
-  kept while paused. Cancelling a running speculative fetch didn't fail the read that waited on it
-  (3 of 3), and a kept file's download could be removed while paused.
-- A kept file in a folder that the system never enumerated didn't download in 74 s. It downloaded
-  0.14 s after the folder was listed.
-- D2: a fetch failed 60.0 s after `SIGSTOP` of the app, and after `SIGCONT` the app released the
-  job and left no stage file.
-
-### Verified in M7
-
-On 2026-10-16 in the signed app in the VM ([M7 results](results/2026-10-16-settings-window.md)):
-
-- A Name change, a root update in the working set plus `add` with the new `displayName`, renamed
-  the CloudStorage folder in the same second. macOS drops spaces from the folder name.
-- A saved Keep Downloaded list came back in a later location, and Apply carried a kept path to the
-  new domain. After Download Now, the system fetched the kept file 46.7 s and 51.0 s after the
-  folder request, in two runs.
-- Notification permission and `SMAppService.mainApp` worked from the build folder.
-- NSWorkspace's `willUnmount` and `didUnmount` reached the sandboxed app on eject. An eject
-  posted one notification, after a fix: the app had started a new session on the volume that
-  `willUnmount` announced, because it stayed in the mount table for 10.7 s. Only an unmount that
-  ended at once was tested after the fix.
+- Remove Location with `.preserveDownloadedUserData` moves fully downloaded files, not partly
+  downloaded ones, into a dated, read-only (`uchg`) folder next to the location in CloudStorage.
+  Remove Location therefore uses `.removeAll` (D3).
+- A 128 MiB read-ahead window let a moving-boundary reader trigger a system materialization race;
+  the one-chunk (16 MiB) window avoided it, with the same IINA playback and seeks.
+- A kept file in a folder that the system never enumerated downloads only after the folder is
+  listed.
+- A Name change, a root update in the working set plus `add` with the new `displayName`, renames
+  the CloudStorage folder at once. macOS drops spaces from the folder name.
+- NSWorkspace's `willUnmount` and `didUnmount` reach the sandboxed app on eject. A volume can stay
+  in the mount table for several seconds after `willUnmount`, so the app starts no session on it.
 - A Dock click doesn't open a closed `Window` scene by itself, so the app opens it in
   `applicationShouldHandleReopen`.
-
-### Verified in M8
-
-On 2026-10-18 in the signed app in the VM ([M8 results](results/2026-10-18-storage-pane.md)):
-
-- The materialized set holds the complete downloads only. The pane's totals matched the sizes of
-  the files that were not dataless, and a file with its first 16 MiB downloaded was not in the set.
-- Remove Downloads kept a kept file in three runs. An open file's eviction failed with EBUSY.
-- `NSFileProviderMaterializedSetDidChange` reached the app for an eviction from outside it.
-- After an eviction, read-ahead started again only with the 10 s rule (section 6, step 7): before
-  it, a 307 MB file read again got 1 MiB fetches 0.65 s apart.
-- Folder completion listed a folder of 8 subfolders in 8.6 ms.
-
-### Verified in M9
-
-On 2026-10-18 in the signed app in the VM ([M9 results](results/2026-10-18-exit-validation.md)):
-
-- Exit criteria 1 to 6 hold. 15 folders 3 levels deep matched the share, every read matched it by
-  SHA-256, RSS changed by less than 1% in 20 soak cycles, and no mount, stage file or tombstone
-  leaked, also after `kill -9` of the app and of the extension.
-- The Finder mount is soft: a read in progress failed with ETIMEDOUT 30.6 s and 40.7 s after the
-  NAS stopped answering. After a 30 s outage, a probe succeeded 11 s after it ended. After a 70 s
-  outage, macOS unmounted the share 18 s after it ended.
-- A second remount kept the inode, size, mtime and ctime of 1,301 entries and changed `st_dev`, as
-  in M2.
-- A slow unmount took 11 s. The app ended its session at `willUnmount`, posted one notification,
-  and started no session before the unmount ended.
-- An update kept the locations, downloads and Keep Downloaded requests. Deleting the app left its
-  domain, downloads and Finder sidebar entry. The next launch finished a Remove Location that
-  `kill -9` interrupted.
+- The materialized set holds complete downloads only. `NSFileProviderMaterializedSetDidChange`
+  reaches the app for an eviction from outside it. An open file's eviction fails with EBUSY.
+- The Finder mount is soft: a read in progress fails with ETIMEDOUT after about 30–40 s, and after
+  a long outage macOS unmounts the share. A remount keeps inode, size, mtime and ctime and changes
+  `st_dev`.
+- Deleting the app leaves its domains, downloads and Finder sidebar entries.
 
 ### Unverified assumptions
 
@@ -1000,11 +918,8 @@ On 2026-10-18 in the signed app in the VM ([M9 results](results/2026-10-18-exit-
 
 ### Defaults (D9)
 
-M3's slowest first listing, 4134.7 ms for 23 entries with the NAS cache state unknown, was close
-to the 5 s first-listing wait. M4's 24 first listings waited at most 259.5 ms. On 2026-10-18, a
-physical-Mac listing took 9.47 s for 5 entries and crossed that deadline; its retry joined the
-same listing. The cause remains under investigation in the
-[folder-navigation results](results/2026-10-18-first-folder-delay.md). The default is unchanged.
+A slow first SMB listing can exceed the 5 s first-listing wait; its retry joins the same
+listing. The cause of such a delay on the physical Mac is unknown.
 
 | Default | Value |
 | --- | --- |
@@ -1031,7 +946,7 @@ same listing. The cause remains under investigation in the
   Both implement it, so either case works.
 - Finder keeps a failed folder's error until Try Again (M4). Individual folder signals are
   ignored for replicated providers, and requesting a directory enumeration restored children
-  without clearing the banner in the October 15 follow-up. Should a notification ask the user
+  without clearing the banner. Should a notification ask the user
   to click Try Again? User approval is required before adding this UI; it is not in M7, by the
   user's decision.
 - A mount reached by another address or account doesn't match the grant and shows as not

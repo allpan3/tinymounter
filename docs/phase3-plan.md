@@ -1,22 +1,16 @@
 # Phase 3: offline and NAS changes you can trust
 
-Date: 2026-10-18. Decision status: M11 and M12 done in the VM on 2026-10-18
-([M11 results](results/2026-10-18-reconnect-restart.md), [M12 results](results/2026-10-18-connect-in-app.md)).
-The user approved their behaviour on 2026-10-18: the app connects the share again by itself, it
-starts again after a crash but not after the user quits it, and the user connects in the app,
-with only the locations in Finder. The design below is the agent's. M13 to M15 add verified
-offline status, folder keeps and live change discovery below. M16 adds local disk-space
-protection. M17 checks the existing location lifecycle below.
-
-Physical-Mac follow-up, 2026-10-19: the user reports the supplied checks passed except macOS
-restart, including sleep and wake and a network change. Logs show partial playback reads and
-later connection recovery. These are user-run checks; see the
-[physical-Mac results](results/2026-10-19-physical-mac-use.md).
+Status: complete. M11 to M17 are implemented and checked in the VM. Since 0.2.0, the app's own
+SMB connection replaces the macOS mount that §1, §4 and M15 use
+([connection-layer plan](connection-layer-plan.md)). Decision status: accepted. The app connects
+the share again by itself, it starts again after a crash but not after the user quits it, and the
+user connects in the app, with only the locations in Finder. The design below is the agent's.
+M13 to M15 add verified offline status, folder keeps and live change discovery below. M16 adds
+local disk-space protection. M17 checks the existing location lifecycle below.
 
 This is phase 3 of [architecture §10](architecture.md#10-implementation-sequence-and-exit-criteria).
 It starts with M11, because in M9 macOS dropped the Finder connection after a 70 s outage, and an
-app crash stopped every location until the user opened the app again
-([M9 results](results/2026-10-18-exit-validation.md)). Evidence tags are those of the
+app crash stopped every location until the user opened the app again. Evidence tags are those of the
 [phase 2 plan](phase2-plan.md).
 
 ## 1. Reconnection
@@ -24,7 +18,7 @@ app crash stopped every location until the user opened the app again
 When a share that has locations is not mounted, the app asks macOS to mount it with
 `NetFSMountURLAsync`, at the grant's address, with no UI. macOS uses the password that the user
 saved in the Keychain; the app never reads, asks for or stores it. The mount is the same as
-Finder's, so the saved grant matches it and a session starts [V: spike, 2026-10-18].
+Finder's, so the saved grant matches it and a session starts [V: spike].
 
 - **When.** At launch, at once when macOS unmounts the share (`didUnmount`), and at each
   mount-table poll (10 s) while the share is not mounted. Wake and a network change make the next
@@ -86,8 +80,6 @@ In the signed app in the VM:
 7. No mount and no stage file leaks.
 
 Not testable in the VM: sleep and wake, a network change, and a Keychain without the password.
-All 7 checks passed on 2026-10-18, also with SIGILL; the run found and fixed the two restart
-defects in §2.
 
 ## 4. Connect in the app (M12)
 
@@ -121,7 +113,7 @@ If several shares are selected in macOS's list, the panel opens on the first. Ne
 shares that are not selected in the panel are unmounted; an unsuccessful cleanup remains visible
 under Other Connected Shares.
 
-Original M12 checks, completed before the connection-management follow-up:
+M12 checks, before the connection-management follow-up:
 
 1. Add Share… with `smb://server/share` and the password in the Keychain: no dialog, the panel
    opens on the share, and a location on it reads a file that matches the share. Finder's sidebar
@@ -137,15 +129,13 @@ Original M12 checks, completed before the connection-management follow-up:
 8. Removing the server unmounts its hidden mount. A wrong address shows a message.
 9. No mount and no stage file leaks, and no names in the log.
 
-Not testable in the VM: typing a password in macOS's dialog, which only the user does. All 9 checks
-passed on 2026-10-18.
+Not testable in the VM: typing a password in macOS's dialog, which only the user does.
 
 ### Connection management follow-up
 
-Decision status: behaviour accepted and verified in the signed VM app on 2026-10-18;
-[results](results/2026-10-18-connection-management.md). The physical Mac
-run exposed a share left connected through Finder under a different address. Removing the app's
-entry then made the native share selector an unusable route back to that share.
+Decision status: accepted and implemented. A share left connected through Finder under a
+different address made the native share selector an unusable route back to that share once the
+app's entry was removed.
 
 - Save a server address independently of its share grants. Add Server needs no mount; choose a
   share when setting up a location. The app still never asks for or stores a password.
@@ -161,12 +151,8 @@ entry then made the native share selector an unusable route back to that share.
   preserving grants, location IDs, domain IDs, bookmarks and saved Keep Downloaded lists. The
   existing version field makes an older build refuse a format it cannot preserve.
 
-Verified in the signed VM app: migration with an existing location; an address without a share;
-selection of an existing visible or hidden connection; failed and successful removal; adding the
-same connection again; several shares associated with one server; and cancellation during setup.
-The original cancellation checks change deliberately: cancelling share selection keeps the saved
-server, while leaving no new grant. Reads, reconnect and log privacy passed. The physical Mac
-needs approval before a new build runs.
+The original cancellation checks change deliberately: cancelling share selection keeps the
+saved server, while leaving no new grant.
 
 ## 5. Milestones
 
@@ -177,16 +163,12 @@ needs approval before a new build runs.
 | M13 | Verified offline status for kept files | Can the app distinguish a keep request from a complete, current local copy? | M12 |
 | M14 | Keep folders downloaded | Can the user keep a folder and its subfolders without opening each one? | M13 |
 
-M13 and M14 passed their signed VM checks on 2026-10-19. UI refinement stays deferred; the
-physical-Mac restart check remains open. Later milestones cover NAS change discovery while the
-app runs and cache pressure.
+UI refinement stays deferred; the physical-Mac restart check remains open. M15 to M17 cover NAS
+change discovery while the app runs, local disk space and the location lifecycle.
 
 ### M13: verified offline status for kept files
 
-Decision status: implemented and verified in the signed VM app on 2026-10-19;
-[results](results/2026-10-19-offline-versions.md). The user approved installation on the physical
-Mac the same day. Launch retained the existing location and keep request; its offline check
-and macOS restart remain open.
+Decision status: implemented. Its physical-Mac offline check and macOS restart remain open.
 
 The Keep Downloaded list distinguishes Requested, Update in progress and Available offline.
 The app signals the working set and waits for `waitForStabilization` to apply provider changes.
@@ -200,43 +182,17 @@ the list. No polling, content reads, source scan or persistent format change was
 covers the whole location. Before that wait, the app rechecks local metadata and materialization
 for previously verified content versions, so unrelated downloads do not reset those rows. New or
 changed versions still require synchronization. Folder status uses current membership and listing
-completeness. Provider disablement or replacement clears the remembered verification. The signed
-comparison and 175 tests passed; the user-approved update is installed on the physical Mac
-([results](results/2026-10-19-keep-status-refresh.md)). Available offline refers to the latest source
+completeness. Provider disablement or replacement clears the remembered verification. Available offline refers to the latest source
 version the app has observed; M15 below adds live discovery with bounded refresh intervals.
 
 The tested materialized-item projection returned unusable download flags and omitted its opaque
 content version and userInfo. The public stabilization barrier supplies the consistency check
-instead. Signed VM checks covered
-same-size/date edits, size/date changes, changes during downloads, empty files, final checksums,
-relaunch and OS eject. Earlier checks covered partial content, completion in the same pane, unkeep
-and disabled-provider invalidation. All 161 tests and required checks passed.
-
-#### Isolated source-change fixture
-
-Decision status: accepted by the user on 2026-10-19 and completed; the temporary setup is removed.
-
-A disposable local folder was exposed as the only active VM SMB share, read-only to the guest
-connection. Existing shares were disabled for the test. SMB guest access was enabled independently
-of guest login, which stayed disabled. Mutations touched only the fixture's local backend; the NAS
-remained read-only. Guest mount identities lose macOS's empty password field before matching or
-saving, and the verified mount supplies the saved address without a separate remount URL.
-Nonempty passwords and typed password fields remain rejected.
-
-The test location, requests, downloads, server entry, mount, share and source folder were removed.
-Existing share definitions were restored, SMB was left unloaded and SMB guest access disabled.
-The saved NAS connection remained connected. The VM was not restarted and its network settings
-were not changed.
+instead.
 
 ### M14: keep folders downloaded
 
-Decision status: implemented and verified in the signed VM app on 2026-10-19 under the accepted
-recursive-folder design and the user's instruction to continue; [results](results/2026-10-19-folder-keeps.md).
-The signed build is installed on the physical Mac; launch retained the existing location and
-keep request. The user reports folder keeping works. A requested follow-up adds Finder's native
-progress circle during kept transfers, verified in the VM and installed on the physical Mac
-([results](results/2026-10-19-keep-status-refresh.md)). Other UI refinement and live NAS change
-discovery remain separate work.
+Decision status: implemented, with the accepted recursive-folder design. Finder's native progress
+circle shows during kept transfers. Other UI refinement remains separate work.
 
 Keep Downloaded in Finder accepts files and folders. A folder request includes its descendants,
 including items found by later listings. The app lists requests in Settings, rather than adding
@@ -269,18 +225,13 @@ pause/resume, unkeep, incomplete listings and empty folders. The signed VM run m
 previously unopened tree, update the open Settings pane, survive relaunch and OS eject, and read
 all kept bytes with hydration forbidden. Use a small isolated fixture and remove it afterward;
 never request an uncontrolled NAS tree. Record matched before/after actions and run all checks
-in the VM before offering a signed physical-Mac build. These checks passed: 170 tests, required
-builds, matched recordings and the signed fixture run. The temporary VM sharing setup and downloads
-were removed, and the previous sharing settings were restored.
+in the VM before offering a signed physical-Mac build.
 
 ### M15: discover NAS changes while the app runs
 
-Decision status: scope accepted under the user's 2026-10-19 instruction to continue in phase
-order. Implementation choices below are the agent's; signed isolated VM verification passed
-on 2026-10-19 ([results](results/2026-10-19-nas-change-discovery.md)).
-The user approved temporary isolated VM sharing for the checks and later approved installing
-and opening M15 on the physical Mac. Installation retained the existing location. The user
-confirmed that live changes work in their physical-Mac check. Publication is not approved.
+Decision status: implemented. Implementation choices below are the agent's. Since 0.2.0,
+SMB2 `CHANGE_NOTIFY` watches on the app's own connection replace the Dispatch sources below
+([architecture §7](architecture.md#7-identity-versions-and-change-discovery)).
 
 Monitor directory vnodes through public Dispatch sources on the native SMB mount. Apple's SMB
 client connects directory monitoring to CHANGE_NOTIFY. These are hints, not deletion evidence;
@@ -302,23 +253,13 @@ request does not follow a rename. No format, remote write, new dependency or UI 
 Available offline remains a check of the source version last observed, rather than a guarantee
 that the NAS cannot change between refreshes.
 
-The signed fixture run passed external addition, same-size/mtime content edits, rename and
-deletion without app relaunch; a new descendant in a kept tree; matching kept-file hashes with
-hydration forbidden; failed-listing preservation; and normal eject/reconnect. Matched Finder
-recordings show an external addition before and after M15. All 182 tests and required checks
-passed, with no Swift warnings. Cleanup and final diagnostics are recorded in the results log.
-The user later confirmed live changes on the physical Mac. Physical-Mac offline hashes and
-restart, QSpace and broader NAS notification coverage remain unverified.
+Physical-Mac offline hashes and restart, QSpace and broader NAS notification coverage remain
+unverified.
 
 
 ### M16: protect local disk space during downloads
 
-Decision status: behavior accepted by the user on 2026-10-21 with "sounds good do it".
-Implementation and signed VM verification passed on 2026-10-22. The user also approved
-temporary isolated VM File Sharing and a disposable size-limited volume, with full removal and
-settings restoration.
-The user approved physical-Mac installation on 2026-10-22; it is installed. Publication still
-requires approval.
+Decision status: accepted and implemented.
 
 The prototype leaves a fixed 2 GiB reserve on the local staging volume. This is an implementation
 policy, not a measured macOS requirement. One app-owned budget covers concurrent requests across
@@ -357,17 +298,12 @@ independent offline status and recovery without overriding Pause. Use a small di
 for a real ENOSPC path and signed app checks for admission, Finder/app status and retry. Record
 matched before/after actions, restore sharing and remove all test downloads afterward.
 
-All 192 tests and required checks passed. Signed checks covered blocked admission, native Finder
-errors, independent offline status, persisted retry after relaunch, Pause and recovery. Real
-ENOSPC cleanup and recovery passed on a disposable volume. Sharing is restored and all fixtures
-are removed. The signed update is installed on the physical Mac; its low-space checks remain.
-See the [results](results/2026-10-21-disk-space-protection.md).
+Physical-Mac low-space checks remain open.
 
 
 ### M17: verify location changes and removal
 
-Decision status: verification of accepted behavior on 2026-10-22 under the user's
-"Install, then go onto the next step" instruction. The Add, Name, Apply and Remove contract is
+Decision status: verification of accepted behavior. The Add, Name, Apply and Remove contract is
 already accepted in phase 2 sections 7 and 8. This step adds no new feature or interface.
 
 Check that one location can change its name or source, or be removed, without changing another
@@ -384,14 +320,9 @@ and the original connection intact, then remove every temporary location and dow
 multi-location load and performance checks remain in phase 6. A full macOS restart remains the
 user's separate check; the VM is not restarted.
 
-Record the signed results and run Tools/run-checks.sh before closing this step. If a check finds
+Put the signed results in the PR and run Tools/run-checks.sh before closing this step. If a check finds
 a defect in the accepted behavior, fix the cause, add a useful regression check and update the
 affected docs in the same commit. New recovery actions or destructive behavior need a separate
 user decision.
 
-The signed run passed the location-change checks without a production code change. Rename,
-rejected Apply, interrupted Apply/Remove and provider off/on left the other location's kept
-copy intact. A saved request returned on re-add; its automatic download completion remains
-unverified. The test locations and downloads are removed. All 192 tests and required checks
-passed. See the
-[results](results/2026-10-22-location-lifecycle.md) for evidence and the remaining phase 3 gates.
+A saved request returns on re-add; its automatic download completion remains unverified.
