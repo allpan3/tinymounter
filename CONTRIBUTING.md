@@ -60,8 +60,10 @@ declined if the feature isn't worth its weight. Docs-only changes and obvious fi
 - Fill in every section of the [PR template](.github/PULL_REQUEST_TEMPLATE.md), or say why a section
   doesn't apply.
 - **A change visible in a file manager or the app needs a before/after recording**, made with the
-  same steps both times. An "after"-only clip doesn't count.
-- **A performance claim links its results log.** Numbers in a PR need their setup and cache state.
+  same steps both times. An "after"-only clip doesn't count. Attach it to the PR; don't commit it.
+- **The PR description holds the test evidence:** setup, cache state, counts, timings and what was
+  not verified. Raw evidence stays in the local `results/`. Docs state only what is true after
+  the change.
 - Point out anything surprising and any tradeoff you made on purpose. Also call out any behaviour
   change you didn't intend.
 - **Read your own diff from top to bottom before you open the PR.** Most review comments are
@@ -85,9 +87,8 @@ declined if the feature isn't worth its weight. Docs-only changes and obvious fi
   only works if PR titles are written for users.
 - Tag releases `vMAJOR.MINOR.PATCH`. A release should add no commits of its own, such as a version
   bump or generated notes.
-- Until the first release, the project history is the dated status line in the README plus the logs
-  in [`docs/results/`](docs/results/). A log records an experiment or investigation and what it
-  found. A routine installation with no new finding updates only the README status line.
+- **No work logs in the repository.** Don't add results logs, dated status lines or "decided on"
+  narrative to the docs. The project history is Git and the merged PRs.
 
 ## Bugs
 
