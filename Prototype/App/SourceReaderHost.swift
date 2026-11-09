@@ -2,6 +2,19 @@ import Darwin
 import FileProvider
 import OSLog
 
+/// An upload or a complete-file download that the menu bar panel lists.
+struct ActiveTransfer: Identifiable, Equatable, Sendable {
+    enum Direction: Sendable { case upload, download }
+    let id: UUID
+    let domain: String
+    let direction: Direction
+    let name: String
+    let total: Int64
+    var completed: Int64 = 0
+    /// A failed upload that macOS sends again by itself.
+    var waiting = false
+}
+
 /// A finished transfer: the item (an upload's template or an item ID), its name and the outcome.
 struct ReaderActivity: Sendable {
     enum Outcome: Sendable {
@@ -38,6 +51,12 @@ final class SourceReaderHost {
     var onConnected: ((String) -> Void)?
     /// A transfer finished, or a fetch that a user waits for failed because the share is down.
     var onActivity: ((String, ReaderActivity) -> Void)?
+    /// The current transfers, at most twice a second while there are any.
+    var onTransfers: (([ActiveTransfer]) -> Void)?
+    private var sessions: [String: SourceReaderSession] = [:]
+    /// Failed uploads that macOS sends again, by domain and item.
+    private var waiting: [String: [String: ActiveTransfer]] = [:]
+    private var polling: Task<Void, Never>?
     let downloadSpace = DownloadSpace {
         try DownloadSpace.available(at: SharedContainer.stagingDirectory())
     }
@@ -48,13 +67,48 @@ final class SourceReaderHost {
         domains = Dictionary(uniqueKeysWithValues: current.map { ($0.identifier.rawValue, $0) })
         for id in Array(connections.keys) where domains[id] == nil {
             connections.removeValue(forKey: id)?.invalidate()
+            sessions[id] = nil
         }
+        for id in Array(waiting.keys) where domains[id] == nil { waiting[id] = nil }
         for domain in current { connect(domain) }
+        pollTransfers()
+    }
+
+    /// `upload` is the item of an upload, which replaces its waiting row.
+    private func transferStarted(_ domain: String, upload: String?) {
+        if let upload { waiting[domain]?[upload] = nil }
+        pollTransfers()
     }
 
     private func finished(_ domain: String, _ activity: ReaderActivity) {
-        if case .uploadWaiting = activity.outcome { return }
-        onActivity?(domain, activity)
+        switch activity.outcome {
+        case .uploadWaiting:
+            waiting[domain, default: [:]][activity.item] = ActiveTransfer(
+                id: UUID(), domain: domain, direction: .upload, name: activity.name, total: activity.size, waiting: true)
+        case .uploaded, .uploadFailed, .conflict:
+            waiting[domain]?[activity.item] = nil
+            onActivity?(domain, activity)
+        case .downloaded, .downloadFailed:
+            onActivity?(domain, activity)
+        }
+        pollTransfers()
+    }
+
+    /// Progress changes many times each second, so the panel reads it on a timer.
+    private func pollTransfers() {
+        guard polling == nil else { return }
+        polling = Task { [weak self] in
+            while let self {
+                let current = sessions.values.flatMap { $0.transfers() } + waiting.values.flatMap(\.values)
+                onTransfers?(current.sorted { ($0.waiting ? 1 : 0, $0.name) < ($1.waiting ? 1 : 0, $1.name) })
+                guard !current.contains(where: { !$0.waiting }) else {
+                    try? await Task.sleep(for: .milliseconds(500))
+                    continue
+                }
+                polling = nil
+                return
+            }
+        }
     }
 
     private func connect(_ domain: NSFileProviderDomain) {
@@ -74,6 +128,8 @@ final class SourceReaderHost {
                     try await confirm(id, request, progress)
                 }, spaceChanged: { [weak self] request, blocked, name in
                     Task { @MainActor in self?.onSpaceChange?(id, request, blocked, name) }
+                }, started: { [weak self] upload in
+                    Task { @MainActor in self?.transferStarted(id, upload: upload) }
                 }) { [weak self] activity in
                     Task { @MainActor in self?.finished(id, activity) }
                 }
@@ -87,11 +143,13 @@ final class SourceReaderHost {
                     Task { @MainActor in
                         guard let self, let connection, self.connections[id] === connection else { return }
                         self.connections.removeValue(forKey: id)
+                        self.sessions[id] = nil
                         self.retry(domain)
                     }
                 }
                 connection.interruptionHandler = { [weak connection] in connection?.invalidate() }
                 connections[id] = connection
+                sessions[id] = session
                 connecting.remove(id)
                 connection.activate()
                 let proxy = connection.remoteObjectProxyWithErrorHandler { [weak connection] _ in
@@ -141,6 +199,8 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
         var staging: URL?
         /// Bytes last sent to the extension; only the progress queue touches it.
         var reported: Int64 = 0
+        /// Set under the session's lock while the panel lists this job.
+        var transfer: ActiveTransfer?
 
         init(isDeletion: Bool = false) { self.isDeletion = isDeletion }
     }
@@ -149,6 +209,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
     private let source: LocationSource?
     private let queue: OperationQueue
     private let finished: @Sendable (ReaderActivity) -> Void
+    private let started: @Sendable (String?) -> Void
     private let space: DownloadSpace
     private let confirmDeletion: @Sendable (DeleteItemRequest, Progress) async throws -> Void
     private let spaceChanged: @Sendable (SourceReadRequest, Bool, String?) -> Void
@@ -165,15 +226,34 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
     init(domainID: String, source: LocationSource?, queue: OperationQueue, space: DownloadSpace,
          confirmDeletion: @escaping @Sendable (DeleteItemRequest, Progress) async throws -> Void,
          spaceChanged: @escaping @Sendable (SourceReadRequest, Bool, String?) -> Void,
+         started: @escaping @Sendable (String?) -> Void,
          finished: @escaping @Sendable (ReaderActivity) -> Void) {
         self.domainID = domainID
         self.source = source
         self.queue = queue
+        self.started = started
         self.finished = finished
         self.space = space
         prefetch = ReadPrefetch(space: space)
         self.confirmDeletion = confirmDeletion
         self.spaceChanged = spaceChanged
+    }
+
+    func transfers() -> [ActiveTransfer] {
+        lock.withLock {
+            jobs.values.compactMap { job in
+                guard var transfer = job.transfer else { return nil }
+                // Upload progress counts more than the file's bytes, so only its fraction is used.
+                transfer.completed = Int64(Double(transfer.total) * min(1, max(0, job.progress.fractionCompleted)))
+                return transfer
+            }
+        }
+    }
+
+    /// Lists the job in the panel; an upload's item replaces its waiting row.
+    private func show(_ job: Job, _ transfer: ActiveTransfer, upload: String? = nil) {
+        lock.withLock { job.transfer = transfer }
+        started(upload)
     }
 
     /// A Stop or a lost waiter is no failure; the other outcomes go to the panel.
@@ -245,6 +325,10 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
                 throw error
             }
             let isFile = request.kind == .file
+            if isFile {
+                show(job, ActiveTransfer(id: request.id, domain: domainID, direction: .upload, name: request.name, total: size),
+                     upload: request.template)
+            }
             let timer = progressTimer(request.id, job)
             source.create(request, contents: contents, progress: job.progress, started: { [weak self] in
                 try? self?.registration()?.started(ReaderMessage.encode(SourceReadStarted(id: request.id)))
@@ -283,6 +367,8 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
                 release(request.id.uuidString)
                 throw error
             }
+            show(job, ActiveTransfer(id: request.id, domain: domainID, direction: .upload, name: request.name, total: size),
+                 upload: request.item)
             let timer = progressTimer(request.id, job)
             source.edit(request, contents: contents, progress: job.progress, started: { [weak self] in
                 try? self?.registration()?.started(ReaderMessage.encode(SourceReadStarted(id: request.id)))
@@ -544,7 +630,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
         let timer = progressTimer(request.id, job)
         defer { timer.cancel() }
         var staged: URL?
-        // Playback and Quick Look read ranges; only a complete-file download is an event.
+        // Playback and Quick Look read ranges; only a complete-file download is listed and reported.
         let target = try? source.readTarget(request).0
         let file = target.flatMap { $0.size == request.range.length && request.range.offset == 0 ? $0 : nil }
         do {
@@ -553,6 +639,10 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
             guard !job.progress.isCancelled else { throw TransferError.cancelled }
             try space.begin(request.id, bytes: request.range.length)
             spaceChanged(request, false, nil)
+            if let file {
+                show(job, ActiveTransfer(id: request.id, domain: domainID, direction: .download, name: file.name,
+                                         total: file.size))
+            }
             let prefetched = prefetch.claim(request, isCancelled: { job.progress.isCancelled })
             let output = try prefetched ?? source.transfer(request, progress: job.progress,
                                              stagingDirectory: SharedContainer.stagingDirectory()) { [space] completed in
@@ -565,6 +655,8 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
             let retained = lock.withLock {
                 guard !closed, jobs[request.id] === job, !job.progress.isCancelled else { return false }
                 job.staging = staged
+                // The job stays until the extension takes the staged file; the transfer is done.
+                job.transfer = nil
                 return true
             }
             guard retained else { throw TransferError.cancelled }

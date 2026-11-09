@@ -123,11 +123,12 @@ not upload in a folder that the app shows in Finder, then deletes the catalog an
 domain again, deletes catalogs that have no record, and leaves unknown domains alone. The same
 folder can be two locations, each with its own domain and catalog.
 
-**Menu bar and notifications (M7).** The menu bar item shows each location's state, or "42%
-downloaded" while it downloads. Quit warns while downloads are in progress. A notification posts
-once per share per outage: when a share that has locations disconnects or stops responding, or
-when a download that the user started fails for that reason. None posts at launch, and none
-holds a file name. General turns notifications and the menu bar item off.
+**Menu bar and notifications.** The menu bar item opens a panel with each location's state, the
+current transfers, the recent activity and the actions ([ui-design.md §5](ui-design.md#5-menu-bar-item)).
+Quit warns while downloads are in progress. General sets for each event kind whether it posts a
+notification, shows in the panel, both or neither. Notifications include file names. None posts
+at launch, and connection and sign-in events come once per share or server per outage. General
+also turns the menu bar item off.
 
 **Storage and folder completion (M8).** Storage shows each location's downloaded space, the sum
 of the catalog sizes of the files in its materialized set, then the total and the space left. A

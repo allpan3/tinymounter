@@ -516,6 +516,33 @@ enum UIText {
     static let resumeDownloads = "Resume Downloads"
     static let quit = "Quit TinyMounter"
     static let noLocations = "No locations"
+    static let transfers = "Transfers"
+    static let recentActivity = "Recent Activity"
+    static let noActivity = "No recent activity"
+    static let retry = "Retry"
+    static let offline = "Offline"
+    static let paused = "Paused"
+    static let upload = "Upload"
+    static let download = "Download"
+    static let settingsShortcut = "⌘,"
+    static let quitShortcut = "⌘Q"
+    static func cannotSignInTo(_ host: String) -> String { "Cannot sign in to \(host)" }
+    static func waitingFor(_ host: String) -> String { "Waiting for \(host)" }
+    static func transferred(_ completed: Int64, of total: Int64) -> String { "\(size(completed)) of \(size(total))" }
+    static func activity(_ kind: ActivityEvent.Kind) -> String {
+        switch kind {
+        case .uploaded: "Uploaded"
+        case .downloaded: "Downloaded"
+        case .keptDownloaded: "Kept downloaded"
+        case .uploadFailed: "Upload failed"
+        case .downloadFailed: "Download failed"
+        case .conflictCopy: "Saved a conflict copy"
+        case .lowDiskSpace: "Low disk space"
+        case .signInNeeded: "Cannot sign in"
+        case .connectionLost: "Connection lost"
+        case .connectionRestored: "Connected again"
+        }
+    }
     static let pauseFailed = "TinyMounter cannot stop background downloads for one or more locations."
     static let resumeFailed = "TinyMounter cannot start background downloads again for one or more locations."
 

@@ -24,7 +24,7 @@ struct TinyMounterApp: App {
         } label: {
             MenuBarLabel(model: delegate.model)
         }
-        .menuBarExtraStyle(.menu)
+        .menuBarExtraStyle(.window)
     }
 }
 

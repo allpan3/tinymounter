@@ -142,6 +142,8 @@ final class AppModel {
     @ObservationIgnored private var keptOffline: [UUID: Set<String>] = [:]
     /// Uploads, by domain and item, with an Upload failed event since their last success.
     @ObservationIgnored private var failedUploads: Set<String> = []
+    /// For the menu bar panel; the reader host updates it at most twice a second.
+    private(set) var transfers: [ActiveTransfer] = []
     private(set) var notOnServer: [UUID: Set<KeepPath>] = [:]
     private(set) var keepRevision: [UUID: Int] = [:]
     @ObservationIgnored private var keepGeneration: [UUID: Int] = [:]
@@ -178,6 +180,7 @@ final class AppModel {
         controller.onChange = { [weak self] in self?.refresh() }
         controller.onShareState = { [weak self] shareID, before, state in self?.shareChanged(shareID, before, state) }
         controller.onActivity = { [weak self] domainID, activity in self?.readerActivity(domainID, activity) }
+        controller.onTransfers = { [weak self] in self?.update(\.transfers, $0) }
         controller.onLowSpace = { [weak self] domainID, name in self?.lowSpace(domainID, name) }
         controller.onVolumeSignInRefused = { [weak self] shareID in self?.volumeSignInRefused(shareID) }
         controller.onKeepsRestored = { [weak self] record, ids in self?.keepsRestored(record, ids) }
@@ -1275,6 +1278,36 @@ final class AppModel {
     }
 
     func record(domain: String) -> LocationRecord? { records.first { $0.domainID == domain } }
+
+    /// The state line of a location in the menu bar panel.
+    func panelStatus(_ record: LocationRecord) -> String {
+        switch state(record) {
+        case .connected(nil): paused ? UIText.paused : UIText.connected
+        case .connected(let fraction?): UIText.downloaded(fraction)
+        case .needsSignIn: UIText.cannotSignInTo(address(record.shareID)?.host ?? "")
+        case .unresponsive: UIText.offline
+        case .starting, .notConnected: UIText.notConnected
+        case .removing, .catalogUnavailable, .turnedOff, .folderMissing: statusText(record)
+        }
+    }
+
+    /// A waiting upload's host, for "Waiting for home-nas".
+    func host(domain: String) -> String? { record(domain: domain).flatMap { address($0.shareID)?.host } }
+
+    /// The changes that wait in all locations; a location that can't be read counts none.
+    func pendingCount() async -> Int {
+        var total = 0
+        for record in records where !record.removing {
+            let uploads = (try? await controller.pendingUploads(record)) ?? 0
+            let system = (try? await controller.systemPendingChanges(record))?.items.count ?? 0
+            total += max(uploads, system)
+        }
+        return total
+    }
+
+    func retryAllPending() { records.filter { !$0.removing }.forEach(controller.retryPending) }
+
+    func retryPending(domain: String) { record(domain: domain).map(controller.retryPending) }
 
     func togglePause() {
         let pause = !paused

@@ -35,6 +35,7 @@ final class LocationController {
     var onShareState: ((UUID, ConnectionState, ConnectionState) -> Void)?
     /// A transfer ended, or a user's fetch failed on its share: the domain and the outcome.
     var onActivity: ((String, ReaderActivity) -> Void)?
+    var onTransfers: (([ActiveTransfer]) -> Void)?
     /// A file's download first stopped for want of disk space: the domain and the file's name.
     var onLowSpace: ((String, String) -> Void)?
     /// A Server Volume's share did not mount again: the server refused the saved password.
@@ -107,6 +108,7 @@ final class LocationController {
             Task { await self?.signalResolved(domainID, [.serverUnreachable]) }
         }
         reader.onActivity = { [weak self] in self?.onActivity?($0, $1) }
+        reader.onTransfers = { [weak self] in self?.onTransfers?($0) }
         reader.onSpaceChange = { [weak self] domainID, request, blocked, name in
             guard let self, self.sources[domainID] != nil else { return }
             let before = self.spaceBlocked[domainID]?[request.item]
