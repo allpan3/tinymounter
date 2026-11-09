@@ -43,6 +43,8 @@ def main():
                 "Quit TinyMounter after pending uploads finish.\n"
                 "Drag TinyMounter to Applications, replacing the old app, then eject this disk.\n"
                 "Open TinyMounter from Applications. If blocked, use System Settings > Privacy & Security > Open Anyway.\n"
+                "If Open Anyway is not offered, run this in Terminal, then open TinyMounter again:\n"
+                "    xattr -dr com.apple.quarantine /Applications/TinyMounter.app\n"
                 "The app is already signed. No Terminal signing command is needed.\n")
             notices = package / "Licences and Source"
             notices.mkdir()
