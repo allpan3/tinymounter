@@ -38,7 +38,7 @@ current status.
 | `Tests/`                 | unit tests for `TransferCore` (`swift test`)                            |
 | `Prototype/`             | SwiftUI app, File Provider extension, shared XPC protocol, xcconfig     |
 | `Tools/`                 | stdlib-only Python: project generator, CLI checks, SMB series runner    |
-| `docs/`                  | plans, research and dated results; [index](docs/README.md)              |
+| `docs/`                  | design, plans, research and release notes; [index](docs/README.md)      |
 | `results/`               | raw local evidence. It is gitignored and may hold private paths         |
 
 | Read it before you                              | Doc                                         |
@@ -141,8 +141,9 @@ The user owns the product. The agent researches, proposes, builds and measures.
 - **Name what you couldn't verify.** Hydration in Finder and other file managers, playback, Apple
   sign-in and physical-Mac speed need the user or real hardware. List them as unverified rather than
   inferring.
-- **Close the loop in writing.** Every experiment ends with a results log (see
-  [docs/README.md](docs/README.md#results-logs)) and an updated dated status line in the README.
+- **Close the loop in writing.** Every experiment ends with its evidence in the PR description:
+  setup, counts, timings and what was not verified. Raw evidence stays in the local `results/`.
+  Update the docs to state what is now true. The repository holds no work logs.
 
 ## Conventions
 
@@ -150,7 +151,7 @@ The user owns the product. The agent researches, proposes, builds and measures.
   _what_. Keep them under 100 characters, and never comment on a change you just made. If one line
   can't carry the reason, use a named function, constant or type.
 - **A doc that contradicts the code is a defect.** Fix it in the commit that made it wrong. Docs
-  state current truth; history lives in git and in results logs.
+  state current truth; history lives in Git.
 - **Log under the `dev.tinymounter.prototype` subsystem**, using opaque request IDs rather than
   paths.
 

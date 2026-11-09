@@ -9,8 +9,9 @@
 ## Evidence
 
 <!-- Which checks from AGENTS.md "Before you finish" you ran, plus what you exercised by hand.
-     Performance: link the docs/results/ log, with setup and cache state. Say what is still
-     unverified (file managers, playback, signing, physical Mac). -->
+     Give the setup, counts and timings here; performance numbers also need the cache state.
+     Raw evidence stays in the local results/. Say what is still unverified (file managers,
+     playback, signing, physical Mac). -->
 
 ## Demo
 
