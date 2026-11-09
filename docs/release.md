@@ -77,10 +77,10 @@ attempt and TinyMounter stops trying. Change the password on the server if neede
 
 Known limits for this release:
 
-- Severe system-wide disk-pressure eviction remains a future validation task. Low-space refusal
-  and offline-edit retention through a full macOS restart passed.
-- Repeated outages once hung Apple's SMB authentication service; Finder also could not reconnect.
-  Pending upload data survived, but that trial needed VM intervention to restore the native mount.
+- Severe system-wide disk-pressure eviction is unverified. Low-space refusal and offline-edit
+  retention through a full macOS restart are checked.
+- Repeated outages can hang Apple's SMB authentication service; Finder then cannot reconnect.
+  Pending upload data survives.
 - List a destination folder online before moving files into it offline.
 - Package editing and Finder Merge remain unverified. Read-performance targets remain unmet.
   Daily-use feedback on the physical Mac is the next acceptance step.
@@ -101,8 +101,8 @@ Known limits for this release:
 
 ## Source and licences
 
-TinyMounter's own code is MIT licensed. The separate `libTinyMounterSMB.dylib` contains modified
-libsmb2 6.3 under LGPL-2.1-or-later. The DMG includes both licences and the library notices separately from its short Read Me;
+TinyMounter's own code is MIT licensed; that does not relicense its dependencies. The separate
+`libTinyMounterSMB.dylib` contains modified libsmb2 6.3 under LGPL-2.1-or-later. The DMG includes both licences and the library notices separately from its short Read Me;
 the app also includes the library's licence. The release supplies `TinyMounter-0.2.0-source.tar.gz`,
 with the complete matching app/library source, modifications and build scripts. This permits
 rebuilding the app with a modified library; no signing key is required from the publisher.

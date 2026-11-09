@@ -247,6 +247,46 @@ A save arriving after deletion fails and remains pending in File Provider. The r
 edit outbox no longer provides Export Local Copy or Stop Uploading for edits. Copy the pending
 local file outside the location before resolving a missing-target error.
 
+### Organization, deletion and offline rules
+
+**Rename and move.** Organization uses server identity and metadata; it never downloads file
+contents only to rename or move them. Folder moves inspect descendant metadata, so their cost
+grows with the cataloged subtree. Descendant IDs, downloads and keeps survive a move. The old
+parent's departure and the new parent's arrival reach File Provider through enumeration, without
+deleting and recreating the moved item. An uncertain operation or a pending save in the affected
+subtree blocks the move. TinyMounter refuses to move a folder into its descendant, to move a
+configured location root, or to move a subtree that contains another location root. A move stays
+within the same set of overlapping registered roots, and every affected catalog must be
+available. Cross-filesystem errors and incompatible open handles fail clearly. There is no
+copy/delete fallback, permission rewrite or automatic movement of configured roots.
+
+**Deletion.** Deletion is permanent: there is no TinyMounter Trash and no hidden retention copy,
+and the app does not advertise Move to Trash or Put Back. Deleting a file removes its contents
+and attached data, including attached data that another device adds while the deletion runs;
+SMB cannot exclude that race. A server's own backups or recycle bin are outside TinyMounter's
+guarantee. Delete may act on the server object currently at the selected name when its known
+details still match, so an earlier replacement with indistinguishable details may be deleted.
+Recovery stays bound to the admitted identity and never deletes a later replacement. A recursive
+deletion records per-item progress, refuses protected roots and reports a partial result
+accurately; it is not atomic. After a lost reply, an absent pathname does not prove deletion, and
+Retry never acts on a replacement at that path. Uncertain cases stay visible in Settings.
+
+**Replace and metadata.** New-file creation stays exclusive, including reimports and retries, so
+an unrelated create cannot overwrite another file. Content-only saves keep the destination's
+access permissions and concurrent metadata; Finder's delete/create Replace creates a new server
+object. Unsupported tags or streams stay local. Syncing standalone Finder tags and locks needs a
+later merge policy.
+
+**Offline edits.** The latest pending save of a file with complete local contents uploads when
+the server returns. Ordinary overwrite semantics apply if the server changed it, and a missing
+remote target stays an error. A local editor's Save does not mean that the server received the
+change. Offline creation, rename, move and deletion are outside the verified scope.
+
+**Scope.** The daily-use target is ordinary files and folders within one location. Moves between
+locations or shares, packages, live databases, VM images, symbolic and hard links and general
+POSIX semantics need separate compatibility work. Copying a file to another location is not a
+transactional move. External renames are not inferred from native pathname-derived IDs.
+
 ## 9. Server volume mode
 
 The implemented mode uses public `NetFSMountURLSync` and the existing remount policy. Before each
