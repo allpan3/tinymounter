@@ -28,8 +28,9 @@ final class LocationSource: @unchecked Sendable {
     var renameCompletions: [UUID: [RenameReply]] = [:]
     let renameRetryLock = NSLock()
     var renameRetryWork: (id: UUID, work: DispatchWorkItem)?
-    var renameRetryDelay = 2
+    var renameRetryBackoff = RetryBackoff(first: .seconds(2), longest: .seconds(60))
     var renameRetryClosed = false
+    let uploadRetry: UploadRetry
     var deletionRecoveries: [UUID: LocationDeletionRecovery] = [:]
     // Stop and close must cancel remote work without waiting for the owner's lane.
     let deletionRecoveryLock = NSLock()
@@ -66,6 +67,7 @@ final class LocationSource: @unchecked Sendable {
          renameRecovered: @escaping @Sendable () -> Void = {},
          deletionSettings: DeletionSettings? = nil,
          deletionRecovered: @escaping @Sendable () -> Void = {},
+         retryPending: @escaping @Sendable () -> Void = {},
          signal: @escaping @Sendable ([String]) -> Void) {
         self.domainID = domainID
         self.folder = folder
@@ -76,6 +78,7 @@ final class LocationSource: @unchecked Sendable {
         self.renameRecovered = renameRecovered
         self.deletionSettings = deletionSettings
         self.deletionRecovered = deletionRecovered
+        uploadRetry = UploadRetry(domainID: domainID, retry: retryPending)
         editNamespace.register(self)
     }
 
@@ -86,6 +89,7 @@ final class LocationSource: @unchecked Sendable {
             renameRetryWork?.work.cancel()
             renameRetryWork = nil
         }
+        uploadRetry.close()
         closeDeletionRecovery()
         editNamespace.perform {
             catalogLock.withLock { catalog = nil }

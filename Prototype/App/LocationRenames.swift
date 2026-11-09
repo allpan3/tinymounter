@@ -158,7 +158,7 @@ extension LocationSource {
                 renameRetryLock.withLock {
                     renameRetryWork?.work.cancel()
                     renameRetryWork = nil
-                    renameRetryDelay = 2
+                    renameRetryBackoff.reset()
                 }
             }
             scheduleSignal()
@@ -185,10 +185,10 @@ extension LocationSource {
                 if active { self.retryRenames() }
             }
             renameRetryWork = (id, work)
+            let delay = Int(renameRetryBackoff.delay() / .seconds(1))
             Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
-                .info("rename_retry_scheduled domain=\(self.domainID, privacy: .public) delay=\(self.renameRetryDelay)")
-            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + .seconds(renameRetryDelay), execute: work)
-            renameRetryDelay = min(renameRetryDelay * 2, 60)
+                .info("rename_retry_scheduled domain=\(self.domainID, privacy: .public) delay=\(delay)")
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + .seconds(delay), execute: work)
         }
     }
 
