@@ -1,0 +1,59 @@
+import Foundation
+import XCTest
+@testable import TransferCore
+
+final class ActivityTests: XCTestCase {
+    private func event(_ kind: ActivityEvent.Kind = .uploaded, at seconds: TimeInterval,
+                       domain: String? = "A") -> ActivityEvent {
+        ActivityEvent(kind: kind, domain: domain, name: "file", date: Date(timeIntervalSince1970: seconds))
+    }
+
+    func testKeepsTheNewestHundred() {
+        var history = ActivityHistory()
+        for second in 0..<150 { history.add(event(at: TimeInterval(second))) }
+        XCTAssertEqual(history.events.count, ActivityHistory.limit)
+        XCTAssertEqual(history.events.first?.date, Date(timeIntervalSince1970: 149))
+        XCTAssertEqual(history.events.last?.date, Date(timeIntervalSince1970: 50))
+    }
+
+    func testInsertsAnOlderEventInDateOrder() {
+        var history = ActivityHistory()
+        for second in [10.0, 30, 20] { history.add(event(at: second)) }
+        XCTAssertEqual(history.events.map(\.date.timeIntervalSince1970), [30, 20, 10])
+    }
+
+    func testRemovingALocationRemovesItsEvents() {
+        var history = ActivityHistory(events: [event(at: 1, domain: "A"), event(at: 2, domain: "B"),
+                                               event(at: 3, domain: nil)])
+        history.removeEvents(domain: "A")
+        XCTAssertEqual(history.events.map(\.domain), [nil, "B"])
+    }
+
+    func testSurvivesARelaunch() throws {
+        let url = FileManager.default.temporaryDirectory.appending(path: "activity-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        XCTAssertTrue(try ActivityHistory.load(from: url).events.isEmpty)
+        let history = ActivityHistory(events: [event(.uploadFailed, at: 5), event(.connectionLost, at: 6, domain: nil)])
+        try history.save(to: url)
+        XCTAssertEqual(try ActivityHistory.load(from: url), history)
+        try Data("{".utf8).write(to: url)
+        XCTAssertThrowsError(try ActivityHistory.load(from: url))
+    }
+
+    func testProblemsNotifyByDefaultAndEverythingShowsInThePanel() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "activity-tests-\(UUID().uuidString)"))
+        XCTAssertEqual(NotificationKind.allCases.filter { $0.route(in: defaults).notify },
+                       [.signInNeeded, .uploadFailed, .downloadFailed, .conflictCopy, .lowDiskSpace])
+        XCTAssertTrue(NotificationKind.allCases.allSatisfy { $0.route(in: defaults).panel })
+        defaults.set(false, forKey: NotificationKind.uploadFailed.notifyKey)
+        defaults.set(true, forKey: NotificationKind.connection.notifyKey)
+        XCTAssertEqual(NotificationKind.uploadFailed.route(in: defaults), NotificationRoute(notify: false, panel: true))
+        XCTAssertEqual(NotificationKind.connection.route(in: defaults), NotificationRoute(notify: true, panel: true))
+    }
+
+    func testFinishedTransfersHaveNoNotificationSetting() {
+        XCTAssertNil(event(.uploaded, at: 0).notification)
+        XCTAssertNil(event(.downloaded, at: 0).notification)
+        XCTAssertEqual(event(.connectionRestored, at: 0).notification, .connection)
+    }
+}
