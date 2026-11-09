@@ -1,6 +1,6 @@
 # Stuck pending changes
 
-Date: 2026-11-05. Decision status: accepted. The [SMB simplification](smb-simplification.md)
+Decision status: accepted and implemented. The [SMB simplification](smb-simplification.md)
 replaces custom save recovery with ordinary writes and File Provider pending uploads. New-item,
 rename and deletion records still distinguish unfinished operations from completed callbacks.
 
@@ -24,11 +24,9 @@ pending operations. Settings reads macOS's pending-item enumerator, including ch
 outbox record. It shows the item's path and failure, offers Show in Finder, and reports an
 incomplete or unavailable pending list instead of treating it as empty.
 
-A signed mid-write test exposed two problems: direct writes unnecessarily reopened the location
-through the native mount, and the mutation error mapper turned connection failures into permanent
-sync errors. Removing that redundant lookup and preserving retryable errors lets the complete
-local edit upload automatically after app/provider restart. See the
-[current results](results/2026-11-05-smb-simplification.md).
+Direct writes do not reopen the location through a native path, and the mutation error mapper
+keeps connection failures retryable, so a complete local edit uploads again after an app or
+provider restart.
 
 <a id="decisions"></a>
 
@@ -72,11 +70,5 @@ its original build, then use Start Fresh. No migration of older recovery transac
 
 ## Checks and unknowns
 
-Signed VM checks cover ordinary and competing saves, shorter/empty writes, offline retention,
-and automatic upload after a mid-write interruption and app/provider restart. Unit and protocol
-checks cover error classification, exclusive creation and retained local payload integrity.
-Full OS restart, pressure eviction and broader editors need new evidence for the simplified path.
-
-Earlier behavior is recorded in [pending status](results/2026-11-02-pending-changes-list.md),
-[new-item stopping](results/2026-11-02-stop-uploading.md) and
-[pending rename recovery](results/2026-11-04-pending-rename-recovery.md).
+Unit and protocol tests cover error classification, exclusive creation and retained local
+payload integrity. Pressure eviction and broader editors are unverified for the simplified path.
