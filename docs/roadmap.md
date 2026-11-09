@@ -20,7 +20,31 @@ compatibility claim or an estimate of delivery time.
 
 ## Milestones and dependencies
 
-### App-owned SMB login for File Provider locations, 0.2.0, release pending
+### Menu bar activity and notification settings, 0.3.0, scope accepted 2026-11-08
+
+The user asked for a Google Drive–like status view in the menu bar and control over which events
+reach macOS notifications. On 2026-11-08 the user accepted this scope:
+
+- **Menu bar panel**, replacing the current menu: each location's state (connected, offline,
+  Sign In Again… or paused); current uploads and downloads with name, location and progress;
+  recent activity (finished uploads, downloads and Keep Downloaded, failures marked, with Retry);
+  and actions to open a location in Finder, Pause, Retry Pending Changes and open Settings.
+- **Notification settings** per event kind: macOS notification, panel only, both or none. Kinds:
+  sign-in needed, connection lost or restored, upload failed, kept conflict copy, Keep Downloaded
+  finished, low disk space. By default, problems that need the user's action use both; all other
+  events use the panel only.
+- **History:** the last 100 events are kept across a relaunch.
+- **Interrupted uploads recover by themselves.** After a network loss, a server can keep the old
+  session's open file locked, so a resumed upload fails with "Text file busy" and waits for Retry
+  Pending Changes ([save-time checks](results/2026-11-08-save-time.md)). 0.3.0 resumes or
+  retries it without user action.
+
+Not in 0.3.0: changes made on the NAS by other devices in the activity list (frequent, and Finder
+already shows them); SMB session reuse to reduce logons (internal, later); the
+[Locations folder](ui-design.md#7-locations-folder-one-place-to-navigate) of aliases (not needed
+now).
+
+### App-owned SMB login for File Provider locations, 0.2.0, released 2026-11-08
 
 Decided by the user on 2026-11-07 after the physical-Mac test. File Provider locations still
 need a hidden macOS mount for the login, folder watches and the share-access grant. Finder
@@ -36,8 +60,8 @@ only implementation. The menu bar activity panel moves to 0.3.0.
 
 Implemented and checked on 2026-11-08: the [connection layer](results/2026-11-08-connection-layer.md)
 and the [release checks](results/2026-11-08-release-checks.md) pass in the signed VM app. The
-version is 0.2.0 (build 6). Tagging, packaging and physical-Mac installation wait for the user's
-approval. Updating from 0.1.x needs Start Fresh and an eject of the old hidden mount
+version is 0.2.0 (build 6), released on 2026-11-08 ([v0.2.0](https://github.com/allpan3/tinymounter/releases/tag/v0.2.0))
+and installed on the physical Mac by the user. Updating from 0.1.x needs Start Fresh and an eject of the old hidden mount
 ([release notes](release.md#update-from-01x-start-fresh-is-required)). The activity panel stays
 in 0.3.0. The kept-file status defect from the release checks is fixed: uploads keep the local
 save time on the server ([save-time checks](results/2026-11-08-save-time.md)).
