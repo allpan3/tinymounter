@@ -1,7 +1,7 @@
 # First performance prototype
 
 Status: this document describes how to build, sign and run the current app, 0.2.0, and its
-deliberate limits. The phase 1 one-file fixture build is gone.
+deliberate limits.
 
 ## Initial implementation and checks
 
@@ -9,9 +9,9 @@ deliberate limits. The phase 1 one-file fixture build is gone.
 - Source files opened read-only, using bounded `pread` calls; optional local staging uses exclusive creation and `pwrite` at the source offsets.
 - Full/range reads, runtime-aligned ranges, empty files, metadata fingerprint checks, progress/cancellation, and cleanup on handled failures.
 - JSONL reporting of byte range, filesystem, open/transfer/first-read time, sustained rate after the first chunk, CPU, process-lifetime peak RSS, cache label, and optional post-timing SHA-256 verification.
-- A SwiftUI app with a Settings window and a menu bar item, and a replicated File Provider extension (section 2). The app signs in to the server with its saved password, adds and removes locations, and owns all share I/O and every catalog write: it lists folders into each location's SQLite catalog and stages file bytes with the transfer engine. The extension reads the catalog read-only to page folders, fetches full and partial ranges by item ID from the app through a restricted File Provider service, runs read-ahead per item, and supports new ordinary files/folders only in explicitly enabled locations. Initial folder naming is implemented through an app-owned SMB client; general modify/delete remain denied.
+- A SwiftUI app with a Settings window and a menu bar item, and a replicated File Provider extension (section 2). The app signs in to the server with its saved password, adds and removes locations, and owns all share I/O and every catalog write: it lists folders into each location's SQLite catalog and stages file bytes with the transfer engine. The extension reads the catalog read-only to page folders, fetches full and partial ranges by item ID from the app through a restricted File Provider service, runs read-ahead per item, and forwards writes to the app. In a location with Read only off, the app creates files and folders, saves, renames, moves and deletes items over SMB; in a read-only location it refuses every change.
 - Unit tests cover transfer correctness and cancellation, read-ahead bounds, stale requests and
-  evictions, full-handoff cleanup, catalog and listing consistency, storage sums, folder completion, safe paths, mount identity, share health, error
+  evictions, full-handoff cleanup, catalog and listing consistency, storage sums, folder completion, safe paths, connection health, Server Volume remounts, error
   classification, staging, settings, XPC messages, deadlines and launch reconciliation. Fixtures
   are local; unit tests do not read the NAS.
 - The unsigned Release app and extension build with Xcode 27 without Swift compiler warnings;
@@ -67,8 +67,7 @@ Build and run the `TinyMounter` scheme with normal development signing. The app 
 phase 2 interface of [ui-design.md](ui-design.md): a Settings window (⌘,) with the locations in
 its sidebar, and a menu bar item with Pause Downloads. With no locations, or with the menu bar
 item hidden, the window opens at launch. Closing it keeps the app running; the Dock icon or the
-menu bar item opens it again. Nothing migrates from phase 1: remove
-the fixture domains with the phase 1 build before the first run. A domain without a catalog
+menu bar item opens it again. A domain without a catalog
 fails every request with `serverUnreachable` and never reports an item as deleted.
 
 **Servers, sign-in and shares.** Shares are added only through a location. Add Server… in the
@@ -118,8 +117,9 @@ app creates the location's catalog, `Catalogs/<domain ID>.sqlite` in the App Gro
 folder into it, saves the record in `Settings.json`, then adds the File Provider domain. A Name
 change applies at once. A Server or Folder change needs **Apply**, which replaces the domain and
 its downloaded copies. Each location has **Show in Finder** and **Remove Location…**, which asks
-whether to save the Keep Downloaded list. Remove marks the record, removes the domain with
-`.removeAll`, which deletes its downloaded copies, then deletes the catalog and the record. At launch, the app finishes any step that a crash interrupted, adds every
+whether to save the Keep Downloaded list. Remove refuses while changes that can be on the server are pending. It marks the record, removes the
+domain with `.preserveDirtyUserData`, which deletes its downloaded copies but keeps items that did
+not upload in a folder that the app shows in Finder, then deletes the catalog and the record. At launch, the app finishes any step that a crash interrupted, adds every
 domain again, deletes catalogs that have no record, and leaves unknown domains alone. The same
 folder can be two locations, each with its own domain and catalog.
 
@@ -147,7 +147,7 @@ time, except the system's own Trash folder. Only a complete listing writes the c
 
 **Reads (M5).** A fetch starts from the item's catalog row with a strict version check. The app
 checks the version and the share state again, builds the path from its catalog, opens the file
-beneath the location root, and compares its size, mtime and ctime with the row before it stages
+over SMB below the location folder, and compares its size, mtime and ctime with the row before it stages
 any bytes. A changed file updates the row and fails with `versionNoLongerAvailable`, so the system
 asks for the new version. A missing file fails with the transient `fileReadNoSuchFile`, and the
 app lists its parent again.
@@ -192,9 +192,8 @@ xcodebuild -project TinyMounter.xcodeproj -scheme TinyMounter -configuration Rel
 
 ## 3. First runtime validation
 
-1. Remove the phase 1 fixture domains first. Then build, sign and launch the app. Click
-   **Add Server…** in the Server menu and type the address. Select an existing connection or
-   connect another share, then click Open in the panel.
+1. Build, sign and launch the app. Click **New Location**, then **Add Server…** in the Server
+   menu, and sign in with the address, name and password. Select the share in Share.
 2. Type a folder and a name, click **Add**, then **Show in Finder**. Browse the root and
    two levels down. The listing log gives each folder's entry count, skipped names and times.
 3. Read a range of a file at least two levels deep through its CloudStorage path, then the same
@@ -216,11 +215,11 @@ xcodebuild -project TinyMounter.xcodeproj -scheme TinyMounter -configuration Rel
    ```
 
 5. Use Finder's **Remove Download** when resetting clean test content. A partially downloaded copy offers only **Download Now**: download it fully, then remove it. Check eviction by allocated size (`du`), not the `dataless` flag, which stays set on partial copies. Right after a download, Remove Download can briefly report “Resource busy”; retry after a few seconds. Do not remove/re-add the domain as ordinary reconnect logic. Do not evict a file in use by a player during timed runs.
-6. Use **Remove Location…** to remove the domain. It also deletes the location's downloaded copies and its CloudStorage folder. The files on the share never change.
+6. Use **Remove Location…** to remove the domain. It also deletes the location's downloaded copies and its CloudStorage folder; items that did not upload stay in a folder that the app shows in Finder. The files on the share never change.
 
-Folder-listing log lines separate catalog lookup, session acquisition, the location root,
-`openat`, and time in `getattrlistbulk`, with a bulk-call count. `list_ms` still covers the whole
-listing stage. These fields diagnose a slow first folder listing; they do not change the
+Folder-listing log lines separate catalog lookup (`lookup_ms`), session setup (`session_ms`),
+opening the folder (`open_ms`), the SMB directory queries (`bulk_ms`, with `bulk_calls`) and the
+absence check (`check_ms`). `list_ms` covers the whole listing stage. These fields diagnose a slow first folder listing; they do not change the
 first-page deadline or listing behavior. Existing locations refresh and warm the share before a
 new location is browsed, so a new catalog alone does not establish cold SMB access.
 
@@ -231,9 +230,9 @@ On the physical Mac, macOS restart and the full performance series below are unv
 The VM numbers are relative to the VM's own native SMB. On the physical Mac, run the same comparisons
 once, wired, with nothing else heavy running. About 30 minutes:
 
-1. **Build and sign** in Xcode with the Personal Team, as in section 2. Launch the app and wait for
-   "Source reader connected".
-2. **Native baseline.** Pick one large video on the mounted share, 5 GB or more. Then run
+1. **Build and sign** in Xcode with the Personal Team, as in section 2. Launch the app and wait until
+   the location shows Connected.
+2. **Native baseline.** Pick one large video, 5 GB or more, on the share connected in Finder. Then run
    `.build/release/transfer-bench '<file on /Volumes/…>' --offset 0 --length 2147483648 --runs 3 --no-cache`.
 3. **File Provider sequential reads.** Add a location whose folder holds the same file. Run the
    same command against the CloudStorage path with `--allow-hydration`, at offsets 0, 3 GiB and
@@ -327,7 +326,7 @@ the removal.
   cannot prevent other processes from filling the disk, and OS eviction under pressure remains
   unverified. If the retry file cannot be saved, an unsaved request is lost on app relaunch.
 
-- One saved password per server, and locations that are folders on its shares. File Provider locations use no mount, so other apps and file managers don't see the share. File Provider locations have no Disconnect. New locations default to writable setup with a safety confirmation. Existing read-only locations stay read-only. Supported writes are new files/folders, ordinary content saves, file/folder rename and move, permanent deletion and Finder file Replace.
+- One saved password per server, and locations that are folders on its shares. File Provider locations use no mount, so other apps and file managers don't see the share. File Provider locations have no Disconnect. Read only is off for a new location, and a duplicate takes the original's setting; the Access section says what writes do. Turning Read only on is refused while changes are pending. Supported writes are new files/folders, ordinary content saves, file/folder rename and move, permanent deletion and Finder file Replace.
 - Keep Downloaded is a request for a file or folder, not proof of a download. A request can be a recursive folder request. The system eagerly enumerates kept folders, and newly listed descendants inherit retention. Allow Removal cancels a request while preserving independent child requests. A folder is Available offline only if every descendant folder has an unskipped complete listing and is materialized, and every file passes the local-copy check. The system downloads an independently kept file only when its parent folder is materialized: a kept file in a folder that the system never enumerated waits until the folder is enumerated. Evicting a kept file fails; evicting its folder evicts it, and the system downloads it again at once. The location pane shows Requested, Update in progress or Available offline. It signals the working set and waits for macOS to apply provider changes, then reads fresh local metadata and rechecks catalog versions. Available offline requires current content with matching catalog size and modification date; this covers the source version last observed by the app, not live NAS freshness. The wait covers the location. Before waiting, the app rechecks previously synchronized content versions against fresh local metadata and materialization, so unrelated downloads do not reset their status. New or changed versions still need the wait; folder status uses current membership and listing completeness. Provider disablement or replacement clears remembered verification. Remove Location can save them, and a later location on the same share takes the ones inside its folder; for independently kept files outside a folder request, the app asks whether to download them now if their parent folders are not materialized (M7).
 - Pause Downloads sets `paused` in every catalog. Kept files then report `.downloadLazily`, kept folders use lazy namespace policy, and read-ahead stops. The extension cancels its running system and speculative fetches and refuses those that start while paused. A background fetch that is still waiting for the first reader connection is cancelled when the reader connects. Files that apps open, and Finder's Download Now, still download. Resume and each app launch clear Pause. Changes run one at a time, in order. A failed change shows a message, and while a catalog may still be paused, the menu bar item offers Resume Downloads. While paused, the user can also remove a kept file's download; Resume downloads it again. Whether kept files stay on disk while paused when the system needs the space is untested.
 - NAS changes in listed materialized and kept folders are discovered while the app runs. Since 0.2.0, each share has one `CHANGE_NOTIFY` connection with at most 64 non-tree watches, one per discovery folder, plus periodic reconciliation, due 60 s after a successful listing. A change in a watched folder usually reaches the catalog within seconds; a missing name still waits for the 15 s confirmation below. One automatic listing runs at a time, with a one-second gap and failure backoff, so this is not a fixed latency guarantee. Unvisited unkept trees are not scanned. Launch, wake, recovery and access checks also refresh listings. A downloaded copy can stay stale between refreshes. A NAS rename is a delete plus a create, and its keep request does not follow.
@@ -346,11 +345,11 @@ the removal.
   restart; lost checkpoints retain uncertainty and replacements survive replay. Replay is bound
   to Apple's event domain version and requires fresh catalogs and deletion records. Retry
   continues an interrupted request admitted by the command.
-- Unsupported metadata-only modifications remain local. A completed new folder can receive its initial name once; the app checks its receipt and remote identity. Create and initial naming require a location with Read only turned off. Existing locations stay read-only. A reimport `createItem` (`.mayAlreadyExist`) completes with the live row of the same name and kind, and with `nil` only for a file without contents that no row matches; anything else keeps the error. A matched file with contents is downloaded again from the NAS unless its size equals the row's and its modification date is less than 1 µs from the row's, as measured between `Date`s. A NAS change that keeps the size and mtime and changes only the ctime is not found on reimport, so the old disk copy stays as the current version. Not verified at runtime: it needs a system reimport.
+- Unsupported metadata-only modifications remain local. A completed new folder can receive its initial name once; the app checks its receipt and remote identity. Create and initial naming require a location with Read only turned off. A reimport `createItem` (`.mayAlreadyExist`) completes with the live row of the same name and kind, and with `nil` only for a file without contents that no row matches; anything else keeps the error. A matched file with contents is downloaded again from the NAS unless its size equals the row's and its modification date is less than 1 µs from the row's, as measured between `Date`s. A NAS change that keeps the size and mtime and changes only the ctime is not found on reimport, so the old disk copy stays as the current version. Not verified at runtime: it needs a system reimport.
 - Per-request logs record full or partial mode, demand, sequential or speculative kind, Finder (`viewer`) and system flags, queue and transfer times. They don't instrument actual player first frame or system reader resumption.
 - The measured VM Finder-launched opens waited for a full download. On the physical Mac, playback
   used partial reads, but the opening routes were not recorded.
-- Blocking I/O containment, scheduler fairness, robust authentication/reconnect, and direct-SMB comparison remain later steps in the feasibility work.
+- Scheduler fairness between locations is not tuned: all locations share the two app transfer workers, so one location's downloads can delay another's reads.
 
 Full-download throughput exceeds 90% of native in both verified NAS cache states in the VM. Writable sequential partial reads stay below the 90% target. The measured VM Finder launch routes downloaded uncached files fully before an app opened them. Local cached-read parity, disconnected retention and shipping lifecycle also remain open. VM results must be compared against the VM's native SMB baseline, then repeated on the physical Mac before judging the original 190/280 MB/s expectations.
 
@@ -359,8 +358,8 @@ Full-download throughput exceeds 90% of native in both verified NAS cache states
 
 Physical-Mac writes and other file managers are unverified. In the development UI, a location's Access
 section has one Read only toggle. It defaults off for a new location; a duplicate inherits
-the original's mode. Writable setup reuses the share's retained permission. Earlier settings without
-that permission ask once for the share root and retain it for subsequent locations. Ordinary file/folder organization and the confirmed
+the original's mode. Turning it off asks for nothing; the account's permissions on the server
+apply. Ordinary file/folder organization and the confirmed
 Delete Permanently… command are enabled, along with ordinary Finder deletion and file Replace.
 Ordinary folder Replace is enabled, and retries automatically after a directory-watcher timeout. Packages, Finder Merge and symbolic
 links remain outside the verified capability set.
