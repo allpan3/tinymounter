@@ -88,6 +88,8 @@ Known limits for this release:
   client before macOS mounts it, which is one extra logon per mount.
 - A second TinyMounter build with a different signature, such as a test build, uses the same
   keychain item. macOS then asks for the login keychain password before that build can read it.
+- A kept file that you save on this Mac shows Update in progress in the Keep Downloaded list
+  instead of Available offline, although its copy is current. This was also true of 0.1.x.
 - Wake and network-change reconnection of 0.2.0 sessions, and a server with change
   notification turned off, have not had VM checks.
 - There is no automatic updater. Install later releases by replacing the app after uploads finish.

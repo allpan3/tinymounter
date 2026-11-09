@@ -9,7 +9,9 @@ notes](../release.md#update-from-01x-start-fresh-is-required)). The M23, M25 and
 checks pass with password sessions. Another client's rename of a folder's only file shows in
 1–2 s, while the 15 s confirmation still holds for deleting that file and for renaming a kept
 file. An expired password stops after one logon and recovers with Sign In Again…. The
-regression pass found no smbfs mount for File Provider locations. No code defect was found.
+regression pass found no smbfs mount for File Provider locations. One defect from before 0.2.0
+was found and not fixed: **a kept file that is saved on this Mac stays "Update in progress"**
+([below](#kept-file-status-after-a-local-save)).
 
 `Tools/run-checks.sh` in the VM at the last code commit: passed. 521 tests, one optional skip,
 no failures, no Swift warnings; SET_INFO 6, edit status 87, folder-create status and CCM 7,205
@@ -98,6 +100,25 @@ an expired password was not shown in this run.
 | Logons | Server Volume section: 19 attempts, 19 accepted. Idle: 2 accepted in 25 s, one session per operation. One Connect: 6 accepted in about 30 s, idle logons included |
 | Logs | Pass. 11,894 lines of the app and extension over 2 h: no password, address, account or file name |
 
+## Kept file status after a local save
+
+After an online or offline save of a kept file, the Keep Downloaded list kept showing Update in
+progress, although `fileproviderctl` reported the file downloaded, uploaded and current. In an
+online save, the local modification time was 0.06 s earlier than the server's. After an offline
+save it was 19 s earlier.
+
+The cause: the upload writes the file on the server, so the server's modification time is the
+upload time. The catalog takes the server's time. The provider returns the local modification
+date as a pending field, so macOS keeps the local time. `OfflineState` requires the local time to
+match the catalog to within 1 µs, so the file never becomes Available offline until it is
+downloaded again. `OfflineState`, the provider and the save path have not changed since 0.1.2,
+so 0.1.2 has the same problem. It is a status problem only: the bytes on the server and on this
+Mac were correct.
+
+Possible fixes, each a change to save behaviour for the user to choose: set the server's
+modification time to the local one after the upload, let macOS take the server's time, or
+compare the content version the catalog recorded for this upload instead of the time.
+
 ## Skipped
 
 - VM sleep, wake and network-path changes: the brief excludes VM sleep and network loss.
@@ -106,6 +127,8 @@ an expired password was not shown in this run.
 - Preview saves: M25 covered TextEdit and Finder only.
 
 ## Decisions to review
+
+- The kept-file status defect is recorded, not fixed, because each fix changes save behaviour.
 
 - Start Fresh does not eject 0.1.2's hidden mount. The release notes give the user one step
   instead of adding code for an earlier version.
