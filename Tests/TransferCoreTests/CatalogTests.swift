@@ -258,7 +258,7 @@ final class CatalogTests: XCTestCase {
     func testFirstReconcileAssignsIDsAndSequences() throws {
         let catalog = try makeCatalog()
         let plan = try reconcile(catalog, [folder("Season 1"), file("b.mkv", size: 5), file("a.mkv"), folder("Extras")])
-        XCTAssertEqual(plan, ReconcilePlan(inserted: 4, updated: 0, tombstoned: 0, removesEveryChild: false,
+        XCTAssertEqual(plan, ReconcilePlan(inserted: 4, updated: 0, tombstoned: 0, emptiesFolder: false,
                                            keptFilesRemoved: 0, unreadableSkipped: 0))
 
         let children = try catalog.children(of: root, limit: 100)
@@ -293,7 +293,7 @@ final class CatalogTests: XCTestCase {
         let before = try dump(catalog, listingState: false)
 
         XCTAssertEqual(try reconcile(catalog, entries), ReconcilePlan(
-            inserted: 0, updated: 0, tombstoned: 0, removesEveryChild: false, keptFilesRemoved: 0, unreadableSkipped: 0))
+            inserted: 0, updated: 0, tombstoned: 0, emptiesFolder: false, keptFilesRemoved: 0, unreadableSkipped: 0))
         XCTAssertEqual(try dump(catalog, listingState: false), before)
         XCTAssertEqual(try catalog.counts().lastSeq, 3)
         XCTAssertEqual(try catalog.item(id: root)?.listGen, 2)
@@ -335,7 +335,7 @@ final class CatalogTests: XCTestCase {
                                         file("report.txt"), file("Report.txt")])
         XCTAssertEqual(listing.skipped.collisions, 1)
         let plan = try XCTUnwrap(catalog.reconcile(folder: root, listing: listing) { _ in true })
-        XCTAssertEqual(plan, ReconcilePlan(inserted: 3, updated: 2, tombstoned: 3, removesEveryChild: false,
+        XCTAssertEqual(plan, ReconcilePlan(inserted: 3, updated: 2, tombstoned: 3, emptiesFolder: false,
                                            keptFilesRemoved: 0, unreadableSkipped: 0))
 
         let renamed = try child(catalog, "MOVIE.mkv")
@@ -384,7 +384,7 @@ final class CatalogTests: XCTestCase {
             XCTAssertGreaterThan(listing.skipped.collisions, 0)
             XCTAssertEqual(try catalog.missingChildren(of: root, listing: listing), [])
             XCTAssertEqual(try reconcile(catalog, entries), ReconcilePlan(
-                inserted: 0, updated: 0, tombstoned: 0, removesEveryChild: false, keptFilesRemoved: 0,
+                inserted: 0, updated: 0, tombstoned: 0, emptiesFolder: false, keptFilesRemoved: 0,
                 unreadableSkipped: 0))
             XCTAssertEqual(try dump(catalog, listingState: false), before)
         }
@@ -403,7 +403,7 @@ final class CatalogTests: XCTestCase {
         // A kind change of the stored name itself still replaces the row, whatever its twin is.
         let replaced = try reconcile(catalog, [folder("notes.txt"), file("Notes.txt"), folder("photos"),
                                                file("Caf\u{E9}.txt"), file("readme")])
-        XCTAssertEqual(replaced, ReconcilePlan(inserted: 1, updated: 0, tombstoned: 1, removesEveryChild: false,
+        XCTAssertEqual(replaced, ReconcilePlan(inserted: 1, updated: 0, tombstoned: 1, emptiesFolder: false,
                                                keptFilesRemoved: 1, unreadableSkipped: 0))
         let folderRow = try child(catalog, "notes.txt")
         XCTAssertNotEqual(folderRow.id, notes.id)
@@ -416,7 +416,7 @@ final class CatalogTests: XCTestCase {
         try reconcile(catalog, [file("notes.txt")])
         let notes = try child(catalog, "notes.txt")
         let plan = try reconcile(catalog, [file("Notes.txt"), file("NOTES.TXT", size: 3)])
-        XCTAssertEqual(plan, ReconcilePlan(inserted: 0, updated: 1, tombstoned: 0, removesEveryChild: false,
+        XCTAssertEqual(plan, ReconcilePlan(inserted: 0, updated: 1, tombstoned: 0, emptiesFolder: false,
                                            keptFilesRemoved: 0, unreadableSkipped: 0))
         let renamed = try child(catalog, "notes.txt")
         XCTAssertEqual(renamed.id, notes.id)
@@ -438,7 +438,7 @@ final class CatalogTests: XCTestCase {
         XCTAssertEqual(try catalog.missingChildren(of: "unknown", listing: listing), [])
 
         let plan = try XCTUnwrap(catalog.reconcile(folder: root, listing: listing) { _ in true })
-        XCTAssertEqual(plan, ReconcilePlan(inserted: 1, updated: 1, tombstoned: 2, removesEveryChild: false,
+        XCTAssertEqual(plan, ReconcilePlan(inserted: 1, updated: 1, tombstoned: 2, emptiesFolder: false,
                                            keptFilesRemoved: 0, unreadableSkipped: 0))
         XCTAssertEqual(try catalog.missingChildren(of: root, listing: listing), [])
         XCTAssertEqual(try catalog.missingChildren(of: root, listing: DirectoryListing([])).map(\.name),
@@ -476,7 +476,7 @@ final class CatalogTests: XCTestCase {
 
         let plan = try reconcile(catalog, [file("x")])
         XCTAssertEqual(plan.tombstoned, 4)
-        XCTAssertFalse(plan.removesEveryChild)
+        XCTAssertFalse(plan.emptiesFolder)
         let tombstones = try [a, b, c, d].map { try XCTUnwrap(catalog.item(id: $0.id)) }
         XCTAssertTrue(tombstones.allSatisfy(\.deleted))
         XCTAssertEqual(Set(tombstones.map(\.changeSeq)), Set((lastSeq + 1)...(lastSeq + 4)))
@@ -496,7 +496,7 @@ final class CatalogTests: XCTestCase {
         let before = try dump(catalog, listingState: false)
 
         let plan = try reconcile(catalog, [unreadable("old.bin"), unreadable("Dir"), unreadable("new.bin")])
-        XCTAssertEqual(plan, ReconcilePlan(inserted: 0, updated: 0, tombstoned: 0, removesEveryChild: false,
+        XCTAssertEqual(plan, ReconcilePlan(inserted: 0, updated: 0, tombstoned: 0, emptiesFolder: false,
                                            keptFilesRemoved: 0, unreadableSkipped: 1))
         XCTAssertEqual(try dump(catalog, listingState: false), before)
         XCTAssertNil(try catalog.liveChild(parent: root, nameKey: NameKey("new.bin")))
@@ -530,7 +530,7 @@ final class CatalogTests: XCTestCase {
         }
         XCTAssertNil(applied)
         XCTAssertEqual(otherWriter, SQLITE_BUSY)
-        XCTAssertEqual(seen, ReconcilePlan(inserted: 1, updated: 0, tombstoned: 0, removesEveryChild: false,
+        XCTAssertEqual(seen, ReconcilePlan(inserted: 1, updated: 0, tombstoned: 0, emptiesFolder: false,
                                            keptFilesRemoved: 0, unreadableSkipped: 0))
         XCTAssertEqual(try dump(catalog), before)
     }
@@ -985,12 +985,12 @@ final class CatalogTests: XCTestCase {
     }
 
     func testD5PolicyHoldsBackMassAndKeptRemovals() throws {
-        func plan(removesEveryChild: Bool = false, keptFilesRemoved: Int = 0) -> ReconcilePlan {
-            ReconcilePlan(inserted: 5, updated: 2, tombstoned: 3, removesEveryChild: removesEveryChild,
+        func plan(emptiesFolder: Bool = false, keptFilesRemoved: Int = 0) -> ReconcilePlan {
+            ReconcilePlan(inserted: 5, updated: 2, tombstoned: 3, emptiesFolder: emptiesFolder,
                           keptFilesRemoved: keptFilesRemoved, unreadableSkipped: 1)
         }
         XCTAssertFalse(Catalog.needsConfirmation(plan()))
-        XCTAssertTrue(Catalog.needsConfirmation(plan(removesEveryChild: true)))
+        XCTAssertTrue(Catalog.needsConfirmation(plan(emptiesFolder: true)))
         XCTAssertTrue(Catalog.needsConfirmation(plan(keptFilesRemoved: 1)))
         XCTAssertEqual(Catalog.confirmationDelay, .seconds(15))
 
@@ -1004,19 +1004,19 @@ final class CatalogTests: XCTestCase {
                             value: true)
         let before = try dump(catalog)
 
-        let cases: [([Parsed], removesEveryChild: Bool, kept: Int, tombstoned: Int)] = [
+        let cases: [([Parsed], emptiesFolder: Bool, kept: Int, tombstoned: Int)] = [
             ([file("other"), folder("Dir"), folder("Empty")], false, 1, 1),
             ([file("kept.mkv"), file("other"), folder("Empty")], false, 1, 2),
             ([], true, 2, 5),
-            ([file("new")], true, 2, 5)
+            ([file("new")], false, 2, 5)
         ]
-        for (entries, removesEveryChild, kept, tombstoned) in cases {
+        for (entries, emptiesFolder, kept, tombstoned) in cases {
             var seen: ReconcilePlan?
             XCTAssertNil(try catalog.reconcile(folder: root, listing: DirectoryListing(entries)) {
                 seen = $0
                 return !Catalog.needsConfirmation($0)
             })
-            XCTAssertEqual(seen?.removesEveryChild, removesEveryChild)
+            XCTAssertEqual(seen?.emptiesFolder, emptiesFolder)
             XCTAssertEqual(seen?.keptFilesRemoved, kept)
             XCTAssertEqual(seen?.tombstoned, tombstoned)
             XCTAssertEqual(try dump(catalog), before)
@@ -1026,12 +1026,31 @@ final class CatalogTests: XCTestCase {
         })
         let empty = try XCTUnwrap(catalog.reconcile(folder: try child(catalog, "Empty").id,
                                                     listing: DirectoryListing([])) { !Catalog.needsConfirmation($0) })
-        XCTAssertFalse(empty.removesEveryChild)
+        XCTAssertFalse(empty.emptiesFolder)
 
         // The confirming listing is applied as it is.
         let confirmed = try reconcile(catalog, [file("other")])
         XCTAssertEqual(confirmed.keptFilesRemoved, 2)
         XCTAssertTrue(try catalog.keptItems().isEmpty)
+    }
+
+    func testRenamingAFoldersOnlyChildDoesNotWaitForD5() throws {
+        let catalog = try makeCatalog()
+        try reconcile(catalog, [folder("Dir")])
+        let dir = try child(catalog, "Dir")
+        try reconcile(catalog, [file("old.txt")], in: dir.id)
+
+        let renamed = try XCTUnwrap(catalog.reconcile(folder: dir.id, listing: DirectoryListing([file("new.txt")])) {
+            !Catalog.needsConfirmation($0)
+        })
+        XCTAssertFalse(renamed.emptiesFolder)
+        XCTAssertEqual(renamed.tombstoned, 1)
+        XCTAssertNoThrow(try child(catalog, "new.txt", in: dir.id))
+
+        // Deleting the only child still waits for a second listing.
+        XCTAssertNil(try catalog.reconcile(folder: dir.id, listing: DirectoryListing([])) {
+            !Catalog.needsConfirmation($0)
+        })
     }
 
     func testTwoCatalogsForOneFolderStayIndependent() throws {
