@@ -90,6 +90,9 @@ Known limits for this release:
   client before macOS mounts it, which is one extra logon per mount.
 - A second TinyMounter build with a different signature, such as a test build, uses the same
   keychain item. macOS then asks for the login keychain password before that build can read it.
+- An upload cut off by a network loss can fail to resume with "Text file busy" until the server
+  notices the lost connection (on Samba's defaults, up to about 2 hours) or restarts. It is
+  then not retried by itself: choose Retry Pending Changes. The data stays on this Mac.
 - Wake and network-change reconnection of 0.2.0 sessions, and a server with change
   notification turned off, have not had VM checks.
 - There is no automatic updater. Install later releases by replacing the app after uploads finish.
