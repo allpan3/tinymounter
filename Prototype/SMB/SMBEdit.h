@@ -30,6 +30,8 @@ int tm_edit_close_info(void *opaque, uint8_t *file, uint64_t *values);
 int tm_edit_open_directory(void *opaque, const char *path, uint32_t access, uint32_t sharing,
                          uint8_t *file);
 int tm_edit_set_size(void *opaque, uint8_t *file, uint64_t size);
+// FileBasicInformation with only LastWriteTime set, in microseconds since 1970; the rest stay.
+int tm_edit_set_write_time(void *opaque, uint8_t *file, uint64_t microseconds);
 int tm_edit_info(void *opaque, uint8_t *file, uint64_t *values);
 int tm_edit_list(void *opaque, uint8_t *directory, int restart, uint8_t *buffer,
                  uint32_t capacity, uint32_t *count, int *finished);

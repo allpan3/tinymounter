@@ -34,7 +34,8 @@ extension LocationSource {
                     let expected = request.failOnConflict
                         ? ContentFingerprint(size: row.size, mtimeNs: row.mtimeNs, ctimeNs: row.ctimeNs) : nil
                     phase = "overwrite"
-                    let written = try remote.overwrite(path: path.string, contents: contents, expected: expected)
+                    let written = try remote.overwrite(path: path.string, contents: contents, expected: expected,
+                                                       modified: request.modified)
                     phase = "catalog-update"
                     return try withCatalog { catalog in
                         let (_, currentPath) = try catalog.editTarget(request, checkingVersion: false)

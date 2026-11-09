@@ -86,7 +86,8 @@ public protocol RemoteSession: AnyObject, UploadRemote, FileRenameRemote, Folder
                   checkSpace: ((Int64) throws -> Void)?) throws -> TransferOutput
 
     // Writing, beside the TransferCore seams
-    func overwrite(path: String, contents: URL, expected: ContentFingerprint?) throws
+    /// `modified` is the save time the server keeps, as in `UploadRemote`.
+    func overwrite(path: String, contents: URL, expected: ContentFingerprint?, modified: Date?) throws
         -> (fileID: UInt64, fingerprint: ContentFingerprint)
     /// Exclusive creation; `receipt` saves the new identity before the call returns its file ID.
     func createFolder(_ path: RelativePath, expected: RemoteFolderIdentity?,

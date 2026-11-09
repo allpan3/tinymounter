@@ -175,9 +175,11 @@ public struct CreateRequest: Codable, Equatable, Sendable {
     public let name: String
     public let kind: CatalogRow.Kind
     public let staging: UUID?
+    /// The new file's `contentModificationDate`, which the server keeps after the upload.
+    public let modified: Date?
 
     public init(id: UUID = UUID(), template: String, parent: String, name: String,
-                kind: CatalogRow.Kind, staging: UUID?) throws {
+                kind: CatalogRow.Kind, staging: UUID?, modified: Date? = nil) throws {
         guard !template.isEmpty, template.utf8.count <= 1024,
               ReaderMessage.isItemID(parent), RelativePath.isValidComponent(name),
               !name.hasPrefix(".tinymounter-"), kind == .file || staging == nil else {
@@ -189,13 +191,15 @@ public struct CreateRequest: Codable, Equatable, Sendable {
         self.name = name
         self.kind = kind
         self.staging = staging
+        self.modified = modified
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         try self.init(id: c.decode(UUID.self, forKey: .id), template: c.decode(String.self, forKey: .template),
                       parent: c.decode(String.self, forKey: .parent), name: c.decode(String.self, forKey: .name),
-                      kind: c.decode(CatalogRow.Kind.self, forKey: .kind), staging: c.decodeIfPresent(UUID.self, forKey: .staging))
+                      kind: c.decode(CatalogRow.Kind.self, forKey: .kind), staging: c.decodeIfPresent(UUID.self, forKey: .staging),
+                      modified: c.decodeIfPresent(Date.self, forKey: .modified))
     }
 }
 
@@ -289,9 +293,11 @@ public struct EditRequest: Codable, Sendable {
     public let baseVersion: String
     public let staging: UUID
     public let failOnConflict: Bool
+    /// The saved version's `contentModificationDate`, which the server keeps after the upload.
+    public let modified: Date?
 
     public init(id: UUID = UUID(), item: String, parent: String, name: String, baseVersion: String,
-                staging: UUID, failOnConflict: Bool) throws {
+                staging: UUID, failOnConflict: Bool, modified: Date? = nil) throws {
         guard ReaderMessage.isItemID(item), item != Catalog.rootItemID, ReaderMessage.isItemID(parent),
               RelativePath.isValidComponent(name), !name.contains("\\"), !name.contains(":"),
               baseVersion.utf8.count <= 128, Self.supportsName(name) else { throw UploadError.invalidRequest }
@@ -302,6 +308,7 @@ public struct EditRequest: Codable, Sendable {
         self.baseVersion = baseVersion
         self.staging = staging
         self.failOnConflict = failOnConflict
+        self.modified = modified
     }
 
     public init(from decoder: Decoder) throws {
@@ -309,7 +316,8 @@ public struct EditRequest: Codable, Sendable {
         try self.init(id: c.decode(UUID.self, forKey: .id), item: c.decode(String.self, forKey: .item),
                       parent: c.decode(String.self, forKey: .parent), name: c.decode(String.self, forKey: .name),
                       baseVersion: c.decode(String.self, forKey: .baseVersion), staging: c.decode(UUID.self, forKey: .staging),
-                      failOnConflict: c.decode(Bool.self, forKey: .failOnConflict))
+                      failOnConflict: c.decode(Bool.self, forKey: .failOnConflict),
+                      modified: c.decodeIfPresent(Date.self, forKey: .modified))
     }
 
     public static func supportsName(_ name: String) -> Bool {

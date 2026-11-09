@@ -178,7 +178,8 @@ Phase 3 extends that subset with verified offline status, folder keeps and chang
   [signed VM results](results/2026-10-19-nas-change-discovery.md).
 - **Writes:** M18 adds new files/folders and receipt-backed initial folder naming. Existing-file
   saves now use ordinary overwrites with File Provider retaining pending contents, as described
-  in section 6. General remote rename
+  in section 6. Each content upload then sets the server's modification time to the local save
+  time, so the content version recorded for the upload matches the local copy. General remote rename
   matching and local FSEvents integration remain unimplemented. An externally renamed item is
   still a delete plus a create; its keep request does not follow.
 

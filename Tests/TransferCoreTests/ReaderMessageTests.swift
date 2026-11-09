@@ -62,10 +62,21 @@ final class ReaderMessageTests: XCTestCase {
         XCTAssertEqual(decoded.baseVersion, request.baseVersion)
         XCTAssertEqual(decoded.staging, request.staging)
         XCTAssertTrue(decoded.failOnConflict)
+        XCTAssertNil(decoded.modified)
         for name in ["../note.txt", "file:stream", "live.sqlite", "disk.vmdk"] {
             XCTAssertThrowsError(try EditRequest(item: UUID().uuidString, parent: Catalog.rootItemID, name: name,
                                                 baseVersion: "legacy", staging: UUID(), failOnConflict: false))
         }
+    }
+
+    func testUploadMessagesCarryTheSaveTimeExactly() throws {
+        let saved = Date(timeIntervalSince1970: 1_762_600_000.987_654_3)
+        let edit = try EditRequest(item: UUID().uuidString, parent: Catalog.rootItemID, name: "note.txt",
+                                   baseVersion: "v", staging: UUID(), failOnConflict: false, modified: saved)
+        XCTAssertEqual(try ReaderMessage.decode(EditRequest.self, from: ReaderMessage.encode(edit)).modified, saved)
+        let create = try CreateRequest(template: "t", parent: Catalog.rootItemID, name: "new.txt", kind: .file,
+                                       staging: UUID(), modified: saved)
+        XCTAssertEqual(try ReaderMessage.decode(CreateRequest.self, from: ReaderMessage.encode(create)).modified, saved)
     }
 
     func testItemIDsAreTheRootConstantOrUpperCaseUUIDs() {

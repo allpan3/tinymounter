@@ -27,9 +27,10 @@ final class UploadTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
-    private func prepared(kind: CatalogRow.Kind = .file, name: String = "new.bin") throws -> PendingUpload {
+    private func prepared(kind: CatalogRow.Kind = .file, name: String = "new.bin",
+                          modified: Date? = nil) throws -> PendingUpload {
         let request = try CreateRequest(template: UUID().uuidString, parent: Catalog.rootItemID,
-                                        name: name, kind: kind, staging: nil)
+                                        name: name, kind: kind, staging: nil, modified: modified)
         return try outbox.prepare(request, path: XCTUnwrap(RelativePath(name)),
                                   contents: kind == .file ? input : nil, progress: Progress())
     }
@@ -40,6 +41,7 @@ final class UploadTests: XCTestCase {
         var writeError: Error?
         var creates = 0, writes = 0, inspections = 0, resumptions = 0
         var resumedIdentity: RemoteFileIdentity?
+        var savedTimes: [Date?] = []
 
         init(_ record: PendingUpload) throws {
             version = try RemoteFileVersion(identity: RemoteFileIdentity(fileID: 42, birthMicroseconds: 100),
@@ -53,8 +55,9 @@ final class UploadTests: XCTestCase {
             return version.identity
         }
 
-        func writeUpload(path: String, contents: URL) throws -> RemoteFileVersion {
+        func writeUpload(path: String, contents: URL, modified: Date?) throws -> RemoteFileVersion {
             writes += 1
+            savedTimes.append(modified)
             if let writeError { throw writeError }
             return version
         }
@@ -64,8 +67,10 @@ final class UploadTests: XCTestCase {
             return version
         }
 
-        func resumeUpload(path: String, contents: URL, identity: RemoteFileIdentity) throws -> RemoteFileVersion {
+        func resumeUpload(path: String, contents: URL, identity: RemoteFileIdentity,
+                          modified: Date?) throws -> RemoteFileVersion {
             resumptions += 1
+            savedTimes.append(modified)
             resumedIdentity = identity
             return version
         }
@@ -91,6 +96,32 @@ final class UploadTests: XCTestCase {
         try outbox.upload(&record, remote: server, progress: Progress())
         XCTAssertEqual(server.resumptions, 1)
         XCTAssertEqual(server.inspections, 1)
+    }
+
+    func testSaveTimeSurvivesRelaunchAndReachesEveryWrite() throws {
+        let saved = Date(timeIntervalSince1970: 1_762_600_000.123_456_7)
+        var record = try prepared(modified: saved)
+        let server = try DirectRemote(record)
+        server.writeError = TransferError.cancelled
+        XCTAssertThrowsError(try outbox.upload(&record, remote: server, progress: Progress()))
+        outbox = try UploadOutbox(directory: root.appending(path: "pending"))
+        record = try XCTUnwrap(outbox.records().first)
+        XCTAssertEqual(record.modified, saved)
+        try outbox.upload(&record, remote: server, progress: Progress())
+        XCTAssertEqual(server.savedTimes, [saved, saved])
+        XCTAssertNil(try prepared(kind: .folder, name: "folder", modified: saved).modified)
+    }
+
+    func testRecordWithoutSaveTimeDecodesAndKeepsServerTime() throws {
+        var record = try prepared()
+        let url = root.appending(path: "pending/\(record.id.uuidString).json")
+        // As saved before the field existed.
+        let fields = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        XCTAssertNil(fields["modified"])
+        record = try XCTUnwrap(outbox.records().first)
+        let server = try DirectRemote(record)
+        try outbox.upload(&record, remote: server, progress: Progress())
+        XCTAssertEqual(server.savedTimes, [nil])
     }
 
     func testDirectRecoveryRequiresOwnedIdentityAndCompleteWrite() throws {

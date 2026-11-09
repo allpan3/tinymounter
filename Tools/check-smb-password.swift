@@ -151,7 +151,7 @@ extension CatalogRow {
         try step("upload") {
             let remote = try session(share, folder: location)
             _ = try remote.createUpload(path: "a.bin")
-            let written = try remote.writeUpload(path: "a.bin", contents: first)
+            let written = try remote.writeUpload(path: "a.bin", contents: first, modified: nil)
             guard written.size == 3 << 20 else { throw Failed(description: "size") }
         }
         try step("listing") {
@@ -163,7 +163,8 @@ extension CatalogRow {
         try step("checksum-read") { try requireContents(share, location, "a.bin", equal: first, staging: local) }
         try step("overwrite") {
             let before = try session(share, folder: location).readMetadata(path: "a.bin").fingerprint
-            _ = try session(share, folder: location).overwrite(path: "a.bin", contents: second, expected: before)
+            _ = try session(share, folder: location).overwrite(path: "a.bin", contents: second,
+                                                               expected: before, modified: nil)
             try requireContents(share, location, "a.bin", equal: second, staging: local)
         }
         try step("rename") {
