@@ -1,16 +1,13 @@
 # M24 integration checklist
 
-The provider route and Settings recovery controls are implemented. Ordinary deletion stays
-disabled because Finder Replace can delete its destination before saving the new file. The
-approved **Delete Permanently…** command uses a separate route and confirmation. Normal builds
-enable it from 2026-11-04 after the signed checks below; `deletionEnabled` stays false.
-Host Swift package checks do not verify Finder, XPC, signing or controller lifecycle behavior.
+The provider route and Settings recovery controls are implemented. Normal builds enable
+ordinary Finder deletion (`deletionEnabled`) and the separate **Delete Permanently…** command
+with its own confirmation (`permanentDeletionEnabled`). Host Swift package checks do not verify
+Finder, XPC, signing or controller lifecycle behavior.
 
-This is a handoff procedure, not a results log. Use the approved disposable Samba fixture;
-the current single-client candidate uses the Linux VM fixture from the November 3 checks.
-Record runtime evidence in the [deletion results](results/2026-10-29-deletion-protocol.md) or
-[confirmed-command results](results/2026-11-03-permanent-command.md)
-and update the README after the run. Leave the original NAS and physical-Mac installation alone.
+This is a check procedure. Use the disposable Samba fixture in the VM. Put the runtime evidence
+in the PR description and keep raw evidence in the local `results/`. Leave the original NAS and
+the physical-Mac installation alone.
 
 ## Implementation details to review
 
@@ -64,110 +61,29 @@ and update the README after the run. Leave the original NAS and physical-Mac ins
 
 ## Prepare the VM candidate
 
-0.2.0 removed this candidate. `Tools/prepare-folder-candidate.py` and its probes needed a share
-mount, a write bookmark and the pinned M21 location, which no longer exist. The signed deletion
-checks now run through Finder in the signed app; see the
-[connection-layer results](results/2026-11-08-connection-layer.md). The rest of this section
-records how the earlier checks ran.
-
-`Tools/prepare-folder-candidate.py --enable --overlap-checks --deletion-checks OUTPUT`
-reuses the existing signed folder fixture and exports deletion callbacks and both views'
-durable deletion records. Add `--enable-permanent-deletion` for the approved command. The separate
-`--enable-deletion` option reproduces the earlier ordinary-deletion protocol checks; never use
-both. Each gate follows its flag, so omitting them prepares the disabled baseline; use unique
-`check-` snapshot labels and the existing local evidence picker.
-Adding `--crash-checks` enables `deletion-fault.json`, bound to the fixture run, selected item,
-`Deletion/` path, node index and checkpoint. It exports the durable plan/progress and stops
-the app before or after an attempting, close-acknowledged or deleted checkpoint. Each control
-fires once. Kill only the recorded test process, preserve the hit and resume the fixture app.
-The `admitted` stage stops after traversal handles are released. `action: "fail"` throws a
-synthetic error instead of stopping, so the real callback can fail while retaining pending work.
-`action: "fail-repeated"` keeps that error active across automatic retries until Stop settles
-the record or the control is removed. A `deletion-fault-CHECKPOINT.json` control takes precedence
-at its named checkpoint, allowing admission failure and a separate Settings hold in one trial.
-The `settings` stage requires `action: "hold"` and suspends only the asynchronous Settings
-callback. Create `deletion-release-CONTROL_UUID` in the evidence directory to release it;
-after 180 seconds it fails without settling. This leaves the main actor and request lanes free.
-The `settled` checkpoint stops after durable completion, before signaling File Provider retry.
-Snapshot labels starting `check-stopped-replay-` also exercise the production app replay route
-for a completed stopped item with refreshed catalog bases and an equivalent XML event archive.
-The helper requires the original stopped outcome and unchanged durable records. This supplements
-real Finder callbacks; it does not claim that Finder sent the constructed request.
-`check-unconfirmed-replay-` applies the same check to completed unconfirmed selected items,
-requiring the original unconfirmed result, current item bases and unchanged durable records.
-The `check-reader-jobs-hold` request suspends the idle reader queue and submits four
-constructed reads through the selected domain's connected reader session. Delete another
-fixture file in Finder while those jobs occupy the session. `check-reader-jobs-release-one`
-releases one slot without running the queued reads; Finder must retry the deletion itself.
-`check-reader-jobs-drain` releases the rest and resumes the queue. After the operations drain,
-`check-reader-jobs-verify` requires four single cancellation replies and no remaining jobs.
-A trial suffix may follow each phase, such as `check-reader-jobs-hold-second`. Wait for a successful
-deletion callback with the other three reads still held before draining them.
-A 180-second safety timeout drains the queue and makes verification fail. Each request exports
-a `-jobs.json` report. The deletion uses Finder/XPC; the occupied reads use constructed requests.
-For lifecycle trials, synchronous checkpoints also accept `action: "hold"`; only the transaction's
-worker waits for its release file. `attempting-after` holds immediately before marking the protected
-object; `marked` holds after the mark succeeds and before close. The app and extension remain live.
-`check-deletion-session-state-TRIAL` exports the connected session's jobs, active/cancelled
-transaction progress and queued Stops. `check-deletion-session-invalidate-TRIAL` exports the
-same observations and invalidates that actual connection. Inspect again after reconnection.
-`check-provider-cancel-TRIAL` sends a fixture/item/event-bound command to cancel the Progress
-returned by the active real provider callback. Its timer consumes the command once and emits
-`delete-progress-cancel`. This tests the production cancellation path with a constructed trigger;
-it does not establish the behavior of Finder's cancellation UI.
-With one real Finder deletion awaiting Settings, `check-joined-jobs-hold` joins three constructed
-requests to that event in the actual reader session and requires a fifth request to be busy.
-Use `check-joined-jobs-release` to detach one waiter without Stop, then `check-joined-jobs-cancel`
-to queue Stop from a different waiter while a short lane barrier makes that ordering observable.
-After releasing Settings, `check-joined-jobs-verify` requires three single replies, correct receipts,
-no jobs and unchanged confirmed outcomes. The remote deletion has already finished in this trial.
-With `Deletion/SourceClose.txt` awaiting the real Settings callback, `check-source-close` closes
-the controller's existing source directly and requires its recovery waiters to drain without Stop.
-After releasing Settings, `check-source-closed-state` requires the same durable record and no new
-Stop. These commands omit catalog snapshots because that catalog is intentionally closed. Restart
-the app normally to exercise launch reopening and settlement. This is a source API probe, not a
-user-facing Remove Location action, which pending deletion correctly blocks.
-`catalog-second` injects a failure before the second catalog's settlement. The repeated actions
-`fail-version`, `fail-readonly` and `fail-invalid` exercise the production completion-error mapping.
-`check-incomplete-deletion-TRIAL` replays that settled but incomplete `Deletion/CatalogDelay`
-record through the connected reader session and requires `cannotSynchronize` with unchanged records.
-`check-keep-restore-start` seeds pending keeps only for the two fixture locations: the files in
-`Deletion/Restore/` and the untouched neighbor. A run-bound `keep-restore.json` control holds the
-actual older restore after it enters the controller's restoring set. Its release file is
-`keep-restore-release-CONTROL_UUID`; the hold times out after 180 seconds. The candidate also
-records actual `controller-recovered` callbacks so reconnect evidence need not infer their use.
-`check-removal-state-TRIAL` exports the two fixture domains' Settings, registration, catalog
-presence and owner records even after removal. It verifies that unrelated Settings stay intact.
+Run these checks through Finder in the signed app.
 
 1. Integrate the commits and run `Tools/run-checks.sh` in the VM. App-target changes have not
    been compiled on the host. The generator includes the shared domain-version archive helper
    in both targets. Use fresh catalogs and deletion records for the required event field.
-2. Capture the baseline Finder/Settings recordings with deletion disabled. Direct filesystem
-   deletion may succeed locally before its callback. Confirm rejection restores the local item,
-   stops callback retries and leaves the remote item intact.
-3. Enable only `SourceReaderBridge.deletionEnabled` in the disposable candidate. Build and sign
-   it using the existing VM procedure. Do not change the normal-build gate in the integration
-   branch until all acceptance checks pass.
-4. Add two writable locations that overlap on the fixture. Put the selected test subtree below
+2. Add two writable locations that overlap on the fixture. Put the selected test subtree below
    both roots, with neither configured root inside it. Retain an untouched neighboring file.
    Create a regular file, an empty folder, and a nested folder with multiple regular files.
    Leave one nested branch unlisted in the second location. Keep some selected files downloaded.
-5. Record the selected and neighboring objects' server identities, contents, attached data,
+3. Record the selected and neighboring objects' server identities, contents, attached data,
    permissions, catalog IDs, content/metadata versions and keep requests. Record the date,
    OS/build, fixture setup and cache state. Audit backing storage independently of Finder.
 
 ## Finder deletion and warning
 
-The numbered checks below record the ordinary-deletion protocol investigation. They do not
-authorize enabling ordinary deletion. For the accepted workflow, use Finder's
-**Delete Permanently…** custom action with the ordinary callback gate off. Verify Return and
+The numbered checks below cover ordinary Finder deletion. For Finder's **Delete Permanently…**
+custom action, verify Return and
 Escape cancel on the first press, including after closing Settings with a text field active.
 Verify one click confirms, cancellation remains responsive, and connection loss before
 confirmation admits no record. Verify a pending save blocks the action and a save racing after
 admission remains complete in File Provider when its missing target is refused. Copy that local
 file outside the location and verify its bytes. The simplified save path has no edit-specific
-export or Stop Uploading action; the earlier command results do not validate this revised race.
-Check both overlapping views and refused Replace.
+export or Stop Uploading action. Check both overlapping views and refused Replace.
 
 1. Select the regular file and invoke Finder's deletion command. The warning must say that the
    item will be deleted immediately or permanently, and that the action cannot be undone.
@@ -253,8 +169,8 @@ the deletion error and cancellation contract is at lines 805–846.
    or incomplete settlement must retain `cannotSynchronize`. No replay may admit
    another operation. A new Finder action after restoration must carry a newer event version.
 
-   The November 3 signed probe showed that working-set updates alone do not restore this item
-   while the callback returns `cannotSynchronize`. The response above rejects further execution
+   Working-set updates alone do not restore this item while the callback returns
+   `cannotSynchronize`. The response above rejects further execution
    of that completed request and restores the observed survivor; it does not confirm deletion.
    Settings must retain the uncertainty and the original replay record through dismissal.
 6. Interrupt recursive deletion after a confirmed child, then change the location-root inode
@@ -342,5 +258,4 @@ the deletion error and cancellation contract is at lines 805–846.
    removal succeeds.
 3. Capture the matching after recordings. Run `Tools/run-checks.sh` on the integrated candidate,
    preserve private evidence and restore temporary fixture/service state. Record all failures
-   and unavailable cases. Normal-build enablement still requires the signed warning, callback,
-   recovery and lifecycle gates above to pass.
+   and unavailable cases.
