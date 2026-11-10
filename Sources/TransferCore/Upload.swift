@@ -29,8 +29,8 @@ public struct PendingUpload: Codable, Sendable {
     public var name: String
     public var path: String
     public let kind: CatalogRow.Kind
-    public let size: Int64
-    public let digest: String
+    public var size: Int64
+    public var digest: String
     public var state: State
     public var remoteID: UInt64?
     public var item: String?
@@ -122,11 +122,22 @@ public final class UploadOutbox {
                 let size = file?.snapshot.size ?? 0
                 let digest = try file.map { try $0.checksum(range: ByteRange(offset: 0, length: size, fileSize: size)) }
                     ?? Self.emptyDigest
-                guard previous.size == size, previous.digest == digest else { throw UploadError.unresolved }
+                if previous.size != size || previous.digest != digest {
+                    // macOS sends the item again when its contents change before the upload finished,
+                    // for example when it took a file that an app was still writing. An uncertain
+                    // attempt or a finished upload keeps the refusal.
+                    guard contents != nil,
+                          [.staging, .prepared, .collision, .created, .verified].contains(previous.state) else {
+                        throw UploadError.unresolved
+                    }
+                    try replaceContents(&previous, size: size, digest: digest, modified: request.modified)
+                }
             }
             if previous.state == .staging {
                 try stage(previous, contents: contents, progress: progress, checkSpace: checkSpace)
-                previous.state = .prepared
+                // A file that is on the server already is written again from the start, after its
+                // identity is checked.
+                previous.state = previous.serverFile == nil ? .prepared : .created
                 try save(previous)
             }
             if renamedCollision {
@@ -156,6 +167,24 @@ public final class UploadOutbox {
             try save(record)
         }
         return record
+    }
+
+    /// The old copy goes before the record names the new contents, so after a crash the next send
+    /// stages them again.
+    private func replaceContents(_ record: inout PendingUpload, size: Int64, digest: String,
+                                 modified: Date?) throws {
+        let fd = open(directory.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard fd >= 0 else { throw posixError("open payload directory") }
+        defer { close(fd) }
+        guard unlink(contentURL(record.id).path) == 0 || errno == ENOENT else {
+            throw posixError("discard changed contents")
+        }
+        guard fsync(fd) == 0 else { throw posixError("sync payload removal") }
+        record.size = size
+        record.digest = digest
+        record.modified = modified
+        record.state = .staging
+        try save(record)
     }
 
     private func stage(_ record: PendingUpload, contents: URL?, progress: Progress,

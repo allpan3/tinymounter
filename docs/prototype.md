@@ -379,7 +379,8 @@ New-file creation records the request before local staging and retains a complet
 Other clients may see partial new contents during upload. Acknowledgment requires the expected
 identity, final size, flush and close. An unacknowledged create retries only with exclusive
 creation; an existing name keeps the outcome unresolved. An acknowledged partial file restarts
-its complete upload after checking the recorded identity. Local payload integrity checks remain;
+its complete upload after checking the recorded identity. Contents that change before the upload
+finishes replace the retained copy, unless an uncertain create is pending. Local payload integrity checks remain;
 there is no remote full-file readback. Settings lists pending new items and offers Stop Uploading
 only when nothing reached the server. macOS keeps those local items on removal. See the
 [pending-change plan](pending-changes-plan.md).

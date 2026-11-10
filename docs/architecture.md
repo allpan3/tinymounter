@@ -190,7 +190,10 @@ request is outstanding per connection; pipelining and session pooling are not im
 
 New uploads use exclusive creation. An acknowledged partial upload restarts the complete write
 only after matching the recorded server identity; an uncertain create never overwrites an
-unrelated destination. Local retained contents have integrity checks, but the remote upload is
+unrelated destination. macOS sends a new item again when its contents change before the upload
+finishes, for example when it took a file that an app was still writing. The new contents then
+replace the retained copy, and an acknowledged partial file is written again with them.
+Local retained contents have integrity checks, but the remote upload is
 not read back in full. Existing-file saves use ordinary overwrite semantics.
 
 ### Sign-in and connection

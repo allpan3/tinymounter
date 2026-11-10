@@ -327,19 +327,20 @@ final class UploadTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: remote.appending(path: "new.bin")), payload)
     }
 
-    func testInterruptedStagingRejectsChangedSystemInput() throws {
+    func testInterruptedStagingTakesChangedSystemInput() throws {
         let request = try CreateRequest(template: UUID().uuidString, parent: Catalog.rootItemID,
                                         name: "new.bin", kind: .file, staging: nil)
         XCTAssertThrowsError(try outbox.prepare(request, path: XCTUnwrap(RelativePath("new.bin")), contents: input,
                                                progress: Progress()) { _ in throw TransferError.cancelled })
         let record = try XCTUnwrap(outbox.records().first)
         let staged = root.appending(path: "pending/\(record.id.uuidString).data")
-        let preserved = try Data(contentsOf: staged)
         try Data("other bytes".utf8).write(to: input)
-        XCTAssertThrowsError(try outbox.prepare(request, path: XCTUnwrap(RelativePath("new.bin")), contents: input,
-                                               progress: Progress()))
-        XCTAssertEqual(try Data(contentsOf: staged), preserved)
-        XCTAssertEqual(try outbox.records().first?.state, .staging)
+        let replay = try outbox.prepare(request, path: XCTUnwrap(RelativePath("new.bin")), contents: input,
+                                        progress: Progress())
+        XCTAssertEqual(replay.id, record.id)
+        XCTAssertEqual(replay.state, .prepared)
+        XCTAssertEqual(replay.size, 11)
+        XCTAssertEqual(try Data(contentsOf: staged), Data("other bytes".utf8))
     }
 
     func testNativeSMBCreateAndRecoveryInApprovedFixture() throws {
@@ -494,14 +495,14 @@ final class UploadTests: XCTestCase {
                                       name: "new 2.bin", kind: .file, staging: nil)
         let changed = root.appending(path: "changed")
         try Data("different input".utf8).write(to: changed)
-        XCTAssertThrowsError(try outbox.prepare(retry, path: XCTUnwrap(RelativePath("new 2.bin")),
-                                               contents: changed, progress: Progress())) {
-            XCTAssertEqual($0 as? UploadError, .unresolved)
-        }
-        XCTAssertEqual(try outbox.records().first?.state, .collision)
-        XCTAssertEqual(try Data(contentsOf: pending), payload)
+        // Changed contents replace the copy that did not reach the server.
+        record = try outbox.prepare(retry, path: XCTUnwrap(RelativePath("new 2.bin")),
+                                    contents: changed, progress: Progress())
+        XCTAssertEqual(record.state, .prepared)
+        XCTAssertEqual(try Data(contentsOf: pending), Data("different input".utf8))
         record = try outbox.prepare(retry, path: XCTUnwrap(RelativePath("new 2.bin")),
                                     contents: input, progress: Progress())
+        XCTAssertEqual(try Data(contentsOf: pending), payload)
         XCTAssertThrowsError(try outbox.upload(&record, locationRoot: fd, progress: Progress())) {
             XCTAssertEqual($0 as? UploadError, .collision)
         }
@@ -578,12 +579,83 @@ final class UploadTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appending(path: "escaped").path))
     }
 
-    func testReplayWithDifferentContentsCannotReuseOperation() throws {
-        let request = try CreateRequest(template: UUID().uuidString, parent: Catalog.rootItemID,
-                                        name: "new.bin", kind: .file, staging: nil)
-        _ = try outbox.prepare(request, path: XCTUnwrap(RelativePath("new.bin")), contents: input, progress: Progress())
+    func testChangedContentsReplaceAnUploadThatDidNotReachTheServer() throws {
+        let record = try prepared()
+        let changed = Data("other bytes".utf8)
+        try changed.write(to: input)
+        let replay = try outbox.prepare(request(for: record), path: XCTUnwrap(RelativePath(record.path)),
+                                        contents: input, progress: Progress())
+        XCTAssertEqual(replay.state, .prepared)
+        XCTAssertEqual(replay.size, Int64(changed.count))
+        XCTAssertEqual(try outbox.records().map(\.size), [Int64(changed.count)])
+        XCTAssertEqual(try Data(contentsOf: root.appending(path: "pending/\(record.id.uuidString).data")), changed)
+    }
+
+    // macOS sends a file again when an app was still writing it at the first send.
+    func testChangedContentsAfterAPartialUploadRewriteTheSameServerFile() throws {
+        var record = try prepared()
+        let server = try DirectRemote(record)
+        server.writeError = TransferError.cancelled
+        XCTAssertThrowsError(try outbox.upload(&record, remote: server, progress: Progress()))
+        let changed = payload + Data("appended".utf8)
+        try changed.write(to: input)
+        let saved = Date(timeIntervalSince1970: 1_800_000_000)
+        var replay = try outbox.prepare(request(for: record, modified: saved),
+                                        path: XCTUnwrap(RelativePath(record.path)), contents: input, progress: Progress())
+        XCTAssertEqual(replay.state, .created)
+        XCTAssertEqual(replay.serverFile, record.serverFile)
+        XCTAssertEqual(replay.size, Int64(changed.count))
+        XCTAssertEqual(replay.modified, saved)
+        server.version = try RemoteFileVersion(identity: server.version.identity, size: Int64(changed.count),
+                                               modifiedMicroseconds: 200, changedMicroseconds: 300, attributes: 0)
+        try outbox.upload(&replay, remote: server, progress: Progress())
+        XCTAssertEqual(replay.state, .verified)
+        XCTAssertEqual(server.creates, 1)
+        XCTAssertEqual(server.resumptions, 1)
+        XCTAssertEqual(server.resumedIdentity, record.serverFile)
+        XCTAssertEqual(server.savedTimes.last, saved)
+        XCTAssertEqual(try Data(contentsOf: root.appending(path: "pending/\(record.id.uuidString).data")), changed)
+    }
+
+    func testInterruptedRestagingKeepsTheServerFile() throws {
+        var record = try prepared()
+        let server = try DirectRemote(record)
+        server.writeError = TransferError.cancelled
+        XCTAssertThrowsError(try outbox.upload(&record, remote: server, progress: Progress()))
         try Data("other bytes".utf8).write(to: input)
-        XCTAssertThrowsError(try outbox.prepare(request, path: XCTUnwrap(RelativePath("new.bin")), contents: input,
-                                               progress: Progress()))
+        let path = try XCTUnwrap(RelativePath(record.path))
+        XCTAssertThrowsError(try outbox.prepare(request(for: record), path: path, contents: input,
+                                               progress: Progress()) { _ in throw TransferError.cancelled })
+        outbox = try UploadOutbox(directory: root.appending(path: "pending"))
+        let interrupted = try XCTUnwrap(outbox.records().first)
+        XCTAssertEqual(interrupted.state, .staging)
+        XCTAssertFalse(interrupted.isStoppable)
+        var staging = interrupted
+        XCTAssertThrowsError(try outbox.upload(&staging, remote: server, progress: Progress()))
+        XCTAssertEqual(server.resumptions, 0)
+        let replay = try outbox.prepare(request(for: record), path: path, contents: input, progress: Progress())
+        XCTAssertEqual(replay.state, .created)
+        XCTAssertEqual(replay.serverFile, record.serverFile)
+    }
+
+    func testChangedContentsCannotReuseAnUncertainOrFinishedUpload() throws {
+        var record = try prepared()
+        record.state = .attempting
+        try outbox.save(record)
+        let original = try Data(contentsOf: input)
+        try Data("other bytes".utf8).write(to: input)
+        let path = try XCTUnwrap(RelativePath(record.path))
+        XCTAssertThrowsError(try outbox.prepare(request(for: record), path: path, contents: input, progress: Progress()))
+        try original.write(to: input)
+        try outbox.upload(&record, locationRoot: fd, progress: Progress())
+        try outbox.complete(&record, item: UUID().uuidString)
+        try Data("other bytes".utf8).write(to: input)
+        XCTAssertThrowsError(try outbox.prepare(request(for: record), path: path, contents: input, progress: Progress()))
+        XCTAssertEqual(try outbox.records().first?.state, .completed)
+    }
+
+    private func request(for record: PendingUpload, modified: Date? = nil) throws -> CreateRequest {
+        try CreateRequest(template: record.template, parent: record.parent, name: record.name, kind: record.kind,
+                          staging: nil, modified: modified)
     }
 }
