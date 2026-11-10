@@ -62,6 +62,7 @@ final class LocationController {
     private let credentials = KeychainCredentialStore()
     /// By share ID, for the shares that locations use.
     private var connections: [UUID: ShareConnection] = [:]
+    private let previousSessions = PreviousSessionStore()
     /// By server ID: one sign-in for every share of a server.
     private var signIns: [UUID: ServerSignIn] = [:]
     private var shareStates: [UUID: ConnectionState] = [:]
@@ -193,6 +194,7 @@ final class LocationController {
             onChange?()
             return
         }
+        previousSessions.keep(Set(settings.shares.map(\.id)))
         let plan = LaunchReconciliation.plan(records: .success(settings.locations), catalogs: catalogs,
                                              domains: Set(registered.keys))
         for id in plan.unknownDomains {
@@ -299,10 +301,14 @@ final class LocationController {
     private func forget(_ shareID: UUID) {
         connections[shareID]?.close()
         connections[shareID] = nil
+        previousSessions.keep(Set(store.settings?.shares.map(\.id) ?? []))
         shareStates[shareID] = nil
         volumes[shareID] = nil
         mountedVolumes.remove(shareID)
     }
+
+    /// Quit, logout, restart or shutdown: the next run names the sessions that are open now.
+    func terminate() { previousSessions.end() }
 
     /// Connect in a location: the next connection attempt starts now.
     func connect(_ shareID: UUID) { connection(for: shareID)?.connect() }
@@ -1373,7 +1379,8 @@ final class LocationController {
         guard let settings = store.settings, let share = settings.shares.first(where: { $0.id == shareID }),
               let server = settings.servers.first(where: { $0.id == share.serverID }) else { return nil }
         let connection = ShareConnection(shareID: shareID, address: ShareAddress(server.login, share: share.name),
-                                         client: client, signIn: signIn(for: server), watchLimit: watchLimit,
+                                         client: client, signIn: signIn(for: server),
+                                         previousSessions: previousSessions, watchLimit: watchLimit,
                                          refresh: { [weak self] domainID, folderIDs in
             Task { @MainActor in self?.noticed(domainID, folderIDs) }
         }) { [weak self] failures in

@@ -99,11 +99,11 @@ Known limits for this release:
 - A second TinyMounter build with a different signature, such as a test build, uses the same
   keychain item. macOS then asks for the login keychain password before that build can read it.
 - An upload cut off by a network loss finishes by itself when the share connects again: the new
-  session asks the server to end the lost one. TinyMounter remembers lost sessions only while it
-  runs. After a quit or restart first, or with a server that ignores the request, the upload
-  fails with "Text file busy" and retries by itself, with delays that grow to 5 minutes, until
-  the server notices the lost connection (on Samba's defaults, up to about 2 hours). The data
-  stays on this Mac.
+  session asks the server to end the lost one. TinyMounter also remembers lost sessions across a
+  quit or restart, but a Force Quit or crash forgets the sessions that were still open. After
+  that, or with a server that ignores the request, the upload fails with "Text file busy" and
+  retries by itself, with delays that grow to 5 minutes, until the server notices the lost
+  connection (on Samba's defaults, up to about 2 hours). The data stays on this Mac.
 - While macOS retries an upload that the server refuses, such as a new file in a folder without
   write access, the location's Keep Downloaded items can show Requested for up to about
   25 minutes, and Kept downloaded shows late. The check waits until macOS has no work left for

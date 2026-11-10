@@ -65,6 +65,7 @@ app_paths = ["Sources/TransferCore/FileRename.swift", "Sources/TransferCore/Read
              "Sources/TransferCore/ChangeWatching.swift",
              "Prototype/App/SMBWatch.swift", "Prototype/App/LocationChangeWatch.swift",
              "Prototype/App/SettingsStore.swift", "Prototype/App/ShareConnection.swift",
+             "Prototype/App/PreviousSessionStore.swift",
              "Prototype/App/LocationSource.swift", "Prototype/App/ServerVolumeMount.swift",
              "Prototype/App/LocationController.swift", "Prototype/App/AppModel.swift",
              "Prototype/App/PermanentDeletionConfirmation.swift",

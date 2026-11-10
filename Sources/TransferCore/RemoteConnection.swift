@@ -72,6 +72,8 @@ public protocol RemoteClient: Sendable {
 public protocol RemoteSession: AnyObject, UploadRemote, FileRenameRemote, FolderMoveRemote, DeletionRemote {
     /// Payload bytes read so far, for the fetch log.
     var readBytes: Int64 { get }
+    /// The server's ID for this session, also after a drop.
+    var sessionID: UInt64 { get }
     /// Set when a request failed with the connection, which the session then closed for good.
     var droppedSessionID: UInt64? { get }
 

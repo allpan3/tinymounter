@@ -74,7 +74,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Quit, logout and shutdown, but not Force Quit.
-    func applicationWillTerminate(_ notification: Notification) { RunStateRecorder.stop() }
+    func applicationWillTerminate(_ notification: Notification) {
+        model.controller.terminate()
+        RunStateRecorder.stop()
+    }
 
     /// The reader must stay up, so closing the window keeps the app running.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }

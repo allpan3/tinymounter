@@ -88,7 +88,7 @@ final class ShareConnection: @unchecked Sendable {
     private let tick: DispatchSourceTimer
     private let lock = NSLock()
     private var health = ConnectionHealth()
-    private var previousSessions = PreviousSessions()
+    private let previousSessions: PreviousSessionStore
     private var stateHandler: (@Sendable (ConnectionState) -> Void)?
     private var connecting = false
     /// Set by the first `connect()`: a returning network path or wake then connects again.
@@ -109,12 +109,14 @@ final class ShareConnection: @unchecked Sendable {
     }, excluded: { [editNamespace] in editNamespace.isReserved($0) }, refresh: refresh)
 
     /// `watchLimit` is the protocol's watcher limit; `refresh` gets each notice's folders to list.
-    init(shareID: UUID, address: ShareAddress, client: any RemoteClient, signIn: ServerSignIn, watchLimit: Int,
-         refresh: @escaping LocationChangeWatch.Refresh, onRecovery: @escaping @Sendable ([SourceFailure]) -> Void) {
+    init(shareID: UUID, address: ShareAddress, client: any RemoteClient, signIn: ServerSignIn,
+         previousSessions: PreviousSessionStore, watchLimit: Int, refresh: @escaping LocationChangeWatch.Refresh,
+         onRecovery: @escaping @Sendable ([SourceFailure]) -> Void) {
         self.shareID = shareID
         self.address = address
         self.client = client
         self.signIn = signIn
+        self.previousSessions = previousSessions
         self.watchLimit = watchLimit
         self.refresh = refresh
         self.onRecovery = onRecovery
@@ -233,24 +235,26 @@ final class ShareConnection: @unchecked Sendable {
 
     /// Names one dropped session as the previous session, so the server releases its open files.
     private func openSession(password: Data, folder: RelativePath, progress: Progress) throws -> any RemoteSession {
-        let previous = lock.withLock { previousSessions.take() }
+        let previous = previousSessions.take(shareID)
         do {
             let session = try client.openSession(address, password: password, folder: folder,
                                                  previousSession: previous, progress: progress)
+            previousSessions.signedIn(shareID, session: session.sessionID, previous: previous)
             if let previous {
                 Self.logger.info("share=\(self.shareID.uuidString, privacy: .public) previous_session=\(Self.hex(previous), privacy: .public)")
             }
             return session
         } catch {
-            if let previous { lock.withLock { previousSessions.unsent(previous) } }
+            if let previous { previousSessions.unsent(shareID, previous) }
             throw error
         }
     }
 
     /// A session that lost its connection is never used again, so the next one can end it.
     private func ended(_ session: any RemoteSession) {
-        guard let id = session.droppedSessionID else { return }
-        lock.withLock { previousSessions.dropped(id) }
+        let dropped = session.droppedSessionID
+        previousSessions.ended(shareID, session: dropped ?? session.sessionID, dropped: dropped != nil)
+        guard let id = dropped else { return }
         Self.logger.info("share=\(self.shareID.uuidString, privacy: .public) session_dropped=\(Self.hex(id), privacy: .public)")
     }
 

@@ -51,6 +51,8 @@ final class SMBEdit: FileRenameRemote, UploadRemote {
 
     deinit { tm_edit_disconnect(client) }
 
+    var sessionID: UInt64 { tm_edit_session(client) }
+
     var droppedSessionID: UInt64? {
         let id = tm_edit_dropped_session(client)
         return id == 0 ? nil : id

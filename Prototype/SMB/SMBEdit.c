@@ -27,7 +27,7 @@ struct tm_edit_reply {
 struct edit_client {
     struct smb2_context *smb;
     uint32_t ntstatus;
-    uint64_t dropped_session;
+    uint64_t session, dropped_session;
 };
 extern void tm_smb_end_edit(void *);
 extern void tm_smb_destroy_context(void *);
@@ -48,6 +48,7 @@ void *tm_edit_connect_password(const struct tm_smb_login *login, const char *sha
     if (!client) { *error = ENOMEM; return NULL; }
     client->smb = tm_smb_connect_password(login, share, previous_session, error, status);
     if (!client->smb) { free(client); return NULL; }
+    client->session = smb2_get_session_id(client->smb);
     return client;
 }
 
@@ -56,6 +57,12 @@ void tm_edit_disconnect(void *opaque)
     struct edit_client *client = opaque;
     tm_smb_end_edit(client->smb);
     free(client);
+}
+
+uint64_t tm_edit_session(void *opaque)
+{
+    struct edit_client *client = opaque;
+    return client->session;
 }
 
 uint64_t tm_edit_dropped_session(void *opaque)

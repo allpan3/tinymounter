@@ -235,10 +235,15 @@ Rules that the connection keeps:
   refuses every guest session and treats an `ntlm:<hex>` password as an ordinary password
   ([Vendor/libsmb2](../Vendor/libsmb2/README.md)).
 - **A dropped session is ended by the next one.** When a request fails with the connection (reset,
-  timeout), the session closes for good and the share remembers its ID in memory. The share's next
+  timeout), the session closes for good and the share remembers its ID. The share's next
   session sends one such ID as SESSION_SETUP's PreviousSessionId, oldest first, so the server ends
   that session and closes its open files at once instead of when it notices the lost connection.
-  Only sessions that this process dropped are named; Samba honours it for the same user only.
+  Only sessions that TinyMounter opened and never uses again are named; Samba honours it for the
+  same user only. The IDs stay in `Application Support/tinymounter/PreviousSessions.json` in the
+  app's container, so the next run names them too. When the app quits, including at logout,
+  restart and shutdown, its open sessions are added, because a network loss at that moment leaves
+  them on the server. A Force Quit or crash adds none. Removing a share removes its IDs, and an
+  unreadable file is logged and ignored.
 - **Transient upload failures retry by themselves.** A create or save that fails with the
   connection, a timeout or a sharing violation (`ETXTBSY`) is retried through the location's Retry
   Pending Changes: at once when the share's recovery runs, otherwise after 2 s, doubling to at most

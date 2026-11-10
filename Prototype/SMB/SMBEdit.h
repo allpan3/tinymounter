@@ -18,6 +18,8 @@ struct tm_smb_login {
 void *tm_edit_connect_password(const struct tm_smb_login *login, const char *share,
                                uint64_t previous_session, int *error, uint32_t *status);
 void tm_edit_disconnect(void *opaque);
+// The server's ID for the session, also after a drop.
+uint64_t tm_edit_session(void *opaque);
 // The ID of the session that a failed request dropped with its connection; 0 while it is open.
 uint64_t tm_edit_dropped_session(void *opaque);
 // Zero means the preceding operation had no failure with a decoded server reply.
