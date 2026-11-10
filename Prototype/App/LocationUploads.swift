@@ -92,7 +92,12 @@ extension LocationSource {
             }
             noteCreate(request, result: result)
             uploadRetry.finished("create:" + request.template, result: result)
-            Self.uploadLog.info("upload request=\(request.id.uuidString, privacy: .public) domain=\(self.domainID, privacy: .public) ok=\((try? result.get()) != nil ? 1 : 0)")
+            var failure = ""
+            if case .failure(let error) = result { failure = " " + logFields(error) }
+            Self.uploadLog.info("""
+                upload request=\(request.id.uuidString, privacy: .public) domain=\(self.domainID, privacy: .public) \
+                ok=\(failure.isEmpty ? 1 : 0)\(failure, privacy: .public)
+                """)
             reply(result)
         }
     }
