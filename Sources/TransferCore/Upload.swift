@@ -187,6 +187,13 @@ public final class UploadOutbox {
         try save(record)
     }
 
+    /// Files that an upload created on the server and has not finished writing, in one folder.
+    public func unfinishedFiles(parent: String) throws -> [(name: String, fileID: UInt64)] {
+        try records().filter {
+            $0.parent == parent && $0.kind == .file && $0.serverFile != nil && [.staging, .created].contains($0.state)
+        }.compactMap { record in record.remoteID.map { (record.name, $0) } }
+    }
+
     private func stage(_ record: PendingUpload, contents: URL?, progress: Progress,
                        checkSpace: ((Int64) throws -> Void)?) throws {
         let source = try contents.map { try ReadOnlyFile(url: $0, allowMaterialization: true) }

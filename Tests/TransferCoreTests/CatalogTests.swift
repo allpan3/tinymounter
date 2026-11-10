@@ -347,6 +347,23 @@ final class CatalogTests: XCTestCase {
         XCTAssertEqual(try catalog.counts().listingGen, 2)
     }
 
+    func testWithheldNewFileIsNotInsertedButAnExistingRowStillUpdates() throws {
+        let catalog = try makeCatalog()
+        try reconcile(catalog, [file("kept.bin", fileID: 5)])
+        let withheld: (DirectoryListing.Entry) -> Bool = { $0.fileID == 5 || $0.fileID == 6 }
+        let listing = DirectoryListing([file("kept.bin", size: 20, fileID: 5), file("partial.bin", fileID: 6),
+                                        file("other.bin", fileID: 9)])
+        let plan = try XCTUnwrap(catalog.reconcile(folder: root, listing: listing, withholding: withheld) { _ in true })
+        XCTAssertEqual(plan.inserted, 1)
+        XCTAssertEqual(plan.updated, 1)
+        XCTAssertNil(try catalog.liveChild(parent: root, nameKey: NameKey("partial.bin")))
+        XCTAssertEqual(try child(catalog, "kept.bin").size, 20)
+        XCTAssertNotNil(try catalog.liveChild(parent: root, nameKey: NameKey("other.bin")))
+        try reconcile(catalog, [file("kept.bin", size: 20, fileID: 5), file("partial.bin", fileID: 6),
+                                file("other.bin", fileID: 9)])
+        XCTAssertNotNil(try catalog.liveChild(parent: root, nameKey: NameKey("partial.bin")))
+    }
+
     func testChangedFilesKeepIDAndKeepAndGetNewVersions() throws {
         let catalog = try makeCatalog()
         try reconcile(catalog, [file("size.bin"), file("mtime.bin"), file("ctime.bin"), file("same.bin")])

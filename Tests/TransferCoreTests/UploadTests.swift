@@ -654,6 +654,20 @@ final class UploadTests: XCTestCase {
         XCTAssertEqual(try outbox.records().first?.state, .completed)
     }
 
+    func testUnfinishedFilesNameOnlyServerFilesThatAreStillBeingWritten() throws {
+        var partial = try prepared(name: "partial.bin")
+        let server = try DirectRemote(partial)
+        server.writeError = TransferError.cancelled
+        XCTAssertThrowsError(try outbox.upload(&partial, remote: server, progress: Progress()))
+        var verified = try prepared(name: "verified.bin")
+        try outbox.upload(&verified, remote: DirectRemote(verified), progress: Progress())
+        _ = try prepared(name: "local.bin")
+        let unfinished = try outbox.unfinishedFiles(parent: Catalog.rootItemID)
+        XCTAssertEqual(unfinished.map(\.name), ["partial.bin"])
+        XCTAssertEqual(unfinished.map(\.fileID), [server.version.identity.fileID])
+        XCTAssertTrue(try outbox.unfinishedFiles(parent: UUID().uuidString).isEmpty)
+    }
+
     private func request(for record: PendingUpload, modified: Date? = nil) throws -> CreateRequest {
         try CreateRequest(template: record.template, parent: record.parent, name: record.name, kind: record.kind,
                           staging: nil, modified: modified)

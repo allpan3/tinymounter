@@ -113,9 +113,11 @@ extension Catalog {
         plan.emptiesFolder || plan.keptFilesRemoved > 0
     }
 
-    /// nil if `accept` refused the plan, and then nothing is written.
+    /// nil if `accept` refused the plan, and then nothing is written. A new entry that `withholding`
+    /// names is not inserted: a file that a pending upload is still writing waits for its upload.
     @discardableResult
     public func reconcile(folder folderID: String, listing: DirectoryListing,
+                          withholding: (DirectoryListing.Entry) -> Bool = { _ in false },
                           accept: (ReconcilePlan) -> Bool) throws -> ReconcilePlan? {
         try write { seq in
             guard let folder = try item(id: folderID), folder.kind == .folder, !folder.deleted else {
@@ -130,7 +132,7 @@ extension Catalog {
             for first in listing.firsts {
                 guard let child = children.removeValue(forKey: first.key.value) else {
                     switch first {
-                    case .entry(let entry): changes.append((entry, nil))
+                    case .entry(let entry): if !withholding(entry) { changes.append((entry, nil)) }
                     case .unreadable: unreadableSkipped += 1
                     }
                     continue

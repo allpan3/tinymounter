@@ -283,7 +283,8 @@ final class LocationSource: @unchecked Sendable {
                     try remote.list(path, progressed: progressed)
                 }
                 let listed = ContinuousClock.now
-                try Self.outbox(domainID: domainID).observeFolderNames(parent: folderID, listing: listing) { record, naming in
+                let outbox = try Self.outbox(domainID: domainID)
+                try outbox.observeFolderNames(parent: folderID, listing: listing) { record, naming in
                     guard let item = record.item, let identity = record.remoteID else { throw UploadError.invalidRequest }
                     try withCatalog { try $0.nameCreatedFolder(id: item, name: naming.name,
                                                              expectedIdentity: identity, newIdentity: naming.nativeID) }
@@ -295,7 +296,13 @@ final class LocationSource: @unchecked Sendable {
                 let checked = ContinuousClock.now
                 var plan: ReconcilePlan?
                 let (applied, generation, entries) = try withCatalog { catalog in
-                    let applied = try catalog.reconcile(folder: folderID, listing: listing) { proposed in
+                    // A partial file of a pending upload would appear beside the local item, and
+                    // macOS would give the local item another name.
+                    let unfinished = try outbox.unfinishedFiles(parent: folderID)
+                    let applied = try catalog.reconcile(folder: folderID, listing: listing, withholding: { entry in
+                        entry.kind == .file
+                            && unfinished.contains { $0.fileID == entry.fileID && NameKey($0.name) == entry.key }
+                    }) { proposed in
                         plan = proposed
                         return confirmed || !Catalog.needsConfirmation(proposed)
                     } != nil
