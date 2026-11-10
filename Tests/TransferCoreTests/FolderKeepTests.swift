@@ -257,6 +257,55 @@ final class FolderKeepTests: XCTestCase {
         XCTAssertEqual(recovered[tree.id], .availableOffline)
     }
 
+    func testRestoredVersionsAreTrustedOnlyForMatchingLocalCopiesAndVersions() throws {
+        let catalog = try makeCatalog()
+        try list(catalog, root, [file("same"), file("updating"), file("changed"), file("new")])
+        let same = try child(catalog, root, "same"), updating = try child(catalog, root, "updating")
+        let changed = try child(catalog, root, "changed"), new = try child(catalog, root, "new")
+        try catalog.setKeep(ids: [same.id, updating.id, changed.id], value: true)
+        var earlier = OfflineVerification()
+        let complete: [String: OfflineState] = [same.id: .availableOffline, updating.id: .availableOffline,
+                                                changed.id: .availableOffline, new.id: .availableOffline]
+        _ = earlier.states(snapshot: try catalog.keepSnapshot(), files: complete, folders: [], synchronized: true)
+        let domain = UUID().uuidString, url = directory.appending(path: VerifiedVersions.fileName)
+        try VerifiedVersions.save([domain: earlier.versions], to: url)
+
+        var restored = OfflineVerification(versions: try VerifiedVersions.load(from: url)[domain] ?? [:])
+        let local: [String: OfflineState] = [same.id: .availableOffline, changed.id: .availableOffline]
+        XCTAssertEqual(restored.states(snapshot: try catalog.keepSnapshot(), files: local,
+                                       folders: [], synchronized: false)[same.id], .availableOffline)
+
+        try catalog.updateFingerprint(item: changed.id, fingerprint: .init(size: 1, mtimeNs: 1, ctimeNs: 2), fileID: 1)
+        try catalog.setKeep(ids: [new.id], value: true)
+        var observed = complete
+        observed[updating.id] = .updateInProgress
+        let states = restored.states(snapshot: try catalog.keepSnapshot(), files: observed,
+                                     folders: [], synchronized: false)
+        XCTAssertEqual(states[same.id], .availableOffline)
+        XCTAssertEqual(states[updating.id], .updateInProgress)
+        XCTAssertEqual(states[changed.id], .requested)
+        XCTAssertEqual(states[new.id], .requested)
+        XCTAssertEqual(restored.versions, [same.id: same.contentVersion])
+    }
+
+    func testVerifiedVersionsRoundTripAndRejectCorruptFiles() throws {
+        let url = directory.appending(path: VerifiedVersions.fileName)
+        XCTAssertEqual(try VerifiedVersions.load(from: url), [:])
+        let kept = UUID().uuidString, empty = UUID().uuidString
+        try VerifiedVersions.save([kept: [Catalog.rootItemID: "f1:1:1:1", UUID().uuidString: "f1:2:2:2"],
+                                   empty: [:]], to: url)
+        let loaded = try VerifiedVersions.load(from: url)
+        XCTAssertEqual(loaded.keys.sorted(), [kept])
+        XCTAssertEqual(loaded[kept]?.count, 2)
+        for corrupt in [Data("{".utf8), Data(#"{"test":{}}"#.utf8),
+                        Data(#"{"\#(kept)":{"../data":"f1:1:1:1"}}"#.utf8),
+                        Data(#"{"\#(kept)":{"\#(UUID().uuidString)":""}}"#.utf8)] {
+            try corrupt.write(to: url)
+            XCTAssertThrowsError(try VerifiedVersions.load(from: url))
+        }
+        XCTAssertThrowsError(try VerifiedVersions.save(["test": [:]], to: url))
+    }
+
     private func child(_ catalog: Catalog, _ parent: String, _ name: String) throws -> CatalogRow {
         try XCTUnwrap(catalog.liveChild(parent: parent, nameKey: NameKey(name)))
     }

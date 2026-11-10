@@ -174,6 +174,13 @@ final class LocationController {
         do { spaceBlocked = try DownloadRecovery.load(from: SharedContainer.url().appending(path: DownloadRecovery.fileName)) }
         catch { Self.readerLog.error("space_state_load \(logFields(error), privacy: .public)") }
         sweepStaging()
+        do {
+            offlineVerification = try VerifiedVersions.load(from: Self.verifiedVersionsURL)
+                .mapValues { OfflineVerification(versions: $0) }
+        } catch {
+            Self.catalogLog.error("verified_versions_load \(logFields(error), privacy: .public)")
+            offlineVerification = [:]
+        }
         guard case .ready(let settings) = store.state else {
             problem = .settingsUnreadable
             Self.catalogLog.error("launch_reconciliation stopped reason=settings")
@@ -220,6 +227,7 @@ final class LocationController {
             domains=\(registered.count) unknown_domains=\(plan.unknownDomains.count) failed_sequences=\(failed)
             """)
         openSources()
+        for id in offlineVerification.keys where sources[id] == nil { setVerification(id, nil) }
         for volume in settings.serverVolumes { self.volume(for: volume.shareID)?.checkNow() }
         await refreshDomains()
         // Posted only after a first domains() call, such as refreshDomains made.
@@ -593,6 +601,7 @@ final class LocationController {
         }
         notOnServer[recordID] = nil
         sources.removeValue(forKey: record.domainID)?.close()
+        setVerification(record.domainID, nil)
         domains[record.domainID] = nil
         sources[updated.domainID] = source
         if paused { Self.pause(source, true) }
@@ -649,6 +658,7 @@ final class LocationController {
         // Downloaded copies are only NAS files again; a later location downloads them anew.
         try await run(.removeDomain(record.domainID), registered: registeredDomains())
         sources.removeValue(forKey: record.domainID)?.close()
+        setVerification(record.domainID, nil)
         domains[record.domainID] = nil
         try Catalog.delete(at: SharedContainer.catalogURL(domainID: record.domainID))
         try LocationSource.outbox(domainID: record.domainID).removeForLocationRemoval()
@@ -719,7 +729,7 @@ final class LocationController {
     func offlineStates(_ record: LocationRecord, update: ([String: OfflineState]) -> Void) async -> Bool {
         guard let source = sources[record.domainID], let manager = manager(for: record),
               !record.removing, !turnedOff.contains(record.domainID) else {
-            offlineVerification[record.domainID] = nil
+            setVerification(record.domainID, nil)
             offlineGeneration[record.domainID] = nil
             update([:])
             return false
@@ -732,7 +742,7 @@ final class LocationController {
                   offlineGeneration[record.domainID] == generation,
                   !turnedOff.contains(record.domainID) else { return false }
             guard !snapshot.requests.isEmpty else {
-                offlineVerification[record.domainID] = nil
+                setVerification(record.domainID, nil)
                 update([:])
                 return false
             }
@@ -763,14 +773,14 @@ final class LocationController {
                 let states = verification.states(snapshot: snapshot, files: observed.files,
                                                  folders: observed.folders, synchronized: synchronized,
                                                  spaceBlocked: blocked)
-                offlineVerification[record.domainID] = verification
+                setVerification(record.domainID, verification)
                 update(states)
             }
             return true
         } catch {
             guard !Task.isCancelled, sources[record.domainID] === source,
                   offlineGeneration[record.domainID] == generation else { return false }
-            offlineVerification[record.domainID] = nil
+            setVerification(record.domainID, nil)
             update([:])
             Self.catalogLog.error("offline_state domain=\(record.domainID, privacy: .public) \(logFields(error), privacy: .public)")
             return false
@@ -1154,7 +1164,6 @@ final class LocationController {
         } else {
             try catalog.setProviderDomainVersion(ProviderDomainVersion.encode(NSFileProviderDomainVersion()))
         }
-        offlineVerification[record.domainID] = nil
         offlineGeneration[record.domainID] = nil
         let domain = domain(for: record)
         domains[record.domainID] = domain
@@ -1289,6 +1298,24 @@ final class LocationController {
                     Self.readerLog.error("space_retry domain=\(domainID, privacy: .public) \(logFields(error), privacy: .public)")
                 }
             }
+        }
+    }
+
+    private static var verifiedVersionsURL: URL {
+        URL.applicationSupportDirectory.appending(path: "tinymounter/" + VerifiedVersions.fileName)
+    }
+
+    /// Saves the versions only when they change, so each check does not rewrite the file.
+    private func setVerification(_ domainID: String, _ verification: OfflineVerification?) {
+        let before = offlineVerification[domainID]?.versions ?? [:]
+        offlineVerification[domainID] = verification
+        guard (verification?.versions ?? [:]) != before else { return }
+        do {
+            let url = Self.verifiedVersionsURL
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try VerifiedVersions.save(offlineVerification.mapValues(\.versions), to: url)
+        } catch {
+            Self.catalogLog.error("verified_versions_save \(logFields(error), privacy: .public)")
         }
     }
 
@@ -1482,7 +1509,7 @@ final class LocationController {
         turnedOff = Set(current.filter { !$0.userEnabled }.map(\.identifier.rawValue))
         let ids = Set(current.map(\.identifier.rawValue))
         for id in offlineVerification.keys where turnedOff.contains(id) || !ids.contains(id) {
-            offlineVerification[id] = nil
+            setVerification(id, nil)
             offlineGeneration[id] = nil
         }
         for id in progress.keys where !ids.contains(id) {
@@ -1630,6 +1657,7 @@ final class LocationController {
     /// A new catalog with its root listed, for Add and Apply. On failure nothing is left.
     private func makeListedSource(_ record: LocationRecord, folder: RelativePath) async throws -> LocationSource {
         let url = try SharedContainer.catalogURL(domainID: record.domainID)
+        setVerification(record.domainID, nil)
         try FileManager.default.createDirectory(at: SharedContainer.catalogsDirectory(), withIntermediateDirectories: true)
         let source = try makeSource(record, folder: folder,
                                 catalog: try Catalog.create(at: url, domainID: record.domainID, rootName: record.name))

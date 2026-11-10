@@ -23,9 +23,12 @@ public enum OfflineState: String, Equatable, Sendable {
 }
 
 public struct OfflineVerification: Sendable {
-    private var versions: [String: String] = [:]
+    /// By item ID, the content versions that a synchronized check found applied locally.
+    public private(set) var versions: [String: String]
 
-    public init() {}
+    public init(versions: [String: String] = [:]) {
+        self.versions = versions
+    }
 
     public mutating func states(snapshot: FolderKeepSnapshot, files: [String: OfflineState],
                                 folders: Set<String>, synchronized: Bool,
@@ -44,5 +47,36 @@ public struct OfflineVerification: Sendable {
         versions = current
         for id in spaceBlocked where checked[id] != .availableOffline { checked[id] = .notSufficientSpace }
         return snapshot.states(files: checked, folders: folders)
+    }
+}
+
+/// Each domain's `OfflineVerification` versions, kept across a relaunch in the app's own container.
+/// Only the running app changes a catalog, and a check still needs current local metadata that
+/// matches the row, so a version verified in an earlier run is as good as one from this run.
+public enum VerifiedVersions {
+    public typealias Domains = [String: [String: String]]
+    public static let fileName = "VerifiedVersions.json"
+
+    /// A missing file is empty; an unreadable one throws.
+    public static func load(from url: URL) throws -> Domains {
+        do {
+            let domains = try JSONDecoder().decode(Domains.self, from: Data(contentsOf: url))
+            try validate(domains)
+            return domains
+        } catch CocoaError.fileReadNoSuchFile { return [:] }
+    }
+
+    public static func save(_ domains: Domains, to url: URL) throws {
+        try validate(domains)
+        try JSONEncoder().encode(domains.filter { !$0.value.isEmpty }).write(to: url, options: .atomic)
+    }
+
+    private static func validate(_ domains: Domains) throws {
+        for (domain, versions) in domains {
+            guard UUID(uuidString: domain)?.uuidString == domain,
+                  versions.allSatisfy({ ReaderMessage.isItemID($0.key) && !$0.value.isEmpty }) else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+        }
     }
 }
