@@ -25,6 +25,8 @@ public enum OfflineState: String, Equatable, Sendable {
 public struct OfflineVerification: Sendable {
     /// By item ID, the content versions that a synchronized check found applied locally.
     public private(set) var versions: [String: String]
+    /// True when the last check trusted every file with a local copy as Available offline.
+    public private(set) var trustedAll = false
 
     public init(versions: [String: String] = [:]) {
         self.versions = versions
@@ -35,16 +37,22 @@ public struct OfflineVerification: Sendable {
                                 spaceBlocked: Set<String> = []) -> [String: OfflineState] {
         var current: [String: String] = [:]
         var checked = files
+        var trustedAll = true
         for row in snapshot.items where row.kind == .file {
-            guard files[row.id] == .availableOffline else { continue }
+            guard files[row.id] == .availableOffline else {
+                if files[row.id] != nil { trustedAll = false }
+                continue
+            }
             // Matching local metadata alone cannot prove that a new provider version was applied.
             if synchronized || versions[row.id] == row.contentVersion {
                 current[row.id] = row.contentVersion
             } else {
                 checked[row.id] = .requested
+                trustedAll = false
             }
         }
         versions = current
+        self.trustedAll = trustedAll
         for id in spaceBlocked where checked[id] != .availableOffline { checked[id] = .notSufficientSpace }
         return snapshot.states(files: checked, folders: folders)
     }

@@ -724,15 +724,15 @@ final class LocationController {
         }
     }
 
-    /// True when a synchronized check delivered the states, so they are verified.
-    @discardableResult
-    func offlineStates(_ record: LocationRecord, update: ([String: OfflineState]) -> Void) async -> Bool {
+    /// `update` gets each check's states, and true when they are verified: the synchronized check,
+    /// or a local check that trusted every local copy.
+    func offlineStates(_ record: LocationRecord, update: ([String: OfflineState], Bool) -> Void) async {
         guard let source = sources[record.domainID], let manager = manager(for: record),
               !record.removing, !turnedOff.contains(record.domainID) else {
             setVerification(record.domainID, nil)
             offlineGeneration[record.domainID] = nil
-            update([:])
-            return false
+            update([:], false)
+            return
         }
         let generation = UUID()
         offlineGeneration[record.domainID] = generation
@@ -740,11 +740,11 @@ final class LocationController {
             let snapshot = try await Self.offMain { try source.keepSnapshot() }
             guard !Task.isCancelled, sources[record.domainID] === source,
                   offlineGeneration[record.domainID] == generation,
-                  !turnedOff.contains(record.domainID) else { return false }
+                  !turnedOff.contains(record.domainID) else { return }
             guard !snapshot.requests.isEmpty else {
                 setVerification(record.domainID, nil)
-                update([:])
-                return false
+                update([:], false)
+                return
             }
             for synchronized in [false, true] {
                 if synchronized {
@@ -753,7 +753,7 @@ final class LocationController {
                         try await manager.waitForStabilization()
                     } catch {
                         // A blocked download cannot invalidate other versions already checked locally.
-                        if DownloadSpace.isFull(error), spaceBlocked[record.domainID]?.isEmpty == false { return false }
+                        if DownloadSpace.isFull(error), spaceBlocked[record.domainID]?.isEmpty == false { return }
                         throw error
                     }
                 }
@@ -761,10 +761,10 @@ final class LocationController {
                 let current = try await Self.offMain { try source.keepSnapshot() }
                 guard !Task.isCancelled, sources[record.domainID] === source,
                       offlineGeneration[record.domainID] == generation,
-                      !turnedOff.contains(record.domainID) else { return false }
+                      !turnedOff.contains(record.domainID) else { return }
                 guard current == snapshot else {
-                    update([:])
-                    return false
+                    update([:], false)
+                    return
                 }
                 var verification = offlineVerification[record.domainID] ?? OfflineVerification()
                 let blocked = Set(snapshot.items.filter {
@@ -774,16 +774,14 @@ final class LocationController {
                                                  folders: observed.folders, synchronized: synchronized,
                                                  spaceBlocked: blocked)
                 setVerification(record.domainID, verification)
-                update(states)
+                update(states, synchronized || verification.trustedAll)
             }
-            return true
         } catch {
             guard !Task.isCancelled, sources[record.domainID] === source,
-                  offlineGeneration[record.domainID] == generation else { return false }
+                  offlineGeneration[record.domainID] == generation else { return }
             setVerification(record.domainID, nil)
-            update([:])
+            update([:], false)
             Self.catalogLog.error("offline_state domain=\(record.domainID, privacy: .public) \(logFields(error), privacy: .public)")
-            return false
         }
     }
 

@@ -801,7 +801,7 @@ final class AppModel {
                 KeepRow(target: .saved(path), path: path.below(folder)?.string ?? path.path,
                         kind: path.kind, notOnServer: missing.contains(path))
             }
-        let verified = await controller.offlineStates(record) { states in
+        await controller.offlineStates(record) { states, verified in
             guard self.keepGeneration[recordID] == generation, !Task.isCancelled,
                   let current = self.record(recordID), self.keepKey(current) == key else { return }
             self.keepRows[recordID] = self.keepRows[recordID]?.map { row in
@@ -809,9 +809,7 @@ final class AppModel {
                 if case .item(let id) = row.target { row.availability = states[id] ?? .requested }
                 return row
             }
-        }
-        if verified, !key.unavailable, keepGeneration[recordID] == generation, !Task.isCancelled {
-            reportKeptOffline(record)
+            if verified, !key.unavailable { self.reportKeptOffline(record) }
         }
     }
 
@@ -834,7 +832,8 @@ final class AppModel {
     }
 
     /// The first verified check after launch is the baseline: a kept item reports when it becomes
-    /// available offline after that, or again after an update or a lack of space.
+    /// available offline after that, or again after an update or a lack of space. A check that
+    /// used saved versions is a baseline only if it trusted every local copy.
     private func reportKeptOffline(_ record: LocationRecord) {
         let rows = (keepRows[record.id] ?? []).filter { if case .item = $0.target { true } else { false } }
         let offline = Set(rows.filter { $0.availability == .availableOffline }.map(\.id))

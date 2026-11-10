@@ -274,6 +274,11 @@ final class FolderKeepTests: XCTestCase {
         let local: [String: OfflineState] = [same.id: .availableOffline, changed.id: .availableOffline]
         XCTAssertEqual(restored.states(snapshot: try catalog.keepSnapshot(), files: local,
                                        folders: [], synchronized: false)[same.id], .availableOffline)
+        XCTAssertTrue(restored.trustedAll)
+        var updatingCopy = restored
+        _ = updatingCopy.states(snapshot: try catalog.keepSnapshot(), files: [updating.id: .updateInProgress],
+                                folders: [], synchronized: false)
+        XCTAssertFalse(updatingCopy.trustedAll)
 
         try catalog.updateFingerprint(item: changed.id, fingerprint: .init(size: 1, mtimeNs: 1, ctimeNs: 2), fileID: 1)
         try catalog.setKeep(ids: [new.id], value: true)
@@ -285,6 +290,7 @@ final class FolderKeepTests: XCTestCase {
         XCTAssertEqual(states[updating.id], .updateInProgress)
         XCTAssertEqual(states[changed.id], .requested)
         XCTAssertEqual(states[new.id], .requested)
+        XCTAssertFalse(restored.trustedAll)
         XCTAssertEqual(restored.versions, [same.id: same.contentVersion])
     }
 
