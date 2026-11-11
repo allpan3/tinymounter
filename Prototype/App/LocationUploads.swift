@@ -81,10 +81,7 @@ extension LocationSource {
                 if try uploadLock.withLock({ try outbox().takeStopped(template: request.template) }) {
                     throw UploadError.excluded
                 }
-                return try editNamespace.perform {
-                    try editNamespace.requireSettled()
-                    return try createOnLane(request, contents: contents, progress: progress, checkSpace: checkSpace)
-                }
+                return try createOnLane(request, contents: contents, progress: progress, checkSpace: checkSpace)
             }
             if case .failure(let error) = result, error as? UploadError == .collision {
                 _ = try? listOnLane(request.parent, requestID: request.id)
@@ -141,30 +138,61 @@ extension LocationSource {
         failedCreatesLock.withLock { failedCreates[request.template] = failure }
     }
 
+    /// The namespace lock covers the checks, the server create and the final listing. A file's
+    /// contents are written outside it, as an edit's are, so that reads and first listings in this
+    /// share don't wait for the transfer.
     private func createOnLane(_ request: CreateRequest, contents: URL?, progress: Progress,
                               checkSpace: @escaping (Int64) throws -> Void) throws -> CreateReceipt {
-        try finishPendingFolderName(request.parent)
-        return try uploadLock.withLock {
-            guard !mutationsSuspended, writable else { throw UploadError.readOnly }
-            let path = try withCatalog { catalog -> RelativePath in
-                guard let parent = try catalog.item(id: request.parent), !parent.deleted, parent.kind == .folder,
-                      let base = try catalog.relativePath(of: parent.id), let path = base.appending(request.name) else {
-                    throw UploadError.invalidRequest
+        let outbox = try outbox()
+        let prepared = try editNamespace.perform { () throws -> (record: PendingUpload, path: RelativePath) in
+            try editNamespace.requireSettled()
+            try finishPendingFolderName(request.parent)
+            return try uploadLock.withLock {
+                guard !mutationsSuspended, writable else { throw UploadError.readOnly }
+                let path = try withCatalog { catalog -> RelativePath in
+                    guard let parent = try catalog.item(id: request.parent), !parent.deleted, parent.kind == .folder,
+                          let base = try catalog.relativePath(of: parent.id), let path = base.appending(request.name) else {
+                        throw UploadError.invalidRequest
+                    }
+                    return path
                 }
-                return path
+                if try !outbox.records().contains(where: { $0.template == request.template }),
+                   try liveChild(of: request.parent, named: request.name) != nil { throw UploadError.collision }
+                let record = try outbox.prepare(request, path: path, contents: contents, progress: progress,
+                                                checkSpace: checkSpace)
+                return (record, path)
             }
-            let outbox = try outbox()
-            if try !outbox.records().contains(where: { $0.template == request.template }),
-               try liveChild(of: request.parent, named: request.name) != nil { throw UploadError.collision }
-            var record = try outbox.prepare(request, path: path, contents: contents, progress: progress, checkSpace: checkSpace)
-            if record.state == .completed, let item = record.item { return CreateReceipt(item: item) }
-            try connection.withSession(folder: folder, progress: progress) { remote, _ in
-                if record.kind == .folder {
+        }
+        var record = prepared.record
+        let path = prepared.path
+        if record.state == .completed, let item = record.item { return CreateReceipt(item: item) }
+        if record.kind == .folder {
+            try editNamespace.perform { try uploadLock.withLock {
+                try connection.withSession(folder: folder, progress: progress) { remote, _ in
                     try createFolder(&record, outbox: outbox, remote: remote, progress: progress)
-                } else {
-                    try outbox.upload(&record, remote: remote, progress: progress)
                 }
+            } }
+        } else {
+            try connection.withSession(folder: folder, progress: progress) { remote, _ in
+                let (step, transfer) = try editNamespace.perform { try uploadLock.withLock {
+                    // The locks were released while the session opened.
+                    try editNamespace.requireSettled()
+                    guard !mutationsSuspended, writable else { throw UploadError.readOnly }
+                    if try outbox.takeStopped(template: request.template) { throw UploadError.excluded }
+                    guard let full = folder.appending(path) else { throw UploadError.invalidRequest }
+                    // A folder move waits for the transfer, as for a read.
+                    let transfer = try editNamespace.beginRead(full)
+                    do { return (try outbox.beginUpload(&record, remote: remote, progress: progress), transfer) }
+                    catch {
+                        editNamespace.endRead(transfer)
+                        throw error
+                    }
+                } }
+                defer { editNamespace.endRead(transfer) }
+                try outbox.finishUpload(&record, step: step, remote: remote, progress: progress)
             }
+        }
+        return try editNamespace.perform { try uploadLock.withLock {
             _ = try listOnLane(request.parent, requestID: request.id)
             let listed = try liveChild(of: record.parent, named: record.name)
             guard let row = listed, row.kind == request.kind, row.size == record.size || record.kind == .folder,
@@ -178,7 +206,7 @@ extension LocationSource {
             try outbox.complete(&record, item: row.id)
             scheduleSignal()
             return CreateReceipt(item: row.id)
-        }
+        } }
     }
 }
 

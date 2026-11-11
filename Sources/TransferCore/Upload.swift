@@ -334,12 +334,31 @@ public final class UploadOutbox {
         guard fsync(fd) == 0 else { throw posixError("sync payload removal") }
     }
 
-    /// A known partial upload restarts only after its remote identity is checked.
+    /// What `finishUpload` does after `beginUpload`.
+    public enum UploadStep: Sendable {
+        /// `beginUpload` created the server file; its handle in `remote` is still open.
+        case write
+        /// A file created by an earlier attempt is written again after its identity is checked.
+        case resume
+        /// The contents were written before; the server file is checked.
+        case inspect
+        case done
+    }
+
+    /// The whole upload in one session.
     public func upload(_ record: inout PendingUpload, remote: UploadRemote, progress: Progress,
                        checkpoint: (PendingUpload.State) throws -> Void = { _ in }) throws {
+        let step = try beginUpload(&record, remote: remote, progress: progress, checkpoint: checkpoint)
+        try finishUpload(&record, step: step, remote: remote, progress: progress, checkpoint: checkpoint)
+    }
+
+    /// Checks the saved copy and creates the server file if no attempt did. The app holds the
+    /// namespace lock for this part only; `finishUpload` writes the contents in the same session.
+    public func beginUpload(_ record: inout PendingUpload, remote: UploadRemote, progress: Progress,
+                            checkpoint: (PendingUpload.State) throws -> Void = { _ in }) throws -> UploadStep {
         guard record.kind == .file else { throw UploadError.invalidRequest }
         guard !progress.isCancelled else { throw TransferError.cancelled }
-        if record.state == .completed { return }
+        if record.state == .completed { return .done }
         if record.state == .collision { throw UploadError.collision }
         let local = try ReadOnlyFile(url: contentURL(record.id))
         guard local.snapshot.size == record.size,
@@ -347,40 +366,51 @@ public final class UploadOutbox {
                 == record.digest else { throw UploadError.unresolved }
         try local.validateUnchanged()
         let uncertain = record.state == .attempting && record.serverFile == nil
-        let version: RemoteFileVersion
-        if record.state == .prepared || uncertain {
-            record.state = .attempting
-            try save(record)
-            try checkpoint(.attempting)
-            do {
-                let identity = try remote.createUpload(path: record.path)
-                record.serverFile = identity
-                record.remoteID = identity.fileID
-            } catch UploadError.collision {
-                guard !uncertain else { throw UploadError.unresolved }
-                record.state = .collision
-                try save(record)
-                throw UploadError.collision
-            } catch let refusal as UploadCreateRefusal {
-                record.state = .prepared
-                try save(record)
-                throw refusal.error
-            }
-            record.state = .created
-            try save(record)
-            try checkpoint(.created)
-            version = try remote.writeUpload(path: record.path, contents: contentURL(record.id),
-                                             modified: record.modified)
-        } else {
+        guard record.state == .prepared || uncertain else {
             guard [.created, .verified].contains(record.state), record.serverFile != nil else {
                 throw UploadError.unresolved
             }
-            if record.state == .created, let identity = record.serverFile {
-                version = try remote.resumeUpload(path: record.path, contents: contentURL(record.id), identity: identity,
-                                                  modified: record.modified)
-            } else {
-                version = try remote.inspectUpload(path: record.path)
-            }
+            return record.state == .created ? .resume : .inspect
+        }
+        record.state = .attempting
+        try save(record)
+        try checkpoint(.attempting)
+        do {
+            let identity = try remote.createUpload(path: record.path)
+            record.serverFile = identity
+            record.remoteID = identity.fileID
+        } catch UploadError.collision {
+            guard !uncertain else { throw UploadError.unresolved }
+            record.state = .collision
+            try save(record)
+            throw UploadError.collision
+        } catch let refusal as UploadCreateRefusal {
+            record.state = .prepared
+            try save(record)
+            throw refusal.error
+        }
+        record.state = .created
+        try save(record)
+        try checkpoint(.created)
+        return .write
+    }
+
+    /// Writes or checks the contents. A known partial upload restarts only after its remote
+    /// identity is checked.
+    public func finishUpload(_ record: inout PendingUpload, step: UploadStep, remote: UploadRemote, progress: Progress,
+                             checkpoint: (PendingUpload.State) throws -> Void = { _ in }) throws {
+        let version: RemoteFileVersion
+        switch step {
+        case .done: return
+        case .write:
+            version = try remote.writeUpload(path: record.path, contents: contentURL(record.id),
+                                             modified: record.modified)
+        case .resume:
+            guard let identity = record.serverFile else { throw UploadError.unresolved }
+            version = try remote.resumeUpload(path: record.path, contents: contentURL(record.id), identity: identity,
+                                              modified: record.modified)
+        case .inspect:
+            version = try remote.inspectUpload(path: record.path)
         }
         guard version.identity == record.serverFile, version.identity.fileID == record.remoteID,
               version.size == record.size else { throw UploadError.unresolved }

@@ -195,7 +195,11 @@ finishes, for example when it took a file that an app was still writing. The new
 replace the retained copy, and an acknowledged partial file is written again with them. Listings
 leave out a file that a pending upload is still writing, so it never appears beside the local
 item. Local retained contents have integrity checks, but the remote upload is
-not read back in full. Existing-file saves use ordinary overwrite semantics.
+not read back in full. Existing-file saves use ordinary overwrite semantics. Creates and saves run
+one at a time on the share's lane, and the share's namespace lock covers their checks, the server
+create and the final listing; the contents are written outside the lock, so reads and first
+listings in the share don't wait for the transfer. Later listings of folders listed before wait
+on the lane.
 
 ### Sign-in and connection
 

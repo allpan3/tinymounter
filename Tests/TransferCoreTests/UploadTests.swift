@@ -98,6 +98,22 @@ final class UploadTests: XCTestCase {
         XCTAssertEqual(server.inspections, 1)
     }
 
+    /// The app holds the namespace lock for `beginUpload` only, so the server file must be recorded
+    /// before `finishUpload` writes.
+    func testBeginUploadRecordsTheServerFileAndFinishUploadWritesIt() throws {
+        var record = try prepared()
+        let server = try DirectRemote(record)
+        XCTAssertEqual(try outbox.beginUpload(&record, remote: server, progress: Progress()), .write)
+        XCTAssertEqual(try XCTUnwrap(outbox.records().first).state, .created)
+        XCTAssertEqual(try XCTUnwrap(outbox.records().first).serverFile, server.version.identity)
+        XCTAssertEqual(server.writes, 0)
+        try outbox.finishUpload(&record, step: .write, remote: server, progress: Progress())
+        XCTAssertEqual(record.state, .verified)
+        XCTAssertEqual(server.writes, 1)
+        XCTAssertEqual(try outbox.beginUpload(&record, remote: server, progress: Progress()), .inspect)
+        XCTAssertEqual(server.creates, 1)
+    }
+
     func testSaveTimeSurvivesRelaunchAndReachesEveryWrite() throws {
         let saved = Date(timeIntervalSince1970: 1_762_600_000.123_456_7)
         var record = try prepared(modified: saved)
