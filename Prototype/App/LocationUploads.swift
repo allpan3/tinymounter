@@ -204,9 +204,19 @@ extension LocationSource {
                 throw UploadError.unresolved
             }
             try outbox.complete(&record, item: row.id)
+            pruneCompletedUploads(outbox)
             scheduleSignal()
             return CreateReceipt(item: row.id)
         } }
+    }
+
+    /// Completed records stay for an hour, so a create that macOS sends again after a lost reply
+    /// gets the same item. Runs at most once an hour, with the upload lock held.
+    private func pruneCompletedUploads(_ outbox: UploadOutbox) {
+        guard lastUploadPrune.map({ $0.timeIntervalSinceNow < -3600 }) ?? true else { return }
+        lastUploadPrune = .now
+        do { try outbox.pruneCompleted(before: Date(timeIntervalSinceNow: -3600)) }
+        catch { Self.uploadLog.error("upload_prune failed \(logFields(error), privacy: .public)") }
     }
 }
 

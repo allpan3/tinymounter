@@ -470,6 +470,19 @@ final class UploadTests: XCTestCase {
         try outbox.removeIfCompleted()
     }
 
+    func testPruningRemovesOnlyOldCompletedRecords() throws {
+        var old = try prepared(name: "old.bin"), recent = try prepared(name: "recent.bin")
+        let pending = try prepared(name: "pending.bin")
+        try outbox.complete(&old, item: "old")
+        try outbox.complete(&recent, item: "recent")
+        let saved = root.appending(path: "pending/\(old.id.uuidString).json")
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -7200)],
+                                              ofItemAtPath: saved.path)
+        XCTAssertEqual(try outbox.pruneCompleted(before: Date(timeIntervalSinceNow: -3600)), 1)
+        XCTAssertEqual(Set(try outbox.records().map(\.id)), [recent.id, pending.id])
+        XCTAssertEqual(try outbox.pendingCount, 1)
+    }
+
     func testLocationRemovalTakesOnlyItemsThatDidNotReachTheServer() throws {
         var attempted = try prepared(name: "attempted.bin")
         XCTAssertThrowsError(try outbox.upload(&attempted, locationRoot: fd, progress: Progress()) { state in

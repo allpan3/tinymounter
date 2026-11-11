@@ -49,6 +49,8 @@ final class LocationSource: @unchecked Sendable {
     let failedCreatesLock = NSLock()
     var editNamespace: EditNamespace { connection.editNamespace }
     var mutationsSuspended = false
+    /// When completed upload records were last removed; the upload lock protects it.
+    var lastUploadPrune: Date?
     private let lock = NSLock()
     /// Folders with a listing queued or running, and the replies that wait for it.
     private var waiting: [String: [Reply]] = [:]

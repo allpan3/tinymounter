@@ -262,6 +262,24 @@ public final class UploadOutbox {
         return true
     }
 
+    /// Removes the records of uploads that completed before `cutoff`, so that the scans of every
+    /// listing and create stay short. A completed record answers macOS when a lost reply makes it
+    /// send the item again; long before `cutoff`, macOS has the item. A lost removal is harmless.
+    @discardableResult
+    public func pruneCompleted(before cutoff: Date) throws -> Int {
+        var removed = 0
+        let keys: Set<URLResourceKey> = [.contentModificationDateKey]
+        for url in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys))
+        where url.pathExtension == "json" {
+            guard let saved = try? url.resourceValues(forKeys: keys).contentModificationDate, saved < cutoff,
+                  let record = try? JSONDecoder().decode(PendingUpload.self, from: Data(contentsOf: url)),
+                  record.state == .completed, !record.isPending else { continue }
+            guard unlink(url.path) == 0 || errno == ENOENT else { throw posixError("remove completed record") }
+            removed += 1
+        }
+        return removed
+    }
+
     public func removeIfCompleted() throws {
         guard try pendingCount == 0 else { throw UploadError.pendingWrites }
         try FileManager.default.removeItem(at: directory)
