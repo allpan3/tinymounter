@@ -54,6 +54,18 @@ final class ChangeWatchingTests: XCTestCase {
         XCTAssertEqual(SMBNotifyCompletion.failure(0), .serverUnreachable)
     }
 
+    func testAServerWithoutChangeNotificationIsUnsupported() {
+        let folder = path("folder")
+        // Samba with `change notify = no` answers STATUS_NOT_IMPLEMENTED.
+        for status: UInt32 in [0xC000_0002, 0xC000_00BB] {
+            XCTAssertEqual(SMBNotifyCompletion(status: status, buffer: []), .unsupported)
+            XCTAssertEqual(SMBNotifyCompletion(status: status, buffer: []).notice(for: folder), .unsupported)
+        }
+        var plan = ChangeWatchPlan()
+        plan.setFolders([WatchedFolder(id: "f", parentID: nil, path: folder)], domainID: "d", root: .root)
+        XCTAssertTrue(plan.routes(for: .unsupported).isEmpty)
+    }
+
     func testTableOpensAndClosesOnlyTheDifference() {
         var table = WatchTable()
         let first = table.replace(with: [path("a"), path("a/b")], limit: 64)

@@ -19,8 +19,13 @@ public enum SMBNotifyCompletion: Equatable, Sendable {
     case folderGone
     /// The server ended the watch for another reason.
     case failed(UInt32)
+    /// The server does not support change notification, for example Samba with
+    /// `change notify = no`.
+    case unsupported
 
     static let success: UInt32 = 0
+    /// STATUS_NOT_IMPLEMENTED and STATUS_NOT_SUPPORTED.
+    static let notSupported: Set<UInt32> = [0xC000_0002, 0xC000_00BB]
     static let enumerateDirectory: UInt32 = 0x0000_010C
     static let deletePending: UInt32 = 0xC000_0056
     /// A missing or replaced folder; its listing finds out what happened.
@@ -37,6 +42,7 @@ public enum SMBNotifyCompletion: Equatable, Sendable {
             self = .changed(entries)
         case Self.enumerateDirectory: self = .overflow
         case Self.deletePending: self = .folderGone
+        case _ where Self.notSupported.contains(status): self = .unsupported
         default: self = .failed(status)
         }
     }
@@ -69,6 +75,7 @@ public enum SMBNotifyCompletion: Equatable, Sendable {
         case .changed: .changed(folder)
         case .overflow, .folderGone: .lost(folder)
         case .failed(let status): .ended(Self.failure(status))
+        case .unsupported: .unsupported
         }
     }
 
@@ -173,7 +180,7 @@ public struct ChangeWatchPlan: Sendable {
         case .changed(let changed): (path, withParents) = (changed, false)
         // A lost folder can be gone; its parent's listing finds that out.
         case .lost(let lost): (path, withParents) = (lost, true)
-        case .ended: return []
+        case .ended, .unsupported: return []
         }
         return domainIDs.compactMap { domainID in
             guard let folders = locations[domainID]?[path] else { return nil }
@@ -194,8 +201,8 @@ public struct ChangeWatchPlan: Sendable {
     }
 }
 
-/// Delays before opening a watcher again. A watcher that ends soon after opening, as on a server
-/// that refuses CHANGE_NOTIFY, keeps backing off instead of reconnecting every few seconds.
+/// Delays before opening a watcher again. A watcher that ends soon after opening keeps backing
+/// off instead of reconnecting every few seconds.
 public struct WatchRetry: Sendable {
     public static let delays: [Duration] = [.seconds(5), .seconds(10), .seconds(20), .seconds(40), .seconds(60)]
     public static let stableLifetime = Duration.seconds(60)

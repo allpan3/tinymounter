@@ -436,8 +436,11 @@ is cleared on notify requests, which stay pending until a change, and each compl
 watch. An asynchronous echo every 60 s keeps the connection checked; libsmb2's synchronous
 `smb2_echo()` is broken. Closing a handle stops its watch.
 
-`STATUS_NOTIFY_ENUM_DIR` relists that folder. Any other completion that the app did not cause
-reconnects with backoff from 5 s to 60 s and relists every watched folder. Notices name the
+`STATUS_NOTIFY_ENUM_DIR` relists that folder. `STATUS_NOT_IMPLEMENTED` or `STATUS_NOT_SUPPORTED`,
+as from Samba with `change notify = no`, ends the watcher without a retry; the periodic listings
+cover the folders, and a recovered connection, wake or new password tries once more. Any other
+completion that the app did not cause reconnects with backoff from 5 s to 60 s and relists every
+watched folder. Notices name the
 watched path, which the app maps back to catalog IDs. Before a folder move or deletion, the app
 reserves the paths and closes every watch at or below them; the watcher waits up to 10 s for the
 server to close those handles, and otherwise ends its connection. Notices and the app's own

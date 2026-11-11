@@ -130,12 +130,22 @@ final class LocationChangeWatch: @unchecked Sendable {
     private func received(_ notice: ChangeNotice, generation: Int) {
         queue.async { [self] in
             guard generation == self.generation, !cancelled else { return }
-            if case .ended = notice {
+            switch notice {
+            case .ended:
                 watcher?.cancel()
                 watcher = nil
                 relistOnOpen = true
                 scheduleRetry()
                 return
+            case .unsupported:
+                // Retrying would only sign in again every minute. `reconnect()` tries once more.
+                watcher?.cancel()
+                watcher = nil
+                relistOnOpen = true
+                unsupported = true
+                Self.log.info("watch_unsupported")
+                return
+            case .changed, .lost: break
             }
             for route in plan.routes(for: notice) { refresh(route.domainID, route.folderIDs) }
         }

@@ -98,7 +98,7 @@ final class SMBWatch: RemoteWatcher, @unchecked Sendable {
                     case .changed, .overflow: break
                     case .folderGone: table.end(token)
                     // Changes during the gap are lost; the owner opens a new watcher and lists again.
-                    case .failed: stopped = true
+                    case .failed, .unsupported: stopped = true
                     }
                     if case .overflow = completion { SMBWatch.log.info("watch_overflow token=\(token)") }
                     if case .failed = completion { SMBWatch.log.error("watch_failed token=\(token) status=\(status)") }

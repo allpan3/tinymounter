@@ -119,6 +119,9 @@ public enum ChangeNotice: Equatable, Sendable {
     /// The watcher stopped, for example on a lost connection. Every watched folder needs a
     /// listing, and its owner opens a new watcher later.
     case ended(SourceFailure)
+    /// The server does not support change notification. The watcher stopped, and the periodic
+    /// listings cover the folders until the connection changes.
+    case unsupported
 }
 
 /// One connection that holds one watch for each folder it was last given. A watch covers only
