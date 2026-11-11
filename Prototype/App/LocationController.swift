@@ -756,6 +756,8 @@ final class LocationController {
                         if DownloadSpace.isFull(error), spaceBlocked[record.domainID]?.isEmpty == false { return }
                         throw error
                     }
+                    // A newer check started while this one waited; it reads the items itself.
+                    guard !Task.isCancelled, offlineGeneration[record.domainID] == generation else { return }
                 }
                 let observed = try await localOfflineStates(snapshot, manager: manager)
                 let current = try await Self.offMain { try source.keepSnapshot() }
