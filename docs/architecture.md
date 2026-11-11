@@ -390,7 +390,7 @@ for the catalog's life, which is the domain's life.
 **First page of a folder.** A folder listed before comes from the catalog at once; if its listing
 is older than 60 s, the extension also asks the app to list it, and differences arrive through the
 working set. For a folder never listed, the extension asks the app to list it and waits at most
-5 s. At the deadline it finishes with `serverUnreachable`; the app finishes the listing, and the
+5 s; that listing does not queue behind a transfer on the share's lane. At the deadline it finishes with `serverUnreachable`; the app finishes the listing, and the
 extension calls `signalErrorResolved` when the late reply succeeds. A reply carries the folder's
 listing generation, and the extension serves the page only if its own connection sees at least
 that value. With no reader, a never-listed folder fails with `serverUnreachable` at once.

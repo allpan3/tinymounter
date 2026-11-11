@@ -59,6 +59,8 @@ final class LocationSource: @unchecked Sendable {
     /// The last root listing found no location folder ("This folder is not on the share").
     private var rootMissing = false
     private var changeHandler: (@Sendable () -> Void)?
+    /// First listings, which don't wait on the share lane.
+    private let firstListings = DispatchQueue(label: "dev.tinymounter.prototype.first-listing", qos: .userInitiated)
     private static let listingLog = Logger(subsystem: "dev.tinymounter.prototype", category: "listing")
     private static let fetchLog = Logger(subsystem: "dev.tinymounter.prototype", category: "fetch")
 
@@ -223,7 +225,14 @@ final class LocationSource: @unchecked Sendable {
                 finish(folderID, .failure(refusal))
                 return
             }
-            connection.enqueue { [self] in finish(folderID, Result { try listOnLane(folderID, requestID: requestID) }) }
+            let work: @Sendable () -> Void = { [self] in
+                finish(folderID, Result { try listOnLane(folderID, requestID: requestID) })
+            }
+            // A folder that was never listed has no rows that a queued change could depend on, so
+            // Finder can open it while a transfer holds the lane. The namespace lock still orders
+            // the listing with every change.
+            let neverListed = ((try? withCatalog { try $0.item(id: folderID) }) ?? nil).map { $0.listGen == nil }
+            if neverListed == true { firstListings.async(execute: work) } else { connection.enqueue(work) }
         }
     }
 

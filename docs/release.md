@@ -109,8 +109,10 @@ Known limits for this release:
   25 minutes, and its Kept downloaded shows late. The check waits until macOS has no work left
   for the location, and macOS waits longer between attempts until it stops trying. Kept files
   that were already available offline keep their status, also after a relaunch.
-- Wake and network-change reconnection of 0.2.0 sessions, and a server with change
-  notification turned off, have not had VM checks.
+- Uploads and saves run one at a time per share. While one runs, folders that were listed before
+  keep their last listing, so changes from other devices show after it ends. Downloads and
+  folders opened for the first time do not wait.
+- Wake and network-change reconnection of 0.2.0 sessions have not had VM checks.
 - There is no automatic updater. Install later releases by replacing the app after uploads finish.
 
 ## Source and licences
