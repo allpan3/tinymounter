@@ -556,6 +556,7 @@ enum UIText {
     static let signInAgainInSettings = "Open TinyMounter Settings. Then click Sign In Again…"
     static func downloadFailedTitle(_ name: String) -> String { "“\(name)” cannot download" }
     static func uploadFailedTitle(_ name: String) -> String { "“\(name)” did not upload" }
+    static func uploadsFailedTitle(_ files: Int) -> String { "\(files) files did not upload" }
     static func connectedAgainTitle(_ host: String) -> String { "TinyMounter is connected to \(host) again" }
     static func conflictTitle(_ name: String) -> String { "“\(name)” changed on the server" }
     static let conflictMessage = "Your save did not replace the file on the server. macOS keeps your version as a copy."

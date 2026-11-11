@@ -247,12 +247,12 @@ The events, as Recent Activity names them:
 
 | Event | When |
 | --- | --- |
-| Uploaded, Upload failed | A new file or a save finishes or fails. A failure that macOS sends again by itself is no event, and a failed upload reports once until it succeeds. Stop Uploading is no failure. |
+| Uploaded, Upload failed | A new file or a save finishes or fails. A failure that macOS sends again by itself is no event, and a failed upload reports once until it succeeds. Stop Uploading is no failure. The failures of one location share one notification that counts them, until 5 minutes pass without one. |
 | Downloaded | A complete-file download of a file that is not kept |
 | Kept downloaded | A kept file or folder is verified available offline. The first check after launch only records what is already available offline. |
 | Download failed | A download that the user started fails because the share is not connected, once per share per outage |
 | Saved a conflict copy | A save that asks to fail on a conflict finds the file changed on the server. TinyMounter makes no conflict copies itself; macOS resolves the conflict. |
-| Low disk space | A download first stops because this Mac has not sufficient space |
+| Low disk space | A download first stops because this Mac has not sufficient space, once per location until its stopped downloads have space again |
 | Cannot sign in | A server refuses the saved password, once until a new password or a connection |
 | Connection lost, Connected again | A share with locations stops answering, and later connects again, once per outage. A lost network is no event: the share connects again by itself. |
 

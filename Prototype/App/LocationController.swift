@@ -125,7 +125,8 @@ final class LocationController {
             if self.spaceBlocked[domainID]?[request.item] != before {
                 self.saveSpaceBlockedDownloads()
                 self.onLocationChange?(domainID)
-                if before == nil, let name { self.onLowSpace?(domainID, name) }
+                // Once until the location's downloads have space again.
+                if before == nil, let name, self.spaceBlocked[domainID]?.count == 1 { self.onLowSpace?(domainID, name) }
             }
         }
     }

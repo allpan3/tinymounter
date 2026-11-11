@@ -142,6 +142,8 @@ final class AppModel {
     @ObservationIgnored private var keptOffline: [UUID: Set<String>] = [:]
     /// Uploads, by domain and item, with an Upload failed event since their last success.
     @ObservationIgnored private var failedUploads: Set<String> = []
+    /// Upload failures in each location since the last 5-minute pause between them.
+    @ObservationIgnored private var uploadFailureBursts: [String: (count: Int, last: Date)] = [:]
     /// For the menu bar panel; the reader host updates it at most twice a second.
     private(set) var transfers: [ActiveTransfer] = []
     private(set) var notOnServer: [UUID: Set<KeepPath>] = [:]
@@ -1409,9 +1411,13 @@ final class AppModel {
             // covers a relaunch; the set covers a failure that the panel doesn't list.
             guard failedUploads.insert(key).inserted,
                   !self.activity.history.uploadFailed(domain: domainID, item: activity.item) else { return }
+            // The failures of one location share one notification that counts them.
+            let earlier = uploadFailureBursts[domainID].flatMap { $0.last.timeIntervalSinceNow > -300 ? $0.count : nil } ?? 0
+            uploadFailureBursts[domainID] = (earlier + 1, .now)
             notifier.report(ActivityEvent(kind: .uploadFailed, domain: domainID, name: name, detail: reason,
                                           item: activity.item),
-                            title: UIText.uploadFailedTitle(name), body: reason)
+                            title: earlier == 0 ? UIText.uploadFailedTitle(name) : UIText.uploadsFailedTitle(earlier + 1),
+                            body: reason, id: "upload-failed-" + domainID)
         case .conflict:
             failedUploads.remove(key)
             notifier.report(ActivityEvent(kind: .conflictCopy, domain: domainID, name: name, item: activity.item),
