@@ -70,12 +70,9 @@ declined if the feature isn't worth its weight. Docs-only changes and obvious fi
   things a second pass would have caught.
 - An automated or AI reviewer can help review a PR, but it doesn't gate it. The checks in
   `AGENTS.md` are still run locally.
-- **CI runs `Tools/run-checks.sh` in the VM for each push to a PR.** The `Checks` workflow runs on
-  `tinymounter-mac`, a self-hosted runner installed as a LaunchAgent on the Mac in
-  `~/actions-runners/tinymounter`. It copies the PR's commit into `macOS VM 1` with `vmpal cp` and
-  runs the checks in the VM's `~/ci/tinymounter` with `vmpal exec`. The job waits while the Mac is
-  asleep or the runner is stopped, and fails when the VM isn't running. One check runs at a time,
-  so a newer push cancels an older one; run it again from the PR.
+- **CI runs `Tools/run-checks.sh` for each push to a PR.** The `Checks` workflow runs on GitHub's
+  `xcode-27` macOS image with Xcode 27.0, the version in the development VM. A newer push to a PR
+  cancels its older check; run it again from the PR.
 
 ## Changelog and releases
 

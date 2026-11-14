@@ -52,8 +52,7 @@ test; uncommitted edits don't reach the VM. The VM's view of the shared folder's
 stale, so `git fetch host` can miss new commits or fail with "not our ref", but new objects show:
 fetch the commit itself with `git -c uploadpack.allowAnySHA1InWant=true fetch host <commit>`. If
 that fails too, send a `git bundle` of the new commits with VMPal's file transfer and fetch from
-it. Raw `results/` and the `.local/` helpers stay in the VM. CI has its own clone in
-`~/ci/tinymounter`; don't work in it.
+it. Raw `results/` and the `.local/` helpers stay in the VM.
 
 After VM testing, close the windows you opened and quit unused test apps without discarding
 unsaved documents. Check active jobs before cleanup. Remove obsolete build products, duplicate

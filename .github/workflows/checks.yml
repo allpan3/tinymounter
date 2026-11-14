@@ -3,39 +3,25 @@ name: Checks
 on:
   pull_request:
 
-# The VM runs one check at a time, so a newer push cancels an older one, also on another PR.
+# A newer push to a PR cancels its older check.
 concurrency:
-  group: vm-checks
+  group: checks-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
-  vm:
-    name: Tools/run-checks.sh in the VM
-    # The runner tinymounter-mac, a LaunchAgent on the Mac that has the VM.
-    runs-on: [self-hosted, macOS, ARM64]
+  checks:
+    name: Tools/run-checks.sh
+    # GitHub's macOS 27 image (public preview).
+    runs-on: xcode-27
     timeout-minutes: 45
-    env:
-      VM: macOS VM 1
     steps:
       - uses: actions/checkout@v7
         with:
           # The PR's own commit; GITHUB_SHA is GitHub's merge commit.
           ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 0
-      - name: Copy the commit into the VM
-        run: |
-          git bundle create "$RUNNER_TEMP/tinymounter.bundle" HEAD
-          vmpal cp "$RUNNER_TEMP/tinymounter.bundle" "$VM:/tmp/tinymounter.bundle"
-      - name: Run the checks in the VM
-        # exec, so that a cancelled job's signal reaches vmpal, which stops the checks in the VM.
-        run: |
-          exec vmpal exec "$VM" --timeout 40m -- /bin/zsh -lc '
-            set -euo pipefail
-            dir=~/ci/tinymounter
-            [[ -d $dir/.git ]] || git init --quiet "$dir"
-            cd "$dir"
-            git fetch --quiet /tmp/tinymounter.bundle HEAD
-            git checkout --quiet --force --detach FETCH_HEAD
-            git clean -fdxq -e /.build
-            echo "Checking $(git log --oneline -1)"
-            exec Tools/run-checks.sh'
+      - name: Select Xcode 27.0, the development VM's version
+        run: sudo xcode-select -s /Applications/Xcode_27.0.app
+      - run: Tools/run-checks.sh
