@@ -115,9 +115,12 @@ extension Catalog {
 
     /// nil if `accept` refused the plan, and then nothing is written. A new entry that `withholding`
     /// names is not inserted: a file that a pending upload is still writing waits for its upload.
+    /// A name key in `writing` changes nothing, listed or not: this Mac is saving that file, and the
+    /// save records its result.
     @discardableResult
     public func reconcile(folder folderID: String, listing: DirectoryListing,
                           withholding: (DirectoryListing.Entry) -> Bool = { _ in false },
+                          writing: Set<String> = [],
                           accept: (ReconcilePlan) -> Bool) throws -> ReconcilePlan? {
         try write { seq in
             guard let folder = try item(id: folderID), folder.kind == .folder, !folder.deleted else {
@@ -125,11 +128,12 @@ extension Catalog {
             }
             var children = try liveChildren(of: folder.id)
             let childCount = children.count
+            for key in writing { children[key] = nil }
             let losers = Dictionary(grouping: listing.collisionLosers, by: \.key.value)
             var changes: [(entry: DirectoryListing.Entry, row: Int64?)] = []
             var removed: [StoredChild] = []
             var unreadableSkipped = 0
-            for first in listing.firsts {
+            for first in listing.firsts where !writing.contains(first.key.value) {
                 guard let child = children.removeValue(forKey: first.key.value) else {
                     switch first {
                     case .entry(let entry): if !withholding(entry) { changes.append((entry, nil)) }

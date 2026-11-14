@@ -364,6 +364,26 @@ final class CatalogTests: XCTestCase {
         XCTAssertNotNil(try catalog.liveChild(parent: root, nameKey: NameKey("partial.bin")))
     }
 
+    func testFileBeingWrittenKeepsItsRowListedOrNot() throws {
+        let catalog = try makeCatalog()
+        try reconcile(catalog, [file("save.bin", fileID: 5), file("gone.bin", fileID: 6), file("other.bin", fileID: 9)])
+        let saving = try child(catalog, "save.bin"), going = try child(catalog, "gone.bin")
+        let writing: Set<String> = [NameKey("save.bin").value, NameKey("gone.bin").value, NameKey("new.bin").value]
+        let listing = DirectoryListing([file("save.bin", size: 3, fileID: 5), file("new.bin", fileID: 7),
+                                        file("other.bin", size: 20, fileID: 9)])
+        let plan = try XCTUnwrap(catalog.reconcile(folder: root, listing: listing, writing: writing) { _ in true })
+        XCTAssertEqual(plan, ReconcilePlan(inserted: 0, updated: 1, tombstoned: 0, emptiesFolder: false,
+                                           keptFilesRemoved: 0, unreadableSkipped: 0))
+        XCTAssertEqual(try child(catalog, "save.bin"), saving)
+        XCTAssertEqual(try child(catalog, "gone.bin"), going)
+        XCTAssertNil(try catalog.liveChild(parent: root, nameKey: NameKey("new.bin")))
+        XCTAssertEqual(try child(catalog, "other.bin").size, 20)
+
+        try reconcile(catalog, [file("save.bin", size: 3, fileID: 5), file("other.bin", size: 20, fileID: 9)])
+        XCTAssertEqual(try child(catalog, "save.bin").size, 3)
+        XCTAssertNil(try catalog.liveChild(parent: root, nameKey: NameKey("gone.bin")))
+    }
+
     func testChangedFilesKeepIDAndKeepAndGetNewVersions() throws {
         let catalog = try makeCatalog()
         try reconcile(catalog, [file("size.bin"), file("mtime.bin"), file("ctime.bin"), file("same.bin")])

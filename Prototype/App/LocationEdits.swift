@@ -17,17 +17,20 @@ extension LocationSource {
         connection.enqueue { [self] in
             started()
             var phase = "catalog"
+            var relist: [(source: LocationSource, folder: String)] = []
             let result = Result {
-                let (row, path, operation) = try editNamespace.perform {
+                let (row, path, operation, write) = try editNamespace.perform {
                     try uploadLock.withLock {
                         guard !mutationsSuspended, writable else { throw UploadError.readOnly }
                         let (row, path) = try withCatalog { try $0.editTarget(request) }
                         guard let full = folder.appending(path) else { throw UploadError.invalidRequest }
                         try editNamespace.requireUncontested(path: full, excluding: request.id)
-                        return (row, path, try editNamespace.beginRead(full))
+                        return (row, path, try editNamespace.beginRead(full), editNamespace.beginWrite(full))
                     }
                 }
                 defer { editNamespace.endRead(operation) }
+                var writing = true
+                defer { if writing { editNamespace.perform { _ = editNamespace.endWrite(write) } } }
                 guard uploadLock.withLock({ writable }) else { throw UploadError.readOnly }
                 phase = "connect"
                 return try connection.withSession(folder: folder, progress: progress) { remote, _ in
@@ -37,16 +40,24 @@ extension LocationSource {
                     let written = try remote.overwrite(path: path.string, contents: contents, expected: expected,
                                                        modified: request.modified)
                     phase = "catalog-update"
-                    return try withCatalog { catalog in
-                        let (_, currentPath) = try catalog.editTarget(request, checkingVersion: false)
-                        guard currentPath == path else { throw SourceFailure.versionChanged }
-                        try catalog.updateFingerprint(item: row.id, fingerprint: written.fingerprint,
-                                                      fileID: written.fileID)
-                        guard let current = try catalog.item(id: row.id) else { throw UploadError.unresolved }
-                        return EditReceipt(item: row.id, contentVersion: current.contentVersion)
+                    // One step for listings: the row changes only with the save's result.
+                    return try editNamespace.perform {
+                        let receipt = try withCatalog { catalog in
+                            let (_, currentPath) = try catalog.editTarget(request, checkingVersion: false)
+                            guard currentPath == path else { throw SourceFailure.versionChanged }
+                            try catalog.updateFingerprint(item: row.id, fingerprint: written.fingerprint,
+                                                          fileID: written.fileID)
+                            guard let current = try catalog.item(id: row.id) else { throw UploadError.unresolved }
+                            return EditReceipt(item: row.id, contentVersion: current.contentVersion)
+                        }
+                        writing = false
+                        relist = editNamespace.endWrite(write)
+                        return receipt
                     }
                 }
             }
+            // Listings that kept the row while the save ran now see its result.
+            for (source, folderID) in relist { source.list(folderID, requestID: UUID()) }
             let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
             if case .failure(let error) = result {
                 logger.error("edit request=\(request.id.uuidString, privacy: .public) phase=\(phase, privacy: .public) failed \(logFields(error), privacy: .public)")
