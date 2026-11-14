@@ -16,6 +16,8 @@ final class EditNamespace: @unchecked Sendable {
     }
     private var sources: [String: Source] = [:]
     private var reservations: [UUID: [RelativePath]] = [:]
+    /// Saves that are changing a server file, with the listings that kept its row unchanged.
+    private var writes: [UUID: (path: RelativePath, skipped: [(source: Source, folder: String)])] = [:]
     // Payload transfers run outside `lock`; folder moves must wait for their handles to close.
     private let reads = NSCondition()
     private var activeReads: [UUID: RelativePath] = [:]
@@ -132,6 +134,41 @@ final class EditNamespace: @unchecked Sendable {
 
     func isReserved(_ path: RelativePath) -> Bool {
         lock.withLock { reservations.values.contains { $0.contains { Self.contains($0, path) } } }
+    }
+
+    /// Call inside `perform` before the server file changes. A listing beside the lane keeps the
+    /// file's row as it is until `endWrite`, so it never takes a half-written save for a change.
+    func beginWrite(_ path: RelativePath) -> UUID {
+        lock.withLock {
+            let id = UUID()
+            writes[id] = (path, [])
+            return id
+        }
+    }
+
+    /// Call inside `perform`, with the catalog update that records the save's result. Returns the
+    /// folders that a listing skipped the file in, to list again.
+    func endWrite(_ id: UUID) -> [(source: LocationSource, folder: String)] {
+        lock.withLock {
+            (writes.removeValue(forKey: id)?.skipped ?? []).compactMap { skipped in
+                skipped.source.value.map { (source: $0, folder: skipped.folder) }
+            }
+        }
+    }
+
+    /// Call inside `perform`: the name keys of the files in the folder at `path` that saves are
+    /// changing. The listing of `folder` in `source` is repeated when each of those saves ends.
+    func writing(in path: RelativePath, source: LocationSource, folder: String) -> Set<String> {
+        lock.withLock {
+            var keys: Set<String> = []
+            for (id, write) in writes where write.path.components.count == path.components.count + 1
+                && Self.contains(path, write.path) {
+                guard let name = write.path.components.last else { continue }
+                keys.insert(NameKey(name).value)
+                writes[id]?.skipped.append((source: Source(source), folder: folder))
+            }
+            return keys
+        }
     }
 
     /// Call inside `perform`; end it with `endRead` only after the descriptor has closed.

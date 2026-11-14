@@ -109,9 +109,10 @@ Known limits for this release:
   25 minutes, and its Kept downloaded shows late. The check waits until macOS has no work left
   for the location, and macOS waits longer between attempts until it stops trying. Kept files
   that were already available offline keep their status, also after a relaunch.
-- Uploads and saves run one at a time per share. While one runs, folders that were listed before
-  keep their last listing, so changes from other devices show after it ends. Downloads and
-  folders opened for the first time do not wait.
+- While a new file uploads to a location, files and folders that another device adds there show
+  only when the upload ends: macOS waits with new items until then. Changes and deletions of
+  items that Finder already shows, and new items during a save of an existing file, appear as
+  usual.
 - Wake and network-change reconnection of 0.2.0 sessions have not had VM checks.
 - There is no automatic updater. Install later releases by replacing the app after uploads finish.
 

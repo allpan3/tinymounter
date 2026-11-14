@@ -197,9 +197,14 @@ leave out a file that a pending upload is still writing, so it never appears bes
 item. Local retained contents have integrity checks, but the remote upload is
 not read back in full. Existing-file saves use ordinary overwrite semantics. Creates and saves run
 one at a time on the share's lane, and the share's namespace lock covers their checks, the server
-create and the final listing; the contents are written outside the lock, so reads and first
-listings in the share don't wait for the transfer. Later listings of folders listed before wait
-on the lane.
+create, a save's catalog update and the final listing; the contents are written outside the lock,
+so reads and listings in the share don't wait for the transfer. Listings run beside the lane under
+the namespace lock. A listing keeps the row of a file that a save is writing as it is, and lists
+the folder again when the save ends. While a rename, move or deletion is unsettled, or a folder
+move holds the folder, the listing waits on the lane instead. macOS itself shows new server items
+only after the domain's running upload of a new item ends: fileproviderd holds the fetch of an
+unknown item until the create job finishes. Edits and deletions of known items show at once, as do
+new items while a save of an existing file runs.
 
 ### Sign-in and connection
 
@@ -390,7 +395,7 @@ for the catalog's life, which is the domain's life.
 **First page of a folder.** A folder listed before comes from the catalog at once; if its listing
 is older than 60 s, the extension also asks the app to list it, and differences arrive through the
 working set. For a folder never listed, the extension asks the app to list it and waits at most
-5 s; that listing does not queue behind a transfer on the share's lane. At the deadline it finishes with `serverUnreachable`; the app finishes the listing, and the
+5 s; listings do not queue behind a transfer on the share's lane. At the deadline it finishes with `serverUnreachable`; the app finishes the listing, and the
 extension calls `signalErrorResolved` when the late reply succeeds. A reply carries the folder's
 listing generation, and the extension serves the page only if its own connection sees at least
 that value. With no reader, a never-listed folder fails with `serverUnreachable` at once.

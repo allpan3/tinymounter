@@ -61,8 +61,8 @@ final class LocationSource: @unchecked Sendable {
     /// The last root listing found no location folder ("This folder is not on the share").
     private var rootMissing = false
     private var changeHandler: (@Sendable () -> Void)?
-    /// First listings, which don't wait on the share lane.
-    private let firstListings = DispatchQueue(label: "dev.tinymounter.prototype.first-listing", qos: .userInitiated)
+    /// Listings, which don't wait on the share lane unless a namespace change is unsettled.
+    private let listings = DispatchQueue(label: "dev.tinymounter.prototype.listing", qos: .userInitiated)
     private static let listingLog = Logger(subsystem: "dev.tinymounter.prototype", category: "listing")
     private static let fetchLog = Logger(subsystem: "dev.tinymounter.prototype", category: "fetch")
 
@@ -227,14 +227,17 @@ final class LocationSource: @unchecked Sendable {
                 finish(folderID, .failure(refusal))
                 return
             }
-            let work: @Sendable () -> Void = { [self] in
-                finish(folderID, Result { try listOnLane(folderID, requestID: requestID) })
+            // Beside the lane, so that a folder lists while an upload or save holds the lane.
+            listings.async { [self] in
+                switch Result(catching: { try listBesideLane(folderID, requestID: requestID) }) {
+                case .success(let receipt?): finish(folderID, .success(receipt))
+                case .failure(let error): finish(folderID, .failure(error))
+                case .success(nil):
+                    connection.enqueue { [self] in
+                        finish(folderID, Result { try listOnLane(folderID, requestID: requestID) })
+                    }
+                }
             }
-            // A folder that was never listed has no rows that a queued change could depend on, so
-            // Finder can open it while a transfer holds the lane. The namespace lock still orders
-            // the listing with every change.
-            let neverListed = ((try? withCatalog { try $0.item(id: folderID) }) ?? nil).map { $0.listGen == nil }
-            if neverListed == true { firstListings.async(execute: work) } else { connection.enqueue(work) }
         }
     }
 
@@ -272,11 +275,22 @@ final class LocationSource: @unchecked Sendable {
     func listOnLane(_ folderID: String, requestID: UUID) throws -> ListReceipt {
         try editNamespace.perform {
             try editNamespace.requireSettled()
-            return try listSettledOnLane(folderID, requestID: requestID)
+            return try listSettled(folderID, requestID: requestID, onLane: true)
         }
     }
 
-    private func listSettledOnLane(_ folderID: String, requestID: UUID) throws -> ListReceipt {
+    /// The namespace lock orders the listing with each step of the lane's work; nil if a rename,
+    /// move or deletion is unsettled, or a folder move holds the folder, so it waits on the lane.
+    private func listBesideLane(_ folderID: String, requestID: UUID) throws -> ListReceipt? {
+        try editNamespace.perform {
+            guard (try? editNamespace.requireSettled()) != nil else { return nil }
+            if let relative = try? withCatalog({ try $0.relativePath(of: folderID) }),
+               let path = folder.appending(relative), editNamespace.isReserved(path) { return nil }
+            return try listSettled(folderID, requestID: requestID, onLane: false)
+        }
+    }
+
+    private func listSettled(_ folderID: String, requestID: UUID, onLane: Bool) throws -> ListReceipt {
         let started = ContinuousClock.now
         do {
             let (parentID, path) = try withCatalog { catalog -> (String?, RelativePath) in
@@ -306,6 +320,10 @@ final class LocationSource: @unchecked Sendable {
                 }
                 let checked = ContinuousClock.now
                 var plan: ReconcilePlan?
+                // A save on the lane may be changing a file; its own catalog update records it.
+                let writing = folder.appending(path).map {
+                    editNamespace.writing(in: $0, source: self, folder: folderID)
+                } ?? []
                 let (applied, generation, entries) = try withCatalog { catalog in
                     // A partial file of a pending upload would appear beside the local item, and
                     // macOS would give the local item another name.
@@ -313,7 +331,7 @@ final class LocationSource: @unchecked Sendable {
                     let applied = try catalog.reconcile(folder: folderID, listing: listing, withholding: { entry in
                         entry.kind == .file
                             && unfinished.contains { $0.fileID == entry.fileID && NameKey($0.name) == entry.key }
-                    }) { proposed in
+                    }, writing: writing) { proposed in
                         plan = proposed
                         return confirmed || !Catalog.needsConfirmation(proposed)
                     } != nil
@@ -347,6 +365,7 @@ final class LocationSource: @unchecked Sendable {
                     folder=\(folderID, privacy: .public) entries=\(entries) changed=\(changed) \
                     inserted=\(plan?.inserted ?? 0) updated=\(plan?.updated ?? 0) \
                     tombstoned=\(plan?.tombstoned ?? 0) skipped=\(skipped) checked=\(missing.count) \
+                    writing=\(writing.count) lane=\(onLane ? 1 : 0) \
                     held=\(applied ? 0 : 1) confirmed=\(confirmed ? 1 : 0) \
                     lookup_ms=\(started.duration(to: located) / .milliseconds(1), format: .fixed(precision: 1)) \
                     session_ms=\(located.duration(to: connected) / .milliseconds(1), format: .fixed(precision: 1)) \
