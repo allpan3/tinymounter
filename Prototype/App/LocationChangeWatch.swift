@@ -9,12 +9,16 @@ final class LocationChangeWatch: @unchecked Sendable {
     typealias Open = @Sendable (_ notice: @escaping @Sendable (ChangeNotice) -> Void) throws -> (any RemoteWatcher)?
     /// Folders of one location to list again; nil for every folder that it watches.
     typealias Refresh = @Sendable (_ domainID: String, _ folderIDs: [String]?) -> Void
+    /// True when a change notice of `folder` needs no listing now; whoever defers it lists `routes` later.
+    typealias Deferred = @Sendable (_ folder: RelativePath, _ names: [String],
+                                    _ routes: [(domainID: String, folderIDs: [String])]) -> Bool
 
     private static let log = Logger(subsystem: "dev.tinymounter.prototype", category: "watch")
     private let open: Open
     private let limit: Int
     private let refresh: Refresh
     private let excluded: @Sendable (RelativePath) -> Bool
+    private let deferred: Deferred
     private let queue = DispatchQueue(label: "dev.tinymounter.change-watch", qos: .utility)
     // Only on `queue`.
     private var plan = ChangeWatchPlan()
@@ -30,10 +34,11 @@ final class LocationChangeWatch: @unchecked Sendable {
 
     /// `excluded` keeps watches off folders that a move or deletion reserves.
     init(limit: Int, open: @escaping Open, excluded: @escaping @Sendable (RelativePath) -> Bool,
-         refresh: @escaping Refresh) {
+         deferred: @escaping Deferred, refresh: @escaping Refresh) {
         self.limit = limit
         self.open = open
         self.excluded = excluded
+        self.deferred = deferred
         self.refresh = refresh
     }
 
@@ -147,7 +152,12 @@ final class LocationChangeWatch: @unchecked Sendable {
                 return
             case .changed, .lost: break
             }
-            for route in plan.routes(for: notice) { refresh(route.domainID, route.folderIDs) }
+            let routes = plan.routes(for: notice)
+            if case .changed(let folder, let names) = notice, !routes.isEmpty, deferred(folder, names, routes) {
+                Self.log.info("watch_deferred entries=\(names.count)")
+                return
+            }
+            for route in routes { refresh(route.domainID, route.folderIDs) }
         }
     }
 

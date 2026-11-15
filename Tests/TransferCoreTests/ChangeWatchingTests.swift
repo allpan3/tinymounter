@@ -21,7 +21,7 @@ final class ChangeWatchingTests: XCTestCase {
         let buffer = entry(4, "old.txt", last: false) + entry(5, "sub\\Café.txt", last: true)
         let completion = SMBNotifyCompletion(status: 0, buffer: buffer)
         XCTAssertEqual(completion, .changed([.init(action: 4, name: "old.txt"), .init(action: 5, name: "sub/Café.txt")]))
-        XCTAssertEqual(completion.notice(for: path("a/b")), .changed(path("a/b")))
+        XCTAssertEqual(completion.notice(for: path("a/b")), .changed(path("a/b"), names: ["old.txt", "sub/Café.txt"]))
     }
 
     func testNamesKeepTheServersNormalization() throws {
@@ -106,19 +106,19 @@ final class ChangeWatchingTests: XCTestCase {
         XCTAssertEqual(plan.paths(limit: 64), [path("Photos"), path("Photos/x/y/z")])
         XCTAssertEqual(plan.paths(limit: 1), [path("Photos")])
         XCTAssertEqual(plan.paths(limit: 64) { $0.string.hasPrefix("Photos/x") }, [path("Photos")])
-        let routes = plan.routes(for: .changed(path("Photos")))
+        let routes = plan.routes(for: .changed(path("Photos"), names: ["a"]))
         XCTAssertEqual(routes.map(\.domainID), ["one", "two"])
         XCTAssertEqual(routes.map(\.folderIDs), [["root"], ["r2"]])
         plan.removeLocation("two")
-        XCTAssertEqual(plan.routes(for: .changed(path("Photos"))).map(\.folderIDs), [["root"]])
+        XCTAssertEqual(plan.routes(for: .changed(path("Photos"), names: ["a"])).map(\.folderIDs), [["root"]])
     }
 
     func testLostFolderListsItsParentAndUnknownPathsListNothing() {
         var plan = ChangeWatchPlan()
         plan.setFolders([.init(id: "deep", parentID: "mid", path: path("x/y"))], domainID: "one", root: .root)
         XCTAssertEqual(plan.routes(for: .lost(path("x/y"))).map(\.folderIDs), [["deep", "mid"]])
-        XCTAssertEqual(plan.routes(for: .changed(path("x/y"))).map(\.folderIDs), [["deep"]])
-        XCTAssertTrue(plan.routes(for: .changed(path("x"))).isEmpty)
+        XCTAssertEqual(plan.routes(for: .changed(path("x/y"), names: ["a"])).map(\.folderIDs), [["deep"]])
+        XCTAssertTrue(plan.routes(for: .changed(path("x"), names: ["a"])).isEmpty)
         XCTAssertTrue(plan.routes(for: .ended(.serverUnreachable)).isEmpty)
     }
 
@@ -132,7 +132,7 @@ final class ChangeWatchingTests: XCTestCase {
         refresh.finished("parent", succeeded: true, now: .seconds(1))
         // A create arrives as ADDED and then MODIFIED; both ask for the same listing.
         for second in [10, 10] {
-            for route in plan.routes(for: .changed(path("folder"))) {
+            for route in plan.routes(for: .changed(path("folder"), names: ["a"])) {
                 for id in route.folderIDs { refresh.changed(id, now: .seconds(Int64(second))) }
             }
         }

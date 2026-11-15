@@ -72,7 +72,7 @@ public enum SMBNotifyCompletion: Equatable, Sendable {
     /// What the owner of a watch on `folder` learns.
     public func notice(for folder: RelativePath) -> ChangeNotice {
         switch self {
-        case .changed: .changed(folder)
+        case .changed(let entries): .changed(folder, names: entries.map(\.name))
         case .overflow, .folderGone: .lost(folder)
         case .failed(let status): .ended(Self.failure(status))
         case .unsupported: .unsupported
@@ -177,7 +177,7 @@ public struct ChangeWatchPlan: Sendable {
     public func routes(for notice: ChangeNotice) -> [(domainID: String, folderIDs: [String])] {
         let path: RelativePath, withParents: Bool
         switch notice {
-        case .changed(let changed): (path, withParents) = (changed, false)
+        case .changed(let changed, _): (path, withParents) = (changed, false)
         // A lost folder can be gone; its parent's listing finds that out.
         case .lost(let lost): (path, withParents) = (lost, true)
         case .ended, .unsupported: return []

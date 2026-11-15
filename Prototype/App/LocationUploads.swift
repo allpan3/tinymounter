@@ -166,6 +166,13 @@ extension LocationSource {
         var record = prepared.record
         let path = prepared.path
         if record.state == .completed, let item = record.item { return CreateReceipt(item: item) }
+        // Listings and notices that skipped the file while it was written list again at the end.
+        var write: UUID?
+        var relist: [(source: LocationSource, folder: String)] = []
+        defer {
+            if let write { relist = editNamespace.perform { editNamespace.endWrite(write) } }
+            for (source, folderID) in relist { source.list(folderID, requestID: UUID()) }
+        }
         if record.kind == .folder {
             try editNamespace.perform { try uploadLock.withLock {
                 try connection.withSession(folder: folder, progress: progress) { remote, _ in
@@ -182,6 +189,7 @@ extension LocationSource {
                     guard let full = folder.appending(path) else { throw UploadError.invalidRequest }
                     // A folder move waits for the transfer, as for a read.
                     let transfer = try editNamespace.beginRead(full)
+                    write = editNamespace.beginWrite(full)
                     do { return (try outbox.beginUpload(&record, remote: remote, progress: progress), transfer) }
                     catch {
                         editNamespace.endRead(transfer)
@@ -193,6 +201,11 @@ extension LocationSource {
             }
         }
         return try editNamespace.perform { try uploadLock.withLock {
+            if let ended = write {
+                write = nil
+                // This listing of the parent covers its own notices.
+                relist = editNamespace.endWrite(ended).filter { $0.source !== self || $0.folder != request.parent }
+            }
             _ = try listOnLane(request.parent, requestID: request.id)
             let listed = try liveChild(of: record.parent, named: record.name)
             guard let row = listed, row.kind == request.kind, row.size == record.size || record.kind == .folder,

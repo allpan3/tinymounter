@@ -106,7 +106,10 @@ final class ShareConnection: @unchecked Sendable {
         return try signIn.signIn { password in
             try self.client.openWatcher(self.address, password: password, notice: notice)
         }
-    }, excluded: { [editNamespace] in editNamespace.isReserved($0) }, refresh: refresh)
+    }, excluded: { [editNamespace] in editNamespace.isReserved($0) }, deferred: { [editNamespace] in
+        // This Mac's own uploads and saves: each lists their folders once when it ends.
+        editNamespace.deferNotice(folder: $0, names: $1, routes: $2)
+    }, refresh: refresh)
 
     /// `watchLimit` is the protocol's watcher limit; `refresh` gets each notice's folders to list.
     init(shareID: UUID, address: ShareAddress, client: any RemoteClient, signIn: ServerSignIn,

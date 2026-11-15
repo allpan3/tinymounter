@@ -16,8 +16,15 @@ final class EditNamespace: @unchecked Sendable {
     }
     private var sources: [String: Source] = [:]
     private var reservations: [UUID: [RelativePath]] = [:]
-    /// Saves that are changing a server file, with the listings that kept its row unchanged.
-    private var writes: [UUID: (path: RelativePath, skipped: [(source: Source, folder: String)])] = [:]
+    /// A folder of one location to list again.
+    private struct Relist: Hashable {
+        let domain: String
+        let folder: String
+    }
+    /// Saves and uploads that are writing a server file, with the folders that listings and change
+    /// notices skipped meanwhile. Its own lock: a notice never waits for a listing that holds `lock`.
+    private let writesLock = NSLock()
+    private var writes: [UUID: (path: RelativePath, relist: Set<Relist>)] = [:]
     // Payload transfers run outside `lock`; folder moves must wait for their handles to close.
     private let reads = NSCondition()
     private var activeReads: [UUID: RelativePath] = [:]
@@ -137,37 +144,56 @@ final class EditNamespace: @unchecked Sendable {
     }
 
     /// Call inside `perform` before the server file changes. A listing beside the lane keeps the
-    /// file's row as it is until `endWrite`, so it never takes a half-written save for a change.
+    /// file's row as it is until `endWrite`, so it never takes a half-written file for a change.
     func beginWrite(_ path: RelativePath) -> UUID {
-        lock.withLock {
+        writesLock.withLock {
             let id = UUID()
             writes[id] = (path, [])
             return id
         }
     }
 
-    /// Call inside `perform`, with the catalog update that records the save's result. Returns the
-    /// folders that a listing skipped the file in, to list again.
+    /// Call inside `perform`, with the catalog update that records the write's result. Returns the
+    /// folders that listings and change notices skipped while it ran, to list again.
     func endWrite(_ id: UUID) -> [(source: LocationSource, folder: String)] {
         lock.withLock {
-            (writes.removeValue(forKey: id)?.skipped ?? []).compactMap { skipped in
-                skipped.source.value.map { (source: $0, folder: skipped.folder) }
-            }
+            let relist = writesLock.withLock { writes.removeValue(forKey: id)?.relist ?? [] }
+            return relist.compactMap { relist in sources[relist.domain]?.value.map { ($0, relist.folder) } }
         }
     }
 
-    /// Call inside `perform`: the name keys of the files in the folder at `path` that saves are
-    /// changing. The listing of `folder` in `source` is repeated when each of those saves ends.
+    /// Call inside `perform`: the name keys of the files in the folder at `path` that this Mac is
+    /// writing. The listing of `folder` in `source` is repeated when each of those writes ends.
     func writing(in path: RelativePath, source: LocationSource, folder: String) -> Set<String> {
-        lock.withLock {
+        writesLock.withLock {
             var keys: Set<String> = []
             for (id, write) in writes where write.path.components.count == path.components.count + 1
                 && Self.contains(path, write.path) {
                 guard let name = write.path.components.last else { continue }
                 keys.insert(NameKey(name).value)
-                writes[id]?.skipped.append((source: Source(source), folder: folder))
+                writes[id]?.relist.insert(Relist(domain: source.domainID, folder: folder))
             }
             return keys
+        }
+    }
+
+    /// A change notice of the watched folder at `folder` that names `names`: true when this Mac is
+    /// writing each named file. The notice then needs no listing now; those writes list `routes`
+    /// when they end.
+    func deferNotice(folder: RelativePath, names: [String],
+                     routes: [(domainID: String, folderIDs: [String])]) -> Bool {
+        writesLock.withLock {
+            guard !names.isEmpty else { return false }
+            var covering: Set<UUID> = []
+            for name in names {
+                guard let path = RelativePath(name).flatMap({ folder.appending($0) }),
+                      let id = writes.first(where: { $0.value.path.components.count == path.components.count
+                          && Self.contains($0.value.path, path) })?.key else { return false }
+                covering.insert(id)
+            }
+            let relist = routes.flatMap { route in route.folderIDs.map { Relist(domain: route.domainID, folder: $0) } }
+            for id in covering { writes[id]?.relist.formUnion(relist) }
+            return true
         }
     }
 
