@@ -199,12 +199,12 @@ not read back in full. Existing-file saves use ordinary overwrite semantics. Cre
 one at a time on the share's lane, and the share's namespace lock covers their checks, the server
 create, a save's catalog update and the final listing; the contents are written outside the lock,
 so reads and listings in the share don't wait for the transfer. Listings run beside the lane under
-the namespace lock. A listing keeps the row of a file that a save is writing as it is, and lists
-the folder again when the save ends. While a rename, move or deletion is unsettled, or a folder
-move holds the folder, the listing waits on the lane instead. macOS itself shows new server items
-only after the domain's running upload of a new item ends: fileproviderd holds the fetch of an
-unknown item until the create job finishes. Edits and deletions of known items show at once, as do
-new items while a save of an existing file runs.
+the namespace lock. A listing keeps the row of a file that an upload or save is writing as it is,
+and lists the folder again when the write ends. While a rename, move or deletion is unsettled, or
+a folder move holds the folder, the listing waits on the lane instead. macOS itself shows new
+server items only after the domain's running upload of a new item ends: fileproviderd holds the
+fetch of an unknown item until the create job finishes. Edits and deletions of known items show at
+once, as do new items while a save of an existing file runs.
 
 ### Sign-in and connection
 
@@ -450,7 +450,9 @@ as from Samba with `change notify = no`, ends the watcher without a retry; the p
 cover the folders, and a recovered connection, wake or new password tries once more. Any other
 completion that the app did not cause reconnects with backoff from 5 s to 60 s and relists every
 watched folder. Notices name the
-watched path, which the app maps back to catalog IDs. Before a folder move or deletion, the app
+watched path, which the app maps back to catalog IDs, and the changed entries. A notice whose
+entries are all files that this Mac is uploading or saving lists nothing; each of those writes
+lists the notice's folders once when it ends. Before a folder move or deletion, the app
 reserves the paths and closes every watch at or below them; the watcher waits up to 10 s for the
 server to close those handles, and otherwise ends its connection. Notices and the app's own
 changes coalesce, with at least 2 s between listings of one folder.

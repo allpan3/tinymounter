@@ -30,7 +30,7 @@ extension LocationSource {
                 }
                 defer { editNamespace.endRead(operation) }
                 var writing = true
-                defer { if writing { editNamespace.perform { _ = editNamespace.endWrite(write) } } }
+                defer { if writing { relist = editNamespace.perform { editNamespace.endWrite(write) } } }
                 guard uploadLock.withLock({ writable }) else { throw UploadError.readOnly }
                 phase = "connect"
                 return try connection.withSession(folder: folder, progress: progress) { remote, _ in
@@ -56,7 +56,7 @@ extension LocationSource {
                     }
                 }
             }
-            // Listings that kept the row while the save ran now see its result.
+            // Listings and notices that skipped the file while the save ran now see its result.
             for (source, folderID) in relist { source.list(folderID, requestID: UUID()) }
             let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
             if case .failure(let error) = result {

@@ -112,8 +112,9 @@ public protocol RemoteSession: AnyObject, UploadRemote, FileRenameRemote, Folder
 /// What a watcher reports. Each notice is a hint: a listing decides what changed.
 /// Paths start at the share root.
 public enum ChangeNotice: Equatable, Sendable {
-    /// Entries in this watched folder changed.
-    case changed(RelativePath)
+    /// Entries in this watched folder changed. `names` are those entries, relative to the folder
+    /// and as the server spelled them.
+    case changed(RelativePath, names: [String])
     /// The server dropped notices for this watched folder; it needs a full listing.
     case lost(RelativePath)
     /// The watcher stopped, for example on a lost connection. Every watched folder needs a

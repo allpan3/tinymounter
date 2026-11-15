@@ -142,7 +142,8 @@ struct CheckSMBWatch {
                 opens?.add(ids: ["failed"])
                 throw error
             }
-        }, excluded: { _ in false }, refresh: { _, ids in recorder.add(ids: ids ?? ["*"]) })
+        }, excluded: { _ in false }, deferred: { _, _, _ in false },
+           refresh: { _, ids in recorder.add(ids: ids ?? ["*"]) })
     }
 
     /// Runs `change` and reports how long until a listing of `folder` was requested.
@@ -288,7 +289,9 @@ struct CheckSMBWatch {
             recorder.settle()
             let start = recorder.count
             _ = actor_write("\(root)/p2/q/r/n.txt", 0, 1, 0)
-            let moved = recorder.wait(from: start, seconds: 3) { $0.notice == .changed(path("\(root)/p/q/r")) }
+            let moved = recorder.wait(from: start, seconds: 3) {
+                if case .changed(path("\(root)/p/q/r"), _) = $0.notice { true } else { false }
+            }
             emit(["watch_follows_renamed_ancestor": moved != nil])
             check(actor_unlink("\(root)/p2/q/r/n.txt"), "unlink")
             check(actor_rename("\(root)/p2", "\(root)/p"), "rename back")
