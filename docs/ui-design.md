@@ -228,8 +228,9 @@ bottom:
 - **Transfers,** only while something transfers: each upload (a new file or a save) and each
   complete-file download, with ↑ or ↓, the name, "Documents · 3.1 of 8.4 MB" and a thin progress
   bar. Range reads for playback and Quick Look are not listed. An upload that macOS sends again
-  by itself (`UploadRecovery.retriesByItself`) shows "Waiting for home-nas". The app reads the
-  progress twice a second.
+  by itself (`UploadRecovery.retriesByItself`) shows "Waiting for home-nas" until its next
+  attempt, Stop Uploading, or the share's reconnection, when macOS is asked to send every failed
+  upload again. The app reads the progress twice a second.
 - **Recent Activity:** the newest events first, with the name, what happened, the location and
   the relative time. Six rows show; more scroll. Problem rows have a red symbol. Upload failed
   shows Retry, which runs Retry Pending Changes for that location: macOS releases failed uploads

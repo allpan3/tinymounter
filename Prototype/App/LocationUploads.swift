@@ -140,6 +140,7 @@ extension LocationSource {
             Self.uploadLog.info("upload_stopped domain=\(self.domainID, privacy: .public) partial=\(record.isPartialOnServer)")
         }
         failedCreatesLock.withLock { failedCreates[template] = nil }
+        uploadRetry.finished("create:" + template, result: Result<Void, Error>.success(()))
     }
 
     private func noteCreate(_ request: CreateRequest, result: Result<CreateReceipt, Error>) {

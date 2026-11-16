@@ -74,6 +74,13 @@ final class SourceReaderHost {
         pollTransfers()
     }
 
+    /// Stop Uploading, or a reconnect that has macOS send every failed upload again. An item that
+    /// macOS no longer has, because it was deleted or moved, would keep its row until quit.
+    func dropWaiting(domain: String, item: String? = nil) {
+        if let item { waiting[domain]?[item] = nil } else { waiting[domain] = nil }
+        pollTransfers()
+    }
+
     /// `upload` is the item of an upload, which replaces its waiting row.
     private func transferStarted(_ domain: String, upload: String?) {
         if let upload { waiting[domain]?[upload] = nil }
