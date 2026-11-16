@@ -755,6 +755,7 @@ func providerError(_ error: Error) -> Error {
     default:
         let ns = error as NSError
         if SourceReaderBridge.isRefusedOrganization(ns) { return SourceReaderBridge.refusedOrganizationError }
+        if SourceReaderBridge.isPendingWrites(ns) { return SourceReaderBridge.pendingWritesError }
         if ns.domain == NSFileProviderErrorDomain || ns.domain == NSCocoaErrorDomain {
             return NSError(domain: ns.domain, code: ns.code)
         }

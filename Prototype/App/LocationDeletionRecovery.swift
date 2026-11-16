@@ -107,7 +107,7 @@ extension LocationSource {
                 // A process can exit after settlement is durable but before Finder receives its signal.
                 if records.contains(where: { $0.plan.owner == domainID && $0.isComplete }) {
                     try advanceDeletionDomainVersion()
-                    deletionRecovered()
+                    editNamespace.resumeWrites()
                 }
             } catch {
                 Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
@@ -334,7 +334,7 @@ extension LocationSource {
             }
             recovery.attempt = attempt
             recovery.rememberRefresh()
-            deletionRecovered()
+            editNamespace.resumeWrites()
             finishDeletionReply(recovery)
         } catch {
             failDeletionRecovery(recovery, error: error)

@@ -7,11 +7,11 @@ enum UploadRecovery {
     static func retriesByItself(_ error: Error) -> Bool { UploadRetrySchedule.isTransient(error) }
 }
 
-/// One location's retry of creates and saves that failed transiently, with `retry` as the action:
-/// the location's Retry Pending Changes. A reconnect retries at once through the share's recovery.
+/// Connection recovery retries pending changes; namespace wakeups repeat until macOS resends.
 final class UploadRetry: @unchecked Sendable {
     private let domainID: String
     private let retry: @Sendable () -> Void
+    private let resumeWrites: @Sendable () -> Void
     private let lock = NSLock()
     private var schedule = UploadRetrySchedule()
     private var waiting: (id: UInt64, work: DispatchWorkItem)?
@@ -19,34 +19,36 @@ final class UploadRetry: @unchecked Sendable {
     private var closed = false
     private static let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "upload")
 
-    init(domainID: String, retry: @escaping @Sendable () -> Void) {
+    init(domainID: String, retry: @escaping @Sendable () -> Void,
+         resumeWrites: @escaping @Sendable () -> Void) {
         self.domainID = domainID
         self.retry = retry
+        self.resumeWrites = resumeWrites
     }
 
     /// The result of one create or save, by a key that stays the same when macOS sends it again.
     func finished<T>(_ upload: String, result: Result<T, Error>) {
-        guard case .failure(let error) = result, UploadRecovery.retriesByItself(error) else {
+        guard case .failure(let error) = result,
+              error as? UploadError == .pendingWrites || UploadRecovery.retriesByItself(error) else {
             lock.withLock { if schedule.settled(upload) { cancelWaiting() } }
             return
         }
         lock.withLock {
-            guard !closed, let delay = schedule.failed(upload) else { return }
-            nextID += 1
-            let id = nextID
-            let work = DispatchWorkItem { [weak self] in self?.fire(id) }
-            waiting = (id, work)
-            let milliseconds = Int(delay / .milliseconds(1))
-            Self.logger.info("upload_retry_scheduled domain=\(self.domainID, privacy: .public) delay_ms=\(milliseconds)")
-            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + .milliseconds(milliseconds), execute: work)
+            guard !closed,
+                  let delay = schedule.failed(upload, waitingForNamespace: error as? UploadError == .pendingWrites)
+            else { return }
+            scheduleNext(after: delay)
         }
     }
 
-    /// The share connected again; its recovery retries every upload now.
+    func started(_ upload: String) {
+        lock.withLock { if schedule.started(upload) { cancelWaiting() } }
+    }
+
+    // A reconnect handles connection errors, but a namespace refusal may still be in flight.
     func connected() {
         lock.withLock {
-            schedule.connected()
-            cancelWaiting()
+            if schedule.connected() { cancelWaiting() }
         }
     }
 
@@ -58,15 +60,26 @@ final class UploadRetry: @unchecked Sendable {
     }
 
     private func fire(_ id: UInt64) {
-        let active = lock.withLock {
-            guard waiting?.id == id else { return false }
+        let recover = lock.withLock { () -> Bool? in
+            guard !closed, waiting?.id == id else { return nil }
             waiting = nil
-            schedule.fired()
-            return !closed
+            let recover = schedule.hasTransientFailures
+            if let delay = schedule.fired() { scheduleNext(after: delay) }
+            return recover
         }
-        guard active else { return }
+        guard let recover else { return }
         Self.logger.info("upload_retry domain=\(self.domainID, privacy: .public)")
-        retry()
+        if recover { retry() } else { resumeWrites() }
+    }
+
+    private func scheduleNext(after delay: Duration) {
+        nextID += 1
+        let id = nextID
+        let work = DispatchWorkItem { [weak self] in self?.fire(id) }
+        waiting = (id, work)
+        let milliseconds = Int(delay / .milliseconds(1))
+        Self.logger.info("upload_retry_scheduled domain=\(self.domainID, privacy: .public) delay_ms=\(milliseconds)")
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + .milliseconds(milliseconds), execute: work)
     }
 
     private func cancelWaiting() {

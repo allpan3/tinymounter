@@ -132,19 +132,14 @@ extension LocationSource {
                     return (ready, folders)
                 }
                 for record in ready {
-                    completeRename(record) { [self] result in
+                    completeRename(record) { result in
                         if case .failure(let error) = result {
                             logger.error("rename_settings id=\(record.id.uuidString, privacy: .public) failed \(logFields(error), privacy: .public)")
-                        } else {
-                            renameRecovered()
                         }
                     }
                 }
                 for id in folders {
-                    do {
-                        try retryFolderMove(id)
-                        renameRecovered()
-                    }
+                    do { try retryFolderMove(id) }
                     catch {
                         if Self.renameSharingFailure(error) { sharingFailure = error }
                         logger.error("folder_move_retry id=\(id.uuidString, privacy: .public) failed \(logFields(error), privacy: .public)")
@@ -354,6 +349,7 @@ extension LocationSource {
                         return CreateReceipt(item: current.base.item)
                     }
                 }
+                if case .success = result { editNamespace.resumeWrites() }
                 let replies = renameCompletions.removeValue(forKey: record.id) ?? []
                 for reply in replies { reply(result) }
             }

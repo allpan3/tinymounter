@@ -137,7 +137,16 @@ final class EditNamespace: @unchecked Sendable {
     // A folder move reserves both endpoints before draining, so no new read or watch starts below them.
     func reserve(_ id: UUID, paths: [RelativePath]) { lock.withLock { reservations[id] = paths } }
 
-    func release(_ id: UUID) { lock.withLock { reservations[id] = nil } }
+    func release(_ id: UUID) {
+        let released = lock.withLock { reservations.removeValue(forKey: id) != nil }
+        if released { resumeWrites() }
+    }
+
+    // A pending intent blocks writes in every location on this share, not just its own views.
+    func resumeWrites() {
+        let active = lock.withLock { sources.values.compactMap(\.value) }
+        for source in active { source.writesUnblocked() }
+    }
 
     func isReserved(_ path: RelativePath) -> Bool {
         lock.withLock { reservations.values.contains { $0.contains { Self.contains($0, path) } } }

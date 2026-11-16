@@ -22,16 +22,18 @@ public struct RetryBackoff: Sendable {
     public mutating func reset() { next = first }
 }
 
-/// The uploads of one location that failed with a transient error, and the retry that waits for
-/// them. One retry waits at a time; it retries every such upload, as Retry Pending Changes does.
+/// One location's connection failures and writes waiting for namespace settlement.
 public struct UploadRetrySchedule: Sendable {
     public static let first = Duration.seconds(2)
     public static let longest = Duration.seconds(300)
     private var failing: Set<String> = []
+    private var blocked: Set<String> = []
     private var backoff = RetryBackoff(first: first, longest: longest)
     public private(set) var isWaiting = false
 
     public init() {}
+
+    public var hasTransientFailures: Bool { !failing.subtracting(blocked).isEmpty }
 
     /// A lost connection, a timeout or a sharing violation, which a later attempt can get past.
     /// A sharing violation lasts while a dropped session, or another client, holds the file open.
@@ -44,31 +46,47 @@ public struct UploadRetrySchedule: Sendable {
         }
     }
 
-    /// `upload` failed transiently. Returns the delay of a new retry; nil while one waits.
-    public mutating func failed(_ upload: String) -> Duration? {
+    public mutating func failed(_ upload: String, waitingForNamespace: Bool = false) -> Duration? {
         failing.insert(upload)
+        if waitingForNamespace { blocked.insert(upload) } else { blocked.remove(upload) }
         guard !isWaiting else { return nil }
         isWaiting = true
         return backoff.delay()
     }
 
-    /// `upload` finished, or failed in a way that waits for the user. Returns true when the
-    /// waiting retry is no longer needed: no upload is left failing transiently.
+    /// True when finishing this item leaves no retry needed.
     public mutating func settled(_ upload: String) -> Bool {
         failing.remove(upload)
+        blocked.remove(upload)
         guard failing.isEmpty else { return false }
         backoff.reset()
         defer { isWaiting = false }
         return isWaiting
     }
 
-    /// The waiting retry runs. Uploads that fail again schedule the next, after a longer delay.
-    public mutating func fired() { isWaiting = false }
+    // A signal can precede macOS recording the error; only a resend acknowledges its delivery.
+    public mutating func started(_ upload: String) -> Bool {
+        guard blocked.remove(upload) != nil else { return false }
+        failing.remove(upload)
+        guard failing.isEmpty else { return false }
+        defer { isWaiting = false }
+        return isWaiting
+    }
 
-    /// The share connected again, and its recovery retries every upload at once.
-    public mutating func connected() {
-        failing.removeAll()
+    @discardableResult
+    public mutating func fired() -> Duration? {
+        isWaiting = !blocked.isEmpty
+        return isWaiting ? backoff.delay() : nil
+    }
+
+    // Reconnection also signals once; it cannot acknowledge a blocked item's resend.
+    @discardableResult
+    public mutating func connected() -> Bool {
+        failing = blocked
         backoff.reset()
+        guard blocked.isEmpty else { return false }
+        let cancel = isWaiting
         isWaiting = false
+        return cancel
     }
 }
