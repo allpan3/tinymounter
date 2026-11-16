@@ -10,6 +10,9 @@ public protocol UploadRemote {
     func resumeUpload(path: String, contents: URL, identity: RemoteFileIdentity,
                       modified: Date?) throws -> RemoteFileVersion
     func inspectUpload(path: String) throws -> RemoteFileVersion
+    /// Deletes the file at `path` if it is `identity`; any other item there stays. With nil, after a
+    /// lost create reply, it throws `UploadError.collision` if an item has the name.
+    func discardUpload(path: String, identity: RemoteFileIdentity?) throws
 }
 
 public struct UploadCreateRefusal: Error {
@@ -44,6 +47,12 @@ public struct PendingUpload: Codable, Sendable {
     /// Nothing reached the server: no create was sent, or the server refused it, or the name was taken.
     public var isStoppable: Bool {
         [.staging, .prepared, .collision].contains(state) && remoteID == nil && serverFolder == nil && initialName == nil
+    }
+    /// A file whose upload created the server file and has not finished writing it.
+    public var isPartialOnServer: Bool { kind == .file && serverFile != nil && [.staging, .created].contains(state) }
+    /// Stop Uploading after a server check: a partial file, or a file create whose reply was lost.
+    public var isStoppableAfterCheck: Bool {
+        isPartialOnServer || (kind == .file && state == .attempting && serverFile == nil)
     }
 }
 
@@ -189,9 +198,8 @@ public final class UploadOutbox {
 
     /// Files that an upload created on the server and has not finished writing, in one folder.
     public func unfinishedFiles(parent: String) throws -> [(name: String, fileID: UInt64)] {
-        try records().filter {
-            $0.parent == parent && $0.kind == .file && $0.serverFile != nil && [.staging, .created].contains($0.state)
-        }.compactMap { record in record.remoteID.map { (record.name, $0) } }
+        try records().filter { $0.parent == parent && $0.isPartialOnServer }
+            .compactMap { record in record.remoteID.map { (record.name, $0) } }
     }
 
     private func stage(_ record: PendingUpload, contents: URL?, progress: Progress,
@@ -240,10 +248,14 @@ public final class UploadOutbox {
         if record.kind == .file { try FileManager.default.removeItem(at: contentURL(record.id)) }
     }
 
-    /// The local item stays; the record is marked stopped and its copy of the contents goes.
-    public func stop(_ id: UUID) throws {
-        guard var record = try records().first(where: { $0.id == id }), record.isStoppable else {
-            throw UploadError.unresolved
+    /// The local item stays; the record is marked stopped and its copy of the contents goes. A file
+    /// that reached the server needs `remote`, which first deletes the partial file. After a crash
+    /// between the two, the record can be stopped again.
+    public func stop(_ id: UUID, remote: UploadRemote? = nil) throws {
+        guard var record = try records().first(where: { $0.id == id }) else { throw UploadError.unresolved }
+        if !record.isStoppable {
+            guard record.isStoppableAfterCheck, let remote else { throw UploadError.unresolved }
+            try remote.discardUpload(path: record.path, identity: record.serverFile)
         }
         record.state = .stopped
         try save(record)

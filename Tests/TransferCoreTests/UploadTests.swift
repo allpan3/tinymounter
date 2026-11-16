@@ -42,6 +42,8 @@ final class UploadTests: XCTestCase {
         var creates = 0, writes = 0, inspections = 0, resumptions = 0
         var resumedIdentity: RemoteFileIdentity?
         var savedTimes: [Date?] = []
+        var discarded: [RemoteFileIdentity?] = []
+        var discardError: Error?
 
         init(_ record: PendingUpload) throws {
             version = try RemoteFileVersion(identity: RemoteFileIdentity(fileID: 42, birthMicroseconds: 100),
@@ -73,6 +75,11 @@ final class UploadTests: XCTestCase {
             savedTimes.append(modified)
             resumedIdentity = identity
             return version
+        }
+
+        func discardUpload(path: String, identity: RemoteFileIdentity?) throws {
+            discarded.append(identity)
+            if let discardError { throw discardError }
         }
     }
 
@@ -468,6 +475,56 @@ final class UploadTests: XCTestCase {
         XCTAssertTrue(try outbox.records().isEmpty)
         XCTAssertFalse(try outbox.takeStopped(template: record.template))
         try outbox.removeIfCompleted()
+    }
+
+    func testPartialUploadStopsOnlyAfterTheServerCheck() throws {
+        var record = try prepared()
+        let server = try DirectRemote(record)
+        XCTAssertEqual(try outbox.beginUpload(&record, remote: server, progress: Progress()), .write)
+        XCTAssertTrue(record.isPartialOnServer)
+        XCTAssertThrowsError(try outbox.stop(record.id))
+        server.discardError = UploadError.unresolved
+        XCTAssertThrowsError(try outbox.stop(record.id, remote: server))
+        XCTAssertEqual(try outbox.records().map(\.state), [.created])
+        XCTAssertEqual(try outbox.pendingCount, 1)
+        server.discardError = nil
+        try outbox.stop(record.id, remote: server)
+        XCTAssertEqual(server.discarded, [server.version.identity, server.version.identity])
+        XCTAssertEqual(try outbox.records().map(\.state), [.stopped])
+        XCTAssertEqual(try outbox.pendingCount, 0)
+        XCTAssertEqual(try outbox.contentBytes, 0)
+        XCTAssertTrue(try outbox.unfinishedFiles(parent: Catalog.rootItemID).isEmpty)
+        XCTAssertTrue(try outbox.takeStopped(template: record.template))
+    }
+
+    func testLostCreateReplyStopsOnlyWhileTheNameIsFree() throws {
+        var record = try prepared()
+        let server = try DirectRemote(record)
+        XCTAssertThrowsError(try outbox.beginUpload(&record, remote: server, progress: Progress()) { state in
+            if state == .attempting { throw UploadError.unresolved }
+        })
+        record = try XCTUnwrap(outbox.records().first)
+        XCTAssertEqual(record.state, .attempting)
+        XCTAssertFalse(record.isPartialOnServer)
+        server.discardError = UploadError.collision
+        XCTAssertThrowsError(try outbox.stop(record.id, remote: server)) {
+            XCTAssertEqual($0 as? UploadError, .collision)
+        }
+        XCTAssertEqual(try outbox.pendingCount, 1)
+        server.discardError = nil
+        try outbox.stop(record.id, remote: server)
+        XCTAssertEqual(server.discarded, [nil, nil])
+        XCTAssertEqual(try outbox.pendingCount, 0)
+    }
+
+    func testFinishedServerFileIsNeverStopped() throws {
+        var record = try prepared()
+        let server = try DirectRemote(record)
+        try outbox.upload(&record, remote: server, progress: Progress())
+        XCTAssertEqual(record.state, .verified)
+        XCTAssertThrowsError(try outbox.stop(record.id, remote: server))
+        XCTAssertTrue(server.discarded.isEmpty)
+        XCTAssertEqual(try outbox.pendingCount, 1)
     }
 
     func testPruningRemovesOnlyOldCompletedRecords() throws {

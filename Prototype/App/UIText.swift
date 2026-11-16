@@ -55,14 +55,25 @@ enum UIText {
         "Stop the upload of “\((path as NSString).lastPathComponent)”?"
     }
     /// macOS sends a stopped item again when its metadata changes, and a new item in a folder changes it.
-    static func stopUploadingMessage(_ kind: CatalogRow.Kind) -> String {
-        kind == .folder ? """
-            The folder and its contents stay on this Mac and are not uploaded. If you change the folder or put an \
-            item in it, TinyMounter tries to upload the folder again.
-            """
-            : "The file stays on this Mac and is not uploaded. If you change the file, TinyMounter tries to upload it again."
+    static func stopUploadingMessage(_ kind: CatalogRow.Kind, partialOnServer: Bool) -> String {
+        if kind == .folder {
+            return """
+                The folder and its contents stay on this Mac and are not uploaded. If you change the folder or put an \
+                item in it, TinyMounter tries to upload the folder again.
+                """
+        }
+        return "The file stays on this Mac and is not uploaded. "
+            + (partialOnServer ? "TinyMounter deletes the incomplete copy on the server. " : "")
+            + "If you change the file, TinyMounter tries to upload it again."
     }
     static let stopRefused = "TinyMounter cannot stop this item, because the server can have it. Use Retry Pending Changes to check the server."
+    /// A lost create reply: the item at the name can be the upload's or another one.
+    static func stopNameTaken(_ path: String) -> String {
+        """
+            The server has an item named “\((path as NSString).lastPathComponent)”, and TinyMounter cannot tell if \
+            this upload made it. If it is an incomplete copy, delete it in Finder. Then stop the upload again.
+            """
+    }
     static let stopEditMessage = """
         Save a copy of the changes that did not upload. TinyMounter then stops the upload and updates \
         this location to match the server. If the file was deleted, it is removed from this location.

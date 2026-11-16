@@ -39,9 +39,15 @@ present keeps the outcome uncertain. An acknowledged partial file restarts its c
 only after checking the recorded identity. Local payload hashes protect this retained copy;
 the remote file is not read back in full.
 
-Stop Uploading is available only before remote mutation is possible. The next `createItem`
-returns `excludedFromSync`, so macOS keeps the item locally and stops sending it. A later metadata
-change can cause another create request. Stop Uploading does not apply to existing-file saves.
+Stop Uploading is available for a new item before remote mutation is possible. It is also
+available for a new file whose upload left a partial server file or lost its create reply, while
+no upload of it runs, so that an item that macOS no longer sends can be settled. For a partial
+file it first deletes the server file, only if its file ID and creation time still match the
+recorded identity; another item at that name stays. After a lost create reply it stops only while
+no item has the name. A file that is complete on the server and a folder that reached the server
+cannot be stopped. The next `createItem` returns `excludedFromSync`, so macOS keeps the item
+locally and stops sending it. A later metadata change can cause another create request. Stop
+Uploading does not apply to existing-file saves.
 
 ## Existing edits and organization
 
@@ -63,7 +69,8 @@ It is not safe to report success merely because the old remote pathname is absen
 
 Every domain removal uses `.preserveDirtyUserData`. macOS keeps items that did not upload in a
 folder that TinyMounter shows in Finder. Uncertain app-owned creates, renames and deletions still
-block removal until settled. There is no force-discard action.
+block removal until settled; Stop Uploading settles a new file that stopped partway. There is no
+force-discard action.
 
 Before installing a format-incompatible prototype, finish or export older pending work using
 its original build, then use Start Fresh. No migration of older recovery transactions is provided.
