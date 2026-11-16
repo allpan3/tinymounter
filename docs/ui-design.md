@@ -125,7 +125,9 @@ Selecting a location shows one grouped form with all of its settings:
 The pending-changes list includes saves held by macOS and offers Retry Pending Changes and
 Show in Finder. Existing-file saves no longer have Export Local Copy or Stop Uploading controls.
 Copy a pending file outside the location before resolving a missing-target error. Stop Uploading
-remains available for new items whose records prove that no remote mutation is in progress.
+remains available for new items whose records prove that no remote mutation is in progress. It is
+also available for a new file whose upload stopped partway, while no upload of it runs. Its
+confirmation then says that TinyMounter deletes the incomplete copy on the server.
 All domain removal preserves dirty user data. See the [pending-change contract](pending-changes-plan.md).
 
 The pending-changes list includes permanent deletions. Each row names the selected item and

@@ -331,6 +331,30 @@ final class SMBEdit: FileRenameRemote, UploadRemote {
         return try closeWritten(path: path, version: version(handle))
     }
 
+    func discardUpload(path: String, identity: RemoteFileIdentity?) throws {
+        guard handles[path] == nil else { throw UploadError.unresolved }
+        let found: RenameDirectoryEntry?
+        do { found = try renameSourceEntry(path: path) } catch {
+            let status = Self.serverStatus(error).flatMap(DeletionStatus.init(rawValue:))
+            // A folder above the file is gone from this path.
+            guard status == .nameNotFound || status == .pathNotFound else { throw error }
+            return
+        }
+        guard let entry = found else { return }
+        guard let identity else { throw UploadError.collision }
+        guard entry.identity == identity else { return }
+        let handle = try open(path: (RelativePath(path)!.components.dropLast() + [entry.name]).joined(separator: "/"),
+                              access: Self.read | Self.delete, sharing: 0)
+        handles[path] = handle
+        let values = try info(handle)
+        guard values[0] == identity.fileID, values[1] == identity.birthMicroseconds else {
+            throw UploadError.unresolved
+        }
+        try handle.use { try check(tm_edit_delete(client, $0)) }
+        try handle.use { try check(tm_edit_close(client, $0)) }
+        handles[path] = nil
+    }
+
     private func closeWritten(path: String, version: RemoteFileVersion) throws -> RemoteFileVersion {
         guard let handle = handles[path] else { throw UploadError.unresolved }
         var values = [UInt64](repeating: 0, count: 5)

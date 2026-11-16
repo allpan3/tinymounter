@@ -103,25 +103,41 @@ extension LocationSource {
         let records = try uploadLock.readForStatus { try outbox().records().filter(\.isPending) }
         let failures = failedCreatesLock.withLock { failedCreates }
         let known = Set(records.map(\.template))
-        let waiting = records.map {
-            PendingCreate(id: $0.template, path: $0.path, kind: $0.kind, failure: failures[$0.template],
-                          stoppable: $0.isStoppable)
+        let waiting = records.map { record in
+            let writing = RelativePath(record.path).flatMap(folder.appending).map(editNamespace.isWriting) ?? true
+            return PendingCreate(id: record.template, path: record.path, kind: record.kind,
+                                 failure: failures[record.template],
+                                 stoppable: record.isStoppable || (record.isStoppableAfterCheck && !writing),
+                                 partialOnServer: record.isPartialOnServer)
         }
         let failed = failures.filter { !known.contains($0.key) }.map {
-            PendingCreate(id: $0.key, path: $0.value.path, kind: $0.value.kind, failure: $0.value, stoppable: false)
+            PendingCreate(id: $0.key, path: $0.value.path, kind: $0.value.kind, failure: $0.value, stoppable: false,
+                          partialOnServer: false)
         }
         return (waiting + failed).sorted { $0.path < $1.path }
     }
 
     /// The stopped record is no longer pending; macOS keeps the item on this Mac when it sends the
-    /// item again.
+    /// item again. A file that reached the server loses its partial server file first.
     func stopCreate(_ template: String) throws {
-        try uploadLock.withLock {
-            let outbox = try outbox()
+        let outbox = try outbox()
+        let record = try uploadLock.withLock {
             guard let record = try outbox.records().first(where: { $0.template == template && $0.isPending }) else {
                 throw UploadError.invalidRequest
             }
-            try outbox.stop(record.id)
+            if record.isStoppable { try outbox.stop(record.id) }
+            else if !record.isStoppableAfterCheck { throw UploadError.unresolved }
+            return record
+        }
+        if !record.isStoppable {
+            try editNamespace.perform { try uploadLock.withLock {
+                guard !mutationsSuspended, writable else { throw UploadError.readOnly }
+                guard let full = RelativePath(record.path).flatMap(folder.appending) else { throw UploadError.invalidRequest }
+                // The upload that writes the file holds it open; it ends first.
+                guard !editNamespace.isWriting(full) else { throw UploadError.pendingWrites }
+                try connection.withSession(folder: folder) { remote, _ in try outbox.stop(record.id, remote: remote) }
+            } }
+            Self.uploadLog.info("upload_stopped domain=\(self.domainID, privacy: .public) partial=\(record.isPartialOnServer)")
         }
         failedCreatesLock.withLock { failedCreates[template] = nil }
     }
@@ -252,8 +268,10 @@ struct PendingCreate: Identifiable, Sendable {
     let path: String
     let kind: CatalogRow.Kind
     let failure: FailedCreate?
-    /// Nothing reached the server, so Stop Uploading is offered.
+    /// Stop Uploading is offered: nothing reached the server, or a server check can settle it.
     let stoppable: Bool
+    /// Stop Uploading deletes the partial file that the upload left on the server.
+    let partialOnServer: Bool
 }
 
 protocol StatusLock: NSLocking { func lock(before limit: Date) -> Bool }

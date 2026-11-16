@@ -667,13 +667,14 @@ final class AppModel {
     func confirmStop(_ item: PendingCreate, record: LocationRecord) {
         let alert = NSAlert()
         alert.messageText = UIText.stopUploadingTitle(item.path)
-        alert.informativeText = UIText.stopUploadingMessage(item.kind)
+        alert.informativeText = UIText.stopUploadingMessage(item.kind, partialOnServer: item.partialOnServer)
         alert.addButton(withTitle: UIText.stopUploading)
         alert.addButton(withTitle: UIText.cancel)
         Task {
             guard await present(alert) == .alertFirstButtonReturn else { return }
             do { try await controller.stopCreate(record, template: item.id) }
             catch UploadError.unresolved { show(UIText.stopRefused) }
+            catch UploadError.collision { show(UIText.stopNameTaken(item.path)) }
             catch { show(error, shareID: record.shareID) }
         }
     }

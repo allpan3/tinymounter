@@ -382,7 +382,9 @@ creation; an existing name keeps the outcome unresolved. An acknowledged partial
 its complete upload after checking the recorded identity. Contents that change before the upload
 finishes replace the retained copy, unless an uncertain create is pending. Local payload integrity checks remain;
 there is no remote full-file readback. Settings lists pending new items and offers Stop Uploading
-only when nothing reached the server. macOS keeps those local items on removal. See the
+when nothing reached the server; macOS keeps those local items on removal. It also offers it for
+a file whose upload stopped partway, which deletes the partial server file after checking its
+identity. See the
 [pending-change plan](pending-changes-plan.md).
 
 Settings also lists changes held by macOS, including refused renames with no app transaction.

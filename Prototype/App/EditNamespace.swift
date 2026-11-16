@@ -162,6 +162,12 @@ final class EditNamespace: @unchecked Sendable {
         }
     }
 
+    /// True while an upload or save writes the file at `path`.
+    func isWriting(_ path: RelativePath) -> Bool {
+        writesLock.withLock { writes.values.contains { $0.path.components.count == path.components.count
+            && Self.contains($0.path, path) } }
+    }
+
     /// Call inside `perform`: the name keys of the files in the folder at `path` that this Mac is
     /// writing. The listing of `folder` in `source` is repeated when each of those writes ends.
     func writing(in path: RelativePath, source: LocationSource, folder: String) -> Set<String> {
