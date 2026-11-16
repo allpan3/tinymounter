@@ -446,6 +446,7 @@ final class LocationController {
     func stopCreate(_ record: LocationRecord, template: String) async throws {
         guard let source = sources[record.domainID] else { throw LocationError.catalogClosed }
         try await Self.offMain { try source.stopCreate(template) }
+        reader.dropWaiting(domain: record.domainID, item: template)
         await resumeCreates(record.domainID)
     }
 
@@ -1547,6 +1548,8 @@ final class LocationController {
             """)
         for domainID in affected {
             sources[domainID]?.uploadRetry.connected()
+            // Uploads that macOS still has start again and show their own rows.
+            reader.dropWaiting(domain: domainID)
             sources[domainID]?.retryRenames()
             sources[domainID]?.retryDeletions()
             await signalResolved(domainID, failures)
