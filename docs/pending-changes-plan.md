@@ -24,6 +24,11 @@ pending operations. Settings reads macOS's pending-item enumerator, including ch
 outbox record. It shows the item's path and failure, offers Show in Finder, and reports an
 incomplete or unavailable pending list instead of treating it as empty.
 
+A create or save blocked by other changes keeps that specific reason in Settings, without an
+activity event. Namespace settlement signals a retry. A separate wakeup repeats from 2 seconds
+up to 5 minutes until macOS resends the item; sending a signal alone does not clear it. Resending,
+Stop Uploading or closing the location ends that wakeup. Reconnection preserves it until resend.
+
 Writes go only through the app's SMB sessions, and the mutation error mapper keeps connection
 failures retryable, so a complete local edit uploads again after an app or
 provider restart.

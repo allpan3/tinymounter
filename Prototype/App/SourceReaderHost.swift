@@ -263,9 +263,10 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
         started(upload)
     }
 
-    /// A Stop or a lost waiter is no failure; the other outcomes go to the panel.
+    // Namespace settlement resends refused writes; connection failures use the waiting row.
     private static func uploadOutcome(_ error: Error) -> ReaderActivity.Outcome? {
         if error as? TransferError == .cancelled || error as? UploadError == .excluded { return nil }
+        if error as? UploadError == .pendingWrites { return nil }
         if error as? UploadError == .editConflict { return .conflict }
         return UploadRecovery.retriesByItself(error) ? .uploadWaiting : .uploadFailed(reason: UIText.uploadFailure(error))
     }
@@ -559,6 +560,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
             }
         }
         switch error as? UploadError {
+        case .pendingWrites: return SourceReaderBridge.pendingWritesError
         case .editConflict: return NSFileProviderError(.localVersionConflictingWithServer) as NSError
         case .excluded: return NSFileProviderError(.excludedFromSync) as NSError
         case .collision: return NSFileProviderError(.filenameCollision) as NSError

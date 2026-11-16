@@ -177,7 +177,7 @@ enum UIText {
     static func uploadFailure(_ error: Error) -> String {
         if let upload = error as? UploadError {
             switch upload {
-            case .pendingWrites: return "Other changes on this share must finish first."
+            case .pendingWrites: return SourceReaderBridge.pendingWritesDescription
             case .readOnly: return "TinyMounter has no write access to this share."
             case .collision: return "An item with this name is already on the server."
             case .unresolved: return "TinyMounter cannot confirm the result on the server."
@@ -229,6 +229,7 @@ enum UIText {
     static let systemPendingWaiting = "Waiting for macOS to finish this change."
     static func systemPendingReason(_ error: NSError?) -> String {
         guard let error else { return systemPendingWaiting }
+        if SourceReaderBridge.isPendingWrites(error) { return SourceReaderBridge.pendingWritesDescription }
         if SourceReaderBridge.isRefusedOrganization(error) {
             return SourceReaderBridge.refusedOrganizationError.localizedDescription
         }

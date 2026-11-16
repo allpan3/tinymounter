@@ -15,6 +15,7 @@ extension LocationSource {
               started: @escaping @Sendable () -> Void,
               reply: @escaping @Sendable (Result<EditReceipt, Error>) -> Void) {
         connection.enqueue { [self] in
+            uploadRetry.started("edit:" + request.item)
             started()
             var phase = "catalog"
             var relist: [(source: LocationSource, folder: String)] = []

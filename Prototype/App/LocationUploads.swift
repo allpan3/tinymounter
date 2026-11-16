@@ -73,6 +73,7 @@ extension LocationSource {
                 checkSpace: @escaping @Sendable (Int64) throws -> Void,
                 reply: @escaping @Sendable (Result<CreateReceipt, Error>) -> Void) {
         connection.enqueue { [self] in
+            uploadRetry.started("create:" + request.template)
             started()
             // Retry releases only throttled items, so a failure clears when its item is tried again.
             failedCreatesLock.withLock { failedCreates[request.template] = nil }

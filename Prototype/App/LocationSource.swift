@@ -21,9 +21,8 @@ final class LocationSource: @unchecked Sendable {
     /// Signals the domain's working set; `scheduleSignal` debounces it.
     private let signal: @Sendable ([String]) -> Void
     let renameSettings: @Sendable (RenameIntent) async throws -> Void
-    let renameRecovered: @Sendable () -> Void
+    let writesUnblocked: @Sendable () -> Void
     let deletionSettings: DeletionSettings?
-    let deletionRecovered: @Sendable () -> Void
     // The share lane owns these replies while settings completion awaits the main actor.
     var renameCompletions: [UUID: [RenameReply]] = [:]
     let renameRetryLock = NSLock()
@@ -68,9 +67,8 @@ final class LocationSource: @unchecked Sendable {
 
     init(domainID: String, folder: RelativePath, catalog: Catalog, connection: ShareConnection,
          renameSettings: @escaping @Sendable (RenameIntent) async throws -> Void,
-         renameRecovered: @escaping @Sendable () -> Void = {},
+         writesUnblocked: @escaping @Sendable () -> Void = {},
          deletionSettings: DeletionSettings? = nil,
-         deletionRecovered: @escaping @Sendable () -> Void = {},
          retryPending: @escaping @Sendable () -> Void = {},
          signal: @escaping @Sendable ([String]) -> Void) {
         self.domainID = domainID
@@ -79,10 +77,9 @@ final class LocationSource: @unchecked Sendable {
         self.connection = connection
         self.signal = signal
         self.renameSettings = renameSettings
-        self.renameRecovered = renameRecovered
+        self.writesUnblocked = writesUnblocked
         self.deletionSettings = deletionSettings
-        self.deletionRecovered = deletionRecovered
-        uploadRetry = UploadRetry(domainID: domainID, retry: retryPending)
+        uploadRetry = UploadRetry(domainID: domainID, retry: retryPending, resumeWrites: writesUnblocked)
         editNamespace.register(self)
     }
 

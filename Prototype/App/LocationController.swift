@@ -1175,13 +1175,11 @@ final class LocationController {
                                     renameSettings: { [weak self] rename in
             guard let self else { throw LocationError.catalogClosed }
             try await self.commitRenameSettings(rename, host: address.host, share: address.share)
-        }, renameRecovered: { [weak self] in
+        }, writesUnblocked: { [weak self] in
             Task { await self?.resumeCreates(domainID) }
         }, deletionSettings: { [weak self] deletion, paths in
             guard let self else { throw LocationError.catalogClosed }
             try await self.commitDeletionSettings(deletion, paths: paths, owner: domainID, shareID: shareID)
-        }, deletionRecovered: { [weak self] in
-            Task { await self?.resumeCreates(domainID) }
         }, retryPending: { [weak self] in
             Task { @MainActor in self?.retryPending(domainID: domainID) }
         }) { folders in

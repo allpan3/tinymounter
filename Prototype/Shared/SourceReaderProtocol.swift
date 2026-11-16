@@ -39,6 +39,19 @@ enum SourceReaderBridge {
     static let serviceName = NSFileProviderServiceName("dev.tinymounter.source-reader")
     static let progressInterval = Duration.milliseconds(500)
     static let refusedOrganizationKey = "dev.tinymounter.refused-organization"
+    static let pendingWritesKey = "dev.tinymounter.pending-writes"
+    static let pendingWritesDescription = "Other changes on this share must finish first."
+
+    static var pendingWritesError: NSError {
+        NSError(domain: NSFileProviderErrorDomain, code: NSFileProviderError.cannotSynchronize.rawValue,
+                userInfo: [pendingWritesKey: true, NSLocalizedDescriptionKey: pendingWritesDescription])
+    }
+
+    static func isPendingWrites(_ error: NSError?) -> Bool {
+        error?.domain == NSFileProviderErrorDomain
+            && error?.code == NSFileProviderError.cannotSynchronize.rawValue
+            && error?.userInfo[pendingWritesKey] as? Bool == true
+    }
 
     static var refusedOrganizationError: NSError {
         NSError(domain: NSFileProviderErrorDomain, code: NSFileProviderError.cannotSynchronize.rawValue,

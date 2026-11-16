@@ -251,6 +251,7 @@ extension LocationSource {
                 signalFolderMove(current, participants: participants)
             }
         }
+        editNamespace.resumeWrites()
     }
 
     private func folderMoveParticipants(_ record: PendingFolderMove) throws -> [(FolderMoveView, LocationSource)] {
