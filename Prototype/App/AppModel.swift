@@ -320,6 +320,10 @@ final class AppModel {
         draft(id)?.serverID ?? share(shareID(id))?.serverID
     }
 
+    func remoteProtocol(_ id: UUID) -> RemoteProtocol {
+        servers.first { $0.id == serverID(id) }?.login.remoteProtocol ?? .smb
+    }
+
     func setServer(_ id: UUID, _ serverID: UUID) {
         let available = shares.first { $0.serverID == serverID }
         if let index = drafts.firstIndex(where: { $0.id == id }) {

@@ -20,7 +20,16 @@ enum UIText {
     static let removeLocationMenu = "Remove Location…"
     static let settingsMenu = "Settings…"
 
-    static let connectionMode = "Connection Mode"
+    static let finderMode = "Finder Mode"
+    static let networkProtocol = "Protocol"
+    static func protocolName(_ transport: RemoteProtocol) -> String {
+        switch transport {
+        case .smb: "SMB"
+        }
+    }
+    static func connectionDescription(_ transport: RemoteProtocol, mode: LocationMode) -> String {
+        "\(protocolName(transport)) · \(mode == .fileProvider ? fileProvider : serverVolume)"
+    }
     static let fileProvider = "File Provider"
     static let serverVolume = "Server Volume"
     static let nativeVolumeHint = "Opens the whole share directly in Finder. Files stay on the server and are unavailable offline. Access follows the server's permissions."

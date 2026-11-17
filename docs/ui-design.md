@@ -53,7 +53,7 @@ Settings › Sidebar, and Apple's Mac User Guide.
 | --- | --- | --- | --- |
 | A location that our File Provider extension serves | System Settings › General › Login Items & Extensions: "File Providers", with "File provider extensions allow you to see local files and remote storage files in one view in Finder." Finder Settings › Sidebar › Locations: "Cloud Storage". Developer docs: replicated File Provider extension, domain. | **File Provider** | "Integrated" |
 | A share that the macOS SMB client mounts | Finder: Go › "Connect to Server…", "server volume", the sidebar group "Connected servers", "Eject". The Mac User Guide: "volumes or shared folders on the server". | **Server Volume** | "Native SMB" |
-| The choice between the two, per location | none | **Connection Mode** | "Appears as", "View" |
+| The choice between the two, per location | none | **Finder Mode** | "Connection Mode" |
 | One folder with an alias to each location | Finder: "alias", "Make Alias" | **Locations folder** | "Shortcuts folder" |
 | A kept file with a full, current copy | Finder: Download Now, Remove Download, Keep Downloaded | **Available offline** | "Offline-ready" |
 
@@ -88,7 +88,8 @@ writes them.
 A standard settings window, about 780 × 540 points, resizable. The sidebar has a search field and
 two groups:
 
-- **Locations:** each location, with a status symbol: connected, offline, or a problem.
+- **Locations:** each location, with a folder icon for File Provider or a drive icon for Server
+  Volume, and its protocol and Finder mode below its name. The location pane shows its status.
   Right-click (Control-click) a location for its shortcut menu: Show in Finder, Duplicate and
   Remove Location…. The `+` button at the bottom adds an empty location (section 4.2). The `−`
   button removes the selected location.
@@ -101,10 +102,10 @@ Selecting a location shows one grouped form with all of its settings:
 1. **Header.** Icon, name, and a status line such as "Connected · 18.4 GB downloaded · 3 items
    available offline", and a Show in Finder button. If macOS disables the File Provider, show
    "File Provider is off.", instructions to enable it, and Open System Settings… instead.
-2. **Source.** Server, Share, Folder and Name. The user types a folder path, with completion, or
-   clicks Select… to browse the share in the app
+2. **Source.** Protocol, Finder Mode, Server, Share, Folder and Name. Both modes currently use SMB.
+   The user types a folder path, with completion, or clicks Select… to browse the share in the app
    ([section 11](#11-sign-in-and-folder-browser-020)). An empty path means the full share.
-3. **Connection Mode.** Choose File Provider or Server volume when adding a location. Native
+3. **Finder Mode.** Choose File Provider or Server volume when adding a location. Native
    volumes use the whole share and its actual name; their Folder and Name fields are omitted.
 4. **Keep Downloaded** (File Provider only). Each kept file or folder, with its state: Available
    offline, 42% downloaded, Update in progress, or Not sufficient space. Add with `+`, remove with
@@ -140,7 +141,7 @@ names pending deletions that block removal. Transient failure reasons last for t
 durable node outcomes remain available after restart. Normal builds enable ordinary
 Finder deletion and Replace, and the confirmed **Delete Permanently…** command.
 
-A change to Name applies immediately. A change to Source or Connection Mode shows Revert and Apply
+A change to Name applies immediately. A change to Source or Finder Mode shows Revert and Apply
 in a bar at the bottom of the pane. Apply replaces the location's File Provider domain. A
 confirmation says that this removes the downloaded copies of the location from this Mac, and that
 the files on the server do not change. To try a different source and keep this location, use

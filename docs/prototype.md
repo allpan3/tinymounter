@@ -87,6 +87,10 @@ Forget on the password row deletes the server, its shares and its Keychain item.
 refuses the saved password, every location of that server shows "Sign in again." and Sign In
 Again…, and the app makes no further logon attempt until the user enters a new password.
 
+Settings shows SMB as the protocol, separately from the Finder mode. The sidebar uses a folder
+icon for File Provider and a drive icon for Server Volume, with the protocol and mode below each
+location name.
+
 Server Volume is a separate whole-share location mode. It asks macOS to mount the share visibly
 and opens it in Finder, with no File Provider catalog, download cache or Read only control. The
 app signs in with the server's saved name and password, then passes them to NetFS; macOS shows no
