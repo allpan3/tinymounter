@@ -132,11 +132,10 @@ public final class UploadOutbox {
                 let digest = try file.map { try $0.checksum(range: ByteRange(offset: 0, length: size, fileSize: size)) }
                     ?? Self.emptyDigest
                 if previous.size != size || previous.digest != digest {
-                    // macOS sends the item again when its contents change before the upload finished,
-                    // for example when it took a file that an app was still writing. An uncertain
-                    // attempt or a finished upload keeps the refusal.
+                    // A late cancel can hide completion; a changed resend must keep the server identity.
                     guard contents != nil,
-                          [.staging, .prepared, .collision, .created, .verified].contains(previous.state) else {
+                          [.staging, .prepared, .collision, .created, .verified].contains(previous.state)
+                            || (previous.state == .completed && previous.serverFile != nil) else {
                         throw UploadError.unresolved
                     }
                     try replaceContents(&previous, size: size, digest: digest, modified: request.modified)
