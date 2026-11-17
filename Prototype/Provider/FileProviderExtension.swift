@@ -495,7 +495,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                                   options: options, completion: completionHandler)
         }
         let organization: NSFileProviderItemFields = [.filename, .parentItemIdentifier]
-        let organizationAndDate = organization.union(.contentModificationDate)
+        let organizationAndDate = organization.union([.creationDate, .contentModificationDate])
         let folderOrganization = SourceReaderBridge.folderOrganizationEnabled && Self.kind(of: item) == .folder
             && (try? catalog.liveRow(item.itemIdentifier.rawValue).allowsWriting) == true
         if !changedFields.intersection(organization).isEmpty,
@@ -503,7 +503,9 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
            newContents == nil, Self.kind(of: item) == .file || folderOrganization {
             return organizeItem(item, baseVersion: version, changedFields: changedFields, completion: completionHandler)
         }
-        let metadata: NSFileProviderItemFields = [.lastUsedDate, .contentModificationDate, .extendedAttributes]
+        let metadata: NSFileProviderItemFields = [
+            .lastUsedDate, .creationDate, .contentModificationDate, .extendedAttributes
+        ]
         if newContents == nil, !changedFields.isEmpty, changedFields.subtracting(metadata).isEmpty {
             do {
                 let row = try catalog.liveRow(item.itemIdentifier.rawValue)
