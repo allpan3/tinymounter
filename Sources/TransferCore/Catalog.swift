@@ -35,7 +35,7 @@ public struct CatalogRow: Equatable, Sendable {
     public let listGen: Int64?
     public let listedAt: Date?
     public let changeSeq: Int64
-    /// `meta.paused` in the same read, so a kept item's download policy matches its `changeSeq`.
+    // Pause and retention must come from the same catalog snapshot.
     public let paused: Bool
     /// The location's single write mode: creation, editing and organization.
     public let allowsWriting: Bool

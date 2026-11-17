@@ -15,18 +15,21 @@ server. No server component is required. One Read only control governs all suppo
 Signed VM validation covers combined Finder create/save/rename/move/replace/delete workflows,
 retained offline bytes through restart and disk pressure, eviction and re-download, saved keeps
 after re-add, separate accounts, app-closed behavior and interrupted app replacement. Manual
-recovery after system reimport preserves both copies. The paused-retention gap below keeps M27
-open. Actual sleep/wake remains unverified because the VM refuses system sleep.
+recovery after system reimport preserves both copies. Kept files retain their bytes while paused
+under disk pressure; new keeps wait for Resume, and explicit opens still download. The supported
+VM checks are complete. Startup with accumulated old test domains can exhaust `fileproviderd`'s
+file descriptors; restarting that daemon restored service. Actual sleep/wake remains unverified
+because the VM refuses system sleep.
 
 Phase 3 is not declared complete merely because its individual VM milestones passed.
 Physical-Mac writes, download preservation and restart checks stay unverified until the user
 performs them or authorizes a suitable disposable setup. Agent testing still leaves the
 original NAS read-only.
 
-Severe pressure in the VM exposed a retention gap: Pause makes kept files evictable. Keeping
-their pin policy while paused, and therefore requiring Allow Removal before manual eviction,
-awaits the user's decision. The accepted system-reimport behavior preserves uncertain local
-files for manual resolution; neither copy wins automatically.
+The accepted Pause behavior keeps file pins active while blocking background transfers.
+Direct eviction requires Allow Removal first; macOS can still evict independently kept children
+when an unkept parent is evicted. The accepted system-reimport
+behavior preserves uncertain local files for manual resolution; neither copy wins automatically.
 
 Include a read-only `CHANGE_NOTIFY` check on the user's NAS, with the user making the changes
 from another device; change notification is verified only against Samba so far.

@@ -24,7 +24,8 @@ uses the app's own SMB connection for sign-in, listings, metadata, reads, writes
 notification. The menu bar panel shows transfers and recent activity, with configurable
 notifications and upload recovery. [Daily-use validation](docs/roadmap.md#daily-use-validation-m27) is in progress.
 The current source preserves uncertain local files for manual recovery after macOS loses its
-synchronization state; that fix is not in 0.4.0. Physical-Mac acceptance checks remain open. Writable partial reads
+synchronization state and retains kept downloads during Pause. Both fixes passed signed VM checks
+and are not in 0.4.0. Physical-Mac acceptance checks remain open. Writable partial reads
 stay at about 0.73 of native; 0.90 remains the improvement goal.
 
 File Provider supports partial-file downloads. It is not a native SMB mount, and some applications still request whole files. Full downloads reach more than 90% of native SMB throughput in the VM. Sequential partial-read throughput is below target, and Finder-launched opens always download the whole file first.

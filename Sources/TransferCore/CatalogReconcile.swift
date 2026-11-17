@@ -309,7 +309,7 @@ extension Catalog {
         }
     }
 
-    /// Each kept live row takes a new sequence, because its download policy changes.
+    // Refresh kept items so Resume can retry downloads without changing their retention policy.
     @discardableResult
     public func setPaused(_ paused: Bool) throws -> Int {
         try write { seq in
