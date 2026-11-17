@@ -1,14 +1,14 @@
-# Install TinyMounter 0.3.1
+# Install TinyMounter 0.4.0
 
 This release is for personal use on **Apple silicon with macOS 27 or later**.
 It uses development signing, without Apple notarization. Intel Macs and older macOS versions
 are not supported by this package. Download it while signed in to the private GitHub repository:
 
-[TinyMounter 0.3.1](https://github.com/allpan3/tinymounter/releases/tag/v0.3.1)
+[TinyMounter 0.4.0](https://github.com/allpan3/tinymounter/releases/tag/v0.4.0)
 
 ## Install or update
 
-1. Download `TinyMounter-0.3.1-macOS-arm64.dmg` and open it.
+1. Download `TinyMounter-0.4.0-macOS-arm64.dmg` and open it.
 2. If TinyMounter is running, let pending uploads finish, then quit it from its menu.
 3. Drag `TinyMounter.app` to Applications, replacing the existing app, then eject the DMG.
    Keep only one installed copy. The app is already signed; no Terminal signing command is needed.
@@ -28,7 +28,7 @@ TinyMounter keeps the password in a login keychain item, `dev.tinymounter.smb`. 
 locations no longer mount the share, and the share-access panel is gone. Server Volume
 locations use the same saved password.
 
-An update from 0.2.0 or 0.3.0 keeps the locations, saved servers, keep requests, downloaded
+An update from 0.2.0, 0.3.0 or 0.3.1 keeps the locations, saved servers, keep requests, downloaded
 copies and pending uploads.
 
 ### Update from 0.1.x: Start Fresh is required
@@ -38,7 +38,7 @@ refuses them, and General offers Start Fresh.
 
 1. Before you replace the app, open 0.1.x and let pending uploads finish. Copy any file whose
    upload does not finish to a local folder.
-2. Install 0.3.1 as above, then click **Start Fresh** in General and confirm it.
+2. Install 0.4.0 as above, then click **Start Fresh** in General and confirm it.
 3. Add each location again with Add Server…, as in step 5. Set Keep Downloaded again where
    you want offline copies.
 4. Eject the old hidden share mount: restart the Mac, or run `mount | grep nobrowse` in
@@ -69,10 +69,20 @@ Retry. **General → Notifications** chooses, for each kind of event, whether it
 notification, shows in the panel, both or neither. Enable writes only for locations you want to
 edit. Ordinary saves, file/folder organization, Finder file and folder Replace, permanent
 deletion and offline edits have signed VM checks on 0.2.0, and the panel, notifications and
-upload recovery on 0.3.x; Preview and Xcode saves were checked on 0.1.x. A file that you save or
+upload recovery on 0.3.x and 0.4.0; Preview and Xcode saves were checked on 0.1.x. A file that you save or
 copy in keeps its modification time on the server, as with Finder's own SMB copies, and a saved
 kept file shows Available offline again. Keep NAS snapshots or backups: TinyMounter does not
 keep previous remote versions or a Trash.
+
+Settings identifies SMB separately from the Finder mode, with a folder icon for File Provider
+and a drive icon for Server Volume. A full menu scrolls its contents while Settings and Quit
+stay visible.
+
+A create or save waiting for other changes on the share retries automatically without a failure
+notification or activity row. Settings keeps the reason while it waits. Successful uploads clear
+their earlier failure rows. Stop Uploading can settle an abandoned partial new-file upload after
+checking its server identity. A changed resend after late cancellation writes the recorded server
+file again; a replacement is refused. Date-only changes stay local without a permission error.
 
 Other file managers, such as QSpace Pro, no longer list a hidden volume for File Provider
 locations. A change that another device makes in a folder you have open usually shows in a few
@@ -113,6 +123,9 @@ Known limits for this release:
   only when the upload ends: macOS waits with new items until then. Changes and deletions of
   items that Finder already shows, and new items during a save of an existing file, appear as
   usual.
+- Rename recovery requires stable server identities for parent folders, including their creation
+  times. A server that changes a parent's reported creation time can leave recovery pending;
+  Retry does not bypass the replacement check.
 - Wake and network-change reconnection of 0.2.0 sessions have not had VM checks.
 - There is no automatic updater. Install later releases by replacing the app after uploads finish.
 
@@ -120,7 +133,7 @@ Known limits for this release:
 
 TinyMounter's own code is MIT licensed; that does not relicense its dependencies. The separate
 `libTinyMounterSMB.dylib` contains modified libsmb2 6.3 under LGPL-2.1-or-later. The DMG includes both licences and the library notices separately from its short Read Me;
-the app also includes the library's licence. The release supplies `TinyMounter-0.3.1-source.tar.gz`,
+the app also includes the library's licence. The release supplies `TinyMounter-0.4.0-source.tar.gz`,
 with the complete matching app/library source, modifications and build scripts. This permits
 rebuilding the app with a modified library; no signing key is required from the publisher.
 
@@ -149,6 +162,6 @@ in `AGENTS.md`. `Tools/package-release.py` packages a signed app; create the mat
 archive with:
 
 ```sh
-git archive --format=tar.gz --prefix=TinyMounter-0.3.1/ \
-  --output=TinyMounter-0.3.1-source.tar.gz v0.3.1
+git archive --format=tar.gz --prefix=TinyMounter-0.4.0/ \
+  --output=TinyMounter-0.4.0-source.tar.gz v0.4.0
 ```

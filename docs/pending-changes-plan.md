@@ -77,6 +77,10 @@ overlapping locations. Their pending state can block related operations. A refus
 rename/move shows its original path and instructions for restoring its name/parent in Finder.
 It is not safe to report success merely because the old remote pathname is absent.
 
+Recovery requires stable server identities for the parent folders, including their creation
+times. A server that changes a parent's reported creation time can leave recovery pending even
+when its file ID is unchanged. Retry does not bypass this replacement check.
+
 ## Location removal
 
 Every domain removal uses `.preserveDirtyUserData`. macOS keeps items that did not upload in a
