@@ -315,6 +315,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
         do {
             let request = try ReaderMessage.decode(CreateRequest.self, from: data)
             guard let source else { throw LocationError.catalogClosed }
+            try source.checkReimport(request)
             let job = Job()
             let accepted = lock.withLock {
                 guard !closed, jobs.count < Self.maxJobs, jobs[request.id] == nil else { return false }
@@ -352,7 +353,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
                     reply(nil, Self.mutationError(error))
                 }
             }
-        } catch { reply(nil, Self.replyError(error)) }
+        } catch { reply(nil, Self.mutationError(error)) }
     }
 
     func edit(_ data: Data, reply: @escaping (Data?, NSError?) -> Void) {
@@ -560,6 +561,7 @@ private final class SourceReaderSession: NSObject, SourceReaderProtocol, @unchec
             }
         }
         switch error as? UploadError {
+        case .reimportRecovery: return SourceReaderBridge.reimportRecoveryError
         case .pendingWrites: return SourceReaderBridge.pendingWritesError
         case .editConflict: return NSFileProviderError(.localVersionConflictingWithServer) as NSError
         case .excluded: return NSFileProviderError(.excludedFromSync) as NSError

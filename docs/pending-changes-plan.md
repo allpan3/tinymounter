@@ -34,7 +34,7 @@ Stop Uploading or closing the location ends that wakeup. Reconnection preserves 
 
 Writes go only through the app's SMB sessions, and the mutation error mapper keeps connection
 failures retryable, so a complete local edit uploads again after an app or
-provider restart.
+provider restart while macOS retains its synchronization state.
 
 <a id="decisions"></a>
 
@@ -80,6 +80,26 @@ It is not safe to report success merely because the old remote pathname is absen
 Recovery requires stable server identities for the parent folders, including their creation
 times. A server that changes a parent's reported creation time can leave recovery pending even
 when its file ID is unchanged. Retry does not bypass this replacement check.
+
+## System reimport
+
+If macOS loses its synchronization database, it asks the extension to reimport local items.
+A file whose size or modification date differs from the catalog might contain an unsent edit,
+or it might be an old download. TinyMounter preserves it with a recovery error. It neither
+fetches over the local contents nor uploads them over the server copy. Files with no catalog
+match but with local contents, and unmatched folders, are also retained. Settings shows a local
+recovery notice with the original path and a button to open the location. macOS may rename the
+local item during recovery, so check the location for that copy. The app saves only the notice
+and item identity, not another copy of the contents. That identity also blocks a later ordinary
+create retry. Retry does not authorize either copy to replace the other; notices remain until
+the location is removed.
+
+Copy the retained item outside the location and verify that the copy opens. Finder preview and
+copy can remain blocked while reimport is unresolved. If copying is blocked, cancel the copy,
+settle app-owned pending operations, and remove the location. macOS preserves unsent files in a
+recovery folder that opens in Finder. Verify those files, compare them with the server copy,
+and add the location again. Copy the chosen contents into the new location only when you intend
+an ordinary upload; keep the recovery copy until that upload completes.
 
 ## Location removal
 

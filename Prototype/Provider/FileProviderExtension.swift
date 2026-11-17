@@ -462,26 +462,49 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         }
         let decision: ReimportDecision
         if options.contains(.mayAlreadyExist) {
-            decision = (try? catalog.read { catalog in
-                try catalog.reimportDecision(parent: itemTemplate.parentItemIdentifier.rawValue, name: itemTemplate.filename,
-                                             kind: Self.kind(of: itemTemplate), hasContents: url != nil,
-                                             size: (itemTemplate.documentSize ?? nil)?.int64Value,
-                                             modified: itemTemplate.contentModificationDate ?? nil)
-            }) ?? .reject
+            do {
+                decision = try catalog.read { catalog in
+                    try catalog.reimportDecision(parent: itemTemplate.parentItemIdentifier.rawValue,
+                        name: itemTemplate.filename, kind: Self.kind(of: itemTemplate), hasContents: url != nil,
+                        size: (itemTemplate.documentSize ?? nil)?.int64Value,
+                        modified: itemTemplate.contentModificationDate ?? nil)
+                }
+            } catch {
+                completionHandler(nil, [], false, providerError(error))
+                return Progress()
+            }
         } else {
             decision = .reject
         }
         let reimport = options.contains(.mayAlreadyExist) ? 1 : 0
         switch decision {
-        case .existing(let row, let fetchContent):
-            countMutation("create", "reimport=\(reimport) result=existing fetch=\(fetchContent ? 1 : 0)")
-            completionHandler(CatalogItem(row), [], fetchContent, nil)
+        case .existing(let row):
+            countMutation("create", "reimport=\(reimport) result=existing")
+            completionHandler(CatalogItem(row), [], false, nil)
         case .discard:
             countMutation("create", "reimport=\(reimport) result=discarded")
             completionHandler(nil, [], false, nil)
         case .reject:
             countMutation("create", "reimport=\(reimport) result=rejected")
-            completionHandler(nil, [], false, CocoaError(.fileWriteNoPermission))
+            guard options.contains(.mayAlreadyExist), let kind = Self.kind(of: itemTemplate) else {
+                completionHandler(nil, [], false, CocoaError(.fileWriteNoPermission))
+                return Progress()
+            }
+            let progress = Progress(totalUnitCount: 1)
+            DispatchQueue.global(qos: .userInitiated).async { [self] in
+                do {
+                    let message = try CreateRequest(template: itemTemplate.itemIdentifier.rawValue,
+                        parent: itemTemplate.parentItemIdentifier.rawValue, name: itemTemplate.filename,
+                        kind: kind, staging: nil, recoveringReimport: true)
+                    _ = try sourceReader.create(message, progress: progress)
+                } catch {
+                    if !SourceReaderBridge.isReimportRecovery(error as NSError) {
+                        catalogLogger.error("reimport_notice failed \(logFields(error), privacy: .public)")
+                    }
+                }
+                completionHandler(nil, [], false, SourceReaderBridge.reimportRecoveryError)
+            }
+            return progress
         }
         return Progress()
     }

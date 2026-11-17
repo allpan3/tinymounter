@@ -193,6 +193,7 @@ enum UIText {
             case .invalidRequest: return "TinyMounter cannot create this item in this folder."
             case .editConflict: return "The item changed on the server."
             case .excluded: return "The upload was stopped."
+            case .reimportRecovery: return SourceReaderBridge.reimportRecoveryDescription
             }
         }
         if let failure = error as? FolderMutationFailure {
@@ -242,12 +243,15 @@ enum UIText {
         if SourceReaderBridge.isRefusedOrganization(error) {
             return SourceReaderBridge.refusedOrganizationError.localizedDescription
         }
+        if SourceReaderBridge.isReimportRecovery(error) { return SourceReaderBridge.reimportRecoveryDescription }
         if error.domain == NSFileProviderErrorDomain, error.code == NSFileProviderError.cannotSynchronize.rawValue {
             return "macOS could not synchronize this change. Select Retry Pending Changes to check again."
         }
         return error.localizedDescription
     }
     static func systemPending(_ path: String) -> String { "Pending in macOS: \(path)" }
+    static func reimportRecovery(_ path: String) -> String { "Local recovery: \(path)" }
+    static let showRecoveryLocation = "Show Location in Finder"
     static func pendingOriginalPath(_ path: String) -> String { "Last known server path: \(path)" }
     static let pendingOrganizationUndo = "To undo a refused rename or move, restore this name and folder in Finder. After it clears, you can try the change again."
     static let renameNeedsRecovery = "File change pending or needs recovery. Keep this location until it finishes."

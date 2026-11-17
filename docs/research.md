@@ -102,6 +102,12 @@ No reviewed page establishes ≥90% native throughput for an offline-caching SMB
 - **S1:** Installed Xcode 27 `NSFileProviderManager.h`, read 2026-10-21. `signalErrorResolved` lists authentication, server quota, reachability, synchronization and exclusion errors; it does not list local disk-full errors. `requestDownloadForItem` is the supported route used to request blocked kept files again.
 - **S2:** Installed SDK `NSURL.h` distinguishes ordinary free capacity from important/opportunistic capacity estimates that can include purgeable space. M16 reads fresh `volumeAvailableCapacity` values and handles write failures even after admission. `NSFileProviderErrorInsufficientQuota` describes server-account upload quota, so it is not used for local storage pressure.
 
+- **S3:** Installed Xcode 27 `NSFileProviderReplicatedExtension.h`, reviewed 2026-11-17.
+  `mayAlreadyExist` includes recovery after synchronization state is lost. In `createItem`,
+  `shouldFetchContent` replaces disk contents; a nil item without an error deletes the local
+  item. Returning an error retains it. `cannotSynchronize` backs off until signalled. Reimport
+  does not establish whether differing local bytes are an unsent edit or a stale download.
+
 ### Native SMB directory monitoring
 
 - **C1:** [DispatchSourceFileSystemObject](https://developer.apple.com/documentation/dispatch/dispatchsourcefilesystemobject) and [Apple's kernel-queue guide](https://developer.apple.com/library/archive/documentation/Darwin/Conceptual/FSEvents_ProgGuide/KernelQueues/KernelQueues.html), read on 2026-10-19. Public vnode sources observe a descriptor, with O_EVTONLY suitable for notification-only access.
@@ -325,6 +331,18 @@ deletion options. Its reimport flag, `mayAlreadyExist`, is not replacement autho
 system observed an event, not its purpose. These headers were read on 2026-11-03. The signed
 Finder observation sent separate delete/create
 callbacks for Replace; no supported intent/base binding was found in the reviewed interfaces.
+
+### Reimport recovery errors, 2026-11-17
+
+The installed Xcode 27 File Provider headers describe `mayAlreadyExist` as reimport and the
+create completion's `shouldFetchContent` as replacing local contents. Neither establishes
+whether a differing local file is an unsent edit. In the signed macOS 27.0.1 VM, refusing with
+`cannotSynchronize` led to an ordinary create retry without `mayAlreadyExist`, followed by a
+collision rename and upload. `CocoaError.fileWriteNoPermission` retained reimport retries and
+both copies. `excludedFromSync` retained contents but removed them from normal pending-item
+enumeration; its documented delete-callback semantics also make it unsuitable for this case.
+Unfinished refused imports were absent from normal pending-item enumeration too, so the app
+needs its own recovery notices. These observations are specific to this VM and OS build.
 
 ## Research limitations
 

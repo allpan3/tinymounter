@@ -14,6 +14,20 @@ extension LocationSource {
 
     private func outbox() throws -> UploadOutbox { try Self.outbox(domainID: domainID) }
 
+    func checkReimport(_ request: CreateRequest) throws {
+        try uploadLock.withLock {
+            var path: RelativePath?
+            if request.recoveringReimport {
+                path = try? withCatalog { try $0.relativePath(of: request.parent)?.appending(request.name) }
+            }
+            try outbox().checkReimport(request, path: path)
+        }
+    }
+
+    func reimportRecoveries() throws -> [ReimportRecovery] {
+        try uploadLock.readForStatus { try outbox().reimportRecoveries().sorted { $0.path < $1.path } }
+    }
+
     func configureWriteMode(_ writable: Bool) throws {
         try editNamespace.perform { try uploadLock.withLock {
             guard !mutationsSuspended else { throw UploadError.readOnly }
@@ -78,6 +92,7 @@ extension LocationSource {
             // Retry releases only throttled items, so a failure clears when its item is tried again.
             failedCreatesLock.withLock { failedCreates[request.template] = nil }
             let result = Result { () throws -> CreateReceipt in
+                try checkReimport(request)
                 // A stopped item is told to stay on this Mac before anything else is checked.
                 if try uploadLock.withLock({ try outbox().takeStopped(template: request.template) }) {
                     throw UploadError.excluded

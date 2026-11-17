@@ -475,6 +475,11 @@ final class LocationController {
         return try await Self.offMain { try source.pendingCreates() }
     }
 
+    func reimportRecoveries(_ record: LocationRecord) async throws -> [ReimportRecovery] {
+        guard let source = sources[record.domainID] else { throw LocationError.catalogClosed }
+        return try await Self.offMain { try source.reimportRecoveries() }
+    }
+
     func deletionRecords(_ record: LocationRecord) async throws -> [DeletionStatus] {
         let owners = sources
         return try await Self.offMain {

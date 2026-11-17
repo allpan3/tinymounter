@@ -686,6 +686,7 @@ private struct UploadStatus: View {
     @State private var count: Int?
     @State private var renames: [RenameIntent] = []
     @State private var creates: [PendingCreate] = []
+    @State private var recoveries: [ReimportRecovery] = []
     @State private var systemPending = SystemPendingChanges()
     @State private var systemUnavailable = false
     @State private var savedBytes: Int64 = 0
@@ -700,11 +701,19 @@ private struct UploadStatus: View {
                 Label(UIText.pendingUploads(count), systemImage: "arrow.up.circle")
                 Text(UIText.pendingUploadHint).font(.callout).foregroundStyle(.secondary)
             }
-            if count ?? 0 > 0 || !creates.isEmpty || !systemPending.items.isEmpty {
+            if count ?? 0 > 0 || !creates.isEmpty || !systemPending.items.isEmpty || !recoveries.isEmpty {
                 Button(UIText.retryPending) { model.retryPending(record) }
             }
             if systemPending.incomplete {
                 Text(UIText.systemPendingIncomplete).foregroundStyle(.secondary)
+            }
+            ForEach(recoveries) { item in
+                VStack(alignment: .leading) {
+                    Label(UIText.reimportRecovery(item.path), systemImage: "exclamationmark.triangle")
+                    Text(SourceReaderBridge.reimportRecoveryDescription)
+                        .font(.callout).foregroundStyle(.secondary)
+                    Button(UIText.showRecoveryLocation) { model.showInFinder(record.id) }
+                }
             }
             ForEach(systemPending.items) { item in
                 VStack(alignment: .leading) {
@@ -755,6 +764,7 @@ private struct UploadStatus: View {
                     count = try await model.pendingUploads(record)
                     renames = try await model.renameRecords(record)
                     creates = try await model.pendingCreates(record)
+                    recoveries = try await model.reimportRecoveries(record)
                     savedBytes = try await model.savedChangeBytes(record)
                     statusUnavailable = false
                 } catch {

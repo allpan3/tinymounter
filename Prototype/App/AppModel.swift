@@ -621,6 +621,10 @@ final class AppModel {
         try await controller.pendingCreates(record)
     }
 
+    func reimportRecoveries(_ record: LocationRecord) async throws -> [ReimportRecovery] {
+        try await controller.reimportRecoveries(record)
+    }
+
     func systemPendingChanges(_ record: LocationRecord) async throws -> SystemPendingChanges {
         try await controller.systemPendingChanges(record)
     }

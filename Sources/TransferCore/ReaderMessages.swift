@@ -177,12 +177,15 @@ public struct CreateRequest: Codable, Equatable, Sendable {
     public let staging: UUID?
     /// The new file's `contentModificationDate`, which the server keeps after the upload.
     public let modified: Date?
+    public let recoveringReimport: Bool
 
     public init(id: UUID = UUID(), template: String, parent: String, name: String,
-                kind: CatalogRow.Kind, staging: UUID?, modified: Date? = nil) throws {
+                kind: CatalogRow.Kind, staging: UUID?, modified: Date? = nil,
+                recoveringReimport: Bool = false) throws {
         guard !template.isEmpty, template.utf8.count <= 1024,
               ReaderMessage.isItemID(parent), RelativePath.isValidComponent(name),
-              !name.hasPrefix(".tinymounter-"), kind == .file || staging == nil else {
+              !name.hasPrefix(".tinymounter-"), kind == .file || staging == nil,
+              !recoveringReimport || staging == nil else {
             throw UploadError.invalidRequest
         }
         self.id = id
@@ -192,6 +195,7 @@ public struct CreateRequest: Codable, Equatable, Sendable {
         self.kind = kind
         self.staging = staging
         self.modified = modified
+        self.recoveringReimport = recoveringReimport
     }
 
     public init(from decoder: Decoder) throws {
@@ -199,7 +203,8 @@ public struct CreateRequest: Codable, Equatable, Sendable {
         try self.init(id: c.decode(UUID.self, forKey: .id), template: c.decode(String.self, forKey: .template),
                       parent: c.decode(String.self, forKey: .parent), name: c.decode(String.self, forKey: .name),
                       kind: c.decode(CatalogRow.Kind.self, forKey: .kind), staging: c.decodeIfPresent(UUID.self, forKey: .staging),
-                      modified: c.decodeIfPresent(Date.self, forKey: .modified))
+                      modified: c.decodeIfPresent(Date.self, forKey: .modified),
+                      recoveringReimport: c.decode(Bool.self, forKey: .recoveringReimport))
     }
 }
 
@@ -283,6 +288,7 @@ public enum UploadError: Error, Equatable, Sendable {
     case editConflict
     /// The user stopped the upload; macOS keeps the item on this Mac.
     case excluded
+    case reimportRecovery
 }
 
 public struct EditRequest: Codable, Sendable {
