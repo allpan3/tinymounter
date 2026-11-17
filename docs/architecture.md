@@ -192,9 +192,10 @@ New uploads use exclusive creation. An acknowledged partial upload restarts the 
 only after matching the recorded server identity; an uncertain create never overwrites an
 unrelated destination. macOS sends a new item again when its contents change before the upload
 finishes, for example when it took a file that an app was still writing. The new contents then
-replace the retained copy, and an acknowledged partial file is written again with them. Listings
-leave out a file that a pending upload is still writing, so it never appears beside the local
-item. Stop Uploading deletes such a file after matching its recorded identity, so that an upload
+replace the retained copy, and an acknowledged partial file is written again with them. A late
+cancellation can hide completion from macOS. A changed resend then rewrites the recorded server
+file; an unrelated replacement is refused. Listings leave out a file that a pending upload is
+still writing, so it never appears beside the local item. Stop Uploading deletes such a file after matching its recorded identity, so that an upload
 that macOS no longer sends can be settled. Local retained contents have integrity checks, but the remote upload is
 not read back in full. Existing-file saves use ordinary overwrite semantics. Creates and saves run
 one at a time on the share's lane, and the share's namespace lock covers their checks, the server

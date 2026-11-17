@@ -44,6 +44,10 @@ present keeps the outcome uncertain. An acknowledged partial file restarts its c
 only after checking the recorded identity. Local payload hashes protect this retained copy;
 the remote file is not read back in full.
 
+A late cancellation can hide a completed upload from macOS. A resend with newer contents
+retains the same server identity and catalog item, and writes that server file again. A replaced
+or missing server file is refused, with the new local contents retained for recovery.
+
 Stop Uploading is available for a new item before remote mutation is possible. It is also
 available for a new file whose upload left a partial server file or lost its create reply, while
 no upload of it runs, so that an item that macOS no longer sends can be settled. For a partial

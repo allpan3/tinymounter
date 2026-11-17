@@ -41,6 +41,7 @@ final class UploadTests: XCTestCase {
         var writeError: Error?
         var creates = 0, writes = 0, inspections = 0, resumptions = 0
         var resumedIdentity: RemoteFileIdentity?
+        var resumedContents: Data?
         var savedTimes: [Date?] = []
         var discarded: [RemoteFileIdentity?] = []
         var discardError: Error?
@@ -74,6 +75,7 @@ final class UploadTests: XCTestCase {
             resumptions += 1
             savedTimes.append(modified)
             resumedIdentity = identity
+            resumedContents = try Data(contentsOf: contents)
             return version
         }
 
@@ -724,7 +726,7 @@ final class UploadTests: XCTestCase {
         XCTAssertEqual(replay.serverFile, record.serverFile)
     }
 
-    func testChangedContentsCannotReuseAnUncertainOrFinishedUpload() throws {
+    func testChangedContentsCannotReuseAnUncertainOrCompletedUploadWithoutServerIdentity() throws {
         var record = try prepared()
         record.state = .attempting
         try outbox.save(record)
@@ -738,6 +740,72 @@ final class UploadTests: XCTestCase {
         try Data("other bytes".utf8).write(to: input)
         XCTAssertThrowsError(try outbox.prepare(request(for: record), path: path, contents: input, progress: Progress()))
         XCTAssertEqual(try outbox.records().first?.state, .completed)
+    }
+
+    func testChangedResendAfterCompletionRewritesTheRecordedFileAndKeepsItsItem() throws {
+        var record = try prepared()
+        let server = try DirectRemote(record)
+        try outbox.upload(&record, remote: server, progress: Progress())
+        let item = UUID().uuidString
+        try outbox.complete(&record, item: item)
+        let identity = record.serverFile
+        for changed in [Data(repeating: 0xab, count: payload.count), Data("shorter resend".utf8)] {
+            outbox = try UploadOutbox(directory: root.appending(path: "pending"))
+            try changed.write(to: input)
+            record = try outbox.prepare(request(for: record), path: XCTUnwrap(RelativePath(record.path)),
+                                         contents: input, progress: Progress())
+            XCTAssertEqual(record.state, .created)
+            XCTAssertEqual(record.serverFile, identity)
+            XCTAssertEqual(record.item, item)
+            XCTAssertEqual(try outbox.pendingCount, 1)
+            server.version = try RemoteFileVersion(identity: server.version.identity, size: Int64(changed.count),
+                modifiedMicroseconds: 400, changedMicroseconds: 500, attributes: 0)
+            try outbox.upload(&record, remote: server, progress: Progress())
+            XCTAssertEqual(server.resumedContents, changed)
+            XCTAssertEqual(server.resumedIdentity, identity)
+            try outbox.complete(&record, item: item)
+            XCTAssertEqual(try outbox.pendingCount, 0)
+            XCTAssertEqual(try outbox.contentBytes, 0)
+        }
+        XCTAssertEqual(server.creates, 1)
+        XCTAssertEqual(server.writes, 1)
+        XCTAssertEqual(server.resumptions, 2)
+    }
+
+    func testUnchangedResendAfterCompletionOnlyAcknowledgesTheExistingItem() throws {
+        var record = try prepared()
+        let server = try DirectRemote(record)
+        try outbox.upload(&record, remote: server, progress: Progress())
+        let item = UUID().uuidString
+        try outbox.complete(&record, item: item)
+        record = try outbox.prepare(request(for: record), path: XCTUnwrap(RelativePath(record.path)),
+                                     contents: input, progress: Progress())
+        XCTAssertEqual(record.state, .completed)
+        XCTAssertEqual(record.item, item)
+        try outbox.upload(&record, remote: server, progress: Progress())
+        XCTAssertEqual(server.creates, 1)
+        XCTAssertEqual(server.writes, 1)
+        XCTAssertEqual(server.resumptions, 0)
+        XCTAssertEqual(try outbox.contentBytes, 0)
+    }
+
+    func testChangedCompletedResendRetainsNewContentsWhenTheServerIdentityDiffers() throws {
+        var record = try prepared()
+        let server = try DirectRemote(record)
+        try outbox.upload(&record, remote: server, progress: Progress())
+        try outbox.complete(&record, item: UUID().uuidString)
+        let changed = Data("new local contents".utf8)
+        try changed.write(to: input)
+        record = try outbox.prepare(request(for: record), path: XCTUnwrap(RelativePath(record.path)),
+                                     contents: input, progress: Progress())
+        server.version = try RemoteFileVersion(identity: RemoteFileIdentity(fileID: 42, birthMicroseconds: 101),
+            size: Int64(changed.count), modifiedMicroseconds: 200, changedMicroseconds: 300, attributes: 0)
+        XCTAssertThrowsError(try outbox.upload(&record, remote: server, progress: Progress())) {
+            XCTAssertEqual($0 as? UploadError, .unresolved)
+        }
+        XCTAssertEqual(try outbox.records().first?.state, .created)
+        XCTAssertEqual(try outbox.pendingCount, 1)
+        XCTAssertEqual(try Data(contentsOf: root.appending(path: "pending/\(record.id.uuidString).data")), changed)
     }
 
     func testUnfinishedFilesNameOnlyServerFilesThatAreStillBeingWritten() throws {
