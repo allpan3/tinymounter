@@ -214,8 +214,9 @@ the first location on a server.
 The icon is a monochrome outline of the selected drive-and-network logo, without the TM.
 An arrow inside the drive indicates downloads; an exclamation mark indicates a problem.
 Problem status takes precedence. macOS supplies the light/dark menu-bar tint. A click opens a
-panel about 340 points wide, in the native look of a window-style `MenuBarExtra`. From top to
-bottom:
+panel about 340 points wide, in the native look of a window-style `MenuBarExtra`. When the panel
+would exceed the screen's usable height, the sections above the actions scroll; the action rows
+stay visible. From top to bottom:
 
 - **Locations:** one row for each location and Server Volume, with a status dot, the name and
   the state in secondary text: Connected, Paused, 42% downloaded, Offline (the server does not

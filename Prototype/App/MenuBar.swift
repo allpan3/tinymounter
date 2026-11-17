@@ -13,8 +13,40 @@ struct MenuBarContent: View {
     /// The panel is key while it shows, so the pending count is read only then.
     @Environment(\.appearsActive) private var appearsActive
     @State private var pending = 0
+    @State private var detailsHeight: CGFloat = 0
+    @State private var actionsHeight: CGFloat = 0
+    @State private var availableHeight: CGFloat = 600
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ScrollView {
+                details
+                    .fixedSize(horizontal: false, vertical: true)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { detailsHeight = $0 }
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(height: min(detailsHeight, max(0, availableHeight - actionsHeight - 12)))
+            actions
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { actionsHeight = $0 }
+        }
+        .padding(.vertical, 6)
+        .frame(width: PanelLayout.width)
+        .onAppear(perform: updateAvailableHeight)
+        .onChange(of: appearsActive, initial: true) { _, active in
+            if active { updateAvailableHeight() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)) { _ in
+            updateAvailableHeight()
+        }
+        .task(id: appearsActive) {
+            while appearsActive, !Task.isCancelled {
+                pending = await model.pendingCount()
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+    }
+
+    private var details: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let problem = model.problem {
                 Label(problem, systemImage: "exclamationmark.triangle")
@@ -38,6 +70,11 @@ struct MenuBarContent: View {
             PanelDivider()
             PanelHeader(UIText.recentActivity)
             ActivityList(model: model)
+        }
+    }
+
+    private var actions: some View {
+        VStack(alignment: .leading, spacing: 0) {
             PanelDivider()
             PanelButton(model.paused ? UIText.resumeDownloads : UIText.pauseDownloads, action: model.togglePause)
                 .disabled(!model.isReady)
@@ -49,14 +86,11 @@ struct MenuBarContent: View {
             PanelButton(UIText.quit, trailing: UIText.quitShortcut) { NSApp.terminate(nil) }
                 .keyboardShortcut("q")
         }
-        .padding(.vertical, 6)
-        .frame(width: PanelLayout.width)
-        .task(id: appearsActive) {
-            while appearsActive, !Task.isCancelled {
-                pending = await model.pendingCount()
-                try? await Task.sleep(for: .seconds(2))
-            }
-        }
+    }
+
+    private func updateAvailableHeight() {
+        guard let screen = NSApp.keyWindow?.screen ?? NSScreen.main else { return }
+        availableHeight = max(0, screen.visibleFrame.height - 16)
     }
 
     /// Like a menu, the panel closes when an action opens another window.
