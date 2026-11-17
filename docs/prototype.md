@@ -420,7 +420,7 @@ follows, so the upload is retried. Uploads without a reported time keep the serv
 Rename intents retain affected catalog IDs and settle each view after the server operation.
 Directory enumeration verifies stored spelling, including case-only changes. Metadata indicates
 whether contents changed; it is not a full-content proof. TextEdit's encoding attribute, last-used
-date and a modification date changed without new contents are not uploaded. Metadata-only retries return unsupported
+date, creation date and a modification date changed without new contents are not uploaded. Metadata-only retries return unsupported
 fields through File Provider's documented contract without claiming remote synchronization.
 
 ## Name spelling over SMB

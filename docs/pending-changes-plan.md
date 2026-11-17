@@ -24,6 +24,9 @@ pending operations. Settings reads macOS's pending-item enumerator, including ch
 outbox record. It shows the item's path and failure, offers Show in Finder, and reports an
 incomplete or unavailable pending list instead of treating it as empty.
 
+Creation and modification dates changed without file contents stay local through File Provider's
+unsupported-field contract. They do not produce a permission failure that Retry cannot resolve.
+
 A create or save blocked by other changes keeps that specific reason in Settings, without an
 activity event. Namespace settlement signals a retry. A separate wakeup repeats from 2 seconds
 up to 5 minutes until macOS resends the item; sending a signal alone does not clear it. Resending,
