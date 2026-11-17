@@ -3,8 +3,9 @@
 The [accepted SMB simplification](smb-simplification.md) replaces custom remote recovery and
 content proofs.
 
-Decision status: proposed. The user wants this model settled before deciding on
-any guard against mounting the same folder both ways. Components follow
+Decision status: the broader latency and compatibility targets remain proposed. TinyMounter
+uses one mode per server/share across saved accounts; external clients can still mount the
+same share. Section 10 states the implemented behavior. Components follow
 [architecture.md](architecture.md); identity and change discovery there (§7) remain the baseline.
 Terms follow [ui-design.md §2](ui-design.md#2-terms).
 
@@ -21,7 +22,8 @@ One NAS folder can be visible in up to three ways at once:
 To a File Provider location, a change made through this Mac's server volume is no different from
 a change made by another device. Both edit the source of truth behind its back. So the design never
 asks which view is "right"; it makes the File Provider location converge on the NAS quickly and
-safely. If that works, mounting a folder both ways needs no guard, as the user prefers.
+safely. TinyMounter prevents mixing its own two modes on one share, but cannot prevent other
+clients from accessing that share.
 
 ## 2. Rules
 
@@ -39,7 +41,7 @@ safely. If that works, mounting a folder both ways needs no guard, as the user p
 
 ## 3. What a File Provider location tracks
 
-Per item, in the planned per-domain database:
+Per item, in the per-domain database:
 
 - Stable identity: an opaque UUID mapped to the remote path, plus identity evidence such as the SMB
   file ID where it proves stable. Stability across rename, replace and reconnect still needs
@@ -89,8 +91,8 @@ mixed bytes. A change that preserves size and timestamps can't be detected from 
 limit is stated, not hidden: plain SMB has no immutable revisions to compare.
 
 **A pinned file deleted on the NAS while this Mac was offline.** On reconnect, the deletion
-follows the NAS. Open decision: delete the local copy outright, or keep it for a while in a "Removed
-from NAS" holding area. The holding area is safer but costs disk space and adds a concept.
+follows the NAS after the confirming listing described in section 10. The local copy is removed;
+there is no holding area.
 
 ## 6. Writes
 
@@ -102,7 +104,8 @@ previous-version recovery; TinyMounter creates no remote conflict or recovery co
 File Provider retains pending local contents and retries failed uploads. The signed VM checks
 cover offline saves and a mid-write interruption across app/provider restart. A missing remote
 target remains an error; an edit does not recreate it. These observations do not establish every
-editor's offline behavior or survival across a full OS restart.
+editor's offline behavior. Offline-edit retention through a full macOS restart has a signed VM
+check; physical-Mac restart behavior remains unverified.
 
 New-file uploads still use exclusive creation and a local pending record to distinguish a retry
 from an unrelated destination. Renames and deletions retain local operation records to reconcile
@@ -112,13 +115,13 @@ section 5.
 
 ## 7. Folders and multiple views
 
-- A File Provider location can be rooted at any share subfolder. Two File Provider locations that
-  overlap (`Media` and `Media/Movies`) would both download the same files. Proposal: warn, don't block.
-- A server volume always covers a whole share. A server-volume location for one folder is the
-  mounted share plus an alias into it, in the [Locations
-  folder](ui-design.md#7-locations-folder-one-place-to-navigate).
-- One folder can be a server volume and a File Provider location at the same time. Section 4's
-  triggers keep the File Provider location consistent with the server volume.
+- A File Provider location can be rooted at any share subfolder. Overlapping locations
+  (`Media` and `Media/Movies`) are allowed, with separate catalogs and downloaded copies.
+- A server volume always covers a whole share. The proposed [Locations
+  folder](ui-design.md#7-locations-folder-one-place-to-navigate) of aliases is not scheduled.
+- TinyMounter refuses to mix File Provider and Server Volume modes on one server/share, including
+  through different saved accounts. A separate macOS mount or another device is an external
+  writer; the implemented discovery rules in section 10 apply.
 
 ## 8. What this can't promise
 
@@ -130,9 +133,9 @@ section 5.
 
 ## 9. Tests before claiming it works
 
-Run against an isolated, agreed scratch folder on the NAS; the current share is read-only for
-testing. Each test should pass while the File Provider location is live, and again after offline
-periods:
+Run against the disposable Samba fixture in the VM. Physical-NAS writes need a separately
+authorized scratch area; the original NAS stays read-only for agent testing. Each test should
+pass while the File Provider location is live, and again after offline periods:
 
 1. Create, rename, move and delete through the server volume; the File Provider location reflects
    each within the target.
@@ -188,12 +191,10 @@ of NAS freshness. The broader latency targets in section 4 remain proposed.
 ## 11. Open decisions
 
 - Latency targets: the table in section 4 is a proposal.
-- A pinned file deleted on the NAS: delete the local copy, or keep it in a holding area?
-- A pinned file that changed remotely: can the user open the old local copy while the update is
-  pending offline, clearly labelled?
+- A pinned file that changed remotely: whether its previous local contents remain readable
+  while the update is pending offline needs runtime evidence. There is no labelled stale-copy UI.
 - Broader editor/offline compatibility under ordinary overwrite semantics.
-- Overlapping File Provider locations: warn or block.
-- A scratch folder on the NAS for these tests: which path, and permission to write there.
+- A scratch folder for physical-NAS write tests: which path, and permission to write there.
 
 ## M20 known renames
 

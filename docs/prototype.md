@@ -1,6 +1,6 @@
 # First performance prototype
 
-Status: this document describes how to build, sign and run the current app, 0.2.0, and its
+Status: this document describes how to build, sign and run the current app, 0.4.0, and its
 deliberate limits.
 
 ## Initial implementation and checks
@@ -55,7 +55,7 @@ This initial harness does not collect wire-byte counters, negotiated security, S
 
 ## 2. Build the Finder prototype
 
-Open `TinyMounter.xcodeproj` in Xcode. Configure a development team and unique bundle identifier. Set the shared values in `Prototype/Config/Prototype.xcconfig`; both targets use `$(DEVELOPMENT_TEAM).$(TINYMOUNTER_BUNDLE_ID)` as their macOS App Group, and the extension bundle ID stays below the app's bundle ID. This team-prefixed macOS group form does not require Developer portal registration. The previously tested `group.…` override signed but failed runtime container access with these profiles. The checked-in identifiers are placeholders. Do not commit signing credentials or provisioning material.
+Build in `macOS VM 1`, as required by [AGENTS.md](../AGENTS.md#where-to-test). Open `TinyMounter.xcodeproj` in the VM's Xcode. Configure a development team and unique bundle identifier. Set the shared values in `Prototype/Config/Prototype.xcconfig`; both targets use `$(DEVELOPMENT_TEAM).$(TINYMOUNTER_BUNDLE_ID)` as their macOS App Group, and the extension bundle ID stays below the app's bundle ID. This team-prefixed macOS group form does not require Developer portal registration. The previously tested `group.…` override signed but failed runtime container access with these profiles. The checked-in identifiers are placeholders. Do not commit signing credentials or provisioning material.
 
 **A paid membership is not the first step.** Sign in with a normal Apple Account under Xcode → Settings → Accounts. Apple offers a free **Personal Team** for development. Apple's current [macOS capability table](https://developer.apple.com/help/account/reference/supported-capabilities-macos) lists App Groups as supported for free Apple developer accounts. This is distinct from the special FileProvider Testing Mode entitlement, which this prototype does not request. The phase 1 build fetched both local and NAS content with Personal Team signing through the app-owned reader. See Apple's [developer account overview](https://developer.apple.com/help/account/basics/developer-account-overview).
 
@@ -235,8 +235,9 @@ On the physical Mac, macOS restart and the full performance series below are unv
 The VM numbers are relative to the VM's own native SMB. On the physical Mac, run the same comparisons
 once, wired, with nothing else heavy running. About 30 minutes:
 
-1. **Build and sign** in Xcode with the Personal Team, as in section 2. Launch the app and wait until
-   the location shows Connected.
+1. **Use the installed signed app.** Build candidates in the VM as in section 2; installation on
+   the physical Mac requires separate approval. Launch the app and wait until the location shows
+   Connected.
 2. **Native baseline.** Pick one large video, 5 GB or more, on the share connected in Finder. Then run
    `.build/release/transfer-bench '<file on /Volumes/…>' --offset 0 --length 2147483648 --runs 3 --no-cache`.
 3. **File Provider sequential reads.** Add a location whose folder holds the same file. Run the
