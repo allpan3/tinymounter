@@ -23,6 +23,8 @@ already shows each location), the "Keep this much disk space free" control and E
 Diagnostics; About shows diagnostic counts with Copy. Its menu bar item opens a window-style
 `MenuBarExtra` panel (section 5). All UI text is in `Prototype/App/UIText.swift`, so the STE
 checker reads one file.
+Settings opens at launch when there are no locations or the menu bar item is hidden. Otherwise,
+the app starts without opening Settings. Storage shows totals per location, not a file list.
 Folder completion lists the typed parent folder 150 ms after the last keystroke and suggests at
 most 50 subfolders.
 
@@ -347,9 +349,7 @@ forms. Check Reduce Transparency and Increase Contrast.
   folder": "TinyMounter folder", or "Aliases folder".
 - **A settings file for experiments.** Export and import of locations as a text file, to add many
   test locations with a script.
-- Whether Settings opens at first launch, or only the menu bar item.
 - Limits for kept folders: a size limit per item, or only the free-space setting.
-- Whether Storage shows each file, or only totals per location.
 
 
 ## Write mode
