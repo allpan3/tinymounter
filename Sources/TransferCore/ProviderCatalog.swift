@@ -19,11 +19,11 @@ public struct CatalogPage: Sendable {
 
 /// A reimport `createItem` with `.mayAlreadyExist`.
 public enum ReimportDecision: Sendable {
-    /// The disk item is this live row's copy; `fetchContent` when its data may be another version.
-    case existing(CatalogRow, fetchContent: Bool)
+    /// The disk item's kind and available content metadata match this live row.
+    case existing(CatalogRow)
     /// Complete with nil, which deletes the disk copy: a file without contents that no row has.
     case discard
-    /// Keep `fileWriteNoPermission`: the disk item can be the user's only copy.
+    /// Preserve the disk item for manual recovery: it can be the user's only copy.
     case reject
 }
 
@@ -55,10 +55,10 @@ extension Catalog {
               parent.listGen != nil else { return .reject }
         if let match = try liveChild(parent: parentID, nameKey: NameKey(name)) {
             guard match.kind == kind else { return .reject }
-            guard kind == .file, hasContents else { return .existing(match, fetchContent: false) }
-            // The NAS is the source of truth, so disk data that may be another version is fetched.
+            guard kind == .file, hasContents else { return .existing(match) }
+            // A mismatch can be an unsent edit or a stale download; neither copy may win silently.
             let current = size == match.size && Self.matchesMtime(modified, of: match)
-            return .existing(match, fetchContent: !current)
+            return current ? .existing(match) : .reject
         }
         return kind == .file && !hasContents ? .discard : .reject
     }

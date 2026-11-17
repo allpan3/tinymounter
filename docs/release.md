@@ -93,8 +93,12 @@ attempt and TinyMounter stops trying. Change the password on the server if neede
 
 Known limits for this release:
 
-- Severe system-wide disk-pressure eviction is unverified. Low-space refusal and offline-edit
-  retention through a full macOS restart are checked.
+- If macOS loses its synchronization database, reimport can replace a differing local file
+  with its server copy, losing an unsent edit. The unreleased manual-recovery fix is not part
+  of 0.4.0. Export pending edits before recovery or location removal.
+- Pause Downloads makes kept files evictable. Severe system-wide disk-pressure eviction was
+  not tested on 0.4.0; a later VM candidate lost kept downloads while paused. Low-space refusal
+  and offline-edit retention through a full macOS restart are checked.
 - Repeated outages can hang Apple's SMB authentication service; Finder then cannot reconnect.
   Pending upload data survives.
 - List a destination folder online before moving files into it offline.

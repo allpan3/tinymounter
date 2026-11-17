@@ -20,6 +20,11 @@ public struct UploadCreateRefusal: Error {
     public init(_ error: Error) { self.error = error }
 }
 
+public struct ReimportRecovery: Codable, Equatable, Identifiable, Sendable {
+    public let id: String
+    public let path: String
+}
+
 public struct PendingUpload: Codable, Sendable {
     public enum State: String, Codable, Sendable {
         case staging, prepared, attempting, created, verified, completed, collision
@@ -114,9 +119,33 @@ public final class UploadOutbox {
         }
     }
 
+    public func reimportRecoveries() throws -> [ReimportRecovery] {
+        let url = directory.appending(path: "ReimportRecovery")
+        let data: Data
+        do { data = try Data(contentsOf: url) }
+        catch CocoaError.fileReadNoSuchFile { return [] }
+        let records = try JSONDecoder().decode([ReimportRecovery].self, from: data)
+        guard Set(records.map(\.id)).count == records.count,
+              records.allSatisfy({ !$0.id.isEmpty && $0.id.utf8.count <= 1024
+                  && RelativePath($0.path)?.components.isEmpty == false }) else {
+            throw UploadError.invalidRequest
+        }
+        return records
+    }
+
+    public func checkReimport(_ request: CreateRequest, path: RelativePath? = nil) throws {
+        var records = try reimportRecoveries()
+        if request.recoveringReimport, !records.contains(where: { $0.id == request.template }) {
+            records.append(ReimportRecovery(id: request.template, path: path?.string ?? request.name))
+            try save(JSONEncoder().encode(records), named: "ReimportRecovery")
+        }
+        guard !records.contains(where: { $0.id == request.template }) else { throw UploadError.reimportRecovery }
+    }
+
     public func prepare(_ request: CreateRequest, path: RelativePath, contents: URL?,
                         progress: Progress, checkSpace: ((Int64) throws -> Void)? = nil,
                         id: UUID = UUID()) throws -> PendingUpload {
+        try checkReimport(request, path: path)
         if var previous = try records().first(where: { $0.template == request.template }) {
             let renamedCollision = previous.state == .collision && !previous.name.utf8.elementsEqual(request.name.utf8)
             let acknowledgedFile = previous.kind == .file && previous.serverFile != nil
@@ -225,12 +254,16 @@ public final class UploadOutbox {
     }
 
     public func save(_ record: PendingUpload) throws {
-        let final = directory.appending(path: record.id.uuidString + ".json")
-        let temporary = directory.appending(path: record.id.uuidString + ".new")
+        try save(JSONEncoder().encode(record), named: record.id.uuidString + ".json")
+    }
+
+    private func save(_ data: Data, named name: String) throws {
+        let final = directory.appending(path: name)
+        let temporary = final.deletingPathExtension().appendingPathExtension("new")
         let fd = open(temporary.path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0o600)
         guard fd >= 0 else { throw posixError("open upload state") }
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-        try handle.write(contentsOf: JSONEncoder().encode(record))
+        try handle.write(contentsOf: data)
         try handle.synchronize()
         try handle.close()
         guard rename(temporary.path, final.path) == 0 else { throw posixError("save upload state") }

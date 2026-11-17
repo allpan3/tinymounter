@@ -5,6 +5,18 @@ import XCTest
 final class ReaderMessageTests: XCTestCase {
     private let item = UUID().uuidString
 
+    func testReimportNoticeCannotCarryUploadContents() throws {
+        let request = try CreateRequest(template: "local", parent: Catalog.rootItemID,
+            name: "edit.txt", kind: .file, staging: nil, recoveringReimport: true)
+        XCTAssertEqual(try ReaderMessage.decode(CreateRequest.self, from: ReaderMessage.encode(request)), request)
+        XCTAssertThrowsError(try CreateRequest(template: "local", parent: Catalog.rootItemID,
+            name: "edit.txt", kind: .file, staging: UUID(), recoveringReimport: true))
+        var fields = try XCTUnwrap(JSONSerialization.jsonObject(with: ReaderMessage.encode(request)) as? [String: Any])
+        fields["staging"] = UUID().uuidString
+        XCTAssertThrowsError(try ReaderMessage.decode(CreateRequest.self,
+            from: JSONSerialization.data(withJSONObject: fields)))
+    }
+
     func testDeletionMessagesBindVersionAndRecursiveIntentWithoutPaths() throws {
         for recursive in [true, false] {
             let request = try DeleteItemRequest(item: item, contentVersion: "v1", metadataVersion: "7",

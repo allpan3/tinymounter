@@ -118,14 +118,14 @@ final class ProviderCatalogTests: XCTestCase {
         let d = try XCTUnwrap(catalog.liveChild(parent: root, nameKey: NameKey("D")))
 
         for hasContents in [false, true] {
-            guard case .existing(let row, false) = try catalog.reimportDecision(
+            guard case .existing(let row) = try catalog.reimportDecision(
                 parent: root, name: "movie.MKV", kind: .file, hasContents: hasContents, size: movie.size,
                 modified: movie.modificationDate) else {
                 return XCTFail("a live name key matches")
             }
             XCTAssertEqual(row.id, movie.id)
         }
-        guard case .existing(let folderRow, false) = try decide(catalog, parent: root, name: "D", kind: .folder,
+        guard case .existing(let folderRow) = try decide(catalog, parent: root, name: "D", kind: .folder,
                                                                 hasContents: false) else {
             return XCTFail("a live folder matches")
         }
@@ -161,51 +161,57 @@ final class ProviderCatalogTests: XCTestCase {
         XCTAssertTrue(isReject(try decide(catalog, parent: d.id, name: "new", kind: .file, hasContents: false)))
     }
 
-    func testReimportedDataIsKeptOnlyWithTheRowsSizeAndMtime() throws {
+    func testReimportPreservesUncertainContentsInBothAccessModes() throws {
         let catalog = try makeCatalog()
         let old: Int64 = 1_760_000_000_123_456_700, new = old + 3_600_000_000_000
-        try reconcile(catalog, [file("report.pdf", size: 4096, mtimeNs: old)])
+        try reconcile(catalog, [file("report.pdf", size: 4096, mtimeNs: old), file("neighbor")])
         let downloaded = try XCTUnwrap(catalog.liveChild(parent: root, nameKey: NameKey("report.pdf")))
         let date = downloaded.modificationDate
-        let cases: [(Int64?, Date?, Bool, String)] = [
-            (4096, date, false, "the size and date that File Provider got"),
-            (4096, Date(timeIntervalSince1970: 1_760_000_000.123456), false, "0.7 µs earlier, under 1 µs"),
-            (4096, date + 2e-6, true, "2 µs later"),
-            (4096, date - 2e-6, true, "2 µs earlier"),
-            (4095, date, true, "another size"),
-            (nil, date, true, "no size"),
-            (4096, nil, true, "no date"),
-        ]
-        for (size, modified, fetch, label) in cases {
-            guard case .existing(let row, let fetchContent) = try catalog.reimportDecision(
-                parent: root, name: "Report.PDF", kind: .file, hasContents: true, size: size, modified: modified) else {
-                XCTFail(label)
-                continue
+        for writable in [false, true] {
+            try catalog.setAllowsWriting(writable)
+            _ = try catalog.setKeep(ids: [downloaded.id], value: true)
+            let before = try catalog.children(of: root, limit: 100)
+            let uncertain: [(Int64?, Date?, String)] = [
+                (4096, date + 2e-6, "an unsent edit with a newer timestamp"),
+                (4096, date - 2e-6, "an older downloaded copy"),
+                (4095, date, "changed size with an unchanged timestamp"),
+                (nil, date, "missing size"),
+                (4096, nil, "missing timestamp"),
+            ]
+            for (size, modified, label) in uncertain {
+                XCTAssertTrue(isReject(try catalog.reimportDecision(
+                    parent: root, name: "Report.PDF", kind: .file, hasContents: true,
+                    size: size, modified: modified)), label)
             }
-            XCTAssertEqual(row.id, downloaded.id, label)
-            XCTAssertEqual(fetchContent, fetch, label)
+            for modified in [date, Date(timeIntervalSince1970: 1_760_000_000.123456)] {
+                guard case .existing(let row) = try catalog.reimportDecision(
+                    parent: root, name: "report.pdf", kind: .file, hasContents: true,
+                    size: 4096, modified: modified) else {
+                    return XCTFail("matching metadata keeps the local copy")
+                }
+                XCTAssertEqual(row.id, downloaded.id)
+            }
+            XCTAssertEqual(try catalog.children(of: root, limit: 100), before,
+                           "recovery changes neither catalog versions, keeps nor neighbors")
         }
-        guard case .existing(_, false) = try decide(catalog, parent: root, name: "report.pdf", kind: .file,
-                                                    hasContents: false) else {
-            return XCTFail("a copy without data has nothing stale to fetch again")
+        guard case .existing = try decide(catalog, parent: root, name: "report.pdf", kind: .file,
+                                           hasContents: false) else {
+            return XCTFail("a placeholder has no local content to preserve")
         }
 
-        // The NAS file changed after the download, and a relist updated the row.
-        try reconcile(catalog, [file("report.pdf", size: 4096, mtimeNs: new)])
+        try reconcile(catalog, [file("report.pdf", size: 4096, mtimeNs: new), file("neighbor")])
+        XCTAssertTrue(isReject(try catalog.reimportDecision(
+            parent: root, name: "report.pdf", kind: .file, hasContents: true, size: 4096, modified: date)),
+            "a remote update must not cause uncertain local contents to be replaced or uploaded")
         let current = try XCTUnwrap(catalog.liveChild(parent: root, nameKey: NameKey("report.pdf")))
         XCTAssertEqual(current.id, downloaded.id)
-        guard case .existing(_, true) = try catalog.reimportDecision(parent: root, name: "report.pdf", kind: .file,
-                                                                     hasContents: true, size: 4096, modified: date) else {
-            return XCTFail("the old copy is fetched again: the NAS is the source of truth")
-        }
-        guard case .existing(_, false) = try catalog.reimportDecision(
+        guard case .existing = try catalog.reimportDecision(
             parent: root, name: "report.pdf", kind: .file, hasContents: true, size: 4096,
             modified: current.modificationDate) else {
-            return XCTFail("a copy of the current version stays")
+            return XCTFail("matching current metadata stays")
         }
     }
 
-    /// A template without a size or date, so a match with contents is always fetched again.
     private func decide(_ catalog: Catalog, parent: String, name: String, kind: CatalogRow.Kind?,
                         hasContents: Bool) throws -> ReimportDecision {
         try catalog.reimportDecision(parent: parent, name: name, kind: kind, hasContents: hasContents, size: nil,

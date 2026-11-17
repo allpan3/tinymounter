@@ -65,6 +65,21 @@ enum SourceReaderBridge {
             && error?.userInfo[refusedOrganizationKey] as? Bool == true
     }
 
+    static let reimportRecoveryKey = "dev.tinymounter.reimport-recovery"
+    static let reimportRecoveryDescription = "Local contents need recovery. Export this item and compare it with the server copy. If Finder cannot copy it, remove the location; macOS keeps unsent files in a recovery folder. Retry does not choose a copy."
+
+    static var reimportRecoveryError: NSError {
+        // A synchronization error can make macOS retry a reimport as an ordinary new upload.
+        NSError(domain: NSCocoaErrorDomain, code: CocoaError.fileWriteNoPermission.rawValue,
+                userInfo: [reimportRecoveryKey: true, NSLocalizedDescriptionKey: reimportRecoveryDescription])
+    }
+
+    static func isReimportRecovery(_ error: NSError?) -> Bool {
+        error?.domain == NSCocoaErrorDomain
+            && error?.code == CocoaError.fileWriteNoPermission.rawValue
+            && error?.userInfo[reimportRecoveryKey] as? Bool == true
+    }
+
     static func requirement(forProvider: Bool) throws -> String {
         guard let group = Bundle.main.object(forInfoDictionaryKey: "TinyMounterAppGroup") as? String,
               let team = group.split(separator: ".").first.map(String.init),

@@ -35,6 +35,58 @@ final class UploadTests: XCTestCase {
                                   contents: kind == .file ? input : nil, progress: Progress())
     }
 
+    func testReimportGuardSurvivesRestartAndBlocksRenamedCreateBeforeStaging() throws {
+        let notice = try CreateRequest(template: "local", parent: Catalog.rootItemID,
+            name: "edit.txt", kind: .file, staging: nil, recoveringReimport: true)
+        let path = try XCTUnwrap(RelativePath("folder/edit.txt"))
+        for _ in 0..<2 {
+            XCTAssertThrowsError(try outbox.checkReimport(notice, path: path)) {
+                XCTAssertEqual($0 as? UploadError, .reimportRecovery)
+            }
+        }
+        outbox = try UploadOutbox(directory: root.appending(path: "pending"))
+        XCTAssertEqual(try outbox.reimportRecoveries(), [ReimportRecovery(id: "local", path: path.string)])
+        for name in ["edit.txt", "edit 2.txt"] {
+            let retry = try CreateRequest(template: notice.template, parent: UUID().uuidString,
+                name: name, kind: .file, staging: UUID())
+            XCTAssertThrowsError(try outbox.prepare(retry, path: XCTUnwrap(RelativePath(name)),
+                contents: root.appending(path: "missing"), progress: Progress(), checkSpace: { _ in
+                    XCTFail("Recovery must be refused before staging")
+                })) { XCTAssertEqual($0 as? UploadError, .reimportRecovery) }
+        }
+        XCTAssertTrue(try outbox.records().isEmpty)
+        XCTAssertEqual(try outbox.pendingCount, 0)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.appending(path: "pending").path),
+            ["ReimportRecovery"])
+        let otherDomain = try UploadOutbox(directory: root.appending(path: "other"))
+        let ordinary = try CreateRequest(template: notice.template, parent: notice.parent,
+            name: notice.name, kind: .file, staging: nil)
+        XCTAssertNoThrow(try otherDomain.checkReimport(ordinary))
+        let unrelated = try prepared()
+        XCTAssertEqual(try Data(contentsOf: root.appending(path: "pending/\(unrelated.id.uuidString).data")), payload)
+        XCTAssertThrowsError(try outbox.removeIfCompleted())
+        XCTAssertEqual(try outbox.reimportRecoveries().count, 1)
+        try outbox.removeForLocationRemoval()
+        outbox = try UploadOutbox(directory: root.appending(path: "pending"))
+        XCTAssertTrue(try outbox.reimportRecoveries().isEmpty)
+    }
+
+    func testCorruptReimportGuardFailsClosed() throws {
+        let request = try CreateRequest(template: "local", parent: Catalog.rootItemID,
+            name: "edit.txt", kind: .file, staging: nil)
+        let url = root.appending(path: "pending/ReimportRecovery")
+        for data in [Data("broken".utf8),
+            try JSONEncoder().encode([ReimportRecovery(id: "local", path: "../escape")]),
+            try JSONEncoder().encode([ReimportRecovery(id: "local", path: "one"),
+                                      ReimportRecovery(id: "local", path: "two")])] {
+            try data.write(to: url)
+            XCTAssertThrowsError(try outbox.checkReimport(request))
+            XCTAssertThrowsError(try outbox.prepare(request, path: XCTUnwrap(RelativePath(request.name)),
+                contents: input, progress: Progress()))
+            XCTAssertTrue(try outbox.records().isEmpty)
+        }
+    }
+
     private final class DirectRemote: UploadRemote {
         var version: RemoteFileVersion
         var createError: Error?
