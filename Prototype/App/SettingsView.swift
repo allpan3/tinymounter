@@ -88,11 +88,11 @@ private struct Sidebar: View {
     private func row(_ entry: AppModel.Entry) -> some View {
         switch entry {
         case .record(let record):
-            Label(record.name, systemImage: model.symbol(record))
-                .accessibilityLabel("\(record.name), \(model.shortStatus(record))")
+            locationLabel(record.name, id: record.id, mode: .fileProvider)
+                .accessibilityValue(model.shortStatus(record))
         case .serverVolume(let volume, let name):
-            Label(name, systemImage: "externaldrive.connected.to.line.below")
-                .accessibilityLabel("\(name), \(model.volumeStatus(volume))")
+            locationLabel(name, id: volume.id, mode: .serverVolume)
+                .accessibilityValue(model.volumeStatus(volume))
         case .draft(let draft):
             HStack {
                 Label(draft.name, systemImage: "circle.dashed")
@@ -101,6 +101,19 @@ private struct Sidebar: View {
             }
             .accessibilityElement(children: .combine)
         }
+    }
+
+    private func locationLabel(_ name: String, id: UUID, mode: LocationMode) -> some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name)
+                Text(UIText.connectionDescription(model.remoteProtocol(id), mode: mode))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        } icon: {
+            Image(systemName: mode == .fileProvider ? "folder" : "externaldrive.connected.to.line.below")
+        }
+        .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder
@@ -156,7 +169,7 @@ private struct LocationPane: View {
             if let record { header(record) }
             if let draft {
                 Section {
-                    Picker(UIText.connectionMode, selection: Binding(
+                    Picker(UIText.finderMode, selection: Binding(
                         get: { draft.mode }, set: { model.setMode(id, $0) }
                     )) {
                         Text(UIText.fileProvider).tag(LocationMode.fileProvider)
@@ -187,7 +200,8 @@ private struct LocationPane: View {
         Form {
             Section {
                 LabeledContent(UIText.name, value: model.volumeName(volume))
-                LabeledContent(UIText.connectionMode, value: UIText.serverVolume)
+                LabeledContent(UIText.networkProtocol, value: UIText.protocolName(model.remoteProtocol(id)))
+                LabeledContent(UIText.finderMode, value: UIText.serverVolume)
                 if let share = model.share(volume.shareID), let address = model.address(volume.shareID) {
                     LabeledContent(UIText.server, value: address.host)
                     LabeledContent(UIText.share, value: UIText.accountAndShare(address.account, share.name))
@@ -229,7 +243,7 @@ private struct LocationPane: View {
     private func header(_ record: LocationRecord) -> some View {
         Section {
             HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "externaldrive.connected.to.line.below")
+                Image(systemName: "folder")
                     .font(.largeTitle)
                     .foregroundStyle(.secondary)
                     .accessibilityHidden(true)
@@ -267,6 +281,10 @@ private struct LocationPane: View {
 
     private var sourceSection: some View {
         Section {
+            LabeledContent(UIText.networkProtocol, value: UIText.protocolName(model.remoteProtocol(id)))
+            if model.record(id) != nil {
+                LabeledContent(UIText.finderMode, value: UIText.fileProvider)
+            }
             Picker(UIText.server, selection: serverBinding) {
                 if model.serverID(id) == nil { Text(UIText.noServer).tag(String?.none) }
                 ForEach(model.servers) { Text(UIText.serverAddress($0)).tag(Optional($0.id.uuidString)) }
