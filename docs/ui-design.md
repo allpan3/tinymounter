@@ -239,7 +239,8 @@ bottom:
 - **Recent Activity:** the newest events first, with the name, what happened, the location and
   the relative time. Six rows show; more scroll. Problem rows have a red symbol. Upload failed
   shows Retry, which runs Retry Pending Changes for that location: macOS releases failed uploads
-  only for a whole location.
+  only for a whole location. A later successful upload removes that item's earlier failure rows,
+  including when the history is loaded after a relaunch.
 - **Actions,** as full-width rows that highlight like menu items: Pause Downloads or Resume
   Downloads; Retry Pending Changes with the number of pending changes in all locations,
   unavailable when there are none; Settings… (⌘,) and Quit TinyMounter (⌘Q). Pause stops Keep
