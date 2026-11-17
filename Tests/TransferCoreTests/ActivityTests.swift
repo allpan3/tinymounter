@@ -54,6 +54,41 @@ final class ActivityTests: XCTestCase {
         XCTAssertThrowsError(try ActivityHistory.load(from: url))
     }
 
+    func testSuccessfulUploadRemovesOnlyEarlierFailuresOfTheSameItemAndLocation() {
+        func failure(_ domain: String, _ item: String?, at seconds: TimeInterval) -> ActivityEvent {
+            ActivityEvent(kind: .uploadFailed, domain: domain, name: "same name", item: item,
+                          date: Date(timeIntervalSince1970: seconds))
+        }
+        let resolved = failure("A", "1", at: 1)
+        let otherItem = failure("A", "2", at: 2), otherLocation = failure("B", "1", at: 3)
+        let unknownItem = failure("A", nil, at: 4), laterFailure = failure("A", "1", at: 6)
+        let success = ActivityEvent(kind: .uploaded, domain: "A", name: "renamed", item: "1",
+                                    date: Date(timeIntervalSince1970: 5))
+        var history = ActivityHistory(events: [resolved, otherItem, otherLocation, unknownItem, laterFailure])
+        history.add(success)
+        XCTAssertEqual(history.events, [laterFailure, success, unknownItem, otherLocation, otherItem])
+        XCTAssertTrue(history.uploadFailed(domain: "A", item: "1"))
+    }
+
+    func testLoadingHistoryDropsFailuresAlreadyFollowedBySuccess() throws {
+        let url = FileManager.default.temporaryDirectory.appending(path: "activity-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let failure = ActivityEvent(kind: .uploadFailed, domain: "A", name: "file", item: "1",
+                                    date: Date(timeIntervalSince1970: 1))
+        let success = ActivityEvent(kind: .uploaded, domain: "A", name: "file", item: "1",
+                                    date: Date(timeIntervalSince1970: 2))
+        try JSONEncoder().encode([success, failure]).write(to: url)
+        XCTAssertEqual(try ActivityHistory.load(from: url).events, [success])
+    }
+
+    func testLoadingEqualDatesPreservesTheRecordedOutcomeOrder() {
+        let date = Date(timeIntervalSince1970: 1)
+        let failure = ActivityEvent(kind: .uploadFailed, domain: "A", name: "file", item: "1", date: date)
+        let success = ActivityEvent(kind: .uploaded, domain: "A", name: "file", item: "1", date: date)
+        XCTAssertEqual(ActivityHistory(events: [success, failure]).events, [success])
+        XCTAssertEqual(ActivityHistory(events: [failure, success]).events, [failure, success])
+    }
+
     func testProblemsNotifyByDefaultAndEverythingShowsInThePanel() throws {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "activity-tests-\(UUID().uuidString)"))
         XCTAssertEqual(NotificationKind.allCases.filter { $0.route(in: defaults).notify },

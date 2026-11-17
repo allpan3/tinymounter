@@ -81,10 +81,16 @@ public struct ActivityHistory: Equatable, Sendable {
     public private(set) var events: [ActivityEvent]
 
     public init(events: [ActivityEvent] = []) {
-        self.events = Array(events.sorted { $0.date > $1.date }.prefix(Self.limit))
+        self.events = []
+        for event in events.sorted(by: { $0.date > $1.date }).reversed() { add(event) }
     }
 
     public mutating func add(_ event: ActivityEvent) {
+        if event.kind == .uploaded, let domain = event.domain, let item = event.item {
+            events.removeAll {
+                $0.kind == .uploadFailed && $0.domain == domain && $0.item == item && $0.date <= event.date
+            }
+        }
         events.insert(event, at: events.firstIndex { $0.date <= event.date } ?? events.endIndex)
         if events.count > Self.limit { events.removeLast(events.count - Self.limit) }
     }
