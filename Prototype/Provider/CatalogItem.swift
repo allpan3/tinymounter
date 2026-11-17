@@ -56,9 +56,9 @@ final class CatalogItem: NSObject, NSFileProviderItem {
         if isFolder { return row.allowsWriting ? [.userReadable, .userWritable, .userExecutable] : [.userReadable, .userExecutable] }
         return allowsEditing ? [.userReadable, .userWritable] : .userReadable
     }
-    /// While paused, kept files are lazy, so the system starts no eager downloads.
+    // Pausing background transfers must not make kept contents evictable.
     var contentPolicy: NSFileProviderContentPolicy {
-        row.keep && !row.paused ? .downloadEagerlyAndKeepDownloaded : .downloadLazily
+        row.keep ? .downloadEagerlyAndKeepDownloaded : .downloadLazily
     }
     var namespacePolicy: NSFileProviderNamespacePolicy {
         row.keep && !row.paused ? .materializeEagerly : .materializeLazily

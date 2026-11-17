@@ -18,6 +18,11 @@ xcrun swiftc Prototype/Shared/ProviderDomainVersion.swift Tools/check-deletion-e
     -o .build/check-deletion-event
 .build/check-deletion-event
 
+xcrun swiftc Sources/TransferCore/*.swift Prototype/Shared/SharedContainer.swift \
+    Prototype/Shared/SourceReaderProtocol.swift Prototype/Provider/CatalogItem.swift \
+    Tools/check-provider-retention.swift -lsqlite3 -o .build/check-provider-retention
+.build/check-provider-retention
+
 log=$(mktemp)
 trap 'rm -f "$log"' EXIT
 xcodebuild -project TinyMounter.xcodeproj -scheme TinyMounter -configuration Release \

@@ -187,7 +187,7 @@ final class LocationSource: @unchecked Sendable {
         return changed
     }
 
-    /// Returns the kept rows whose download policy changed.
+    // Signal kept items so Resume can retry cancelled downloads.
     @discardableResult
     func setPaused(_ paused: Bool) throws -> Int {
         let changed = try withCatalog { try $0.setPaused(paused) }
