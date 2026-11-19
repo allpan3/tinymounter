@@ -152,8 +152,8 @@ Duplicate instead.
 **Server** lists saved servers as `account@host`. Add Server… opens the sign-in sheet
 ([section 11](#11-sign-in-and-folder-browser-020)) and then continues to the share.
 **Share** lists the server's saved shares and Add Share…, which lists the server's disk shares
-over the saved sign-in. This is the only place to add a share. Bonjour discovery remains
-unimplemented.
+over the saved sign-in. This is the only place to add a share. Add Server… also discovers SMB
+servers advertised on the local network.
 
 ### 4.2 Adding a location: Duplicate
 
@@ -372,9 +372,14 @@ do not prevent removal, because macOS keeps them
 
 Built in 0.2.0.
 
-**Add Server…** in a location's Server menu opens a sheet: "Type the server address, your name
-and your password.", with Server (placeholder `smb://server`), Name, Password, Cancel and
-Sign In. A name in the address (`smb://name@server`) counts when Name is empty. The footer says
+**Add Server…** in a location's Server menu opens a sheet: "Choose a server or type its address.
+Then sign in.", with Nearby Servers, Server (placeholder `smb://server`), Name, Password, Cancel
+and Sign In. Nearby Servers lists Bonjour SMB advertisements while the sheet is open; selecting
+one fills Server with its resolved hostname. Refresh restarts discovery. Servers that do not
+advertise can still be entered manually. An unavailable service, denied local-network access
+or a port other than 445 shows an error without changing the typed address. Discovery neither
+signs in nor saves a server. Editing Server or closing the sheet cancels an unfinished lookup.
+A name in the address (`smb://name@server`) counts when Name is empty. The footer says
 "TinyMounter keeps the password in your keychain."
 
 Sign In asks the server to check the name and password before it saves anything:

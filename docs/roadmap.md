@@ -26,6 +26,9 @@ Physical-Mac writes, download preservation and restart checks stay unverified un
 performs them or authorizes a suitable disposable setup. Agent testing still leaves the
 original NAS read-only.
 
+Local SMB discovery is implemented and checked in the signed VM app. Physical-Mac acceptance
+of discovery remains part of the user's later testing.
+
 The accepted Pause behavior keeps file pins active while blocking background transfers.
 Direct eviction requires Allow Removal first; macOS can still evict independently kept children
 when an unkept parent is evicted. The accepted system-reimport

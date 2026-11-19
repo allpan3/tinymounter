@@ -219,6 +219,13 @@ opens a `RemoteSession` for one operation and opens a `RemoteWatcher` for change
 password is `notAuthenticated`, an unknown share `missing`, and a share that the account may not
 open `noPermission`.
 
+Add Server browses `_smb._tcp` advertisements in `local.` through the system DNS-SD API.
+Selection resolves the SRV target hostname, with a ten-second timeout, and fills the existing
+address field. Only port 445 is accepted. Discovery is scoped to the sheet and does not open an
+SMB session, read credentials or persist results. Repeated advertisements across interfaces
+appear once; withdrawing the last interface removes the service. Manual addresses use the same
+sign-in flow. Sign In Again keeps the saved address fixed and does not browse.
+
 The app keeps one `ShareConnection` per saved share. It opens a session for each operation and
 records each result in `ConnectionHealth`, whose states are not connected, connected,
 unresponsive and needs sign-in. Probes back off from 5 s to at most 60 s and start at once on wake

@@ -14,6 +14,10 @@ swift build -c release
 python3 Tools/verify-benchmark.py
 python3 Tools/check-performance-log.py
 
+xcrun swiftc Prototype/App/SMBServerDiscovery.swift Tools/check-smb-discovery.swift \
+    -o .build/check-smb-discovery
+.build/check-smb-discovery
+
 xcrun swiftc Prototype/Shared/ProviderDomainVersion.swift Tools/check-deletion-event.swift \
     -o .build/check-deletion-event
 .build/check-deletion-event
