@@ -190,8 +190,8 @@ the first location on a server.
   Finished uploads and downloads always show in the panel and never post. When Show in menu bar
   is off, a note says that panel events are not visible. Notifications include the file name, or
   the server name for sign-in and connection events.
-- **Storage:** disk space used per location, the total available offline, "Keep this much disk space
-  free" for downloads and staging new saves, and Remove Downloads for downloads that the user
+- **Storage:** disk space used per location, the total available offline, "Minimum free disk space"
+  for downloads and staging new saves, and Remove Downloads for downloads that the user
   does not keep. The reserve defaults to 20 GB. Enter a positive whole number of GB and click
   Apply or press Return to save it for all File Provider locations.
 - **Servers:** the shares that TinyMounter has access to, grouped by server, in a grouped form.

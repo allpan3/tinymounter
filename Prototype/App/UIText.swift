@@ -505,7 +505,7 @@ enum UIText {
     // Storage
     static let notAvailable = "Not available"
     static let total = "Total"
-    static let reserveLabel = "Keep this much disk space free"
+    static let reserveLabel = "Minimum free disk space"
     static let gigabytes = "GB"
     static let reserveInvalid = "Enter a positive whole number of GB."
     static let storageDescription = """

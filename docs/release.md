@@ -2,7 +2,7 @@
 
 This release is for personal use on **Apple silicon with macOS 27 or later**.
 It uses development signing, without Apple notarization. Intel Macs and older macOS versions
-are not supported by this package. Download it while signed in to the private GitHub repository:
+are not supported by this package. Download it from GitHub:
 
 [TinyMounter 0.4.0](https://github.com/allpan3/tinymounter/releases/tag/v0.4.0)
 
@@ -94,10 +94,9 @@ attempt and TinyMounter stops trying. Change the password on the server if neede
 Known limits for this release:
 
 - If macOS loses its synchronization database, reimport can replace a differing local file
-  with its server copy, losing an unsent edit. The unreleased manual-recovery fix is not part
-  of 0.4.0. Export pending edits before recovery or location removal.
+  with its server copy, losing an unsent edit. Version 0.4.1 preserves both copies for manual recovery. Export pending edits before recovery or location removal.
 - Pause Downloads makes kept files evictable. Severe system-wide disk-pressure eviction was
-  not tested on 0.4.0; a later VM candidate lost kept downloads while paused. The unreleased
+  not tested on 0.4.0; a later VM candidate lost kept downloads while paused. The 0.4.1
   retention fix keeps pins active during Pause. Low-space refusal and offline-edit retention
   through a full macOS restart are checked.
 - Repeated outages can hang Apple's SMB authentication service; Finder then cannot reconnect.
