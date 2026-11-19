@@ -437,7 +437,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                         let target = try SharedContainer.uploadInbox(stagingID)
                         let size = try ReadOnlyFile(url: url, allowMaterialization: true).snapshot.size
                         guard Int128(try DownloadSpace.available(at: target.deletingLastPathComponent()))
-                            >= Int128(DownloadSpace.reserveBytes) + Int128(size) * 2 else {
+                            >= Int128(SharedContainer.reserveBytes) + Int128(size) * 2 else {
                             throw CocoaError(.fileWriteOutOfSpace)
                         }
                         try FileManager.default.copyItem(at: url, to: target)
@@ -643,7 +643,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 let id = UUID(), target = try SharedContainer.uploadInbox(id)
                 let input = try ReadOnlyFile(url: contents, allowMaterialization: true)
                 guard Int128(try DownloadSpace.available(at: target.deletingLastPathComponent()))
-                    >= Int128(DownloadSpace.reserveBytes) + Int128(input.snapshot.size) else {
+                    >= Int128(SharedContainer.reserveBytes) + Int128(input.snapshot.size) else {
                     throw CocoaError(.fileWriteOutOfSpace)
                 }
                 staged = target

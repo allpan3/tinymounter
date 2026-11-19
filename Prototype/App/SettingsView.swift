@@ -535,6 +535,9 @@ private struct StoragePane: View {
             }
             Section {
                 LabeledContent(UIText.total, value: model.totalStorageText)
+                if let preferences = SharedContainer.preferences {
+                    ReserveSetting(preferences: preferences)
+                }
             }
         }
         .formStyle(.grouped)
@@ -551,6 +554,46 @@ private struct StoragePane: View {
         let locations: [UUID]
         let kept: [UUID: Int]
         let materialized: Int
+    }
+}
+
+private struct ReserveSetting: View {
+    @AppStorage private var savedGB: Int
+    @State private var text = ""
+
+    init(preferences: UserDefaults) {
+        _savedGB = AppStorage(wrappedValue: DownloadSpace.defaultReserveGB,
+                              SharedContainer.reserveKey, store: preferences)
+    }
+
+    private var enteredGB: Int? {
+        guard let value = Int(text.trimmingCharacters(in: .whitespaces)),
+              DownloadSpace.reserveBytes(gigabytes: value) != nil else { return nil }
+        return value
+    }
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            LabeledContent {
+                TextField(UIText.reserveLabel, text: $text)
+                    .labelsHidden().multilineTextAlignment(.trailing).frame(width: 64)
+                    .onSubmit(apply)
+                Text(UIText.gigabytes)
+                Button(UIText.apply, action: apply).disabled(enteredGB == nil || enteredGB == savedGB)
+            } label: {
+                Text(UIText.reserveLabel)
+            }
+            if enteredGB == nil {
+                Text(UIText.reserveInvalid).font(.callout).foregroundStyle(.secondary)
+            }
+        }
+        .onAppear { text = String(savedGB) }
+    }
+
+    private func apply() {
+        guard let enteredGB else { return }
+        savedGB = enteredGB
+        text = String(enteredGB)
     }
 }
 

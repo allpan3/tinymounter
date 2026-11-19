@@ -19,7 +19,7 @@ replaced the Add Server… address dialog, and a folder browser replaced the Fol
 ([section 11](#11-sign-in-and-folder-browser-020)). The original mockup below is historical.
 
 The current build leaves out the Locations folder and Open Locations Folder (Finder's sidebar
-already shows each location), the "Keep this much disk space free" control and Export
+already shows each location) and Export
 Diagnostics; About shows diagnostic counts with Copy. Its menu bar item opens a window-style
 `MenuBarExtra` panel (section 5). All UI text is in `Prototype/App/UIText.swift`, so the STE
 checker reads one file.
@@ -191,9 +191,9 @@ the first location on a server.
   is off, a note says that panel events are not visible. Notifications include the file name, or
   the server name for sign-in and connection events.
 - **Storage:** disk space used per location, the total available offline, "Keep this much disk space
-  free" for kept downloads, and Remove Downloads for downloads that the user does not keep.
-  M16 uses a fixed 2 GiB reserve and explains temporary download space; the reserve control
-  remains planned.
+  free" for downloads and staging new saves, and Remove Downloads for downloads that the user
+  does not keep. The reserve defaults to 20 GB. Enter a positive whole number of GB and click
+  Apply or press Return to save it for all File Provider locations.
 - **Servers:** the shares that TinyMounter has access to, grouped by server, in a grouped form.
   Each share row shows the account and share, the locations that use it, and its connection
   state. Servers adds nothing: the location form adds servers and shares (section 4.1). A share

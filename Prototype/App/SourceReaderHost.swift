@@ -57,7 +57,7 @@ final class SourceReaderHost {
     /// Failed uploads that macOS sends again, by domain and item.
     private var waiting: [String: [String: ActiveTransfer]] = [:]
     private var polling: Task<Void, Never>?
-    let downloadSpace = DownloadSpace {
+    let downloadSpace = DownloadSpace(reserve: { SharedContainer.reserveBytes }) {
         try DownloadSpace.available(at: SharedContainer.stagingDirectory())
     }
     /// The domain, the request, whether it is blocked now, and the file's name when it is.

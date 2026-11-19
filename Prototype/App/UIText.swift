@@ -232,7 +232,7 @@ enum UIText {
     static func savedChangeBytes(_ bytes: Int64) -> String {
         "Local saved copies: " + ByteCountFormatter.string(fromByteCount: bytes, countStyle: .binary)
     }
-    static let savedChangeSpace = "New saves stop when there is not enough space above the 2 GiB reserve. Saved copies are retained."
+    static let savedChangeSpace = "New saves stop when there is not enough space above the reserve set in Storage. Saved copies are retained."
     static let retiredEdit = "Older save kept for recovery. It will not upload. Newer saves can continue."
     static let pendingStatusUnavailable = "Cannot read pending change status. Local copies are retained."
     static let systemPendingIncomplete = "macOS has not supplied the complete pending list. More items may be waiting."
@@ -505,9 +505,12 @@ enum UIText {
     // Storage
     static let notAvailable = "Not available"
     static let total = "Total"
+    static let reserveLabel = "Keep this much disk space free"
+    static let gigabytes = "GB"
+    static let reserveInvalid = "Enter a positive whole number of GB."
     static let storageDescription = """
         This includes the kept files. When disk space is low, macOS removes the downloaded files that you do \
-        not keep. Remove Downloads removes them immediately. TinyMounter leaves 2 GiB free for macOS. \
+        not keep. Remove Downloads removes them immediately. The reserve applies to downloads and new saves. \
         A download can need extra temporary space.
         """
     static let removeDownloadsMenu = "Remove Downloads…"

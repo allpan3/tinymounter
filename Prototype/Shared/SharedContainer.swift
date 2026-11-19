@@ -1,9 +1,19 @@
 import Foundation
 
-/// The App Group container: catalogs and transfer staging. Settings and grants never go here.
+/// The App Group holds catalogs, transfer staging and the shared free-space preference.
 enum SharedContainer {
+    private static let group = Bundle.main.object(forInfoDictionaryKey: "TinyMounterAppGroup") as? String
+    static let reserveKey = "freeSpaceReserveGB"
+    static let preferences: UserDefaults? = group.flatMap { $0.isEmpty ? nil : UserDefaults(suiteName: $0) }
+
+    static var reserveBytes: Int64 {
+        let gigabytes = preferences?.integer(forKey: reserveKey) ?? 0
+        return DownloadSpace.reserveBytes(gigabytes: gigabytes)
+            ?? Int64(DownloadSpace.defaultReserveGB) * DownloadSpace.bytesPerGB
+    }
+
     static func url() throws -> URL {
-        guard let group = Bundle.main.object(forInfoDictionaryKey: "TinyMounterAppGroup") as? String, !group.isEmpty,
+        guard let group, !group.isEmpty,
               let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) else {
             throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError, userInfo: [
                 NSLocalizedDescriptionKey:

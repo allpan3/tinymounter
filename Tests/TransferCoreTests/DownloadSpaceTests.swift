@@ -12,9 +12,27 @@ final class DownloadSpaceTests: XCTestCase {
         func set(_ bytes: Int64) { lock.withLock { self.bytes = bytes } }
     }
 
+    func testChangingReserveAffectsActiveAndWaitingDownloads() throws {
+        XCTAssertEqual(DownloadSpace.reserveBytes(gigabytes: DownloadSpace.defaultReserveGB), 20_000_000_000)
+        for invalid in [0, -1, Int.max] {
+            XCTAssertNil(DownloadSpace.reserveBytes(gigabytes: invalid))
+        }
+        let reserve = Capacity(20_000_000_000)
+        let space = DownloadSpace(reserve: { reserve.read() }) { 25_000_000_000 }
+        let active = UUID()
+        try space.begin(active, bytes: 1000)
+        reserve.set(30_000_000_000)
+        assertFull { try space.check(active, completedBytes: 0) }
+        assertFull { try space.begin(UUID(), bytes: 1000) }
+        XCTAssertFalse(try space.canRetry(bytes: 1000))
+        reserve.set(10_000_000_000)
+        try space.check(active, completedBytes: 1000)
+        XCTAssertTrue(try space.canRetry(bytes: 1000))
+    }
+
     func testConcurrentDownloadsShareCapacityAndReleaseReservations() throws {
         let capacity = Capacity(300000)
-        let space = DownloadSpace(reserve: 100000, capacity: { capacity.read() })
+        let space = DownloadSpace(reserve: { 100000 }, capacity: { capacity.read() })
         let first = UUID(), second = UUID()
         try space.begin(first, bytes: 50000)
         assertFull { try space.begin(second, bytes: 50000) }
@@ -27,7 +45,7 @@ final class DownloadSpaceTests: XCTestCase {
 
     func testWrittenBytesAreNotReservedTwiceAndHandoffSpaceStaysReserved() throws {
         let capacity = Capacity(500000)
-        let space = DownloadSpace(reserve: 100000, checkStride: 1, capacity: { capacity.read() })
+        let space = DownloadSpace(reserve: { 100000 }, checkStride: 1, capacity: { capacity.read() })
         let id = UUID()
         try space.begin(id, bytes: 100000)
         capacity.set(400000)
@@ -39,7 +57,7 @@ final class DownloadSpaceTests: XCTestCase {
 
     func testRecoveryNeedsHeadroomAndAnOversizedRequestCannotOverflow() throws {
         let capacity = Capacity(100000)
-        let space = DownloadSpace(reserve: 100000, capacity: { capacity.read() })
+        let space = DownloadSpace(reserve: { 100000 }, capacity: { capacity.read() })
         assertFull { try space.begin(UUID(), bytes: Int64.max) }
         XCTAssertFalse(try space.canRetry(bytes: 4096))
         capacity.set(100000 + 65536 + 8192 + DownloadSpace.recoveryBytes - 1)
@@ -57,7 +75,7 @@ final class DownloadSpaceTests: XCTestCase {
 
     func testQueuedWorkRechecksTheReserveWithoutChangingItsReservation() throws {
         let bytes: Int64 = 4096
-        let required = DownloadSpace.reserveBytes + 2 * bytes + 65536
+        let required: Int64 = 20_000_000_000 + 2 * bytes + 65536
         let capacity = Capacity(required - 1)
         let space = DownloadSpace { capacity.read() }, id = UUID()
         assertFull { try space.begin(id, bytes: bytes) }
@@ -74,10 +92,10 @@ final class DownloadSpaceTests: XCTestCase {
 
     func testLastShortBlockStillChecksCapacityBelowTheStride() throws {
         let bytes: Int64 = 4096
-        let capacity = Capacity(DownloadSpace.reserveBytes + 2 * bytes + 65536)
+        let capacity = Capacity(20_000_000_000 + 2 * bytes + 65536)
         let space = DownloadSpace { capacity.read() }, id = UUID()
         try space.begin(id, bytes: bytes)
-        capacity.set(DownloadSpace.reserveBytes - 1)
+        capacity.set(20_000_000_000 - 1)
         assertFull { try space.check(id, completedBytes: bytes) }
         space.end(id)
     }
@@ -91,7 +109,7 @@ final class DownloadSpaceTests: XCTestCase {
         try bytes.write(to: url)
         let file = try ReadOnlyFile(url: url), id = UUID()
         let capacity = Capacity(1000000)
-        let space = DownloadSpace(reserve: 100000, checkStride: 4096, capacity: { capacity.read() })
+        let space = DownloadSpace(reserve: { 100000 }, checkStride: 4096, capacity: { capacity.read() })
         try space.begin(id, bytes: file.snapshot.size)
         let progress = Progress()
         let observer = progress.observe(\.completedUnitCount) { value, _ in
@@ -141,7 +159,7 @@ final class DownloadSpaceTests: XCTestCase {
         try handle.write(contentsOf: bytes)
         try handle.close()
         let source = try ReadOnlyFile(url: url), id = UUID()
-        let space = DownloadSpace(reserve: 100000) { 100000 + 65536 + 8192 }
+        let space = DownloadSpace(reserve: { 100000 }) { 100000 + 65536 + 8192 }
         try space.begin(id, bytes: Int64(bytes.count))
         defer { space.end(id) }
         let range = try ByteRange(offset: offset, length: Int64(bytes.count), fileSize: source.snapshot.size)
