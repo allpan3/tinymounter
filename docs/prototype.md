@@ -332,7 +332,10 @@ the removal.
 
 ## Deliberate limitations
 
-- The reader reserves 2 GiB on its staging volume, plus temporary space for concurrent downloads.
+- In Settings → Storage, enter a positive whole number of GB and click Apply. The reserve defaults
+  to 20 GB (20,000,000,000 bytes) across all File Provider locations. Downloads and local staging
+  for new files and edits use the new value on their next space check, including after relaunch.
+  Concurrent downloads also need temporary space.
   A blocked keep shows Not sufficient space. Blocked kept files retry every 30 s when space
   returns, including after relaunch; manual Pause, disconnected and disabled locations stop
   retries. Ordinary on-demand reads fail clearly. No kept copy is evicted to make room. This

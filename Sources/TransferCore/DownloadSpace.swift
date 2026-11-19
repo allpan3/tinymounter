@@ -3,7 +3,15 @@ import Foundation
 import OSLog
 
 public final class DownloadSpace: @unchecked Sendable {
-    public static let reserveBytes: Int64 = 2 << 30
+    public static let defaultReserveGB = 20
+    public static let bytesPerGB: Int64 = 1_000_000_000
+
+    public static func reserveBytes(gigabytes: Int) -> Int64? {
+        guard gigabytes > 0 else { return nil }
+        let (bytes, overflow) = Int64(gigabytes).multipliedReportingOverflow(by: bytesPerGB)
+        return overflow ? nil : bytes
+    }
+
     public static let recoveryBytes: Int64 = 64 << 20
     private struct Entry {
         let length: Int64
@@ -14,14 +22,15 @@ public final class DownloadSpace: @unchecked Sendable {
 
     private let lock = NSLock()
     private let capacity: @Sendable () throws -> Int64
-    private let reserve: Int64
+    private let reserve: @Sendable () -> Int64
     private let checkStride: Int64
     private var entries: [UUID: Entry] = [:]
     private static let logger = Logger(subsystem: "dev.tinymounter.prototype", category: "storage")
 
-    public init(reserve: Int64 = reserveBytes, checkStride: Int64 = 16 << 20,
+    public init(reserve: @escaping @Sendable () -> Int64 = { Int64(defaultReserveGB) * bytesPerGB },
+                checkStride: Int64 = 16 << 20,
                 capacity: @escaping @Sendable () throws -> Int64) {
-        precondition(reserve >= 0 && checkStride > 0)
+        precondition(checkStride > 0)
         self.reserve = reserve
         self.checkStride = checkStride
         self.capacity = capacity
@@ -85,9 +94,11 @@ public final class DownloadSpace: @unchecked Sendable {
     private func fits(_ additional: Int128, recovery: Bool = false) throws -> Bool {
         let pending = entries.values.reduce(Int128(0)) { $0 + $1.remaining }
         let available = try capacity()
+        let reserve = reserve()
+        precondition(reserve >= 0)
         let fits = Int128(available) >= Int128(reserve) + pending + additional
         if recovery || !fits {
-            Self.logger.info("local_space available_bytes=\(available) reserve_bytes=\(self.reserve) pending_bytes=\(Int64(clamping: pending)) requested_bytes=\(Int64(clamping: additional)) recovery=\(recovery) fits=\(fits)")
+            Self.logger.info("local_space available_bytes=\(available) reserve_bytes=\(reserve) pending_bytes=\(Int64(clamping: pending)) requested_bytes=\(Int64(clamping: additional)) recovery=\(recovery) fits=\(fits)")
         }
         return fits
     }

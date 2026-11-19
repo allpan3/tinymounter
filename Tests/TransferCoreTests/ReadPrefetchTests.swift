@@ -8,7 +8,7 @@ final class ReadPrefetchTests: XCTestCase {
     private let item = UUID().uuidString
     private var staging: URL!
     /// Room for exactly one extent's reservation, so a leaked one makes `isIdle` false.
-    private let space = DownloadSpace(reserve: 0, capacity: { 2 * ReadPrefetchTests.extent + 65536 })
+    private let space = DownloadSpace(reserve: { 0 }, capacity: { 2 * ReadPrefetchTests.extent + 65536 })
 
     override func setUpWithError() throws {
         staging = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
