@@ -1,7 +1,7 @@
 # First performance prototype
 
-Status: this document describes how to build, sign and run the current source, including the
-unreleased manual-recovery and Pause retention fixes. See [release notes](release.md) for 0.4.0 and its limits.
+Status: this document describes how to build, sign and run the current source, at version
+0.4.1. The [install notes](release.md) cover the published 0.4.0 download and its limits.
 
 ## Initial implementation and checks
 
