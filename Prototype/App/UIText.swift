@@ -443,7 +443,18 @@ enum UIText {
     static let signIn = "Sign In"
     static let signInAgain = "Sign In Again…"
     static let password = "Password"
-    static let signInTitle = "Type the server address, your name and your password."
+    static let signInTitle = "Choose a server or type its address. Then sign in."
+    static let nearbyServers = "Nearby Servers"
+    static let refresh = "Refresh"
+    static let noNearbyServers = "No servers found. You can type a server address below."
+    static func discoveryFailure(_ failure: SMBServerDiscovery.Failure) -> String {
+        switch failure {
+        case .permissionDenied: localNetworkDenied
+        case .browseFailed: "TinyMounter cannot look for servers. Click Refresh to try again, or type an address."
+        case .resolveFailed: "TinyMounter cannot find this server's address. Try again, or type its address."
+        case .unsupportedPort: "This server uses an SMB port that TinyMounter does not support. Use a server on port 445."
+        }
+    }
     static func signInAgainTitle(_ host: String) -> String { "Type your password for \(host) again." }
     static func signInAgainMessage(_ host: String) -> String {
         "\(host) did not accept the saved password. If the password has expired, change it on the server. " +

@@ -344,6 +344,14 @@ enumeration; its documented delete-callback semantics also make it unsuitable fo
 Unfinished refused imports were absent from normal pending-item enumeration too, so the app
 needs its own recovery notices. These observations are specific to this VM and OS build.
 
+### Bonjour service discovery, 2026-11-18
+
+The installed Xcode 27 `dns_sd.h` exposes `DNSServiceBrowse`, `DNSServiceResolve` and
+`DNSServiceSetDispatchQueue` without deprecation. Resolve returns the SRV target hostname and
+a network-byte-order port. Dispatch callbacks and `DNSServiceRefDeallocate` must use the same
+serial queue, and a completed resolve must be deallocated. TinyMounter uses the main queue for
+both and declares `_smb._tcp` in `NSBonjourServices`.
+
 ## Research limitations
 
 Live web documentation and current SDK headers establish API contracts, not actual throughput. Search was unreliable, and several sites initially failed the VM's DNS resolution; direct HTTPS retrieval with explicitly resolved public addresses succeeded. No VM DNS settings were changed. Subsequent work measured native SMB and short NAS-backed provider reads and ran signed correctness checks. Competitor installations, the player matrix, large-file throughput acceptance, and controlled failure experiments remain incomplete, as described in the benchmark plan.

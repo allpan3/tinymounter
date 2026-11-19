@@ -71,7 +71,10 @@ menu bar item opens it again. A domain without a catalog
 fails every request with `serverUnreachable` and never reports an item as deleted.
 
 **Servers, sign-in and shares.** Shares are added only through a location. Add Server… in the
-location's Server menu opens a sign-in sheet for the address, account and password. The app
+location's Server menu opens a sign-in sheet for the address, account and password. Nearby
+Servers lists Bonjour SMB services on the local network; selecting one fills the address with
+its hostname. Discovery stops when the sheet closes and sends no credentials. Manual address
+entry remains available. Only the standard SMB port, 445, is supported. The app
 signs in with NTLMSSP over SMB 3, with signing and encryption required; there is no guest login
 and no macOS dialog. A refused password shows the refusal and saves nothing. An accepted one
 saves the server in `Application Support/tinymounter/Settings.json` in the app container, mode
@@ -79,6 +82,10 @@ saves the server in `Application Support/tinymounter/Settings.json` in the app c
 `dev.tinymounter.smb`, account `name@host`. Add Share… lists the server's disk shares over that
 sign-in. Folder Select… opens a folder browser in the app that lists folders over the connection.
 No mount and no panel are used.
+
+Signed VM checks cover discovery, hostname selection, advertisement withdrawal, unsupported
+ports, denied local-network access, lookup timeout and cancellation. Discovery on the physical
+Mac remains unverified.
 
 Read only is a plain setting per location; the account's permissions on the server apply. A
 share stays saved after its last location is removed. Servers lists the saved shares by server,
