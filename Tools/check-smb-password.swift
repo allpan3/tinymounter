@@ -162,9 +162,17 @@ extension CatalogRow {
         }
         try step("checksum-read") { try requireContents(share, location, "a.bin", equal: first, staging: local) }
         try step("overwrite") {
-            let before = try session(share, folder: location).readMetadata(path: "a.bin").fingerprint
+            let reader = try session(share, folder: location)
+            let before = try reader.readMetadata(path: "a.bin").fingerprint
             _ = try session(share, folder: location).overwrite(path: "a.bin", contents: second,
                                                                expected: before, modified: nil)
+            let range = try ByteRange(offset: 0, length: 65536, fileSize: before.size)
+            do {
+                let stale = try reader.transfer(path: "a.bin", range: range, stagingDirectory: local,
+                                                progress: Progress(), checkSpace: nil)
+                if let url = stale.stagingURL { try FileManager.default.removeItem(at: url) }
+                throw Failed(description: "read accepted a newer version")
+            } catch SourceFailure.versionChanged {}
             try requireContents(share, location, "a.bin", equal: second, staging: local)
         }
         try step("rename") {
