@@ -22,7 +22,8 @@ WORKLOADS, interleaved each round; order alternates between rounds:
 Provider copies and ranges are hashed with hydration disabled, outside timing, and
 compared at the end with native hashes. Rates are decimal MB/s. Failed samples stay
 in samples.jsonl and results.json; only valid samples enter medians. Remote samples
-also require SMB receive counters to cover the requested bytes. Full downloads need
+require native SMB counters or completed direct reads from the selected provider,
+according to its transport. Use --provider-transport native for native-backed builds. Full downloads need
 one matching full callback from the selected app's provider.
 Hashes are saved as they finish. The local APFS clone stays with the evidence; it can
 inherit the provider copy's immutable flag.
@@ -125,6 +126,7 @@ LABELS = {
 }
 FETCH_LINE = re.compile(
     r"mode=(\w+) kind=(\S+) .*?bytes=(\d+) queue_seconds=(\S+) callback_seconds=(\S+) transfer_seconds=(\S+)")
+PREFETCH_CLAIM = re.compile(r"prefetch request=([0-9A-Fa-f-]{36}) claimed_by=([0-9A-Fa-f-]{36})")
 REQUEST_ID = re.compile(r"\brequest=([0-9A-Fa-f-]{36})\b")
 DIRECT_READ = re.compile(
     r"direct_read request=([0-9A-Fa-f-]{36}) phase=(\w+) remote_bytes=(\d+) total_ms=([\d.]+)")
@@ -316,7 +318,7 @@ class Series:
         self.lines = (folder / "samples.jsonl").open("x")
         self.log_file = (folder / "fetch-log.ndjson").open("x")
         predicate = ('subsystem == "dev.tinymounter.prototype" '
-                     'AND (category == "fetch" OR category == "listing")')
+                     'AND (category == "fetch" OR category == "listing" OR category == "source-reader")')
         try:
             self.log = subprocess.Popen(["log", "stream", "--info", "--style", "ndjson", "--predicate", predicate],
                                         stdout=self.log_file, stderr=subprocess.DEVNULL)
@@ -349,8 +351,9 @@ class Series:
         (self.evidence / (sample["id"] + "-smb-after.txt")).write_text(after_text)
         if before is not None and after is not None:
             sample["smbRxDelta"] = sum(after[key] - before[key] for key in after.keys() & before.keys())
-        if sample["valid"] and sample["workload"] in (
-                "native-full", "provider-full", "native-partial", "provider-partial"):
+        native_io = sample["workload"].startswith("native-") or (
+            self.args.provider_transport == "native" and sample["workload"] in ("provider-full", "provider-partial"))
+        if sample["valid"] and native_io:
             if sample.get("smbRxDelta", -1) < sample["bytes"]:
                 sample["valid"] = False
                 sample["failure"] = "SMB counters do not establish payload ingress"
@@ -527,12 +530,11 @@ class Series:
             sample["finalValid"] = sample["valid"] and sample["verification"] in ("matched", "native reference")
             if sample["workload"].startswith("provider"):
                 sample["fetchCallbacks"] = summarize_callbacks(callbacks, sample["wallStart"], sample["wallEnd"])
-                if sample["workload"] == "provider-full":
-                    observed = sample["fetchCallbacks"]
-                    if (self.log_status != "captured" or observed["count"] != 1 or observed["failed"]
-                            or observed["modes"] != ["full/full"] or observed["bytes"] != sample.get("bytes")):
+                if sample["finalValid"]:
+                    failure = provider_failure(sample, self.args.provider_transport, self.log_status)
+                    if failure:
                         sample["finalValid"] = False
-                        sample["failure"] = "full-download callback evidence is missing or inconsistent"
+                        sample["failure"] = failure
 
     def verification(self, sample):
         def match(key, reference):
@@ -551,10 +553,27 @@ class Series:
         return match(f"{round_key}-provider-partial", f"native-slot-{sample['slot']}")
 
 
+def provider_failure(sample, transport, log_status):
+    observed = sample["fetchCallbacks"]
+    if log_status != "captured" or observed["failed"]:
+        return "fetch log unavailable or a fetch failed"
+    if sample["workload"] == "provider-cached":
+        return "fetch observed during a cached read" if observed["count"] else None
+    if sample["workload"] == "provider-full":
+        if observed["count"] != 1 or observed["modes"] != ["full/full"] or observed["bytes"] != sample["bytes"]:
+            return "full-download callback evidence is missing or inconsistent"
+    elif not observed["count"] or not all(mode.startswith("partial/") for mode in observed["modes"]):
+        return "partial-read callbacks are missing or include a full download"
+    if transport == "direct" and observed["verifiedDirectBytes"] < sample["bytes"]:
+        return "completed direct reads do not establish payload ingress"
+    return None
+
+
 def parse_fetch_log(path, app):
     callbacks = []
     protected = {}
     direct = {}
+    claims = {}
     for line in path.read_text(errors="replace").splitlines():
         try:
             event = json.loads(line)
@@ -564,6 +583,9 @@ def parse_fetch_log(path, app):
         message = event.get("eventMessage", "")
         process = event.get("processImagePath", "")
         if process.startswith(str(app) + "/Contents/MacOS/"):
+            claim = PREFETCH_CLAIM.search(message)
+            if claim:
+                claims[claim[2]] = claim[1]
             match = DIRECT_READ.search(message)
             if match:
                 try:
@@ -595,14 +617,20 @@ def parse_fetch_log(path, app):
             callbacks.append({"time": when, "request": request, "mode": "failed"})
     for callback in callbacks:
         callback["protectedReads"] = protected.get(callback["request"], [])
-        callback["directReads"] = direct.get(callback["request"], [])
+        callback["directReads"] = direct.get(claims.get(callback["request"], callback["request"]), [])
     return callbacks
 
 
 def summarize_callbacks(callbacks, start, end):
     inside = [item for item in callbacks if start <= item["time"] <= end]
     done = [item for item in inside if item["mode"] != "failed"]
-    return {"count": len(done), "failed": len(inside) - len(done),
+    # Credit each completed transfer once and only for the extent the provider handed off.
+    verified = {}
+    for item in done:
+        for read in item["directReads"]:
+            if read["phase"] == "complete" and read["remoteBytes"] == item["bytes"]:
+                verified[read["request"]] = item["bytes"]
+    return {"verifiedDirectBytes": sum(verified.values()), "count": len(done), "failed": len(inside) - len(done),
             "modes": sorted({f"{item['mode']}/{item['kind']}" for item in done}),
             "bytes": sum(item["bytes"] for item in done),
             "callbackSeconds": sum(item["callback"] for item in done),
@@ -695,7 +723,7 @@ def command_run(args):
         "buildLabel": args.build_label, "buildCommitDeclared": args.build_commit, "accessMode": args.access_mode,
         "app": codesign_info(args.app), "provider": codesign_info(provider_bundle(args.app)),
         "toolsCommit": capture(["git", "-C", str(ROOT), "rev-parse", "HEAD"]).strip(), "toolsClean": not status,
-        "setup": setup, "fixtures": facts, "rounds": args.rounds, "blockSize": MIB,
+        "providerTransport": args.provider_transport, "setup": setup, "fixtures": facts, "rounds": args.rounds, "blockSize": MIB,
         "partial": {"length": args.partial_length, "gap": args.partial_gap, "start": args.partial_start,
                     "firstSlot": args.first_slot},
         "nasCacheState": "unknown; not controlled", "cacheLabels": LABELS,
@@ -825,6 +853,7 @@ def main():
         sub.add_argument("--partial-start", type=int, default=GIB)
         if name == "run":
             sub.add_argument("--results-dir", type=Path, required=True, help="new local directory")
+            sub.add_argument("--provider-transport", choices=["direct", "native"], default="direct")
             sub.add_argument("--build-label", required=True)
             sub.add_argument("--build-commit", required=True, help="declared by the parent; not verifiable here")
             sub.add_argument("--access-mode", required=True, choices=["read-only", "writable"])
