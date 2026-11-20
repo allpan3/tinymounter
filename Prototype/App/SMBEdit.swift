@@ -7,6 +7,8 @@ import UniformTypeIdentifiers
 final class SMBEdit: FileRenameRemote, UploadRemote {
     private final class Handle {
         var bytes = [UInt8](repeating: 0, count: 16)
+        var readSnapshot: [UInt64]?
+
         func use<T>(_ body: (UnsafeMutablePointer<UInt8>) throws -> T) rethrows -> T {
             try bytes.withUnsafeMutableBufferPointer { try body($0.baseAddress!) }
         }
@@ -233,20 +235,21 @@ final class SMBEdit: FileRenameRemote, UploadRemote {
     func readMetadata(path: String) throws -> (identity: RemoteFileIdentity, fingerprint: ContentFingerprint) {
         let handle = try handles[path] ?? open(path: path, access: 0x81, sharing: 7)
         handles[path] = handle
+        handle.readSnapshot = nil
         let values = try info(handle)
         guard values[2] <= Int64.max, values[3] == 1, values[4] & 0x450 == 0 else {
             throw UploadError.unresolved
         }
-        return try (RemoteFileIdentity(fileID: values[0], birthMicroseconds: values[1]),
-                    ContentFingerprint(smbSize: Int64(values[2]), modifiedMicroseconds: values[5],
-                                       changedMicroseconds: values[6]))
+        let identity = try RemoteFileIdentity(fileID: values[0], birthMicroseconds: values[1])
+        let fingerprint = try ContentFingerprint(smbSize: Int64(values[2]), modifiedMicroseconds: values[5],
+                                                 changedMicroseconds: values[6])
+        handle.readSnapshot = values
+        return (identity, fingerprint)
     }
 
     func transfer(path: String, range: ByteRange, stagingDirectory: URL, progress: Progress,
                   checkSpace: ((Int64) throws -> Void)?) throws -> TransferOutput {
-        guard let handle = handles[path] else { throw UploadError.unresolved }
-        let before = try info(handle)
-        guard before[2] <= Int64.max, before[3] == 1, before[4] & 0x450 == 0 else {
+        guard let handle = handles[path], let before = handle.readSnapshot else {
             throw UploadError.unresolved
         }
         return try Transfer.run(size: Int64(before[2]), range: range, stagingDirectory: stagingDirectory,
