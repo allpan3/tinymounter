@@ -11,8 +11,7 @@ shares. Saves write the ordinary file, set its
 length, flush and close. NAS snapshots/backups own previous-version recovery.
 The checked-in source builds without network access. Release packaging must preserve the
 licence notices, source availability and the user's ability to rebuild and relink the library.
-The 0.1.0 personal-use package includes these notices and a matching complete source archive.
-See [rebuilding and replacing the library](../../docs/release.md#rebuild-and-replace-the-library).
+See [rebuilding and replacing the library](../../docs/rebuild-smb.md).
 
 Local changes:
 
