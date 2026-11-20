@@ -32,7 +32,7 @@ extension CatalogRow {
     }
 }
 
-/// Arguments: server account password-file case [share]. The password file holds UTF-8 bytes.
+/// Use - in place of the password file to read fixture credentials from standard input.
 @main enum PasswordCheck {
     static var server = "", account = "", password = Data()
 
@@ -44,7 +44,8 @@ extension CatalogRow {
         }
         server = arguments[1]
         account = arguments[2]
-        password = FileManager.default.contents(atPath: arguments[3]) ?? Data()
+        password = arguments[3] == "-" ? FileHandle.standardInput.readDataToEndOfFile()
+            : FileManager.default.contents(atPath: arguments[3]) ?? Data()
         let share = arguments.count > 5 ? arguments[5] : ""
         var result: [String: Any] = ["case": arguments[4]]
         do {
