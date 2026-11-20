@@ -95,6 +95,20 @@ class PerformanceLogTests(unittest.TestCase):
                                                        remoteBytes=16777216, totalMs=120.5)])
         self.assertEqual(summary["protectedReads"], [])
 
+    def testClaimedPrefetchCountsOnceAndOnlyForMatchingExtent(self):
+        direct = f"direct_read request={self.first} phase=complete remote_bytes=16777216 total_ms=40"
+        claim = f"prefetch request={self.first} claimed_by={self.second}"
+        events = [self.fetch(self.second), self.event(claim), self.event(direct)]
+        sample = {"workload": "provider-partial", "bytes": 16777216}
+        for records, expected in [(events + events, 16777216), (events[:2], 0),
+                                  (events[:2] + [self.event(direct.replace("complete", "transfer"))], 0),
+                                  (events[:2] + [self.event(direct.replace("16777216", "8388608"))], 0)]:
+            sample["fetchCallbacks"] = performance.summarize_callbacks(self.parse(records), 0, float("inf"))
+            self.assertEqual(sample["fetchCallbacks"]["verifiedDirectBytes"], expected)
+            self.assertEqual(performance.provider_failure(sample, "direct", "captured") is None, bool(expected))
+        sample["fetchCallbacks"]["modes"] = ["full/full"]
+        self.assertIsNotNone(performance.provider_failure(sample, "native", "captured"))
+
     def testMalformedRecordAndOtherSampleAreExcluded(self):
         malformed = self.proof(self.first)
         malformed["eventMessage"] = malformed["eventMessage"].replace("verify_ms=30.000", "verify_ms=1.2.3")
