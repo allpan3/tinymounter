@@ -4,7 +4,6 @@ import argparse
 from pathlib import Path
 import plistlib
 import re
-import shutil
 import subprocess
 import tempfile
 
@@ -16,12 +15,22 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("app", type=Path)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--source-ref", default="HEAD", help="Git commit used to build the signed app")
     args = parser.parse_args()
     app = args.app.resolve()
     info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
     version = info["CFBundleShortVersionString"]
     if app.name != "TinyMounter.app" or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
         parser.error("expected TinyMounter.app with a release version")
+    commit = subprocess.check_output(["git", "rev-parse", "--verify", "--end-of-options",
+                                      args.source_ref + "^{commit}"], cwd=ROOT, text=True).strip()
+
+    def source_file(path):
+        return subprocess.check_output(["git", "show", f"{commit}:{path}"], cwd=ROOT)
+
+    source_info = plistlib.loads(source_file("Prototype/Config/App-Info.plist"))
+    if any(source_info[key] != info[key] for key in ("CFBundleShortVersionString", "CFBundleVersion")):
+        parser.error("source version and build must match the signed app")
     binary = app / "Contents/MacOS" / info["CFBundleExecutable"]
     arch = subprocess.check_output(["lipo", "-archs", str(binary)], text=True).strip()
     if arch != "arm64":
@@ -49,14 +58,19 @@ def main():
             notices = package / "Licences and Source"
             notices.mkdir()
             for source, name in [
-                (ROOT / "docs/release.md", "Build and Release Notes.md"),
-                (ROOT / "LICENSE", "LICENSE.txt"),
-                (ROOT / "Vendor/libsmb2/LICENCE-LGPL-2.1.txt", "libsmb2-LICENSE.txt"),
-                (ROOT / "Vendor/libsmb2/README.md", "libsmb2-NOTICES.md"),
+                ("LICENSE", "LICENSE.txt"),
+                ("Vendor/libsmb2/LICENCE-LGPL-2.1.txt", "libsmb2-LICENSE.txt"),
+                ("Vendor/libsmb2/COPYING", "libsmb2-COPYING.txt"),
             ]:
-                shutil.copyfile(source, notices / name)
-            notice = notices / "libsmb2-NOTICES.md"
-            notice.write_text(notice.read_text().replace("../../docs/release.md", "Build%20and%20Release%20Notes.md"))
+                (notices / name).write_bytes(source_file(source))
+            (notices / "Rebuild the SMB library.md").write_bytes((ROOT / "docs/rebuild-smb.md").read_bytes())
+            notice = source_file("Vendor/libsmb2/README.md").decode()
+            for link in ("../../docs/rebuild-smb.md", "../../docs/release.md#rebuild-and-replace-the-library"):
+                notice = notice.replace(f"({link})", "(Rebuild%20the%20SMB%20library.md)")
+            (notices / "libsmb2-NOTICES.md").write_text(notice)
+            source_archive = notices / f"TinyMounter-{version}-source.tar.gz"
+            subprocess.run(["git", "archive", "--format=tar.gz", f"--prefix=TinyMounter-{version}/",
+                            "-o", str(source_archive), commit], cwd=ROOT, check=True)
             subprocess.run(["codesign", "--verify", "--deep", "--strict", str(staged_app)], check=True)
             subprocess.run(["diskutil", "image", "create", "from", "--volumeName",
                             f"TinyMounter {version}", "--format", "UDZO",

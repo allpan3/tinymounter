@@ -143,29 +143,12 @@ rebuilding the app with a modified library; no signing key is required from the 
 
 ### Rebuild and replace the library
 
-Extract the source archive and edit the library under `Vendor/libsmb2`. With Xcode 27 and your
-own Apple development team, regenerate and build the app and its embedded library together:
+Follow the [library rebuild instructions](rebuild-smb.md) with the source archive for your app version.
+
+To package a signed build, run the following command from the development checkout. Set
+`SOURCE_COMMIT` to the revision used for that build. The DMG includes that revision’s source
+archive, the licences and the instructions for rebuilding the SMB library.
 
 ```sh
-python3 Tools/generate-project.py
-xcodebuild -project TinyMounter.xcodeproj -scheme TinyMounter -configuration Release \
-  -derivedDataPath .build/relinked DEVELOPMENT_TEAM=YOUR_TEAM \
-  TINYMOUNTER_BUNDLE_ID=your.own.tinymounter \
-  TINYMOUNTER_APP_GROUP=YOUR_TEAM.your.own.tinymounter build
-```
-
-Use identifiers signed by your own team. This produces your separate app, provider and rebuilt
-library with consistent signing; it does not open the publisher's App Group. The library target
-is `TinyMounterSMB`, and the app links it dynamically at `@rpath/libTinyMounterSMB.dylib`.
-For an unsigned compile check, add `CODE_SIGNING_ALLOWED=NO`; normal File Provider operation
-requires a signed app. You may modify, rebuild and debug library changes under its LGPL terms.
-Keep the sandbox and matching app/provider identity checks intact.
-
-For this project's development environment, run app builds and checks in the VM as described
-in `AGENTS.md`. `Tools/package-release.py` packages a signed app; create the matching source
-archive with:
-
-```sh
-git archive --format=tar.gz --prefix=TinyMounter-0.4.0/ \
-  --output=TinyMounter-0.4.0-source.tar.gz v0.4.0
+python3 Tools/package-release.py /path/to/TinyMounter.app --source-ref "$SOURCE_COMMIT" --output dist
 ```
