@@ -19,7 +19,7 @@ PRODUCTS = ROOT / '.build/xcode/Build/Products/Release'
 def build(output):
     sources = sorted(str(path) for path in (ROOT / 'Sources/TransferCore').glob('*.swift'))
     sources += [str(ROOT / name) for name in ('Prototype/App/SMBEdit.swift', 'Prototype/App/SMBClient.swift',
-                                              'Tools/check-smb-password.swift')]
+                                              'Prototype/App/SMBWatch.swift', 'Tools/check-smb-password.swift')]
     subprocess.run(['xcrun', 'swiftc', '-O', '-module-name', 'PasswordCheck',
                     '-import-objc-header', str(ROOT / 'Prototype/SMB/SMBRename.h'),
                     '-Xcc', f'-I{ROOT / "Vendor/libsmb2/include"}', *sources,
