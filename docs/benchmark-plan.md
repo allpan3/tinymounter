@@ -69,10 +69,17 @@ The direct SMB client emits `direct_read` with request ID, payload bytes, comple
 total time. Native SMB session counters do not count those reads, so they alone cannot judge this
 transport. The runner follows completed direct reads, including claimed prefetches, back to
 the selected provider’s callbacks. Use server traffic counters as an independent check.
-On the encrypted Samba VM fixture, writable full downloads met the provider target. Fresh
-512 MiB sequential reads of a 3 GiB file fell below it. A fully downloaded copy read at a rate
-comparable to its local APFS clone, with hydration disabled and hashes verified. Native rates
-varied between rounds. Controlled server-cache and physical-Mac comparisons remain open.
+On the encrypted Samba VM fixture, writable full downloads met the provider target. A fully
+downloaded copy read at a rate comparable to its local APFS clone, with hydration disabled
+and hashes verified. An earlier read-only series met the sequential partial-read target.
+On the release candidate, both modes fell below it for fresh 512 MiB reads with the Samba
+file pages verified cold and again with them resident. Warming those pages raised the native
+median while the provider medians stayed close in both modes. Physical-Mac comparisons remain open.
+
+For a partial-read comparison, verify server residency before each reader runs, including
+the bytes it can prefetch beyond the timed range. Report the native and provider rates
+alongside their ratio. Measure the first read separately and correlate subsequent stalls at
+extent boundaries with the extension handoff and the application's return from `pread`.
 
 Keep setup, security settings, run order and all four cache states with the samples. A single
 pilot can identify a delay to investigate, but cannot establish a regression. Separate changes

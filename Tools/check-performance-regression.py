@@ -35,12 +35,10 @@ Reports correlate these records by request ID. The older protected_read parser r
 comparisons with historical transaction builds; its overlapping phase times must not be added.
 --access-mode is declared by the parent; missing records do not establish read-only access.
 
-HISTORY, context only and never a substitute for a baseline run: on this VM, full
-downloads exceeded 90% of matched native (2026-10-11 full-download and cache-states
-logs). Sequential partial reads have always missed 90% (45.2% for 512 MiB on
-2026-10-15, read-ahead-window log). A partial ratio below 90% in both builds is that
-old deficit; a regression is the current build below the baseline build under matched
-setup and mode. 90% is the accepted target in benchmark-plan.md section 6.
+The provider throughput target in benchmark-plan.md section 6 is 90% of matched native SMB.
+Compare absolute provider and native rates as well as their ratio. A change in native
+throughput can change the ratio even when provider throughput stays the same. Use the
+same access mode and verify the server cache state to investigate a build regression.
 
 BASELINE: c2f52a0 (M17, the last build before write support: no libsmb2, Settings v3,
 catalog schema 2, the same 16 MiB read-ahead and fetch log line as now). Build it from
@@ -129,7 +127,8 @@ FETCH_LINE = re.compile(
 PREFETCH_CLAIM = re.compile(r"prefetch request=([0-9A-Fa-f-]{36}) claimed_by=([0-9A-Fa-f-]{36})")
 REQUEST_ID = re.compile(r"\brequest=([0-9A-Fa-f-]{36})\b")
 DIRECT_READ = re.compile(
-    r"direct_read request=([0-9A-Fa-f-]{36}) phase=(\w+) remote_bytes=(\d+) total_ms=([\d.]+)")
+    r"direct_read request=([0-9A-Fa-f-]{36}) phase=(\w+) remote_bytes=(\d+) "
+    r"(?:connect_ms=-?[\d.]+ prepare_ms=-?[\d.]+ transfer_ms=-?[\d.]+ )?total_ms=([\d.]+)")
 PROTECTED_READ = re.compile(
     r"protected_read request=([0-9A-Fa-f-]{36}) phase=(\w+) mode=(\w+) cache=(\w+) "
     r"edit_base=([01]) remote_bytes=(\d+) namespace_ms=([\d.]+) setup_ms=([-\d.]+) "
@@ -806,19 +805,19 @@ def command_compare(args):
     if differences or None in hashes:
         print("Attributes: nothing; setup or build identity is not matched. Each run's own ratios stand.")
     elif same_mode and not same_build:
-        print("Attributes: a build difference at matched access mode.")
+        print("Builds differ at the same access mode. The runner does not verify server cache residency.")
     elif same_build and not same_mode:
-        print("Attributes: an access-mode difference at matched build.")
+        print("Access modes differ on the same build. The runner does not verify server cache residency.")
     else:
         print("Attributes: nothing; build and access mode " + ("both differ." if not same_build else "both match."))
-    for group, _, _ in GROUPS:
+    for group, control, _ in GROUPS:
         old, new = base["summary"][group], current["summary"][group]
         print(f"{group}:")
         for name, stats in (("baseline", old), ("current", new)):
             ratio = stats.get("ratioOfMedians")
             ratio_text = f"{ratio:.1%}" if ratio is not None else "n/a"
-            print(f"  {name}: ratio of medians {ratio_text}; paired {describe(stats['pairedRatio'], '%', 100)}; "
-                  f"provider {describe(stats['provider'])}")
+            print(f"  {name}: provider {describe(stats['provider'])}, {control} {describe(stats['control'])}")
+            print(f"    ratio of medians {ratio_text}, paired {describe(stats['pairedRatio'], '%', 100)}")
             if stats["pairedRatio"] and stats["pairedRatio"]["n"] < 5:
                 print(f"  {name}: fewer than five valid pairs; not comparable")
             if group != "cached" and ratio is not None:
@@ -832,7 +831,6 @@ def command_compare(args):
             if old["providerFirstRead"] and new["providerFirstRead"]:
                 if new["providerFirstRead"]["min"] > old["providerFirstRead"]["max"]:
                     print("  every current provider first read is slower than every baseline one")
-            print("  partial reads have missed 90% since the first measurement; below 90% in both is that deficit")
         for name, stats in (("baseline", old), ("current", new)):
             if stats["callbackBeyondTransfer"]:
                 print(f"  {name} callback beyond app transfer: {describe(stats['callbackBeyondTransfer'], 's', 1, 3)}")
