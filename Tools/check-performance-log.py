@@ -109,6 +109,13 @@ class PerformanceLogTests(unittest.TestCase):
         sample["fetchCallbacks"]["modes"] = ["full/full"]
         self.assertIsNotNone(performance.provider_failure(sample, "native", "captured"))
 
+    def testEarlierDirectReadWithPhaseTimings(self):
+        message = (f"direct_read request={self.first} phase=complete remote_bytes=16777216 "
+                   "connect_ms=7.811 prepare_ms=12.300 transfer_ms=67.200 total_ms=88.114")
+        callbacks = self.parse([self.fetch(self.first), self.event(message)])
+        self.assertEqual(callbacks[0]["directReads"],
+                         [dict(request=self.first, phase="complete", remoteBytes=16777216, totalMs=88.114)])
+
     def testMalformedRecordAndOtherSampleAreExcluded(self):
         malformed = self.proof(self.first)
         malformed["eventMessage"] = malformed["eventMessage"].replace("verify_ms=30.000", "verify_ms=1.2.3")
