@@ -352,6 +352,19 @@ a network-byte-order port. Dispatch callbacks and `DNSServiceRefDeallocate` must
 serial queue, and a completed resolve must be deallocated. TinyMounter uses the main queue for
 both and declares `_smb._tcp` in `NSBonjourServices`.
 
+### Native SMB reads and File Provider handoff, 2026-11-21
+
+Apple's published SMB client can issue several asynchronous reads on one file. It adjusts the
+request size and count using observed transfer rates and available credits. This lets the server
+work on the next read before the previous reply reaches the caller. The VM comparison measured
+throughput with both ciphers. Native request concurrency in those runs remains unmeasured. [Apple's SMB read implementation](https://github.com/apple-oss-distributions/SMBClient/blob/main/kernel/netsmb/smb_smb_2.c#L8909)
+
+File Provider adds a separate wait after the network read. The extension supplies a staging
+file, and macOS makes the range readable at its final path. In four signed macOS 27.0.1 VM
+traces, `fileproviderd` waited 527–612 ms for a database flush after the first extent was ready.
+The application's read returned 2–5 ms after the flush. Faster SMB reads can shorten the time
+to produce the staging file. The reviewed public API gives macOS control of the handoff. [Apple's partial-content API](https://developer.apple.com/documentation/fileprovider/nsfileproviderpartialcontentfetching)
+
 ## Research limitations
 
 Live web documentation and current SDK headers establish API contracts, not actual throughput. Search was unreliable, and several sites initially failed the VM's DNS resolution; direct HTTPS retrieval with explicitly resolved public addresses succeeded. No VM DNS settings were changed. Subsequent work measured native SMB and short NAS-backed provider reads and ran signed correctness checks. Competitor installations, the player matrix, large-file throughput acceptance, and controlled failure experiments remain incomplete, as described in the benchmark plan.

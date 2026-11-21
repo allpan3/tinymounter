@@ -72,14 +72,19 @@ the selected provider’s callbacks. Use server traffic counters as an independe
 On the encrypted Samba VM fixture, writable full downloads met the provider target. A fully
 downloaded copy read at a rate comparable to its local APFS clone, with hydration disabled
 and hashes verified. An earlier read-only series met the sequential partial-read target.
-On the release candidate, both modes fell below it for fresh 512 MiB reads with the Samba
-file pages verified cold and again with them resident. Warming those pages raised the native
-median while the provider medians stayed close in both modes. Physical-Mac comparisons remain open.
+With serial SMB reads, both modes fell below target on the M28 fixture. The signed writable
+candidate with overlapping SMB reads exceeded the target against the normal native GCM mount,
+using the median of five 512 MiB reads per server cache state. The read-only comparison with this build and the
+physical-Mac comparisons remain open.
 
 For a partial-read comparison, verify server residency before each reader runs, including
 the bytes it can prefetch beyond the timed range. Report the native and provider rates
 alongside their ratio. Measure the first read separately and correlate subsequent stalls at
 extent boundaries with the extension handoff and the application's return from `pread`.
+To isolate SMB session setup, read the same extents into APFS staging with one login per extent
+and again with one login for the file. Reopen and validate the handles in both cases. To isolate
+overlapping SMB requests, hold the session policy and staging write size fixed. Record the
+negotiated cipher for each native mount and retain the normal native mount as the release control.
 
 Keep setup, security settings, run order and all four cache states with the samples. A single
 pilot can identify a delay to investigate, but cannot establish a regression. Separate changes
