@@ -252,8 +252,9 @@ final class SMBEdit: FileRenameRemote, UploadRemote {
         guard let handle = handles[path], let before = handle.readSnapshot else {
             throw UploadError.unresolved
         }
-        return try Transfer.run(size: Int64(before[2]), range: range, stagingDirectory: stagingDirectory,
-            progress: progress, checkSpace: checkSpace, validate: {
+        let blockSize = Int(max(4096, min(range.length, Int64(TM_SMB_READ_BATCH_SIZE))))
+        return try Transfer.run(size: Int64(before[2]), range: range, blockSize: blockSize,
+            stagingDirectory: stagingDirectory, progress: progress, checkSpace: checkSpace, validate: {
                 try self.cancellation()
                 let after = try self.info(handle)
                 guard after[0] == before[0], after[2...6] == before[2...6] else {

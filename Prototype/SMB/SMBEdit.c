@@ -102,28 +102,42 @@ static void drop_connection(struct edit_client *client)
     client->smb = NULL;
 }
 
+static int wait_replies(struct edit_client *client, struct tm_edit_reply *replies, size_t count)
+{
+    struct timespec start, now;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    int first_error = 0;
+    for (size_t i = 0; i < count; i++) {
+        struct tm_edit_reply *reply = &replies[i];
+        int error = 0;
+        while (!reply->done) {
+            struct pollfd fd = {.fd = smb2_get_fd(client->smb), .events = smb2_which_events(client->smb)};
+            if (poll(&fd, 1, 100) < 0 && errno != EINTR) { error = errno; break; }
+            if (smb2_service(client->smb, fd.revents) < 0) { error = ECONNRESET; break; }
+            clock_gettime(CLOCK_MONOTONIC, &now);
+            if (!reply->done && now.tv_sec - start.tv_sec >= 12) { error = ETIMEDOUT; break; }
+        }
+        if (error || reply->local) {
+            // Destroy outstanding requests before their reply buffers leave scope.
+            if (!error) error = reply->error;
+            client->ntstatus = 0;
+            drop_connection(client);
+            return error;
+        }
+        if (reply->error && !first_error) {
+            first_error = reply->error;
+            client->ntstatus = reply->ntstatus;
+        }
+    }
+    if (!first_error) client->ntstatus = 0;
+    return first_error;
+}
+
 static int wait_reply(struct edit_client *client, struct smb2_pdu *pdu, struct tm_edit_reply *reply)
 {
     if (!pdu || !client->smb) return EIO;
     smb2_queue_pdu(client->smb, pdu);
-    struct timespec start, now;
-    clock_gettime(CLOCK_MONOTONIC, &start);
-    int error = 0;
-    while (!reply->done) {
-        struct pollfd fd = {.fd = smb2_get_fd(client->smb), .events = smb2_which_events(client->smb)};
-        if (poll(&fd, 1, 100) < 0 && errno != EINTR) { error = errno; break; }
-        if (smb2_service(client->smb, fd.revents) < 0) { error = ECONNRESET; break; }
-        clock_gettime(CLOCK_MONOTONIC, &now);
-        if (!reply->done && now.tv_sec - start.tv_sec >= 12) { error = ETIMEDOUT; break; }
-    }
-    // libsmb2 ends a request itself after its 10-second timeout. Without a server reply, the
-    // request can still complete later, so the connection is as unusable as after our timeout.
-    if (error || reply->local) {
-        drop_connection(client);
-        return error ? error : reply->error;
-    }
-    client->ntstatus = reply->error ? reply->ntstatus : 0;
-    return reply->error;
+    return wait_replies(client, reply, 1);
 }
 
 static int valid_path(const char *path)
@@ -373,11 +387,10 @@ static void read_done(struct smb2_context *smb, int status, void *data, void *co
     else reply->count = read->data_length;
 }
 
-static uint32_t payload_length(struct smb2_context *smb, uint32_t length, uint32_t maximum)
+static uint32_t payload_length(struct smb2_context *smb, uint32_t length, uint32_t maximum, int credits)
 {
-    // Raw requests need the same credit bound as libsmb2's high-level pread/pwrite.
-    if (smb->credits <= 0) return 0;
-    uint64_t available = smb->supports_multi_credit ? (uint64_t)smb->credits * 65536 : 65536;
+    if (credits <= 0) return 0;
+    uint64_t available = smb->supports_multi_credit ? (uint64_t)credits * 65536 : 65536;
     if (length > maximum) length = maximum;
     return length > available ? (uint32_t)available : length;
 }
@@ -389,19 +402,42 @@ int tm_edit_read(void *opaque, uint8_t *file, uint64_t offset, uint8_t *buffer, 
     client->ntstatus = 0;
     struct smb2_context *smb = client->smb;
     if (!smb) return EIO;
-    if (!file || !buffer || !count || !length || length > 1024 * 1024 || offset > INT64_MAX
+    if (!file || !buffer || !count || !length || length > TM_SMB_READ_BATCH_SIZE || offset > INT64_MAX
         || length > INT64_MAX - offset) return EINVAL;
-    length = payload_length(smb, length, smb2_get_max_read_size(smb));
-    if (!length) return EIO;
-    struct smb2_read_request request = {0};
-    request.offset = offset;
-    request.length = length;
-    request.buf = buffer;
-    memcpy(request.file_id, file, SMB2_FD_SIZE);
-    struct tm_edit_reply reply = {.capacity = length};
-    int error = wait_reply(client, smb2_cmd_read_async(smb, &request, read_done, &reply), &reply);
-    if (!error) *count = reply.count;
-    return error;
+    struct tm_edit_reply replies[TM_SMB_READ_DEPTH] = {0};
+    struct smb2_pdu *pdus[TM_SMB_READ_DEPTH];
+    uint32_t limit = (length + TM_SMB_READ_SIZE - 1) / TM_SMB_READ_SIZE;
+    uint32_t planned = 0, requests = 0;
+    int credits = smb->credits;
+    while (requests < limit && credits > 0) {
+        uint32_t length_left = length - planned;
+        uint32_t piece = length_left < TM_SMB_READ_SIZE ? length_left : TM_SMB_READ_SIZE;
+        piece = payload_length(smb, piece, smb2_get_max_read_size(smb), credits);
+        if (!piece) break;
+        struct smb2_read_request request = {.offset = offset + planned, .length = piece, .buf = buffer + planned};
+        memcpy(request.file_id, file, SMB2_FD_SIZE);
+        replies[requests].capacity = piece;
+        pdus[requests] = smb2_cmd_read_async(smb, &request, read_done, &replies[requests]);
+        if (!pdus[requests]) {
+            for (uint32_t i = 0; i < requests; i++) smb2_free_pdu(smb, pdus[i]);
+            return EIO;
+        }
+        planned += piece;
+        credits -= (int)((piece + 65535) / 65536);
+        requests++;
+    }
+    if (!requests) return EIO;
+    for (uint32_t i = 0; i < requests; i++) smb2_queue_pdu(smb, pdus[i]);
+    int error = wait_replies(client, replies, requests);
+    if (error) return error;
+    uint32_t received = 0;
+    for (uint32_t i = 0; i < requests; i++) {
+        received += replies[i].count;
+        // A short reply leaves a gap before the next offset. Return only the contiguous prefix.
+        if (replies[i].count < replies[i].capacity) break;
+    }
+    *count = received;
+    return 0;
 }
 
 static void write_done(struct smb2_context *smb, int status, void *data, void *context)
@@ -422,7 +458,7 @@ int tm_edit_write(void *opaque, uint8_t *file, uint64_t offset, const uint8_t *b
     if (!client->smb) return EIO;
     if (!file || !buffer || !count || !length || length > 1024 * 1024 || offset > INT64_MAX
         || length > INT64_MAX - offset) return EINVAL;
-    length = payload_length(client->smb, length, smb2_get_max_write_size(client->smb));
+    length = payload_length(client->smb, length, smb2_get_max_write_size(client->smb), client->smb->credits);
     if (!length) return EIO;
     struct smb2_write_request request = {.offset = offset, .length = length, .buf = buffer};
     memcpy(request.file_id, file, SMB2_FD_SIZE);

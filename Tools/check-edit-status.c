@@ -36,6 +36,8 @@ static uint8_t sent_write[48], sent_payload[1024 * 1024];
 static uint32_t sent_length;
 static struct smb2_file_basic_info sent_basic;
 static uint16_t sent_charge;
+static int batch_reads, queued_reads;
+static uint64_t short_at;
 
 // Real request encoders feed deterministic callbacks; no request reaches a socket.
 #define smb2_queue_pdu fake_queue
@@ -66,7 +68,7 @@ static void expect(int condition, const char *name, const char *detail)
 static void fake_queue(struct smb2_context *smb, struct smb2_pdu *pdu)
 {
     (void)smb;
-    if (queued) abort();
+    if (queued && !batch_reads) abort();
     if (pdu->header.command == SMB2_READ || pdu->header.command == SMB2_WRITE) {
         memcpy(&sent_length, pdu->out.iov[1].buf + 4, sizeof(sent_length));
         sent_charge = pdu->header.credit_charge;
@@ -77,6 +79,8 @@ static void fake_queue(struct smb2_context *smb, struct smb2_pdu *pdu)
         memcpy(sent_write, pdu->out.iov[1].buf, sizeof(sent_write));
         memcpy(sent_payload, pdu->out.iov[2].buf, pdu->out.iov[2].len);
     }
+    if (batch_reads) queued_reads++;
+    pdu->next = queued;
     queued = pdu;
 }
 
@@ -95,8 +99,19 @@ static int fake_service(struct smb2_context *smb, int revents)
     if (delivery == timeout) return 0;
     if (!queued) abort();
     struct smb2_pdu *pdu = queued;
-    queued = NULL;
-    pdu->cb(smb, (int)response_status, response_data, pdu->cb_data);
+    queued = pdu->next;
+    pdu->next = NULL;
+    if (batch_reads) {
+        uint64_t offset;
+        uint32_t length;
+        memcpy(&offset, pdu->out.iov[1].buf + 8, sizeof(offset));
+        memcpy(&length, pdu->out.iov[1].buf + 4, sizeof(length));
+        struct smb2_read_reply reply = {.data_length = length - (offset == short_at)};
+        memset(pdu->in.iov[0].buf, (int)(1 + offset / TM_SMB_READ_SIZE), reply.data_length);
+        pdu->cb(smb, 0, &reply, pdu->cb_data);
+    } else {
+        pdu->cb(smb, (int)response_status, response_data, pdu->cb_data);
+    }
     smb2_free_pdu(smb, pdu);
     return delivery == reply_then_service_failure ? -1 : 0;
 }
@@ -104,7 +119,7 @@ static int fake_service(struct smb2_context *smb, int revents)
 static int fake_clock(clockid_t clock, struct timespec *value)
 {
     if (clock != CLOCK_MONOTONIC) abort();
-    *value = (struct timespec){.tv_sec = clock_calls++ * 12};
+    *value = (struct timespec){.tv_sec = delivery == timeout ? clock_calls++ * 12 : 0};
     return 0;
 }
 
@@ -112,9 +127,10 @@ static void fake_destroy(void *opaque)
 {
     struct smb2_context *smb = opaque;
     destroyed++;
-    if (queued) {
+    while (queued) {
         struct smb2_pdu *pdu = queued;
-        queued = NULL;
+        queued = pdu->next;
+        pdu->next = NULL;
         pdu->cb(smb, SMB2_STATUS_SHUTDOWN, NULL, pdu->cb_data);
         smb2_free_pdu(smb, pdu);
     }
@@ -179,6 +195,8 @@ static void prepare(void)
     response_data = NULL;
     fail_create = clock_calls = destroyed = freed_data = 0;
     inspect_write = 0;
+    batch_reads = queued_reads = 0;
+    short_at = UINT64_MAX;
 }
 
 static void result(const char *name, int actual, int expected, uint32_t status)
@@ -461,6 +479,37 @@ static void payload_limits(void)
     result("no read credits", tm_edit_read(&client, file, 0, payload, 1, &count), EIO, 0);
 }
 
+static void pipelined_reads(void)
+{
+    static uint8_t payload[TM_SMB_READ_BATCH_SIZE];
+    prepare();
+    batch_reads = 1;
+    client.smb->credits = 64;
+    result("out-of-order reads", tm_edit_read(&client, file, 0, payload, sizeof(payload), &count), 0, 0);
+    expect(queued_reads == 4 && count == sizeof(payload), "out-of-order reads", "incomplete batch");
+    for (size_t i = 0; i < 4; i++) {
+        expect(payload[i * TM_SMB_READ_SIZE] == i + 1 && payload[(i + 1) * TM_SMB_READ_SIZE - 1] == i + 1,
+               "out-of-order reads", "reply in wrong range");
+    }
+    prepare();
+    batch_reads = 1;
+    client.smb->credits = 18;
+    result("shared credit budget", tm_edit_read(&client, file, 0, payload, sizeof(payload), &count), 0, 0);
+    expect(queued_reads == 2 && count == 18 * 65536, "shared credit budget", "incorrect credit charge");
+    prepare();
+    batch_reads = 1;
+    client.smb->credits = 64;
+    short_at = TM_SMB_READ_SIZE;
+    result("short middle read", tm_edit_read(&client, file, 0, payload, sizeof(payload), &count), 0, 0);
+    expect(count == 2 * TM_SMB_READ_SIZE - 1, "short middle read", "published across a gap");
+    prepare();
+    batch_reads = 1;
+    delivery = service_failure;
+    count = 99;
+    result("lost read batch", tm_edit_read(&client, file, 0, payload, sizeof(payload), &count), ECONNRESET, 0);
+    expect(count == 99 && destroyed == 1 && !client.smb, "lost read batch", "live requests or partial success");
+}
+
 static void exclusive_uploads(void)
 {
     prepare();
@@ -516,6 +565,7 @@ int main(void)
     close_attributes();
     file_writes();
     payload_limits();
+    pipelined_reads();
     composed_names();
     write_time();
     exclusive_uploads();
