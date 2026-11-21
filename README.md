@@ -27,7 +27,11 @@ Version 0.4.1 adds local SMB server discovery and a configurable minimum free di
 20 GB by default. It preserves uncertain local files for manual recovery after macOS loses its
 synchronization state and retains kept downloads during Pause. Both fixes passed signed VM checks. Physical-Mac acceptance checks remain open.
 
-File Provider supports partial-file downloads. It is not a native SMB mount, and some applications still request whole files. In the latest signed VM comparison, full downloads met the 90% native SMB throughput target. Sequential reads of fresh ranges in a writable location still fell short. The Finder launch routes tested in the VM requested the whole file before playback.
+File Provider supports partial-file downloads. In VM tests of the signed candidate, full downloads and
+writable sequential reads met the 90% native SMB throughput target. Read-only sequential
+reads reached 94% with cold Samba file pages and 84% with warm pages. IINA streamed video
+through its own File > Open. QuickTime and the tested Finder launches requested the whole
+file. [Benchmark conditions](docs/benchmark-plan.md#fixed-regression-set-during-implementation)
 
 - [Architecture and implementation phases](docs/architecture.md)
 - [Prototype setup and current limitations](docs/prototype.md)
