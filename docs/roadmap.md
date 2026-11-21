@@ -44,12 +44,19 @@ matched native/provider reads, streaming first frame and seeks, cached reads and
 On the disposable Samba fixture, full downloads met the provider throughput target and cached
 reads matched the local APFS control. With up to four SMB reads outstanding, the signed writable
 location exceeded 0.90 of the VM's normal native SMB rate for fresh 512 MiB reads with both
-cold and warm Samba file pages. The first read still took about two-thirds of a second.
-The read-only location last ran with the serial reader. On a direct
-open in IINA, the playback clock advanced before full materialization. macOS completed a
-whole-file request during the run. First visible frame and end-to-end
-resource use still need measurement. The SMB reader left no staging files after mid-transfer
-cancellation or after the caller removed each completed download. The physical Mac needs its own matched runs.
+cold and warm Samba file pages. The read-only location reached 94% cold and 84% warm.
+The median wait for its first 1 MiB was about two-thirds of a second.
+
+With its default decoder, IINA streamed MP4 and MKV in the VM and met the one-second p95
+seek target in each completed 20-seek series. In a four-minute MP4, the longest observed
+gap between frames was 83 ms.
+Some launches missed the two-second first-frame target. IINA also occasionally showed no
+picture with a fully local file. QuickTime downloaded each MP4 before showing a picture.
+VLC could not display video even on native SMB because its accelerated OpenGL output
+was unavailable in the VM.
+The physical Mac needs its own matched throughput, player and launch-route checks.
+End-to-end resource use also remains open. The SMB reader left no staging files after
+mid-transfer cancellation or after the caller removed each completed download.
 
 The personal-use releases leave out public distribution, notarization, a dedicated uninstaller,
 an accessibility audit, an automatic updater and broad OS/NAS compatibility. Before calling a

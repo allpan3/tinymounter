@@ -378,7 +378,12 @@ the removal.
   used partial reads, but the opening routes were not recorded.
 - Scheduler fairness between locations is not tuned: all locations share the two app transfer workers, so one location's downloads can delay another's reads.
 
-Full-download throughput exceeds 90% of native in both verified NAS cache states in the VM. On the Samba VM fixture, the pipelined writable reader exceeded 90% of native for fresh 512 MiB ranges with both cold and warm server pages. The measured VM Finder launch routes downloaded uncached files fully before an app opened them. Physical-Mac cached-read parity, disconnected retention and shipping lifecycle checks also remain open. VM results must be compared against the VM's native SMB baseline, then repeated on the physical Mac before judging the original 190/280 MB/s expectations.
+Full-download throughput exceeds 90% of native in both verified NAS cache states in the VM.
+On the Samba VM fixture, the pipelined writable reader also exceeded 90% of native for fresh
+512 MiB ranges with both cold and warm server pages. The read-only location reached 94% cold
+and 84% warm. Physical-Mac cached-read parity, disconnected retention and shipping lifecycle
+checks also remain open. The physical Mac needs its own native SMB baseline before judging
+the original 190/280 MB/s expectations.
 
 
 ## New files and folders, M18

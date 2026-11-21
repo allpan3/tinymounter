@@ -3,7 +3,7 @@
 The [accepted SMB simplification](smb-simplification.md) replaces custom remote recovery and
 content proofs. Read-performance targets remain unmet.
 
-Decision status: production architecture proposed; File Provider, cache ownership, the metadata architecture and the direct SMB transport are selected (§2), and the user set the phase order (§10). Full downloads exceed 90% of native speed in verified NAS-cold and NAS-cached states; sequential partial reads don't yet. Source references resolve in [research.md](research.md).
+Decision status: production architecture proposed; File Provider, cache ownership, the metadata architecture and the direct SMB transport are selected (§2), and the user set the phase order (§10). Full downloads exceeded 90% of native speed in both verified server cache states. The read-only sequential test fell short with warm Samba file pages. Source references resolve in [research.md](research.md).
 
 ## 1. Product contract
 
@@ -148,8 +148,11 @@ Prioritize foreground reads and seeks over background pinning and metadata crawl
 
 - **Finder:** in the measured VM configurations, double-click, Open With and Cmd-O made a coordinated whole-file read before handing the file to an app. Content downloaded fully before playback started. On the physical Mac, playback used partial reads, but the opening routes were not recorded.
 - **Opt-out:** Apple's `NSFileProviderExtensionNonMaterializingProcessNames` [A2] stops the download, but Finder then silently refuses to open the file, so Finder isn't listed. Only `ScopedBookmarkAgent` is: resolving an app's recent-file bookmarks otherwise downloads each whole file.
-- **VLC:** streams with partial reads when opened from its own File > Open or from `open -a`.
-- **QuickTime Player:** always downloads the whole file.
+- **VLC:** requests partial reads from its own File > Open and from `open -a`. VLC 3.0.24 could not create
+  its accelerated OpenGL video output in the VM, including on native SMB. Visible
+  playback in that version still needs a physical-Mac test.
+- **QuickTime Player:** downloaded both the front-index and rear-index MP4 in full before
+  showing the first frame.
 - **IINA:** streams with partial reads from its own Open, after the extension began clipping IINA's end-of-file reads that run past EOF.
 - **Quick Look:** shows only a generic icon for a file that isn't downloaded, and fetches nothing.
 - **TextEdit, Preview and Xcode:** ordinary saves work in writable locations. Other editing
@@ -622,7 +625,8 @@ criteria and parallel worktree ownership. Each implementation still has to pass 
   preserving pending local uploads, containment and accurate completion.
 - **Single-client transport, adopted.** The app's own SMB client handles remote listing,
   metadata, reads and writes. The pipelined reader met the writable 512 MiB range-read target
-  on the M28 VM fixture with cold and warm Samba file pages.
+  on the M28 VM fixture with cold and warm Samba file pages. The read-only location met
+  that target with cold server pages and fell short with warm pages.
   Normal builds enable folder organization and Delete Permanently….
 - **Earlier save transactions, superseded.** Protected stages, remote backups, complete-content
   rechecks and the M23 edit outbox were removed by the ordinary SMB decision.

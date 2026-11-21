@@ -71,11 +71,13 @@ transport. The runner follows completed direct reads, including claimed prefetch
 the selected provider’s callbacks. Use server traffic counters as an independent check.
 On the encrypted Samba VM fixture, writable full downloads met the provider target. A fully
 downloaded copy read at a rate comparable to its local APFS clone, with hydration disabled
-and hashes verified. An earlier read-only series met the sequential partial-read target.
-With serial SMB reads, both modes fell below target on the M28 fixture. The signed writable
-candidate with overlapping SMB reads exceeded the target against the normal native GCM mount,
-using the median of five 512 MiB reads per server cache state. The read-only comparison with this build and the
-physical-Mac comparisons remain open.
+and hashes verified. With overlapping SMB reads, the signed writable candidate exceeded 90%
+of native for fresh 512 MiB reads with both cold and warm Samba file pages. On November 21,
+2026, the read-only location reached 212 versus 226 MB/s cold (94%) and 201 versus 240 MB/s
+warm (84%). Each rate is the median of five reads against the normal encrypted native mount.
+The median wait for the first 1 MiB was 0.63 seconds cold and 0.66 seconds warm.
+After that read, the read-only medians were 282 MB/s cold and 270 MB/s warm. All ten
+provider ranges matched their server hashes. The physical Mac needs its own comparison.
 
 For a partial-read comparison, verify server residency before each reader runs, including
 the bytes it can prefetch beyond the timed range. Report the native and provider rates
