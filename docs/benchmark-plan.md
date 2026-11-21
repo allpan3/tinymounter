@@ -67,9 +67,12 @@ bytes and provider materialization separately; a local cache hit is not an SMB t
 
 The direct SMB client emits `direct_read` with request ID, payload bytes, completion phase and
 total time. Native SMB session counters do not count those reads, so they alone cannot judge this
-transport; use independent server traffic counters. In the VM, full downloads and read-only
-partial reads meet their targets, and the writable full and fully local comparisons pass for
-their VM setups. Writable partial reads stay below target, at about 0.73 of native. Fully hot server cache and physical-Mac checks remain unverified.
+transport. The runner follows completed direct reads, including claimed prefetches, back to
+the selected provider’s callbacks. Use server traffic counters as an independent check.
+On the encrypted Samba VM fixture, writable full downloads met the provider target. Fresh
+512 MiB sequential reads of a 3 GiB file fell below it. A fully downloaded copy read at a rate
+comparable to its local APFS clone, with hydration disabled and hashes verified. Native rates
+varied between rounds. Controlled server-cache and physical-Mac comparisons remain open.
 
 Keep setup, security settings, run order and all four cache states with the samples. A single
 pilot can identify a delay to investigate, but cannot establish a regression. Separate changes

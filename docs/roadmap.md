@@ -41,13 +41,22 @@ from another device; change notification is verified only against Samba so far.
 
 M28 includes the unresolved [benchmark gates](benchmark-plan.md#6-proposed-acceptance-targets):
 matched native/provider reads, streaming first frame and seeks, cached reads and resource use.
-Writable partial reads stay below the 0.90 target; no physical-Mac speed claim follows from the
-VM results. No target is relaxed by this schedule.
+On the disposable Samba fixture, full downloads met the provider throughput target and cached
+reads matched the local APFS control. Fresh sequential ranges in a writable location still
+fell below the 0.90 target. On a direct open in IINA, the playback clock advanced before full
+materialization. macOS completed a whole-file request during the run. First visible frame and end-to-end
+resource use still need measurement. The SMB reader left no staging files after mid-transfer
+cancellation or after the caller removed each completed download. The physical Mac needs its own matched runs.
 
 The personal-use releases leave out public distribution, notarization, a dedicated uninstaller,
 an accessibility audit, an automatic updater and broad OS/NAS compatibility. Before calling a
-beta ready, choose distribution signing, satisfy dependency licensing and relinking obligations
-and verify clean install, update and uninstall. Broader OS/NAS compatibility needs its own
+beta ready, choose distribution signing, complete the dependency licence review, verify a
+separately signed rebuild at runtime and repeat the installation checks on the distribution
+package. The personal 0.4.1 package opened with no locations in a fresh VM account. An update
+from 0.4.0 kept a changed preference, and removing the app cleared the installed extension
+registration.
+The packaging tool now includes the matching source archive and licence notices in the DMG.
+An unsigned VM rebuild linked a modified library. Broader OS/NAS compatibility needs its own
 evidence. A ready package is not permission to install, notarize, publish or buy a developer
 account.
 
