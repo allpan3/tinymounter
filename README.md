@@ -25,10 +25,9 @@ notification. The menu bar panel shows transfers and recent activity, with confi
 notifications and upload recovery. [Daily-use validation](docs/roadmap.md#daily-use-validation-m27) is in progress.
 Version 0.4.1 adds local SMB server discovery and a configurable minimum free disk space of
 20 GB by default. It preserves uncertain local files for manual recovery after macOS loses its
-synchronization state and retains kept downloads during Pause. Both fixes passed signed VM checks. Physical-Mac acceptance checks remain open. Writable partial reads
-stay at about 0.73 of native; 0.90 remains the improvement goal.
+synchronization state and retains kept downloads during Pause. Both fixes passed signed VM checks. Physical-Mac acceptance checks remain open.
 
-File Provider supports partial-file downloads. It is not a native SMB mount, and some applications still request whole files. Full downloads reach more than 90% of native SMB throughput in the VM. Sequential partial-read throughput is below target, and Finder-launched opens always download the whole file first.
+File Provider supports partial-file downloads. It is not a native SMB mount, and some applications still request whole files. In the latest signed VM comparison, full downloads met the 90% native SMB throughput target. Sequential reads of fresh ranges in a writable location still fell short. The Finder launch routes tested in the VM requested the whole file before playback.
 
 - [Architecture and implementation phases](docs/architecture.md)
 - [Prototype setup and current limitations](docs/prototype.md)
