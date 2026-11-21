@@ -42,9 +42,10 @@ from another device; change notification is verified only against Samba so far.
 M28 includes the unresolved [benchmark gates](benchmark-plan.md#6-proposed-acceptance-targets):
 matched native/provider reads, streaming first frame and seeks, cached reads and resource use.
 On the disposable Samba fixture, full downloads met the provider throughput target and cached
-reads matched the local APFS control. Fresh sequential ranges in both read-only and writable
-locations fell below the 0.90 target with verified cold and warm Samba file pages. The first read
-waited for a macOS database flush. Later reads still stalled at 16 MiB boundaries. On a direct
+reads matched the local APFS control. With up to four SMB reads outstanding, the signed writable
+location exceeded 0.90 of the VM's normal native SMB rate for fresh 512 MiB reads with both
+cold and warm Samba file pages. The first read still took about two-thirds of a second.
+The read-only location last ran with the serial reader. On a direct
 open in IINA, the playback clock advanced before full materialization. macOS completed a
 whole-file request during the run. First visible frame and end-to-end
 resource use still need measurement. The SMB reader left no staging files after mid-transfer
