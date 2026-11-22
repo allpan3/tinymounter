@@ -45,8 +45,9 @@ The local upload outbox retains a complete payload and the acknowledged server i
 Exclusive creation prevents a retry from overwriting an unrelated destination. A new file or
 folder at `attempting` without a server identity can try exclusive creation again; a name already
 present keeps the outcome uncertain. An acknowledged partial file restarts its complete upload
-only after checking the recorded identity. Local payload hashes protect this retained copy;
-the remote file is not read back in full.
+only after checking the recorded identity. The app hashes incoming contents to recognize edits
+on a resend, even when the size is unchanged. A retry verifies the retained copy against that
+hash before sending it. Neither operation requires reading back the remote file.
 
 A late cancellation can hide a completed upload from macOS. A resend with newer contents
 retains the same server identity and catalog item, and writes that server file again. A replaced

@@ -381,6 +381,25 @@ final class UploadTests: XCTestCase {
         XCTAssertEqual(record.state, .prepared)
     }
 
+    func testStreamingPreparationRejectsAnEditAfterHashingTheInput() throws {
+        XCTAssertEqual(setxattr(input.path, "dev.tinymounter.test", "x", 1, 0, 0), 0)
+        let request = try CreateRequest(template: "fresh", parent: Catalog.rootItemID,
+                                        name: "fresh.bin", kind: .file, staging: nil)
+        let path = try XCTUnwrap(RelativePath(request.name))
+        let writer = try FileHandle(forWritingTo: input)
+        defer { try? writer.close() }
+        var edited = false
+        XCTAssertThrowsError(try outbox.prepareForUpload(request, path: path, contents: input,
+                                                         progress: Progress()) { copied in
+            guard !edited, copied < Int64(self.payload.count) else { return }
+            try writer.seek(toOffset: UInt64(self.payload.count - 1))
+            try writer.write(contentsOf: Data([0xff]))
+            edited = true
+        }) { XCTAssertEqual($0 as? TransferError, .sourceChanged) }
+        XCTAssertTrue(edited)
+        XCTAssertEqual(try outbox.records().first?.state, .staging)
+    }
+
     func testLocalPreparationRecoveryRetainsPreparedAndUncertainPayloads() throws {
         var record = try prepared()
         let staged = root.appending(path: "pending/\(record.id.uuidString).data")
@@ -755,27 +774,37 @@ final class UploadTests: XCTestCase {
     }
 
     // macOS sends a file again when an app was still writing it at the first send.
-    func testChangedContentsAfterAPartialUploadRewriteTheSameServerFile() throws {
-        var record = try prepared()
+    func testSameSizeEditAfterAPartialUploadRewritesTheSameServerFile() throws {
+        let initial = try CreateRequest(template: "resend", parent: Catalog.rootItemID,
+                                        name: "new.bin", kind: .file, staging: nil)
+        let path = try XCTUnwrap(RelativePath(initial.name))
+        let prepared = try outbox.prepareForUpload(initial, path: path, contents: input, progress: Progress())
+        var record = prepared.record
         let server = try DirectRemote(record)
+        let write = try outbox.beginUpload(&record, remote: server, progress: Progress(), prepared: prepared)
+        XCTAssertEqual(write, .write)
         server.writeError = TransferError.cancelled
-        XCTAssertThrowsError(try outbox.upload(&record, remote: server, progress: Progress()))
-        let changed = payload + Data("appended".utf8)
+        XCTAssertThrowsError(try outbox.finishUpload(&record, step: write, remote: server, progress: Progress()))
+        var changed = payload
+        changed[0] ^= 0xff
         try changed.write(to: input)
         let saved = Date(timeIntervalSince1970: 1_800_000_000)
-        var replay = try outbox.prepare(request(for: record, modified: saved),
-                                        path: XCTUnwrap(RelativePath(record.path)), contents: input, progress: Progress())
+        let resend = try outbox.prepareForUpload(request(for: record, modified: saved), path: path,
+                                                 contents: input, progress: Progress())
+        var replay = resend.record
         XCTAssertEqual(replay.state, .created)
         XCTAssertEqual(replay.serverFile, record.serverFile)
-        XCTAssertEqual(replay.size, Int64(changed.count))
+        XCTAssertEqual(replay.size, record.size)
+        XCTAssertNotEqual(replay.digest, record.digest)
         XCTAssertEqual(replay.modified, saved)
-        server.version = try RemoteFileVersion(identity: server.version.identity, size: Int64(changed.count),
-                                               modifiedMicroseconds: 200, changedMicroseconds: 300, attributes: 0)
-        try outbox.upload(&replay, remote: server, progress: Progress())
+        let resume = try outbox.beginUpload(&replay, remote: server, progress: Progress(), prepared: resend)
+        XCTAssertEqual(resume, .resume)
+        try outbox.finishUpload(&replay, step: resume, remote: server, progress: Progress())
         XCTAssertEqual(replay.state, .verified)
         XCTAssertEqual(server.creates, 1)
         XCTAssertEqual(server.resumptions, 1)
         XCTAssertEqual(server.resumedIdentity, record.serverFile)
+        XCTAssertEqual(server.resumedContents, changed)
         XCTAssertEqual(server.savedTimes.last, saved)
         XCTAssertEqual(try Data(contentsOf: root.appending(path: "pending/\(record.id.uuidString).data")), changed)
     }

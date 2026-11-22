@@ -67,7 +67,7 @@ public final class UploadOutbox {
 
     public struct Preparation {
         public let record: PendingUpload
-        fileprivate let verifiedFile: ReadOnlyFile?
+        fileprivate let stagedFile: ReadOnlyFile?
     }
 
     public init(directory: URL) throws {
@@ -158,7 +158,7 @@ public final class UploadOutbox {
                                  progress: Progress, checkSpace: ((Int64) throws -> Void)? = nil,
                                  id: UUID = UUID()) throws -> Preparation {
         try checkReimport(request, path: path)
-        var verifiedFile: ReadOnlyFile?
+        var stagedFile: ReadOnlyFile?
         if var previous = try records().first(where: { $0.template == request.template }) {
             let renamedCollision = previous.state == .collision && !previous.name.utf8.elementsEqual(request.name.utf8)
             let acknowledgedFile = previous.kind == .file && previous.serverFile != nil
@@ -170,6 +170,7 @@ public final class UploadOutbox {
                   previous.kind == request.kind else { throw UploadError.unresolved }
             if request.kind == .file {
                 let file = try contents.map { try ReadOnlyFile(url: $0, allowMaterialization: true) }
+                guard file?.filesystem.isLocal != false else { throw UploadError.invalidRequest }
                 let size = file?.snapshot.size ?? 0
                 let digest = try file.map { try $0.checksum(range: ByteRange(offset: 0, length: size, fileSize: size)) }
                     ?? Self.emptyDigest
@@ -182,13 +183,11 @@ public final class UploadOutbox {
                     }
                     try replaceContents(&previous, size: size, digest: digest, modified: request.modified)
                 }
-            }
-            if previous.state == .staging {
-                verifiedFile = try stage(previous, contents: contents, progress: progress, checkSpace: checkSpace)
-                // A file that is on the server already is written again from the start, after its
-                // identity is checked.
-                previous.state = previous.serverFile == nil ? .prepared : .created
-                try save(previous)
+                if previous.state == .staging {
+                    stagedFile = try stage(previous, from: file, progress: progress, checkSpace: checkSpace)
+                    previous.state = previous.serverFile == nil ? .prepared : .created
+                    try save(previous)
+                }
             }
             if renamedCollision {
                 previous.name = request.name
@@ -198,25 +197,24 @@ public final class UploadOutbox {
                 previous.serverFolder = nil
                 try save(previous)
             }
-            return Preparation(record: previous, verifiedFile: verifiedFile)
+            return Preparation(record: previous, stagedFile: stagedFile)
         }
         let file = try contents.map { try ReadOnlyFile(url: $0, allowMaterialization: true) }
         guard file?.filesystem.isLocal != false else { throw UploadError.invalidRequest }
         let size = file?.snapshot.size ?? 0
         let digest = try file.map { try $0.checksum(range: ByteRange(offset: 0, length: size, fileSize: size)) }
             ?? Self.emptyDigest
-        try file?.validateUnchanged()
         var record = PendingUpload(id: id, template: request.template, parent: request.parent, name: request.name,
                                    path: path.string, kind: request.kind, size: size, digest: digest,
                                    state: request.kind == .file ? .staging : .prepared,
                                    modified: request.kind == .file ? request.modified : nil)
         try save(record)
         if request.kind == .file {
-            verifiedFile = try stage(record, contents: contents, progress: progress, checkSpace: checkSpace)
+            stagedFile = try stage(record, from: file, progress: progress, checkSpace: checkSpace)
             record.state = .prepared
             try save(record)
         }
-        return Preparation(record: record, verifiedFile: verifiedFile)
+        return Preparation(record: record, stagedFile: stagedFile)
     }
 
     /// The old copy goes before the record names the new contents, so after a crash the next send
@@ -243,12 +241,8 @@ public final class UploadOutbox {
             .compactMap { record in record.remoteID.map { (record.name, $0) } }
     }
 
-    private func stage(_ record: PendingUpload, contents: URL?, progress: Progress,
+    private func stage(_ record: PendingUpload, from source: ReadOnlyFile?, progress: Progress,
                        checkSpace: ((Int64) throws -> Void)?) throws -> ReadOnlyFile? {
-        let source = try contents.map { try ReadOnlyFile(url: $0, allowMaterialization: true) }
-        guard source?.filesystem.isLocal != false, source?.snapshot.size ?? 0 == record.size else {
-            throw UploadError.unresolved
-        }
         if try finishStagedPayload(record) { return nil }
         let destination = contentURL(record.id)
         if FileManager.default.fileExists(atPath: destination.path) {
@@ -273,9 +267,9 @@ public final class UploadOutbox {
             throw posixError("sync pending content")
         }
         let sealed = try ReadOnlyFile(url: destination)
-        guard sealed.snapshot.size == record.size,
-              try sealed.checksum(range: ByteRange(offset: 0, length: record.size, fileSize: record.size)) == record.digest
-        else { throw UploadError.unresolved }
+        guard sealed.snapshot.size == record.size, sealed.snapshot == (try stored.currentSnapshot()) else {
+            throw UploadError.unresolved
+        }
         return sealed
     }
 
@@ -462,11 +456,11 @@ public final class UploadOutbox {
         if record.state == .collision { throw UploadError.collision }
         let local = try ReadOnlyFile(url: contentURL(record.id))
         guard local.snapshot.size == record.size else { throw UploadError.unresolved }
-        // The open descriptor pins the verified APFS inode across the SMB connection setup.
-        let justVerified = record.state == .prepared && local.filesystem.type == "apfs"
+        // The open descriptor pins the freshly staged APFS inode across SMB connection setup.
+        let freshlyStaged = record.state == .prepared && local.filesystem.type == "apfs"
             && prepared?.record.id == record.id && prepared?.record.digest == record.digest
-            && prepared?.verifiedFile?.snapshot == local.snapshot
-        if !justVerified {
+            && prepared?.stagedFile?.snapshot == local.snapshot
+        if !freshlyStaged {
             guard try local.checksum(range: ByteRange(offset: 0, length: record.size, fileSize: record.size))
                 == record.digest else { throw UploadError.unresolved }
         }
