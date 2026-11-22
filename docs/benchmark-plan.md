@@ -113,6 +113,13 @@ mid-write disconnection, app/provider restart and automatic retry. Verify comple
 before retry and exact remote bytes afterwards. Partial remote contents are an accepted failed-write
 outcome. Do not count a queued callback or local Save as successful server completion.
 
+Time a large Finder upload from the copy request until the server closes the completed file
+for writing. On November 21, 2026, five alternating-order pairs copied a locally warmed 2 GiB
+file to fresh names on the VM's encrypted Samba share. Median throughput was 165 MB/s through
+the writable provider and 651 MB/s through native SMB. On the provider path, the median time
+was 0.075 seconds for Finder to return and 13.02 seconds for Samba to receive the file. The
+server verified all ten copies by SHA-256 after timing.
+
 The earlier proof-cache experiments are not requirements for the simplified implementation. All cache-state and physical-Mac qualifications above still
 apply; this change does not relax throughput targets.
 
