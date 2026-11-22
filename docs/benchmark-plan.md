@@ -129,7 +129,7 @@ independent median times in seconds. Both guests used their normal filesystem ca
 | --- | ---: | ---: | ---: | ---: |
 | Before changes | 3.81 | 10.08 | 13.80 | 7.66 |
 | Up to four SMB writes in flight | 3.28 | 8.44 | 11.76 | 7.66 |
-| Overlapping writes and one fewer checksum on fresh uploads | 2.60 | 8.47 | 11.08 | 7.68 |
+| Overlapping writes, one checksum each for the input and the retained copy | 2.60 | 8.47 | 11.08 | 7.68 |
 
 The final series reached 194 MB/s through TinyMounter and 280 MB/s through native SMB.
 The median paired throughput ratio was 69% end to end and 87.5% from the first server write
