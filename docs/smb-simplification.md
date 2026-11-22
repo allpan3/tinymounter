@@ -28,8 +28,8 @@ honored if received; stop advertising that optional feature for the last-writer-
 
 The client serializes only libsmb2 context creation/destruction, whose context list is global.
 Each connection owns its requests and credentials; unrelated payload I/O can run concurrently.
-Each wire read or write is capped at 1 MiB and the server maximum. A download can have four
-reads outstanding on its connection, subject to the total available SMB credits.
+Each wire read or write is capped at 1 MiB and the server maximum. A transfer can have four
+reads or four writes outstanding on its connection, subject to the total available SMB credits.
 
 No operation looks up the location folder through a native path: there is no mount. Transport resets
 are classified as connection failures and returned as retryable provider errors.

@@ -59,8 +59,8 @@ replacement disabled. Only the app calls it, after checking that the location is
 
 The raw I/O adapter reads the vendored context's credit count and negotiated multi-credit
 flag to cap each read/write at the server maximum, available credits and 1 MiB. The adapter
-shares the credit budget across up to four outstanding reads. Writes issue one request at a
-time. Individual requests use the same bounds as the library's high-level
+shares the credit budget across up to four outstanding reads or four outstanding writes.
+Individual requests use the same bounds as the library's high-level
 pread/pwrite, while retaining decoded server status for error handling. The adapter and its
 tests must use the library's build definitions, without `HAVE_LIBKRB5`, so the context layout
 matches.

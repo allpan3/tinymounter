@@ -183,15 +183,15 @@ in with the server's Keychain password, opens an SMB session for each operation,
 `CHANGE_NOTIFY` connection per share with at most 64 watches, and judges each share's health from
 the results of its calls. Authenticated
 mutations require encryption. The library source and licence are in `Vendor/libsmb2`; the
-personal-use release includes the complete source, notices and [rebuilding instructions](release.md#rebuild-and-replace-the-library).
+personal-use release includes the complete source, notices and [rebuilding instructions](rebuild-smb.md).
 
 The [simplification audit](smb-simplification.md) removes full-content proofs and remote save
 transactions. Each operation owns its connection and credentials. A small lock protects only
 library context creation/destruction; independent connections can transfer concurrently. Read
-and write requests are capped at 1 MiB and the negotiated server limit. A download can issue
-up to four reads against one open file, within a shared credit budget and a 4 MiB buffer.
-The reader waits for the replies before handing contiguous bytes to staging. Writes still
-issue one request at a time. Each extent opens its own authenticated session.
+and write requests are capped at 1 MiB and the negotiated server limit. A transfer can issue
+up to four reads or four writes against one open file, within a shared credit budget and a
+4 MiB buffer. After a short reply, the transfer continues at the first unconfirmed byte.
+Each download extent opens its own authenticated session.
 
 New uploads use exclusive creation. An acknowledged partial upload restarts the complete write
 only after matching the recorded server identity; an uncertain create never overwrites an

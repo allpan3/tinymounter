@@ -48,7 +48,7 @@ cold and warm Samba file pages. The read-only location reached 94% cold and 84% 
 The median wait for its first 1 MiB was about two-thirds of a second.
 
 For a new 2 GiB Finder upload over a 2.5 Gbit/s VM link, the writable location reached
-69% of native SMB throughput from copy request to server close. An interrupted upload
+73% of native SMB throughput from copy request to server close. An interrupted upload
 retried automatically after reconnection and kept the same server file.
 
 With its default decoder, IINA streamed MP4 and MKV in the VM and met the one-second p95
