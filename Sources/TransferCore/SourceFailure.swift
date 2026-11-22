@@ -26,7 +26,7 @@ public enum SourceFailure: Error, Equatable, Sendable {
 
     public static func classify(errno code: Int32, context: Context) -> SourceFailure {
         switch code {
-        case ETIMEDOUT, ENOTCONN, ENETDOWN, ENETUNREACH, EHOSTDOWN, EHOSTUNREACH,
+        case ETIMEDOUT, ENOTCONN, ENETDOWN, ENETRESET, ENETUNREACH, EHOSTDOWN, EHOSTUNREACH,
              ECONNRESET, ECONNREFUSED, EPIPE, ENXIO, ESTALE:
             return .serverUnreachable
         case EAUTH, ENEEDAUTH:

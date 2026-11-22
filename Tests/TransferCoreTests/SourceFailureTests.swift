@@ -10,7 +10,7 @@ final class SourceFailureTests: XCTestCase {
     func testErrnoRowsOfThePlanTable() {
         // A nil expectation is unknown with the errno.
         let rows: [(condition: String, codes: [Int32], contexts: [SourceFailure.Context], expected: SourceFailure?)] = [
-            ("timeout class", [ETIMEDOUT, ENOTCONN, ENETDOWN, ENETUNREACH, EHOSTDOWN, EHOSTUNREACH, ECONNRESET,
+            ("timeout class", [ETIMEDOUT, ENOTCONN, ENETDOWN, ENETRESET, ENETUNREACH, EHOSTDOWN, EHOSTUNREACH, ECONNRESET,
                                ECONNREFUSED, EPIPE, ENXIO, ESTALE], everywhere, .serverUnreachable),
             ("EAUTH or ENEEDAUTH", [EAUTH, ENEEDAUTH], everywhere, .notAuthenticated),
             ("EPERM or EACCES", [EPERM, EACCES], everywhere, .noPermission),

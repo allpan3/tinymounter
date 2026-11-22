@@ -87,8 +87,8 @@ final class UploadRetryTests: XCTestCase {
 
     func testOnlyConnectionAndSharingFailuresAreTransient() {
         let posix = { (code: Int32) in NSError(domain: NSPOSIXErrorDomain, code: Int(code)) }
-        for error: Error in [posix(ETXTBSY), posix(ETIMEDOUT), posix(ECONNRESET), SourceFailure.serverUnreachable,
-                             SourceFailure.notConnected] {
+        for error: Error in [posix(ETXTBSY), posix(ETIMEDOUT), posix(ENETRESET), posix(ECONNRESET),
+                             SourceFailure.serverUnreachable, SourceFailure.notConnected] {
             XCTAssertTrue(UploadRetrySchedule.isTransient(error), "\(error)")
         }
         for error: Error in [posix(EACCES), posix(ENOSPC), posix(EIO), SourceFailure.notAuthenticated,
