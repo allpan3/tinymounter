@@ -65,6 +65,11 @@ public struct PendingUpload: Codable, Sendable {
 public final class UploadOutbox {
     private let directory: URL
 
+    public struct Preparation {
+        public let record: PendingUpload
+        fileprivate let verifiedFile: ReadOnlyFile?
+    }
+
     public init(directory: URL) throws {
         self.directory = directory
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
@@ -145,7 +150,15 @@ public final class UploadOutbox {
     public func prepare(_ request: CreateRequest, path: RelativePath, contents: URL?,
                         progress: Progress, checkSpace: ((Int64) throws -> Void)? = nil,
                         id: UUID = UUID()) throws -> PendingUpload {
+        try prepareForUpload(request, path: path, contents: contents, progress: progress,
+                             checkSpace: checkSpace, id: id).record
+    }
+
+    public func prepareForUpload(_ request: CreateRequest, path: RelativePath, contents: URL?,
+                                 progress: Progress, checkSpace: ((Int64) throws -> Void)? = nil,
+                                 id: UUID = UUID()) throws -> Preparation {
         try checkReimport(request, path: path)
+        var verifiedFile: ReadOnlyFile?
         if var previous = try records().first(where: { $0.template == request.template }) {
             let renamedCollision = previous.state == .collision && !previous.name.utf8.elementsEqual(request.name.utf8)
             let acknowledgedFile = previous.kind == .file && previous.serverFile != nil
@@ -171,7 +184,7 @@ public final class UploadOutbox {
                 }
             }
             if previous.state == .staging {
-                try stage(previous, contents: contents, progress: progress, checkSpace: checkSpace)
+                verifiedFile = try stage(previous, contents: contents, progress: progress, checkSpace: checkSpace)
                 // A file that is on the server already is written again from the start, after its
                 // identity is checked.
                 previous.state = previous.serverFile == nil ? .prepared : .created
@@ -185,7 +198,7 @@ public final class UploadOutbox {
                 previous.serverFolder = nil
                 try save(previous)
             }
-            return previous
+            return Preparation(record: previous, verifiedFile: verifiedFile)
         }
         let file = try contents.map { try ReadOnlyFile(url: $0, allowMaterialization: true) }
         guard file?.filesystem.isLocal != false else { throw UploadError.invalidRequest }
@@ -199,11 +212,11 @@ public final class UploadOutbox {
                                    modified: request.kind == .file ? request.modified : nil)
         try save(record)
         if request.kind == .file {
-            try stage(record, contents: contents, progress: progress, checkSpace: checkSpace)
+            verifiedFile = try stage(record, contents: contents, progress: progress, checkSpace: checkSpace)
             record.state = .prepared
             try save(record)
         }
-        return record
+        return Preparation(record: record, verifiedFile: verifiedFile)
     }
 
     /// The old copy goes before the record names the new contents, so after a crash the next send
@@ -231,26 +244,50 @@ public final class UploadOutbox {
     }
 
     private func stage(_ record: PendingUpload, contents: URL?, progress: Progress,
-                       checkSpace: ((Int64) throws -> Void)?) throws {
+                       checkSpace: ((Int64) throws -> Void)?) throws -> ReadOnlyFile? {
         let source = try contents.map { try ReadOnlyFile(url: $0, allowMaterialization: true) }
         guard source?.filesystem.isLocal != false, source?.snapshot.size ?? 0 == record.size else {
             throw UploadError.unresolved
         }
-        if try finishStagedPayload(record) { return }
+        if try finishStagedPayload(record) { return nil }
         let destination = contentURL(record.id)
         if FileManager.default.fileExists(atPath: destination.path) {
             try FileManager.default.removeItem(at: destination)
         }
-        let fd = open(destination.path, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
-        guard fd >= 0 else { throw posixError("create pending content") }
-        defer { close(fd) }
         progress.totalUnitCount = max(1, Int64(clamping: Int128(record.size) * 2))
-        if let source {
-            try Self.copy(from: source.descriptor, to: fd, size: record.size, progress: progress, checkSpace: checkSpace)
-            try source.validateUnchanged()
+        guard !progress.isCancelled else { throw TransferError.cancelled }
+        if let source, try Self.clonePlainFile(source, to: destination) {
+            progress.completedUnitCount += record.size
+            try checkSpace?(record.size)
+        } else {
+            let fd = open(destination.path, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+            guard fd >= 0 else { throw posixError("create pending content") }
+            defer { close(fd) }
+            if let source {
+                try Self.copy(from: source.descriptor, to: fd, size: record.size, progress: progress, checkSpace: checkSpace)
+            }
         }
-        guard try Self.checksum(fd, size: record.size) == record.digest else { throw UploadError.unresolved }
-        guard fsync(fd) == 0, fchmod(fd, 0o400) == 0 else { throw posixError("sync pending content") }
+        try source?.validateUnchanged()
+        let stored = try ReadOnlyFile(url: destination)
+        guard fchmod(stored.descriptor, 0o400) == 0, fsync(stored.descriptor) == 0 else {
+            throw posixError("sync pending content")
+        }
+        let sealed = try ReadOnlyFile(url: destination)
+        guard sealed.snapshot.size == record.size,
+              try sealed.checksum(range: ByteRange(offset: 0, length: record.size, fileSize: record.size)) == record.digest
+        else { throw UploadError.unresolved }
+        return sealed
+    }
+
+    private static func clonePlainFile(_ source: ReadOnlyFile, to destination: URL) throws -> Bool {
+        var info = stat()
+        guard fstat(source.descriptor, &info) == 0 else { throw posixError("inspect pending input") }
+        // Staging copies only data. Clone when the source has no BSD flags or extended attributes.
+        guard info.st_mode & S_IRUSR != 0, info.st_flags == 0,
+              flistxattr(source.descriptor, nil, 0, 0) == 0 else { return false }
+        if fclonefileat(source.descriptor, AT_FDCWD, destination.path, UInt32(CLONE_NOOWNERCOPY)) == 0 { return true }
+        if errno == EXDEV || errno == ENOTSUP || errno == EPERM || errno == EACCES { return false }
+        throw posixError("clone pending content")
     }
 
     public func save(_ record: PendingUpload) throws {
@@ -417,15 +454,22 @@ public final class UploadOutbox {
     /// Checks the saved copy and creates the server file if no attempt did. The app holds the
     /// namespace lock for this part only; `finishUpload` writes the contents in the same session.
     public func beginUpload(_ record: inout PendingUpload, remote: UploadRemote, progress: Progress,
+                            prepared: Preparation? = nil,
                             checkpoint: (PendingUpload.State) throws -> Void = { _ in }) throws -> UploadStep {
         guard record.kind == .file else { throw UploadError.invalidRequest }
         guard !progress.isCancelled else { throw TransferError.cancelled }
         if record.state == .completed { return .done }
         if record.state == .collision { throw UploadError.collision }
         let local = try ReadOnlyFile(url: contentURL(record.id))
-        guard local.snapshot.size == record.size,
-              try local.checksum(range: ByteRange(offset: 0, length: record.size, fileSize: record.size))
+        guard local.snapshot.size == record.size else { throw UploadError.unresolved }
+        // The open descriptor pins the verified APFS inode across the SMB connection setup.
+        let justVerified = record.state == .prepared && local.filesystem.type == "apfs"
+            && prepared?.record.id == record.id && prepared?.record.digest == record.digest
+            && prepared?.verifiedFile?.snapshot == local.snapshot
+        if !justVerified {
+            guard try local.checksum(range: ByteRange(offset: 0, length: record.size, fileSize: record.size))
                 == record.digest else { throw UploadError.unresolved }
+        }
         try local.validateUnchanged()
         let uncertain = record.state == .attempting && record.serverFile == nil
         guard record.state == .prepared || uncertain else {

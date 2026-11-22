@@ -322,6 +322,8 @@ final class UploadTests: XCTestCase {
     }
 
     func testIncompleteLocalPreparationCanBeRemovedAfterInterruption() throws {
+        // Extended attributes require the data-only streaming copy, which can stop partway.
+        XCTAssertEqual(setxattr(input.path, "dev.tinymounter.test", "x", 1, 0, 0), 0)
         let request = try CreateRequest(template: UUID().uuidString, parent: Catalog.rootItemID,
                                         name: "new.bin", kind: .file, staging: nil)
         XCTAssertThrowsError(try outbox.prepare(request, path: XCTUnwrap(RelativePath("new.bin")), contents: input,
@@ -356,6 +358,27 @@ final class UploadTests: XCTestCase {
         XCTAssertEqual(try outbox.records().first?.state, .prepared)
         XCTAssertEqual(try Data(contentsOf: staged), payload)
         XCTAssertEqual(try ReadOnlyFile(url: staged).snapshot.inode, original.inode)
+    }
+
+    func testFreshPreparationKeepsIndependentBytesAndRejectsAChangedPayload() throws {
+        let request = try CreateRequest(template: "fresh", parent: Catalog.rootItemID,
+                                        name: "fresh.bin", kind: .file, staging: nil)
+        let prepared = try outbox.prepareForUpload(request, path: XCTUnwrap(RelativePath("fresh.bin")),
+                                                   contents: input, progress: Progress())
+        var record = prepared.record
+        let staged = root.appending(path: "pending/\(record.id.uuidString).data")
+        let other = Data(repeating: 0x5a, count: payload.count)
+        try other.write(to: input)
+        XCTAssertEqual(try Data(contentsOf: staged), payload)
+        XCTAssertEqual(chmod(staged.path, 0o600), 0)
+        try other.write(to: staged)
+        let server = try DirectRemote(record)
+        XCTAssertThrowsError(try outbox.beginUpload(&record, remote: server, progress: Progress(),
+                                                    prepared: prepared)) {
+            XCTAssertEqual($0 as? UploadError, .unresolved)
+        }
+        XCTAssertEqual(server.creates, 0)
+        XCTAssertEqual(record.state, .prepared)
     }
 
     func testLocalPreparationRecoveryRetainsPreparedAndUncertainPayloads() throws {

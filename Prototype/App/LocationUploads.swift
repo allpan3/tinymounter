@@ -177,7 +177,7 @@ extension LocationSource {
     private func createOnLane(_ request: CreateRequest, contents: URL?, progress: Progress,
                               checkSpace: @escaping (Int64) throws -> Void) throws -> CreateReceipt {
         let outbox = try outbox()
-        let prepared = try editNamespace.perform { () throws -> (record: PendingUpload, path: RelativePath) in
+        let prepared = try editNamespace.perform { () throws -> (upload: UploadOutbox.Preparation, path: RelativePath) in
             try editNamespace.requireSettled()
             try finishPendingFolderName(request.parent)
             return try uploadLock.withLock {
@@ -191,12 +191,12 @@ extension LocationSource {
                 }
                 if try !outbox.records().contains(where: { $0.template == request.template }),
                    try liveChild(of: request.parent, named: request.name) != nil { throw UploadError.collision }
-                let record = try outbox.prepare(request, path: path, contents: contents, progress: progress,
-                                                checkSpace: checkSpace)
-                return (record, path)
+                let upload = try outbox.prepareForUpload(request, path: path, contents: contents,
+                                                         progress: progress, checkSpace: checkSpace)
+                return (upload, path)
             }
         }
-        var record = prepared.record
+        var record = prepared.upload.record
         let path = prepared.path
         if record.state == .completed, let item = record.item { return CreateReceipt(item: item) }
         // Listings and notices that skipped the file while it was written list again at the end.
@@ -223,8 +223,11 @@ extension LocationSource {
                     // A folder move waits for the transfer, as for a read.
                     let transfer = try editNamespace.beginRead(full)
                     write = editNamespace.beginWrite(full)
-                    do { return (try outbox.beginUpload(&record, remote: remote, progress: progress), transfer) }
-                    catch {
+                    do {
+                        let step = try outbox.beginUpload(&record, remote: remote, progress: progress,
+                                                          prepared: prepared.upload)
+                        return (step, transfer)
+                    } catch {
                         editNamespace.endRead(transfer)
                         throw error
                     }
