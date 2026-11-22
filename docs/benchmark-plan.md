@@ -130,12 +130,15 @@ independent median times in seconds. Both guests used their normal filesystem ca
 | Before changes | 3.81 | 10.08 | 13.80 | 7.66 |
 | Up to four SMB writes in flight | 3.28 | 8.44 | 11.76 | 7.66 |
 | Overlapping writes, one checksum each for the input and the retained copy | 2.60 | 8.47 | 11.08 | 7.68 |
+| Overlapping writes, one input checksum on fresh APFS uploads | 1.90 | 8.57 | 10.42 | 7.64 |
 
-The final series reached 194 MB/s through TinyMounter and 280 MB/s through native SMB.
-The median paired throughput ratio was 69% end to end and 87.5% from the first server write
-to close. Native SMB took 0.27 seconds to reach its first write. TinyMounter also had to
-accept the File Provider request and retain a verified copy for retry. Samba verified all
-30 capped copies by SHA-256. These measurements use virtual storage. The physical HDD
+In the November 21 series with two checksums, TinyMounter reached 194 MB/s and native SMB
+reached 280 MB/s. Samba verified all 30 capped copies by SHA-256. On November 22, five more
+pairs with the single-checksum build reached 206 MB/s through TinyMounter and 281 MB/s
+through native SMB. The median paired throughput ratio was 73.3% end to end and 86.7% from
+first write to close. Native SMB took 0.21 seconds to reach its first write. TinyMounter
+also had to accept the File Provider request and retain a copy for retry. All ten copies
+matched the source hash on Samba. These measurements use virtual storage. The physical HDD
 needs its own matched comparison.
 
 When Samba disconnected the share during a separate upload, Finder retained all 2 GiB
