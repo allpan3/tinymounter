@@ -407,6 +407,9 @@ collisions return the existing item through Apple's collision-error factory. Fin
 Keep Both action for a folder collision.
 
 New-file creation records the request before local staging and retains a complete local payload.
+The app can clone a plain file on APFS. It checks the retained bytes against the input digest
+and keeps the verified file open through connection setup. A changed file or a later retry
+requires another checksum before the app creates or resumes the server file.
 Other clients may see partial new contents during upload. Acknowledgment requires the expected
 identity, final size, flush and close. An unacknowledged create retries only with exclusive
 creation; an existing name keeps the outcome unresolved. An acknowledged partial file restarts
