@@ -36,7 +36,7 @@ static uint8_t sent_write[48], sent_payload[1024 * 1024];
 static uint32_t sent_length;
 static struct smb2_file_basic_info sent_basic;
 static uint16_t sent_charge;
-static int batch_reads, queued_reads;
+static int batch_io, queued_requests;
 static uint64_t short_at;
 
 // Real request encoders feed deterministic callbacks; no request reaches a socket.
@@ -68,7 +68,7 @@ static void expect(int condition, const char *name, const char *detail)
 static void fake_queue(struct smb2_context *smb, struct smb2_pdu *pdu)
 {
     (void)smb;
-    if (queued && !batch_reads) abort();
+    if (queued && !batch_io) abort();
     if (pdu->header.command == SMB2_READ || pdu->header.command == SMB2_WRITE) {
         memcpy(&sent_length, pdu->out.iov[1].buf + 4, sizeof(sent_length));
         sent_charge = pdu->header.credit_charge;
@@ -79,7 +79,7 @@ static void fake_queue(struct smb2_context *smb, struct smb2_pdu *pdu)
         memcpy(sent_write, pdu->out.iov[1].buf, sizeof(sent_write));
         memcpy(sent_payload, pdu->out.iov[2].buf, pdu->out.iov[2].len);
     }
-    if (batch_reads) queued_reads++;
+    if (batch_io) queued_requests++;
     pdu->next = queued;
     queued = pdu;
 }
@@ -101,14 +101,23 @@ static int fake_service(struct smb2_context *smb, int revents)
     struct smb2_pdu *pdu = queued;
     queued = pdu->next;
     pdu->next = NULL;
-    if (batch_reads) {
+    if (batch_io) {
         uint64_t offset;
         uint32_t length;
         memcpy(&offset, pdu->out.iov[1].buf + 8, sizeof(offset));
         memcpy(&length, pdu->out.iov[1].buf + 4, sizeof(length));
-        struct smb2_read_reply reply = {.data_length = length - (offset == short_at)};
-        memset(pdu->in.iov[0].buf, (int)(1 + offset / TM_SMB_READ_SIZE), reply.data_length);
-        pdu->cb(smb, 0, &reply, pdu->cb_data);
+        length -= offset == short_at;
+        if (pdu->header.command == SMB2_WRITE) {
+            const uint8_t *bytes = pdu->out.iov[2].buf;
+            uint8_t expected = (uint8_t)(1 + offset / TM_SMB_IO_SIZE);
+            expect(bytes[0] == expected && bytes[length - 1] == expected, "write batch", "wrong slice");
+            struct smb2_write_reply reply = {.count = length};
+            pdu->cb(smb, (int)response_status, &reply, pdu->cb_data);
+        } else {
+            struct smb2_read_reply reply = {.data_length = length};
+            memset(pdu->in.iov[0].buf, (int)(1 + offset / TM_SMB_IO_SIZE), length);
+            pdu->cb(smb, 0, &reply, pdu->cb_data);
+        }
     } else {
         pdu->cb(smb, (int)response_status, response_data, pdu->cb_data);
     }
@@ -195,7 +204,7 @@ static void prepare(void)
     response_data = NULL;
     fail_create = clock_calls = destroyed = freed_data = 0;
     inspect_write = 0;
-    batch_reads = queued_reads = 0;
+    batch_io = queued_requests = 0;
     short_at = UINT64_MAX;
 }
 
@@ -422,7 +431,7 @@ static void file_writes(void)
     response_data = NULL;
     result("missing write reply", tm_edit_write(&client, file, 0, buffer, 9, &count), EIO, 0);
     result("empty write request", tm_edit_write(&client, file, 0, buffer, 0, &count), EINVAL, 0);
-    result("large write request", tm_edit_write(&client, file, 0, buffer, 1048577, &count), EINVAL, 0);
+    result("large write batch", tm_edit_write(&client, file, 0, buffer, TM_SMB_IO_BATCH_SIZE + 1, &count), EINVAL, 0);
     result("overflowing write offset", tm_edit_write(&client, file, INT64_MAX, buffer, 1, &count), EINVAL, 0);
     result("invalid write offset", tm_edit_write(&client, file, UINT64_MAX, buffer, 1, &count), EINVAL, 0);
     result("missing write buffer", tm_edit_write(&client, file, 0, NULL, 1, &count), EINVAL, 0);
@@ -481,33 +490,69 @@ static void payload_limits(void)
 
 static void pipelined_reads(void)
 {
-    static uint8_t payload[TM_SMB_READ_BATCH_SIZE];
+    static uint8_t payload[TM_SMB_IO_BATCH_SIZE];
     prepare();
-    batch_reads = 1;
+    batch_io = 1;
     client.smb->credits = 64;
     result("out-of-order reads", tm_edit_read(&client, file, 0, payload, sizeof(payload), &count), 0, 0);
-    expect(queued_reads == 4 && count == sizeof(payload), "out-of-order reads", "incomplete batch");
+    expect(queued_requests == 4 && count == sizeof(payload), "out-of-order reads", "incomplete batch");
     for (size_t i = 0; i < 4; i++) {
-        expect(payload[i * TM_SMB_READ_SIZE] == i + 1 && payload[(i + 1) * TM_SMB_READ_SIZE - 1] == i + 1,
+        expect(payload[i * TM_SMB_IO_SIZE] == i + 1 && payload[(i + 1) * TM_SMB_IO_SIZE - 1] == i + 1,
                "out-of-order reads", "reply in wrong range");
     }
     prepare();
-    batch_reads = 1;
+    batch_io = 1;
     client.smb->credits = 18;
     result("shared credit budget", tm_edit_read(&client, file, 0, payload, sizeof(payload), &count), 0, 0);
-    expect(queued_reads == 2 && count == 18 * 65536, "shared credit budget", "incorrect credit charge");
+    expect(queued_requests == 2 && count == 18 * 65536, "shared credit budget", "incorrect credit charge");
     prepare();
-    batch_reads = 1;
+    batch_io = 1;
     client.smb->credits = 64;
-    short_at = TM_SMB_READ_SIZE;
+    short_at = TM_SMB_IO_SIZE;
     result("short middle read", tm_edit_read(&client, file, 0, payload, sizeof(payload), &count), 0, 0);
-    expect(count == 2 * TM_SMB_READ_SIZE - 1, "short middle read", "published across a gap");
+    expect(count == 2 * TM_SMB_IO_SIZE - 1, "short middle read", "published across a gap");
     prepare();
-    batch_reads = 1;
+    batch_io = 1;
     delivery = service_failure;
     count = 99;
     result("lost read batch", tm_edit_read(&client, file, 0, payload, sizeof(payload), &count), ECONNRESET, 0);
     expect(count == 99 && destroyed == 1 && !client.smb, "lost read batch", "live requests or partial success");
+}
+
+static void pipelined_writes(void)
+{
+    static uint8_t payload[TM_SMB_IO_BATCH_SIZE];
+    for (size_t i = 0; i < TM_SMB_IO_DEPTH; i++)
+        memset(payload + i * TM_SMB_IO_SIZE, (int)(i + 1), TM_SMB_IO_SIZE);
+    prepare();
+    batch_io = 1;
+    client.smb->credits = 64;
+    result("out-of-order writes", tm_edit_write(&client, file, 0, payload, sizeof(payload), &count), 0, 0);
+    expect(queued_requests == 4 && count == sizeof(payload), "out-of-order writes", "incomplete batch");
+    prepare();
+    batch_io = 1;
+    client.smb->credits = 18;
+    result("write batch credits", tm_edit_write(&client, file, 0, payload, sizeof(payload), &count), 0, 0);
+    expect(queued_requests == 2 && count == 18 * 65536, "write batch credits", "incorrect credit charge");
+    prepare();
+    batch_io = 1;
+    client.smb->credits = 64;
+    short_at = TM_SMB_IO_SIZE;
+    result("short middle write", tm_edit_write(&client, file, 0, payload, sizeof(payload), &count), 0, 0);
+    expect(count == 2 * TM_SMB_IO_SIZE - 1, "short middle write", "acknowledged across a gap");
+    prepare();
+    batch_io = 1;
+    response_status = SMB2_STATUS_DISK_FULL;
+    count = 99;
+    result("refused write batch", tm_edit_write(&client, file, 0, payload, sizeof(payload), &count),
+           ENOSPC, SMB2_STATUS_DISK_FULL);
+    expect(count == 99, "refused write batch", "acknowledged failed batch");
+    prepare();
+    batch_io = 1;
+    delivery = service_failure;
+    count = 99;
+    result("lost write batch", tm_edit_write(&client, file, 0, payload, sizeof(payload), &count), ECONNRESET, 0);
+    expect(count == 99 && destroyed == 1 && !client.smb, "lost write batch", "live requests or partial success");
 }
 
 static void exclusive_uploads(void)
@@ -566,6 +611,7 @@ int main(void)
     file_writes();
     payload_limits();
     pipelined_reads();
+    pipelined_writes();
     composed_names();
     write_time();
     exclusive_uploads();

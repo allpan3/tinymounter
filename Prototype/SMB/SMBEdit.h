@@ -41,9 +41,9 @@ int tm_edit_info(void *opaque, uint8_t *file, uint64_t *values);
 int tm_edit_list(void *opaque, uint8_t *directory, int restart, uint8_t *buffer,
                  uint32_t capacity, uint32_t *count, int *finished);
 enum {
-    TM_SMB_READ_SIZE = 1024 * 1024,
-    TM_SMB_READ_DEPTH = 4,
-    TM_SMB_READ_BATCH_SIZE = TM_SMB_READ_SIZE * TM_SMB_READ_DEPTH
+    TM_SMB_IO_SIZE = 1024 * 1024,
+    TM_SMB_IO_DEPTH = 4,
+    TM_SMB_IO_BATCH_SIZE = TM_SMB_IO_SIZE * TM_SMB_IO_DEPTH
 };
 int tm_edit_read(void *opaque, uint8_t *file, uint64_t offset, uint8_t *buffer, uint32_t length,
                uint32_t *count);

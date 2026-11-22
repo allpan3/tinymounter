@@ -387,6 +387,16 @@ static void read_done(struct smb2_context *smb, int status, void *data, void *co
     else reply->count = read->data_length;
 }
 
+static void write_done(struct smb2_context *smb, int status, void *data, void *context)
+{
+    struct tm_edit_reply *reply = context;
+    done(smb, status, data, context);
+    if (status) return;
+    const struct smb2_write_reply *written = data;
+    if (!written || !written->count || written->count > reply->capacity) reply->error = EIO;
+    else reply->count = written->count;
+}
+
 static uint32_t payload_length(struct smb2_context *smb, uint32_t length, uint32_t maximum, int credits)
 {
     if (credits <= 0) return 0;
@@ -395,29 +405,38 @@ static uint32_t payload_length(struct smb2_context *smb, uint32_t length, uint32
     return length > available ? (uint32_t)available : length;
 }
 
-int tm_edit_read(void *opaque, uint8_t *file, uint64_t offset, uint8_t *buffer, uint32_t length,
-               uint32_t *count)
+static int transfer_batch(struct edit_client *client, uint8_t *file, uint64_t offset,
+                          uint8_t *read_buffer, const uint8_t *write_buffer, uint32_t length, uint32_t *count)
 {
-    struct edit_client *client = opaque;
     client->ntstatus = 0;
     struct smb2_context *smb = client->smb;
     if (!smb) return EIO;
-    if (!file || !buffer || !count || !length || length > TM_SMB_READ_BATCH_SIZE || offset > INT64_MAX
-        || length > INT64_MAX - offset) return EINVAL;
-    struct tm_edit_reply replies[TM_SMB_READ_DEPTH] = {0};
-    struct smb2_pdu *pdus[TM_SMB_READ_DEPTH];
-    uint32_t limit = (length + TM_SMB_READ_SIZE - 1) / TM_SMB_READ_SIZE;
+    if (!file || (!read_buffer && !write_buffer) || !count || !length || length > TM_SMB_IO_BATCH_SIZE
+        || offset > INT64_MAX || length > INT64_MAX - offset) return EINVAL;
+    struct tm_edit_reply replies[TM_SMB_IO_DEPTH] = {0};
+    struct smb2_pdu *pdus[TM_SMB_IO_DEPTH];
+    uint32_t limit = (length + TM_SMB_IO_SIZE - 1) / TM_SMB_IO_SIZE;
+    uint32_t maximum = write_buffer ? smb2_get_max_write_size(smb) : smb2_get_max_read_size(smb);
     uint32_t planned = 0, requests = 0;
     int credits = smb->credits;
     while (requests < limit && credits > 0) {
         uint32_t length_left = length - planned;
-        uint32_t piece = length_left < TM_SMB_READ_SIZE ? length_left : TM_SMB_READ_SIZE;
-        piece = payload_length(smb, piece, smb2_get_max_read_size(smb), credits);
+        uint32_t piece = length_left < TM_SMB_IO_SIZE ? length_left : TM_SMB_IO_SIZE;
+        piece = payload_length(smb, piece, maximum, credits);
         if (!piece) break;
-        struct smb2_read_request request = {.offset = offset + planned, .length = piece, .buf = buffer + planned};
-        memcpy(request.file_id, file, SMB2_FD_SIZE);
-        replies[requests].capacity = piece;
-        pdus[requests] = smb2_cmd_read_async(smb, &request, read_done, &replies[requests]);
+        struct tm_edit_reply *reply = &replies[requests];
+        reply->capacity = piece;
+        if (write_buffer) {
+            struct smb2_write_request request = {.offset = offset + planned, .length = piece,
+                                                 .buf = write_buffer + planned};
+            memcpy(request.file_id, file, SMB2_FD_SIZE);
+            pdus[requests] = smb2_cmd_write_async(smb, &request, 0, write_done, reply);
+        } else {
+            struct smb2_read_request request = {.offset = offset + planned, .length = piece,
+                                                .buf = read_buffer + planned};
+            memcpy(request.file_id, file, SMB2_FD_SIZE);
+            pdus[requests] = smb2_cmd_read_async(smb, &request, read_done, reply);
+        }
         if (!pdus[requests]) {
             for (uint32_t i = 0; i < requests; i++) smb2_free_pdu(smb, pdus[i]);
             return EIO;
@@ -430,43 +449,26 @@ int tm_edit_read(void *opaque, uint8_t *file, uint64_t offset, uint8_t *buffer, 
     for (uint32_t i = 0; i < requests; i++) smb2_queue_pdu(smb, pdus[i]);
     int error = wait_replies(client, replies, requests);
     if (error) return error;
-    uint32_t received = 0;
+    uint32_t completed = 0;
     for (uint32_t i = 0; i < requests; i++) {
-        received += replies[i].count;
-        // A short reply leaves a gap before the next offset. Return only the contiguous prefix.
+        completed += replies[i].count;
+        // The caller resumes at the first gap, even if later requests succeeded.
         if (replies[i].count < replies[i].capacity) break;
     }
-    *count = received;
+    *count = completed;
     return 0;
 }
 
-static void write_done(struct smb2_context *smb, int status, void *data, void *context)
+int tm_edit_read(void *opaque, uint8_t *file, uint64_t offset, uint8_t *buffer, uint32_t length,
+                 uint32_t *count)
 {
-    struct tm_edit_reply *reply = context;
-    done(smb, status, data, context);
-    if (status) return;
-    const struct smb2_write_reply *written = data;
-    if (!written || !written->count || written->count > reply->capacity) reply->error = EIO;
-    else reply->count = written->count;
+    return transfer_batch(opaque, file, offset, buffer, NULL, length, count);
 }
 
 int tm_edit_write(void *opaque, uint8_t *file, uint64_t offset, const uint8_t *buffer, uint32_t length,
                   uint32_t *count)
 {
-    struct edit_client *client = opaque;
-    client->ntstatus = 0;
-    if (!client->smb) return EIO;
-    if (!file || !buffer || !count || !length || length > 1024 * 1024 || offset > INT64_MAX
-        || length > INT64_MAX - offset) return EINVAL;
-    length = payload_length(client->smb, length, smb2_get_max_write_size(client->smb), client->smb->credits);
-    if (!length) return EIO;
-    struct smb2_write_request request = {.offset = offset, .length = length, .buf = buffer};
-    memcpy(request.file_id, file, SMB2_FD_SIZE);
-    struct tm_edit_reply reply = {.capacity = length};
-    int error = wait_reply(client,
-        smb2_cmd_write_async(client->smb, &request, 0, write_done, &reply), &reply);
-    if (!error) *count = reply.count;
-    return error;
+    return transfer_batch(opaque, file, offset, NULL, buffer, length, count);
 }
 
 int tm_edit_rename(void *opaque, uint8_t *file, const char *destination)
