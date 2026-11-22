@@ -428,8 +428,8 @@ reports that limit. See [pending-change recovery](pending-changes-plan.md#retry-
 Existing-file saves use the ordinary overwrite path described in section 5. Combined filename/parent and content callbacks stage the input, rename or move the same item,
 then overwrite it; a failed callback retains pending local contents. No custom recovery
 copies or edit bases remain. Reads and writes use at most 1 MiB per request, capped by server
-limits and available credits. A download can have four reads outstanding on one file.
-Short replies advance only by the contiguous bytes the server returned.
+limits and available credits. A transfer can have four reads or four writes outstanding on
+one file. After a short reply, the transfer resumes at the first unconfirmed byte.
 
 After the last write of a new file or a save, the app sets the file's LastWriteTime on the
 server to the modification time that macOS reported for that version, with an SMB2 SET_INFO
