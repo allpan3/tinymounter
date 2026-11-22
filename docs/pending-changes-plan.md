@@ -15,7 +15,8 @@ The user asked for simple, effective methods:
 
 File Provider owns an existing file's pending local contents until its upload callback succeeds.
 The app returns success only after SMB write, size update, flush and close. A network failure
-returns `serverUnreachable`; authentication and permission failures retain their distinct errors.
+returns `serverUnreachable`, including when the SMB server disconnects an open share.
+Authentication and permission failures retain their distinct errors.
 Other unresolved mutations can return `cannotSynchronize`, which macOS throttles until signalled.
 
 **Retry Pending Changes** sends `signalErrorResolved(.cannotSynchronize)` and retries recorded
