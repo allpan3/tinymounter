@@ -115,10 +115,33 @@ outcome. Do not count a queued callback or local Save as successful server compl
 
 Time a large Finder upload from the copy request until the server closes the completed file
 for writing. On November 21, 2026, five alternating-order pairs copied a locally warmed 2 GiB
-file to fresh names on the VM's encrypted Samba share. Median throughput was 165 MB/s through
-the writable provider and 651 MB/s through native SMB. On the provider path, the median time
+file to fresh names on the VM's encrypted Samba share over its uncapped virtual network.
+Before the upload changes, median throughput was 165 MB/s through the writable provider
+and 651 MB/s through native SMB. On the provider path, the median time
 was 0.075 seconds for Finder to return and 13.02 seconds for Samba to receive the file. The
 server verified all ten copies by SHA-256 after timing.
+
+With traffic into the Samba VM capped at 2.5 Gbit/s, five more pairs per build used the
+same Finder procedure. A separate TCP transfer delivered 2.39 Gbit/s. Each row shows
+independent median times in seconds. Both guests used their normal filesystem caches.
+
+| Provider build | Finder to first server write | First server write to close | Provider total | Native SMB total |
+| --- | ---: | ---: | ---: | ---: |
+| Before changes | 3.81 | 10.08 | 13.80 | 7.66 |
+| Up to four SMB writes in flight | 3.28 | 8.44 | 11.76 | 7.66 |
+| Overlapping writes and one fewer checksum on fresh uploads | 2.60 | 8.47 | 11.08 | 7.68 |
+
+The final series reached 194 MB/s through TinyMounter and 280 MB/s through native SMB.
+The median paired throughput ratio was 69% end to end and 87.5% from the first server write
+to close. Native SMB took 0.27 seconds to reach its first write. TinyMounter also had to
+accept the File Provider request and retain a verified copy for retry. Samba verified all
+30 capped copies by SHA-256. These measurements use virtual storage. The physical HDD
+needs its own matched comparison.
+
+When Samba disconnected the share during a separate upload, Finder retained all 2 GiB
+locally and Samba held a 72 MiB partial file. After reconnection, TinyMounter retried
+automatically. The server closed the complete file 13.76 seconds later on the same inode,
+with the expected hash and no duplicate.
 
 The earlier proof-cache experiments are not requirements for the simplified implementation. All cache-state and physical-Mac qualifications above still
 apply; this change does not relax throughput targets.
