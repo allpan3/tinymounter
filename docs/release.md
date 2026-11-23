@@ -1,14 +1,14 @@
-# Install TinyMounter 0.4.0
+# Install TinyMounter 0.4.2
 
 This release is for personal use on **Apple silicon with macOS 27 or later**.
 It uses development signing, without Apple notarization. Intel Macs and older macOS versions
 are not supported by this package. Download it from GitHub:
 
-[TinyMounter 0.4.0](https://github.com/allpan3/tinymounter/releases/tag/v0.4.0)
+[TinyMounter 0.4.2](https://github.com/allpan3/tinymounter/releases/tag/v0.4.2)
 
 ## Install or update
 
-1. Download `TinyMounter-0.4.0-macOS-arm64.dmg` and open it.
+1. Download `TinyMounter-0.4.2-macOS-arm64.dmg` and open it.
 2. If TinyMounter is running, let pending uploads finish, then quit it from its menu.
 3. Drag `TinyMounter.app` to Applications, replacing the existing app, then eject the DMG.
    Keep only one installed copy. The app is already signed; no Terminal signing command is needed.
@@ -28,7 +28,7 @@ TinyMounter keeps the password in a login keychain item, `dev.tinymounter.smb`. 
 locations no longer mount the share, and the share-access panel is gone. Server Volume
 locations use the same saved password.
 
-An update from 0.2.0, 0.3.0 or 0.3.1 keeps the locations, saved servers, keep requests, downloaded
+An update from 0.2.0 through 0.4.1 keeps the locations, saved servers, keep requests, downloaded
 copies and pending uploads.
 
 ### Update from 0.1.x: Start Fresh is required
@@ -38,7 +38,7 @@ refuses them, and General offers Start Fresh.
 
 1. Before you replace the app, open 0.1.x and let pending uploads finish. Copy any file whose
    upload does not finish to a local folder.
-2. Install 0.4.0 as above, then click **Start Fresh** in General and confirm it.
+2. Install 0.4.2 as above, then click **Start Fresh** in General and confirm it.
 3. Add each location again with Add Server…, as in step 5. Set Keep Downloaded again where
    you want offline copies.
 4. Eject the old hidden share mount: restart the Mac, or run `mount | grep nobrowse` in
@@ -51,8 +51,7 @@ that did not upload are kept in a folder that opens in Finder; copy them into th
 macOS's own keychain item for the server, from the 0.1.x sign-in, stays. You can delete it in
 Keychain Access; TinyMounter does not use it.
 
-The update retains the installed app's signing identity, bundle identifiers and App Group. It
-drops the app-scope bookmark entitlement, which only the share-access grant used.
+The update retains the installed app's signing identity, bundle identifiers and App Group.
 
 Use Finder for the move into Applications before opening the app. Launching a quarantined copy
 from a temporary location can prevent macOS from enabling its File Provider; TinyMounter reports
@@ -93,17 +92,16 @@ attempt and TinyMounter stops trying. Change the password on the server if neede
 
 Known limits for this release:
 
-- If macOS loses its synchronization database, reimport can replace a differing local file
-  with its server copy, losing an unsent edit. Version 0.4.1 preserves both copies for manual recovery. Export pending edits before recovery or location removal.
-- Pause Downloads makes kept files evictable. Severe system-wide disk-pressure eviction was
-  not tested on 0.4.0; a later VM candidate lost kept downloads while paused. The 0.4.1
-  retention fix keeps pins active during Pause. Low-space refusal and offline-edit retention
-  through a full macOS restart are checked.
+- If macOS loses its synchronization database, TinyMounter preserves differing local and server
+  files for manual recovery. Resolve the local file before removing its location.
+- Kept downloads retain their offline policy during Pause. Turn off Keep Downloaded before
+  manually removing a kept file’s download.
 - Repeated outages can hang Apple's SMB authentication service; Finder then cannot reconnect.
   Pending upload data survives.
 - List a destination folder online before moving files into it offline.
-- Package editing and Finder Merge remain unverified. Read-performance targets remain unmet.
-  Daily-use feedback on the physical Mac is the next acceptance step.
+- Package editing and Finder Merge remain unverified. Writable sequential reads met the target
+  in the VM. Read-only sequential reads fell short with warm server pages. Physical-Mac
+  throughput still needs a matched native SMB comparison.
 - Change notification (`CHANGE_NOTIFY`) is verified against a Samba 4.19 server only, not
   against a UGREEN NAS. If a server does not send notices, changes show at the next listing,
   60 s or more later.
@@ -137,8 +135,9 @@ Known limits for this release:
 
 TinyMounter's own code is MIT licensed; that does not relicense its dependencies. The separate
 `libTinyMounterSMB.dylib` contains modified libsmb2 6.3 under LGPL-2.1-or-later. The DMG includes both licences and the library notices separately from its short Read Me;
-the app also includes the library's licence. The release supplies `TinyMounter-0.4.0-source.tar.gz`,
-with the complete matching app/library source, modifications and build scripts. This permits
+the app also includes the library's licence. The release supplies `TinyMounter-0.4.2-source.tar.gz`,
+both inside the DMG and as a separate download, with the matching app and library source,
+modifications and build scripts. This permits
 rebuilding the app with a modified library; no signing key is required from the publisher.
 
 ### Rebuild and replace the library

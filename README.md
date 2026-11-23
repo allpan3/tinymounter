@@ -4,7 +4,7 @@ A macOS app that brings a network disk, such as a NAS, into Apple's file system:
 
 ## Status
 
-TinyMounter 0.4.1 is the current source version, for personal use on Apple silicon with macOS 27. A File
+TinyMounter 0.4.2 is the current release, for personal use on Apple silicon with macOS 27. A File
 Provider location shows a share or a folder on it in Finder, downloads files on demand and keeps
 selected files and folders downloaded for offline use. With Read only off, it also supports new
 files and folders, ordinary saves, offline edits, rename and move, Finder Replace and permanent
@@ -27,6 +27,7 @@ Version 0.4.1 adds local SMB server discovery and a configurable minimum free di
 20 GB by default. It preserves uncertain local files for manual recovery after macOS loses its
 synchronization state and retains kept downloads during Pause. Both fixes passed signed VM checks. Physical-Mac acceptance checks remain open.
 
+Version 0.4.2 pipelines SMB reads and writes and avoids a second checksum on fresh APFS uploads.
 File Provider supports partial-file downloads. In VM tests of the signed candidate, full downloads and
 writable sequential reads met the 90% native SMB throughput target. Read-only sequential
 reads reached 94% with cold Samba file pages and 84% with warm pages. IINA streamed video

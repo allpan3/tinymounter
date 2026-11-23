@@ -6,8 +6,8 @@
     <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
     <key>CFBundleName</key><string>TinyMounter Provider</string>
     <key>CFBundlePackageType</key><string>XPC!</string>
-    <key>CFBundleShortVersionString</key><string>0.4.1</string>
-    <key>CFBundleVersion</key><string>10</string>
+    <key>CFBundleShortVersionString</key><string>0.4.2</string>
+    <key>CFBundleVersion</key><string>11</string>
     <key>LSMinimumSystemVersion</key><string>$(MACOSX_DEPLOYMENT_TARGET)</string>
     <key>NSLocalNetworkUsageDescription</key><string>TinyMounter shows your selected shares in Finder. Enable changes in the app to create new files and folders.</string>
     <key>NSNetworkVolumesUsageDescription</key><string>TinyMounter shows your selected shares in Finder. Enable changes in the app to create new files and folders.</string>
