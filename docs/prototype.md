@@ -1,7 +1,7 @@
 # First performance prototype
 
 Status: this document describes how to build, sign and run the current source, at version
-0.4.1. The [install notes](release.md) cover the published 0.4.0 download and its limits.
+0.4.2. The [install notes](release.md) cover this version and its limits.
 
 ## Initial implementation and checks
 
